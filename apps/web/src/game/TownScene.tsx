@@ -62,6 +62,12 @@ export function TownScene({
   const tabHeld = useRef(false);
   const escapeHeld = useRef(false);
   const localVisualPlayer = useRef<PlayerSnapshot | null>(null);
+  const frameForward = useMemo(() => new THREE.Vector3(), []);
+  const frameRight = useMemo(() => new THREE.Vector3(), []);
+  const frameMove = useMemo(() => new THREE.Vector3(), []);
+  const cameraLookAt = useMemo(() => new THREE.Vector3(), []);
+  const cameraForward = useMemo(() => new THREE.Vector3(), []);
+  const cameraDesired = useMemo(() => new THREE.Vector3(), []);
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
   const localQuestState = localPlayer?.quests ?? [];
 
@@ -202,11 +208,14 @@ export function TownScene({
     const strafeLeft = !localIsDead && (keys.has("q") || (pointer.right && turnLeft));
     const strafeRight = !localIsDead && (keys.has("e") || (pointer.right && turnRight));
     const rightIntent = (strafeLeft ? 1 : 0) - (strafeRight ? 1 : 0);
-    const forward = new THREE.Vector3(Math.sin(facingYaw.current), 0, Math.cos(facingYaw.current));
-    const right = new THREE.Vector3(Math.cos(facingYaw.current), 0, -Math.sin(facingYaw.current));
-    const move = forward.multiplyScalar(forwardIntent).add(right.multiplyScalar(rightIntent));
-    const moveLength = move.length();
-    if (moveLength > 1) move.normalize();
+    frameForward.set(Math.sin(facingYaw.current), 0, Math.cos(facingYaw.current));
+    frameRight.set(Math.cos(facingYaw.current), 0, -Math.sin(facingYaw.current));
+    frameMove
+      .copy(frameForward)
+      .multiplyScalar(forwardIntent)
+      .addScaledVector(frameRight, rightIntent);
+    const moveLength = frameMove.length();
+    if (moveLength > 1) frameMove.normalize();
     const isSprinting = !localIsDead && keys.has("shift");
     const isJumping = !localIsDead && (keys.has(" ") || keys.has("space") || keys.has("spacebar"));
 
@@ -234,8 +243,8 @@ export function TownScene({
       inputTimer.current = 0;
       sendInput({
         seq: ++seqRef.current,
-        x: move.x,
-        z: move.z,
+        x: frameMove.x,
+        z: frameMove.z,
         yaw: facingYaw.current,
         sprint: isSprinting,
         jump: isJumping,
@@ -243,23 +252,23 @@ export function TownScene({
     }
 
     if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
-      updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, move, moveLength, facingYaw.current, isSprinting, isJumping, delta);
+      updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, delta);
     }
 
     const cameraPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
       ? localVisualPlayer.current
       : localPlayer;
     if (cameraPlayer) {
-      const lookAt = new THREE.Vector3(cameraPlayer.x, cameraPlayer.y + 1.55, cameraPlayer.z);
       const horizontalDistance = cameraDistance.current * Math.cos(cameraPitch.current);
       const verticalDistance = cameraDistance.current * Math.sin(cameraPitch.current) + 0.4;
-      const camForward = new THREE.Vector3(Math.sin(cameraYaw.current), 0, Math.cos(cameraYaw.current));
-      const desired = lookAt
-        .clone()
-        .addScaledVector(camForward, -horizontalDistance)
-        .add(new THREE.Vector3(0, verticalDistance, 0));
-      camera.position.lerp(desired, 1 - Math.pow(0.05, delta));
-      camera.lookAt(lookAt);
+      cameraLookAt.set(cameraPlayer.x, cameraPlayer.y + 1.55, cameraPlayer.z);
+      cameraForward.set(Math.sin(cameraYaw.current), 0, Math.cos(cameraYaw.current));
+      cameraDesired
+        .copy(cameraLookAt)
+        .addScaledVector(cameraForward, -horizontalDistance);
+      cameraDesired.y += verticalDistance;
+      camera.position.lerp(cameraDesired, 1 - Math.pow(0.05, delta));
+      camera.lookAt(cameraLookAt);
     }
   });
 
