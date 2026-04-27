@@ -7,6 +7,7 @@ import {
   PLAZA_BOUNDS,
   QUESTS,
   getNpcDisposition,
+  getQuestObjectives,
   isAttackableNpcRole,
   type ActionId,
   type ChatMessage,
@@ -675,10 +676,11 @@ function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: Play
 
 function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: boolean }) {
   const definition = QUESTS[quest.id];
+  const objectives = getQuestObjectives(quest.id);
   const statusText = quest.status === "completed"
     ? "Complete"
     : quest.status === "ready"
-      ? "Return to Hogwatch mfer"
+      ? definition.turnInLabel
       : definition.objectiveLabel;
   const progress = quest.status === "completed" ? "Done" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
 
@@ -687,8 +689,8 @@ function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: boolean }
       <div>
         <strong>{definition.title}</strong>
         {full && <small>{definition.description}</small>}
-        {quest.id === "feral-farmers" && quest.status !== "completed" ? (
-          <QuestObjectiveList quest={quest} />
+        {objectives.length > 0 && quest.status !== "completed" ? (
+          <QuestObjectiveList quest={quest} objectives={objectives} />
         ) : (
           <span>{statusText}</span>
         )}
@@ -698,11 +700,17 @@ function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: boolean }
   );
 }
 
-function QuestObjectiveList({ quest }: { quest: QuestSnapshot }) {
+function QuestObjectiveList({
+  quest,
+  objectives,
+}: {
+  quest: QuestSnapshot;
+  objectives: ReadonlyArray<{ id: string; label: string }>;
+}) {
   const completed = new Set(quest.flags.split(",").filter(Boolean));
   return (
     <span className="quest-objectives">
-      {QUESTS["feral-farmers"].objectives.map((objective) => (
+      {objectives.map((objective) => (
         <span key={objective.id} className={completed.has(objective.id) ? "done" : ""}>
           {objective.label}
         </span>

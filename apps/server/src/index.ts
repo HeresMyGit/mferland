@@ -6,13 +6,18 @@ import {
   clamp,
   COMBAT,
   FARMER_COMBAT,
+  getNpcQuestIds,
+  getQuestObjectives,
+  getQuestRequirement,
   ITEMS,
   LOOT,
   isAttackableNpcRole,
+  isQuestAutoReady,
   makeGuestName,
   MAX_PLAYERS,
   PLAYER,
   PLAZA_BOUNDS,
+  QUEST_IDS,
   QUESTS,
   RESPAWN_POINT,
   resolveWorldCollision,
@@ -512,7 +517,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     yaw: number;
     leashRadius: number;
     dialogue: string;
-    questId?: string;
+    questId?: QuestId;
     health?: number;
     maxHealth?: number;
     isImmortal?: boolean;
@@ -526,7 +531,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 3.9,
       yaw: 2.3,
       leashRadius: 1.1,
-      dialogue: "Quest: say gm in chat, then meet me by the fountain.",
+      dialogue: "Quest: check in with me once you have your bearings.",
       questId: "mfer-beginnings",
     },
     {
@@ -537,7 +542,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: -8.8,
       yaw: -1.7,
       leashRadius: 1.5,
-      dialogue: "Quest: check the DAO hall and report back when proposals go live.",
+      dialogue: "Quest: find the DAO hall and report back.",
       questId: "dao-tour",
     },
     {
@@ -573,12 +578,13 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     {
       id: "fountain-mfer",
       name: "Fountain mfer",
-      role: "wanderer",
+      role: "quest_giver",
       x: -7.5,
       z: -2.8,
       yaw: 1.6,
       leashRadius: 7.5,
-      dialogue: "Daily vibes quest: chill by the fountain for a minute.",
+      dialogue: "Daily vibes quest: chill by the fountain, then check back in.",
+      questId: "fountain-vibes",
     },
     {
       id: "hogwatch-mfer",
@@ -1473,47 +1479,102 @@ function getNpcDialogue(npc: NpcState, player: PlayerState, now: number, offerQu
 }
 
 function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offerQuest: (questId: QuestId) => void) {
-  if (npc.id !== QUESTS["feral-farmers"].giverNpcId) return null;
+  const questIds = getNpcQuestIds(npc.id);
+  if (questIds.length === 0) return null;
 
-  const farmerQuest = player.quests.get("feral-farmers");
-  if (!farmerQuest) {
-    offerQuest("feral-farmers");
-    return `quest available: ${QUESTS["feral-farmers"].title}. ${QUESTS["feral-farmers"].description}`;
+  for (const questId of questIds) {
+    const quest = player.quests.get(questId);
+    if (!quest) {
+      if (!isQuestAvailable(player, questId)) continue;
+
+      offerQuest(questId);
+      return `quest available: ${QUESTS[questId].title}. ${QUESTS[questId].description}`;
+    }
+
+    if (quest.status === "active" && isQuestAutoReady(questId)) {
+      quest.status = "ready";
+      quest.progress = quest.required;
+    }
+
+    if (quest.status === "active") {
+      return getActiveQuestDialogue(questId, quest);
+    }
+
+    if (quest.status === "ready") {
+      completeQuest(player, questId, now);
+
+      const nextQuestId = getNextAvailableQuestId(player, questId);
+      if (nextQuestId) {
+        offerQuest(nextQuestId);
+        return `${getQuestCompletionDialogue(questId)} I have another job when you are ready.`;
+      }
+
+      return getQuestCompletionDialogue(questId);
+    }
   }
 
-  if (farmerQuest.status === "active") {
-    return `${QUESTS["feral-farmers"].title}: ${formatNamedQuestProgress(farmerQuest)}.`;
+  return getFinishedQuestDialogue(npc.id);
+}
+
+function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
+  if (questId === "feral-farmers") {
+    return `${QUESTS[questId].title}: ${formatNamedQuestProgress(quest)}.`;
   }
 
-  if (farmerQuest.status === "ready") {
-    completeQuest(player, "feral-farmers", now);
-    offerQuest("hog-livers");
-    return `good work. Quest complete: ${QUESTS["feral-farmers"].title}. I have another job when you are ready.`;
+  if (questId === "hog-livers") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog livers collected. They do not always drop, so keep hunting.`;
   }
 
-  const liverQuest = player.quests.get("hog-livers");
-  if (!liverQuest) {
-    offerQuest("hog-livers");
-    return `quest available: ${QUESTS["hog-livers"].title}. Bring me five hog livers so we can brew something that keeps the worst hogs away from town.`;
+  return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
+}
+
+function getNextAvailableQuestId(player: PlayerState, questId: QuestId): QuestId | null {
+  const quest = QUESTS[questId];
+  const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
+  return nextQuestId && isQuestAvailable(player, nextQuestId) ? nextQuestId : null;
+}
+
+function getQuestCompletionDialogue(questId: QuestId) {
+  const questTitle = QUESTS[questId].title;
+
+  if (questId === "mfer-beginnings") {
+    return `quest complete: ${questTitle}. You are checked in. The plaza is yours.`;
   }
 
-  if (liverQuest.status === "active") {
-    return `${QUESTS["hog-livers"].title}: ${formatQuestProgress(liverQuest)} hog livers collected. They do not always drop, so keep hunting.`;
+  if (questId === "dao-tour") {
+    return `quest complete: ${questTitle}. You found the DAO hall. Proposals can wait until the town is ready.`;
   }
 
-  if (liverQuest.status === "ready") {
-    completeQuest(player, "hog-livers", now);
-    return `quest complete: ${QUESTS["hog-livers"].title}. This brew smells awful, but it should keep the road clear.`;
+  if (questId === "fountain-vibes") {
+    return `quest complete: ${questTitle}. The fountain is doing its job.`;
   }
 
-  return "the farm is quieter already. Town owes you one.";
+  if (questId === "feral-farmers") {
+    return `good work. Quest complete: ${questTitle}.`;
+  }
+
+  if (questId === "hog-livers") {
+    return `quest complete: ${questTitle}. This brew smells awful, but it should keep the road clear.`;
+  }
+
+  return `quest complete: ${questTitle}.`;
+}
+
+function getFinishedQuestDialogue(npcId: string) {
+  if (npcId === "og-mfer") return "you are checked in. Roam around and see who needs help.";
+  if (npcId === "dao-mfer") return "the DAO hall is on the map now. Come back when proposals are live.";
+  if (npcId === "fountain-mfer") return "fountain vibes are handled for today.";
+  if (npcId === "hogwatch-mfer") return "the farm is quieter already. Town owes you one.";
+  return "nothing else for now.";
 }
 
 function isQuestAvailable(player: PlayerState, questId: QuestId) {
   if (player.quests.has(questId)) return false;
-  if (questId === "feral-farmers") return true;
-  if (questId === "hog-livers") return player.quests.get("feral-farmers")?.status === "completed";
-  return false;
+
+  const requiredQuestId = getQuestRequirement(questId);
+  if (!requiredQuestId) return true;
+
+  return player.quests.get(requiredQuestId)?.status === "completed";
 }
 
 function makeQuestOffer(questId: QuestId, npc: NpcState) {
@@ -1529,7 +1590,7 @@ function makeQuestOffer(questId: QuestId, npc: NpcState) {
 }
 
 function normalizeQuestId(input: unknown): QuestId | null {
-  return input === "feral-farmers" || input === "hog-livers" ? input : null;
+  return typeof input === "string" && QUEST_IDS.includes(input as QuestId) ? input as QuestId : null;
 }
 
 function startQuest(player: PlayerState, questId: QuestId) {
@@ -1537,9 +1598,9 @@ function startQuest(player: PlayerState, questId: QuestId) {
 
   const quest = new QuestState();
   quest.id = questId;
-  quest.status = "active";
-  quest.progress = 0;
   quest.required = QUESTS[questId].required;
+  quest.status = isQuestAutoReady(questId) ? "ready" : "active";
+  quest.progress = quest.status === "ready" ? quest.required : 0;
   quest.flags = "";
   quest.completedAt = 0;
   player.quests.set(questId, quest);
@@ -1611,10 +1672,7 @@ function getQuestFlags(quest: QuestState) {
 }
 
 function getQuestObjectiveIds(questId: QuestId) {
-  if (questId === "feral-farmers") {
-    return QUESTS["feral-farmers"].objectives.map((objective) => objective.id as string);
-  }
-  return [];
+  return getQuestObjectives(questId).map((objective) => objective.id);
 }
 
 function lootCorpseItem(player: PlayerState, npc: NpcState, itemId: ItemId) {

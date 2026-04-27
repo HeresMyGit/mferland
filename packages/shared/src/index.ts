@@ -122,11 +122,39 @@ export const COMBAT = {
 } as const;
 
 export const QUESTS = {
+  "mfer-beginnings": {
+    title: "First GM",
+    giverNpcId: "og-mfer",
+    description: "OG mfer wants to make sure you can check in with town before heading deeper into the plaza.",
+    objectiveLabel: "Check back with OG mfer",
+    turnInLabel: "Return to OG mfer",
+    required: 1,
+    autoReady: true,
+  },
+  "dao-tour": {
+    title: "DAO Tour",
+    giverNpcId: "dao-mfer",
+    description: "DAO mfer wants you to find the hall and report back once you know where proposals will live.",
+    objectiveLabel: "Check back with DAO mfer",
+    turnInLabel: "Return to DAO mfer",
+    required: 1,
+    autoReady: true,
+  },
+  "fountain-vibes": {
+    title: "Fountain Vibes",
+    giverNpcId: "fountain-mfer",
+    description: "Fountain mfer wants you to take a quick breather by the plaza fountain.",
+    objectiveLabel: "Check back with Fountain mfer",
+    turnInLabel: "Return to Fountain mfer",
+    required: 1,
+    autoReady: true,
+  },
   "feral-farmers": {
     title: "Feral Farmers",
     giverNpcId: "hogwatch-mfer",
     description: "The busted farm is raising feral hogs that keep charging townspeople.",
     objectiveLabel: "Defeat Bran, Mae, and Sol",
+    turnInLabel: "Return to Hogwatch mfer",
     required: 3,
     objectives: [
       { id: "farmhand-bran", label: "Defeat Farmhand Bran" },
@@ -140,6 +168,7 @@ export const QUESTS = {
     giverNpcId: "hogwatch-mfer",
     description: "Hog livers can be brewed into a charm that keeps the worst hogs away from the plaza.",
     objectiveLabel: "Collect hog livers",
+    turnInLabel: "Return to Hogwatch mfer",
     required: 5,
     requiredQuestId: "feral-farmers",
     dropRate: 0.66,
@@ -227,6 +256,8 @@ export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
 export type QuestMarkerType = "available" | "turnIn";
 export type ItemId = keyof typeof ITEMS;
+
+export const QUEST_IDS = Object.keys(QUESTS) as QuestId[];
 
 export type QuestSnapshot = {
   id: QuestId;
@@ -516,19 +547,51 @@ export function getNpcDisposition(npc: Pick<NpcSnapshot, "role" | "model" | "agg
   return "neutral";
 }
 
+export function getNpcQuestIds(npcId: string): QuestId[] {
+  return QUEST_IDS.filter((questId) => QUESTS[questId].giverNpcId === npcId);
+}
+
+export function getQuestRequirement(questId: QuestId): QuestId | null {
+  const quest = QUESTS[questId];
+  return "requiredQuestId" in quest ? quest.requiredQuestId : null;
+}
+
+export function getQuestObjectives(questId: QuestId): ReadonlyArray<{ id: string; label: string }> {
+  const quest = QUESTS[questId];
+  return "objectives" in quest ? quest.objectives : [];
+}
+
+export function isQuestAutoReady(questId: QuestId): boolean {
+  const quest = QUESTS[questId];
+  return "autoReady" in quest && quest.autoReady;
+}
+
+export function isQuestAvailableForSnapshots(questId: QuestId, quests: QuestSnapshot[] | undefined): boolean {
+  if (quests?.some((quest) => quest.id === questId)) return false;
+
+  const requiredQuestId = getQuestRequirement(questId);
+  if (!requiredQuestId) return true;
+
+  return quests?.some((quest) => quest.id === requiredQuestId && quest.status === "completed") ?? false;
+}
+
 export function getNpcQuestMarker(
   npc: Pick<NpcSnapshot, "id">,
   quests: QuestSnapshot[] | undefined,
 ): QuestMarkerType | null {
-  if (npc.id !== QUESTS["feral-farmers"].giverNpcId) return null;
+  const npcQuestIds = getNpcQuestIds(npc.id);
+  const questLog = quests ?? [];
 
-  const farmerQuest = quests?.find((quest) => quest.id === "feral-farmers");
-  if (!farmerQuest) return "available";
-  if (farmerQuest.status === "ready") return "turnIn";
-  if (farmerQuest.status !== "completed") return null;
+  for (const questId of npcQuestIds) {
+    const quest = questLog.find((entry) => entry.id === questId);
+    if (!quest) {
+      if (isQuestAvailableForSnapshots(questId, questLog)) return "available";
+      continue;
+    }
 
-  const liverQuest = quests?.find((quest) => quest.id === "hog-livers");
-  if (!liverQuest) return "available";
-  if (liverQuest.status === "ready") return "turnIn";
+    if (quest.status === "ready") return "turnIn";
+    if (quest.status !== "completed") return null;
+  }
+
   return null;
 }
