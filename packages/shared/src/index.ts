@@ -18,7 +18,17 @@ export const PLAYER = {
   radius: 0.55,
 };
 
-export type IdentityType = "guest" | "wallet";
+export const CHAT = {
+  maxLength: 180,
+  minIntervalMs: 1200,
+};
+
+export const AGENT = {
+  observationRadius: 14,
+  decisionIntervalMs: 650,
+};
+
+export type IdentityType = "guest" | "wallet" | "agent";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
 
 export type JoinOptions = {
@@ -54,8 +64,24 @@ export type PlayerSnapshot = {
 export type ChatMessage = {
   sessionId: string;
   name: string;
+  identityType: IdentityType;
   text: string;
   sentAt: number;
+};
+
+export type AgentVisiblePlayer = Pick<
+  PlayerSnapshot,
+  "sessionId" | "name" | "identityType" | "avatarSeed" | "x" | "y" | "z" | "yaw" | "animation"
+> & {
+  distance: number;
+};
+
+export type AgentObservation = {
+  self: PlayerSnapshot;
+  nearbyPlayers: AgentVisiblePlayer[];
+  recentChat: ChatMessage[];
+  bounds: typeof PLAZA_BOUNDS;
+  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat">;
 };
 
 export function sanitizePlayerName(input: unknown, fallback = "mfer"): string {

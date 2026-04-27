@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { Room, Server, type Client } from "colyseus";
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import {
+  CHAT,
   clamp,
   makeGuestName,
   MAX_PLAYERS,
@@ -45,6 +46,7 @@ class TownRoom extends Room<TownState> {
 
   private readonly inputs = new Map<string, TrackedInput>();
   private readonly jumpHeld = new Map<string, boolean>();
+  private readonly lastChatAt = new Map<string, number>();
 
   onCreate() {
     this.setState(new TownState());
@@ -66,11 +68,17 @@ class TownRoom extends Room<TownState> {
       const text = sanitizeChatText(message?.text);
       if (!text) return;
 
+      const now = Date.now();
+      const lastChat = this.lastChatAt.get(client.sessionId) ?? 0;
+      if (now - lastChat < CHAT.minIntervalMs) return;
+      this.lastChatAt.set(client.sessionId, now);
+
       const payload: ChatMessage = {
         sessionId: client.sessionId,
         name: player.name,
+        identityType: player.identityType,
         text,
-        sentAt: Date.now(),
+        sentAt: now,
       };
       this.broadcast("chat", payload);
     });
@@ -81,10 +89,8 @@ class TownRoom extends Room<TownState> {
     const spawn = getSpawnPoint(this.state.players.size);
     const walletAddress =
       typeof options?.walletAddress === "string" ? options.walletAddress.toLowerCase().slice(0, 64) : "";
-    const identityType: IdentityType = walletAddress ? "wallet" : options?.identityType === "wallet" ? "wallet" : "guest";
-    const defaultName = identityType === "wallet" && walletAddress
-      ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-      : makeGuestName(client.sessionId);
+    const identityType = getIdentityType(options, walletAddress);
+    const defaultName = getDefaultName(identityType, walletAddress, client.sessionId);
 
     player.name = sanitizePlayerName(options?.name, defaultName);
     player.identityType = identityType;
@@ -104,6 +110,7 @@ class TownRoom extends Room<TownState> {
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
     this.jumpHeld.delete(client.sessionId);
+    this.lastChatAt.delete(client.sessionId);
   }
 
   private update(dt: number) {
@@ -175,7 +182,23 @@ function normalizeInput(message: Partial<ClientInput>): ClientInput | null {
 
 function sanitizeChatText(input: unknown): string {
   if (typeof input !== "string") return "";
-  return input.replace(/\s+/g, " ").trim().slice(0, 180);
+  return input.replace(/\s+/g, " ").trim().slice(0, CHAT.maxLength);
+}
+
+function getIdentityType(options: JoinOptions | undefined, walletAddress: string): IdentityType {
+  if (walletAddress) return "wallet";
+  if (options?.identityType === "agent") return "agent";
+  return options?.identityType === "wallet" ? "wallet" : "guest";
+}
+
+function getDefaultName(identityType: IdentityType, walletAddress: string, sessionId: string): string {
+  if (identityType === "wallet" && walletAddress) {
+    return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+  }
+  if (identityType === "agent") {
+    return `agent#${String(stableHash(sessionId) % 1000).padStart(3, "0")}`;
+  }
+  return makeGuestName(sessionId);
 }
 
 function getSpawnPoint(index: number) {

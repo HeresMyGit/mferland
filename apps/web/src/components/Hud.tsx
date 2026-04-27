@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useMemo, useState } from "react";
 import { LogOut, type LucideIcon } from "lucide-react";
-import { PLAZA_BOUNDS, type ChatMessage, type PlayerSnapshot } from "@mferland/shared";
+import { CHAT, PLAZA_BOUNDS, type ChatMessage, type PlayerSnapshot } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
 
 type HudProps = {
@@ -92,6 +92,7 @@ export function Hud({
           ) : chat.map((message, index) => (
             <p key={`${message.sentAt}-${index}`}>
               <strong>{message.name}: </strong>
+              {message.identityType === "agent" && <em>agent </em>}
               {message.text}
             </p>
           ))}
@@ -99,7 +100,7 @@ export function Hud({
         <form onSubmit={submit}>
           <input
             value={draft}
-            maxLength={180}
+            maxLength={CHAT.maxLength}
             placeholder="Say gm..."
             onChange={(event) => setDraft(event.target.value)}
           />

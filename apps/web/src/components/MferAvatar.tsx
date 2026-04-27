@@ -37,6 +37,7 @@ export function MferAvatar({ player, isLocal = false }: MferAvatarProps) {
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
+  const label = player.identityType === "agent" ? `${player.name} [AI]` : player.name;
 
   const clips = useMemo(() => {
     const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
@@ -126,7 +127,7 @@ export function MferAvatar({ player, isLocal = false }: MferAvatarProps) {
           outlineWidth={0.025}
           maxWidth={2.4}
         >
-          {player.name}
+          {label}
         </Text>
       </Billboard>
     </group>

@@ -11,8 +11,10 @@
     "dev": "npm run build -w @mferland/shared && concurrently -n server,web -c green,blue \"npm run dev -w @mferland/server\" \"npm run dev -w @mferland/web\"",
     "dev:web": "npm run dev -w @mferland/web",
     "dev:server": "npm run dev -w @mferland/server",
+    "dev:agent": "npm run dev -w @mferland/agent",
     "build": "npm run build -w @mferland/shared && npm run build -w @mferland/server && npm run build -w @mferland/web",
-    "typecheck": "npm run typecheck -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web"
+    "build:agent": "npm run build -w @mferland/agent",
+    "typecheck": "npm run typecheck -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web && npm run typecheck -w @mferland/agent"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
