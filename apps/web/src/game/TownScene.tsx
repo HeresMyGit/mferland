@@ -211,30 +211,39 @@ export function TownScene({ players, localSessionId, sendInput }: TownSceneProps
 }
 
 function TownWorld() {
-  const [grassTexture, cobbleTexture, stoneTexture, roofTexture] = useTexture([
+  const [grassTexture, cobbleTexture, stoneTexture, roofTexture, timberTexture] = useTexture([
     "/textures/grass-town.webp",
     "/textures/cobblestone-plaza.webp",
     "/textures/castle-stone.webp",
     "/textures/roof-tiles.webp",
+    "/textures/timber-plaster.webp",
   ]) as THREE.Texture[];
 
   useEffect(() => {
     configureTile(grassTexture, 10, 9);
     configureTile(cobbleTexture, 7, 7);
     configureTile(stoneTexture, 2.2, 2.2);
-    configureTile(roofTexture, 1.8, 1.8);
-  }, [cobbleTexture, grassTexture, roofTexture, stoneTexture]);
+    configureTile(roofTexture, 1.6, 1.6);
+    configureTile(timberTexture, 1.25, 1.25);
+  }, [cobbleTexture, grassTexture, roofTexture, stoneTexture, timberTexture]);
 
   return (
     <group>
+      <WorldBackdrop />
+
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.05, 0]}>
         <planeGeometry args={[90, 80, 1, 1]} />
         <meshBasicMaterial map={grassTexture} />
       </mesh>
 
+      <RoadStrip position={[0, 0.012, -30]} size={[8.5, 32]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.013, 31]} size={[8.5, 30]} texture={cobbleTexture} />
+      <RoadStrip position={[-29, 0.014, 0]} size={[24, 7.5]} texture={cobbleTexture} />
+      <RoadStrip position={[29, 0.014, 0]} size={[24, 7.5]} texture={cobbleTexture} />
+
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry args={[21, 21, 0.16, 96]} />
-        <meshBasicMaterial color="#8c8170" />
+        <meshBasicMaterial color="#756d62" />
       </mesh>
 
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.092, 0]}>
@@ -242,14 +251,22 @@ function TownWorld() {
         <meshBasicMaterial map={cobbleTexture} />
       </mesh>
 
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.22, 0]}>
+        <torusGeometry args={[21, 0.22, 8, 128]} />
+        <meshBasicMaterial color="#635f55" />
+      </mesh>
+
       <Fountain />
       <CastleGate stoneTexture={stoneTexture} />
-      <TownBuilding position={[-18, 0, -8]} rotation={0.4} sign="MFERS" accent="#9b45ff" stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <TownBuilding position={[18, 0, -7.5]} rotation={-0.45} sign="DAO" accent="#52d64f" stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <TownBuilding position={[-18, 0, 11]} rotation={-0.2} sign="WEARABLES" accent="#e754d8" stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <TownBuilding position={[18, 0, 10.5]} rotation={0.25} sign="SHOP" accent="#f5c344" stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <TownBuilding position={[-18, 0, -8]} rotation={0.4} sign="MFERS" accent="#9b45ff" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[18, 0, -7.5]} rotation={-0.45} sign="DAO" accent="#52d64f" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[-18, 0, 11]} rotation={-0.2} sign="WEARABLES" accent="#e754d8" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[18, 0, 10.5]} rotation={0.25} sign="SHOP" accent="#f5c344" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
       <SpawnRing position={[5.6, 0.12, 5.6]} />
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
+      <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
+      <BannerPost position={[7.2, 0, -19.8]} color="#328346" />
+      <TreeCluster />
     </group>
   );
 }
@@ -262,32 +279,171 @@ function configureTile(texture: THREE.Texture, repeatX: number, repeatY: number)
   texture.needsUpdate = true;
 }
 
+function RoadStrip({
+  position,
+  size,
+  texture,
+}: {
+  position: [number, number, number];
+  size: [number, number];
+  texture: THREE.Texture;
+}) {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={position}>
+      <planeGeometry args={size} />
+      <meshBasicMaterial map={texture} />
+    </mesh>
+  );
+}
+
+function WorldBackdrop() {
+  const treeline = [-38, -31, -24, -17, 18, 25, 32, 39];
+
+  return (
+    <group>
+      <mesh position={[-32, 4.1, -58]} rotation-y={0.5} scale={[1.35, 0.82, 0.85]}>
+        <coneGeometry args={[8.5, 16, 4]} />
+        <meshBasicMaterial color="#8b8978" />
+      </mesh>
+      <mesh position={[-18, 3.7, -61]} rotation-y={0.1} scale={[1.1, 0.72, 0.9]}>
+        <coneGeometry args={[7.6, 14, 4]} />
+        <meshBasicMaterial color="#9b947f" />
+      </mesh>
+      <mesh position={[30, 3.95, -58]} rotation-y={0.25} scale={[1.25, 0.78, 0.85]}>
+        <coneGeometry args={[8.2, 15, 4]} />
+        <meshBasicMaterial color="#888c78" />
+      </mesh>
+      {treeline.map((x, index) => (
+        <TownTree key={index} position={[x, 0, -42 - (index % 2) * 3]} scale={0.95 + (index % 3) * 0.12} />
+      ))}
+    </group>
+  );
+}
+
+function BannerPost({
+  position,
+  color,
+  rotation = 0,
+}: {
+  position: [number, number, number];
+  color: string;
+  rotation?: number;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh position={[0, 1.8, 0]}>
+        <cylinderGeometry args={[0.08, 0.11, 3.6, 8]} />
+        <meshBasicMaterial color="#4b2d18" />
+      </mesh>
+      <mesh position={[0.5, 2.75, 0.02]}>
+        <boxGeometry args={[0.95, 1.2, 0.06]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <mesh position={[0.5, 2.1, 0.04]}>
+        <boxGeometry args={[0.95, 0.08, 0.08]} />
+        <meshBasicMaterial color="#2b2118" />
+      </mesh>
+      <Text
+        position={[0.5, 2.78, 0.08]}
+        fontSize={0.31}
+        color="#f8f2d6"
+        outlineColor="#242018"
+        outlineWidth={0.018}
+        anchorX="center"
+        anchorY="middle"
+      >
+        MF
+      </Text>
+    </group>
+  );
+}
+
+function TreeCluster() {
+  const trees: Array<[number, number, number, number]> = [
+    [-31, 0, -18, 1.2],
+    [-27, 0, -7, 0.9],
+    [-30, 0, 15, 1.05],
+    [-12, 0, 25, 0.95],
+    [12, 0, 25, 1.05],
+    [30, 0, 16, 0.95],
+    [29, 0, -17, 1.15],
+    [23, 0, -26, 0.85],
+    [-23, 0, -26, 0.9],
+  ];
+
+  return (
+    <group>
+      {trees.map(([x, y, z, scale], index) => (
+        <TownTree key={index} position={[x, y, z]} scale={scale} />
+      ))}
+    </group>
+  );
+}
+
+function TownTree({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
+  return (
+    <group position={position} scale={scale}>
+      <mesh position={[0, 0.78, 0]}>
+        <cylinderGeometry args={[0.16, 0.26, 1.55, 7]} />
+        <meshBasicMaterial color="#6b3b1f" />
+      </mesh>
+      <mesh position={[0, 2.0, 0]}>
+        <coneGeometry args={[1.05, 1.9, 8]} />
+        <meshBasicMaterial color="#4f9a3f" />
+      </mesh>
+      <mesh position={[0, 2.75, 0]}>
+        <coneGeometry args={[0.78, 1.55, 8]} />
+        <meshBasicMaterial color="#66ad46" />
+      </mesh>
+    </group>
+  );
+}
+
 function Fountain() {
   return (
     <group position={[0, 0, 0]}>
-      <mesh castShadow receiveShadow position={[0, 0.28, 0]}>
-        <cylinderGeometry args={[4.2, 4.7, 0.56, 64]} />
-        <meshBasicMaterial color="#7c776d" />
+      <mesh position={[0, 0.18, 0]}>
+        <cylinderGeometry args={[4.45, 4.9, 0.36, 72]} />
+        <meshBasicMaterial color="#6f6a60" />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.5, 0]}>
+        <torusGeometry args={[4.08, 0.26, 8, 72]} />
+        <meshBasicMaterial color="#8a8578" />
       </mesh>
       <mesh position={[0, 0.61, 0]}>
-        <cylinderGeometry args={[3.55, 3.55, 0.18, 64]} />
-        <meshBasicMaterial color="#55c8e8" transparent opacity={0.76} />
+        <cylinderGeometry args={[3.62, 3.62, 0.12, 64]} />
+        <meshBasicMaterial color="#58cceb" transparent opacity={0.78} />
       </mesh>
-      <mesh castShadow position={[0, 1.18, 0]}>
-        <cylinderGeometry args={[0.56, 0.72, 1.65, 24]} />
+      <mesh position={[0, 1.08, 0]}>
+        <cylinderGeometry args={[0.56, 0.72, 1.15, 24]} />
         <meshBasicMaterial color="#8b867d" />
       </mesh>
-      <mesh castShadow position={[0, 2.08, 0]}>
-        <sphereGeometry args={[0.45, 24, 18]} />
+      <mesh position={[0, 1.77, 0]}>
+        <cylinderGeometry args={[1.05, 0.72, 0.38, 36]} />
+        <meshBasicMaterial color="#7d786f" />
+      </mesh>
+      <mesh position={[0, 2.02, 0]}>
+        <sphereGeometry args={[0.38, 24, 16]} />
         <meshBasicMaterial color="#f7f7ef" />
       </mesh>
+      {[
+        [0.6, 1.62, 0],
+        [-0.6, 1.62, 0],
+        [0, 1.62, 0.6],
+        [0, 1.62, -0.6],
+      ].map(([x, y, z], index) => (
+        <mesh key={index} position={[x, y, z]} rotation-x={Math.PI / 2}>
+          <cylinderGeometry args={[0.035, 0.035, 1.15, 8]} />
+          <meshBasicMaterial color="#a8f1ff" transparent opacity={0.68} />
+        </mesh>
+      ))}
       <Text
-        position={[0, 0.97, 4.2]}
+        position={[0, 0.92, 3.95]}
         rotation-x={-0.12}
-        fontSize={0.42}
+        fontSize={0.34}
         color="#42b9ff"
         outlineColor="#13283a"
-        outlineWidth={0.035}
+        outlineWidth={0.03}
         anchorX="center"
       >
         MFERS NEVER DIE
@@ -312,26 +468,64 @@ function SpawnRing({ position, color = "#8b6cff" }: { position: [number, number,
 }
 
 function CastleGate({ stoneTexture }: { stoneTexture: THREE.Texture }) {
+  const crenels = [-5.7, -4.25, -2.8, -1.35, 0, 1.35, 2.8, 4.25, 5.7];
+
   return (
     <group position={[0, 0, -24]}>
-      <mesh castShadow receiveShadow position={[-4.2, 3.2, 0]}>
-        <boxGeometry args={[3.6, 6.4, 3.4]} />
+      <mesh position={[-5.35, 3.1, 0]}>
+        <cylinderGeometry args={[1.72, 1.9, 6.2, 18]} />
         <meshBasicMaterial map={stoneTexture} />
       </mesh>
-      <mesh castShadow receiveShadow position={[4.2, 3.2, 0]}>
-        <boxGeometry args={[3.6, 6.4, 3.4]} />
+      <mesh position={[5.35, 3.1, 0]}>
+        <cylinderGeometry args={[1.72, 1.9, 6.2, 18]} />
         <meshBasicMaterial map={stoneTexture} />
       </mesh>
-      <mesh castShadow receiveShadow position={[0, 5.7, 0]}>
-        <boxGeometry args={[12.1, 2.2, 3.3]} />
+      <mesh position={[0, 3.65, 0]}>
+        <boxGeometry args={[9.3, 5.1, 2.85]} />
         <meshBasicMaterial map={stoneTexture} />
       </mesh>
-      <mesh castShadow receiveShadow position={[0, 1.55, 0.05]}>
-        <boxGeometry args={[3.5, 3.1, 3.5]} />
-        <meshBasicMaterial color="#3a3028" />
+      <mesh position={[0, 1.62, 1.47]}>
+        <boxGeometry args={[3.7, 3.24, 0.18]} />
+        <meshBasicMaterial color="#261a13" />
+      </mesh>
+      <mesh position={[0, 3.2, 1.5]}>
+        <sphereGeometry args={[1.85, 24, 12]} />
+        <meshBasicMaterial color="#261a13" />
+      </mesh>
+      <mesh position={[0, 3.22, 1.58]}>
+        <boxGeometry args={[3.98, 0.36, 0.22]} />
+        <meshBasicMaterial color="#6f6a60" />
+      </mesh>
+      <mesh position={[-2.15, 2.1, 1.58]}>
+        <boxGeometry args={[0.34, 3.25, 0.22]} />
+        <meshBasicMaterial color="#6f6a60" />
+      </mesh>
+      <mesh position={[2.15, 2.1, 1.58]}>
+        <boxGeometry args={[0.34, 3.25, 0.22]} />
+        <meshBasicMaterial color="#6f6a60" />
+      </mesh>
+      <mesh position={[0, 6.42, 0]}>
+        <boxGeometry args={[12.4, 0.55, 3.1]} />
+        <meshBasicMaterial color="#766f64" />
+      </mesh>
+      {crenels.map((x) => (
+        <mesh key={x} position={[x, 7.05, 0]}>
+          <boxGeometry args={[0.86, 1.05, 2.95]} />
+          <meshBasicMaterial map={stoneTexture} />
+        </mesh>
+      ))}
+      <BannerPost position={[-3.25, 0.04, 1.62]} color="#2f8d4d" rotation={0} />
+      <BannerPost position={[3.25, 0.04, 1.62]} color="#2f8d4d" rotation={0} />
+      <mesh position={[-2.9, 3.6, 1.62]}>
+        <sphereGeometry args={[0.22, 12, 8]} />
+        <meshBasicMaterial color="#ffd161" />
+      </mesh>
+      <mesh position={[2.9, 3.6, 1.62]}>
+        <sphereGeometry args={[0.22, 12, 8]} />
+        <meshBasicMaterial color="#ffd161" />
       </mesh>
       <Text
-        position={[0, 5.6, 1.75]}
+        position={[0, 5.6, 1.62]}
         fontSize={0.68}
         color="#f3f0df"
         outlineColor="#39352c"
@@ -351,6 +545,7 @@ function TownBuilding({
   accent,
   stoneTexture,
   roofTexture,
+  wallTexture,
 }: {
   position: [number, number, number];
   rotation: number;
@@ -358,38 +553,161 @@ function TownBuilding({
   accent: string;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
+  wallTexture: THREE.Texture;
 }) {
   return (
     <group position={position} rotation-y={rotation}>
-      <mesh castShadow receiveShadow position={[0, 2.1, 0]}>
-        <boxGeometry args={[6.4, 4.2, 4.2]} />
-        <meshBasicMaterial map={stoneTexture} color="#f5dbc0" />
+      <mesh position={[0, 0.32, 0]}>
+        <boxGeometry args={[7.45, 0.64, 4.85]} />
+        <meshBasicMaterial map={stoneTexture} color="#c7b69d" />
       </mesh>
-      <mesh castShadow position={[0, 4.55, 0]} rotation-z={Math.PI / 4} scale={[1, 0.7, 1]}>
-        <boxGeometry args={[5.1, 5.1, 4.7]} />
-        <meshBasicMaterial map={roofTexture} />
+      <mesh position={[0, 2.65, 0]}>
+        <boxGeometry args={[7.05, 4.55, 4.45]} />
+        <meshBasicMaterial map={wallTexture} />
       </mesh>
-      <mesh castShadow position={[0, 2.55, 2.14]}>
-        <boxGeometry args={[3.6, 1.08, 0.22]} />
+      <GabledRoof roofTexture={roofTexture} />
+      <BuildingTrim />
+      <ShopWindow position={[-2.15, 2.45, 2.28]} />
+      <ShopWindow position={[2.15, 2.45, 2.28]} />
+      <ShopWindow position={[-2.65, 2.2, -2.28]} rotation={Math.PI} />
+      <ShopWindow position={[2.65, 2.2, -2.28]} rotation={Math.PI} />
+      <ShopDoor />
+      <mesh position={[0, 1.62, 2.52]}>
+        <boxGeometry args={[3.6, 0.44, 0.18]} />
+        <meshBasicMaterial color={accent} />
+      </mesh>
+      <mesh position={[0, 3.25, 2.49]}>
+        <boxGeometry args={[4.42, 1.28, 0.1]} />
+        <meshBasicMaterial color="#2a2119" />
+      </mesh>
+      <mesh position={[0, 3.25, 2.58]}>
+        <boxGeometry args={[4.15, 1.05, 0.2]} />
         <meshBasicMaterial color={accent} />
       </mesh>
       <Text
-        position={[0, 2.55, 2.29]}
-        fontSize={0.5}
+        position={[0, 3.25, 2.69]}
+        fontSize={sign.length > 6 ? 0.43 : 0.55}
         color="#ffffff"
         outlineColor="#2d2822"
-        outlineWidth={0.035}
+        outlineWidth={0.04}
         anchorX="center"
+        anchorY="middle"
       >
         {sign}
       </Text>
-      <mesh castShadow receiveShadow position={[-1.45, 1.12, 2.18]}>
-        <boxGeometry args={[1, 1.3, 0.16]} />
-        <meshBasicMaterial color="#315a78" />
+      <mesh position={[2.72, 5.1, -0.8]}>
+        <boxGeometry args={[0.72, 1.55, 0.72]} />
+        <meshBasicMaterial map={stoneTexture} color="#b29b7e" />
       </mesh>
-      <mesh castShadow receiveShadow position={[1.45, 1.12, 2.18]}>
-        <boxGeometry args={[1, 1.3, 0.16]} />
-        <meshBasicMaterial color="#315a78" />
+      <mesh position={[2.72, 6.02, -0.8]}>
+        <boxGeometry args={[0.92, 0.35, 0.92]} />
+        <meshBasicMaterial color="#4b3325" />
+      </mesh>
+    </group>
+  );
+}
+
+function GabledRoof({ roofTexture }: { roofTexture: THREE.Texture }) {
+  return (
+    <group>
+      <mesh position={[0, 4.98, 0]} rotation-z={Math.PI / 4} scale={[1, 0.62, 1]}>
+        <boxGeometry args={[5.7, 5.7, 5.25]} />
+        <meshBasicMaterial map={roofTexture} />
+      </mesh>
+      <mesh position={[0, 4.23, 2.68]}>
+        <boxGeometry args={[8.05, 0.38, 0.34]} />
+        <meshBasicMaterial color="#6b341d" />
+      </mesh>
+      <mesh position={[0, 4.23, -2.68]}>
+        <boxGeometry args={[8.05, 0.38, 0.34]} />
+        <meshBasicMaterial color="#6b341d" />
+      </mesh>
+      <mesh position={[0, 6.65, 0]}>
+        <boxGeometry args={[0.28, 0.28, 5.5]} />
+        <meshBasicMaterial color="#5a2d19" />
+      </mesh>
+    </group>
+  );
+}
+
+function BuildingTrim() {
+  return (
+    <group>
+      <mesh position={[-3.72, 2.62, 2.31]}>
+        <boxGeometry args={[0.26, 4.4, 0.18]} />
+        <meshBasicMaterial color="#5b331d" />
+      </mesh>
+      <mesh position={[3.72, 2.62, 2.31]}>
+        <boxGeometry args={[0.26, 4.4, 0.18]} />
+        <meshBasicMaterial color="#5b331d" />
+      </mesh>
+      <mesh position={[0, 4.72, 2.31]}>
+        <boxGeometry args={[7.6, 0.26, 0.18]} />
+        <meshBasicMaterial color="#5b331d" />
+      </mesh>
+      <mesh position={[0, 0.74, 2.31]}>
+        <boxGeometry args={[7.7, 0.28, 0.2]} />
+        <meshBasicMaterial color="#5b331d" />
+      </mesh>
+      <mesh position={[-1.75, 3.95, 2.32]} rotation-z={-0.55}>
+        <boxGeometry args={[0.25, 3.0, 0.18]} />
+        <meshBasicMaterial color="#6f3b20" />
+      </mesh>
+      <mesh position={[1.75, 3.95, 2.32]} rotation-z={0.55}>
+        <boxGeometry args={[0.25, 3.0, 0.18]} />
+        <meshBasicMaterial color="#6f3b20" />
+      </mesh>
+    </group>
+  );
+}
+
+function ShopWindow({
+  position,
+  rotation = 0,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh>
+        <boxGeometry args={[1.1, 1.15, 0.14]} />
+        <meshBasicMaterial color="#2e2019" />
+      </mesh>
+      <mesh position={[0, 0, 0.08]}>
+        <boxGeometry args={[0.82, 0.86, 0.08]} />
+        <meshBasicMaterial color="#49a4c8" transparent opacity={0.78} />
+      </mesh>
+      <mesh position={[0, 0, 0.13]}>
+        <boxGeometry args={[0.08, 0.92, 0.05]} />
+        <meshBasicMaterial color="#f4d878" />
+      </mesh>
+      <mesh position={[0, 0, 0.14]}>
+        <boxGeometry args={[0.88, 0.08, 0.05]} />
+        <meshBasicMaterial color="#f4d878" />
+      </mesh>
+    </group>
+  );
+}
+
+function ShopDoor() {
+  return (
+    <group>
+      <mesh position={[0, 1.48, 2.36]}>
+        <boxGeometry args={[1.35, 1.92, 0.16]} />
+        <meshBasicMaterial color="#4a2b1b" />
+      </mesh>
+      <mesh position={[0, 2.35, 2.44]}>
+        <sphereGeometry args={[0.68, 18, 8]} />
+        <meshBasicMaterial color="#4a2b1b" />
+      </mesh>
+      <mesh position={[0, 0.32, 2.85]}>
+        <boxGeometry args={[2.0, 0.36, 1.0]} />
+        <meshBasicMaterial color="#8a7c6a" />
+      </mesh>
+      <mesh position={[0.45, 1.52, 2.48]}>
+        <sphereGeometry args={[0.08, 12, 8]} />
+        <meshBasicMaterial color="#f0ca55" />
       </mesh>
     </group>
   );
