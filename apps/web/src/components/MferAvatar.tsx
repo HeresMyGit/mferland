@@ -24,6 +24,7 @@ type MferAvatarProps = {
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
   hasLoot?: boolean;
+  viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
 
@@ -56,6 +57,9 @@ const animationClipCache = new WeakMap<THREE.AnimationClip, Map<AnimationState, 
 const avatarTemplateCache = new WeakMap<THREE.Group, Map<number, THREE.Group>>();
 const avatarHitGeometry = new THREE.CylinderGeometry(0.72, 0.72, 2.7, 12);
 const invisibleHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+const NAMEPLATE_RENDER_DISTANCE_SQ = 34 * 34;
+const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
+const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
 
 export function MferAvatar({
   player,
@@ -65,6 +69,7 @@ export function MferAvatar({
   isDefeated = false,
   questMarker = null,
   hasLoot = false,
+  viewerPosition = null,
   onTarget,
 }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -83,6 +88,10 @@ export function MferAvatar({
   const label = npc ? getNpcLabel(npc, disposition) : isAgentPlayer ? `${player.name} [AI]` : player.name;
   const targetRingColor = TARGET_RING_COLORS[disposition];
   const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? "#f3d04e" : accent;
+  const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, player.x, player.z) : 0;
+  const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
+  const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
@@ -153,8 +162,8 @@ export function MferAvatar({
   return (
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
       {isTargeted && <TargetRing color={targetRingColor} />}
-      {!isDefeated && questMarker && <QuestMarker type={questMarker} y={3.65} />}
-      {hasLoot && <LootSparkles y={1.35} />}
+      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.65} />}
+      {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
         geometry={avatarHitGeometry}
         material={invisibleHitMaterial}
@@ -164,7 +173,7 @@ export function MferAvatar({
       />
       <group ref={poseRef}>
         <primitive object={avatar} />
-        {!isDefeated && (
+        {showNameplate && (
           <Billboard position={[0, 3.05, 0]}>
             <Text
               fontSize={0.24}
@@ -341,6 +350,10 @@ function getNpcLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
 function lerpAngle(a: number, b: number, t: number) {
   const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
   return a + delta * t;
+}
+
+function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
+  return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
 
 function getMferAnimationClips(fbxAnimations: THREE.Group[]) {

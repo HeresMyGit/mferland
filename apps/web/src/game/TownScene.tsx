@@ -70,6 +70,10 @@ export function TownScene({
   } else if (localVisualPlayer.current?.sessionId !== localPlayer.sessionId) {
     localVisualPlayer.current = { ...localPlayer };
   }
+  const viewerPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
+    ? localVisualPlayer.current
+    : localPlayer;
+  const viewerPosition = viewerPlayer ? { x: viewerPlayer.x, z: viewerPlayer.z } : null;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -283,6 +287,7 @@ export function TownScene({
               isLocal={isLocalPlayer}
               isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
               isDefeated={player.health <= 0}
+              viewerPosition={viewerPosition}
               onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
             />
           );
@@ -300,6 +305,7 @@ export function TownScene({
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
                 isDefeated={!npc.isImmortal && npc.health <= 0}
+                viewerPosition={viewerPosition}
                 onTarget={onTarget}
               />
             );
@@ -314,6 +320,7 @@ export function TownScene({
               hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
+              viewerPosition={viewerPosition}
               onTarget={onTarget}
             />
           );
@@ -322,6 +329,7 @@ export function TownScene({
           combatEvents={combatEvents}
           players={players}
           npcs={npcs}
+          viewerPosition={viewerPosition}
         />
       </Suspense>
     </>
@@ -374,14 +382,16 @@ function CombatFeedbackLayer({
   combatEvents,
   players,
   npcs,
+  viewerPosition,
 }: {
   combatEvents: CombatEvent[];
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
+  viewerPosition: { x: number; z: number } | null;
 }) {
   return (
     <group>
-      {combatEvents.slice(-32).map((event) => {
+      {combatEvents.slice(-32).filter((event) => shouldRenderCombatEvent(event, players, npcs, viewerPosition)).map((event) => {
         const source = players.get(event.sourceId) ?? npcs.get(event.sourceId);
         const sourcePosition: Vec3Tuple = [
           source?.x ?? event.sourceX,
@@ -651,6 +661,27 @@ function getNpcVisualHeight(npc: NpcSnapshot) {
   if (npc.model === "hog") return 0.9;
   if (npc.model === "deer") return 1.15;
   return 1.35;
+}
+
+const COMBAT_VISUAL_RENDER_DISTANCE_SQ = 56 * 56;
+
+function shouldRenderCombatEvent(
+  event: CombatEvent,
+  players: Map<string, PlayerSnapshot>,
+  npcs: Map<string, NpcSnapshot>,
+  viewerPosition: { x: number; z: number } | null,
+) {
+  if (!viewerPosition) return true;
+
+  const source = players.get(event.sourceId) ?? npcs.get(event.sourceId);
+  const sourceX = source?.x ?? event.sourceX;
+  const sourceZ = source?.z ?? event.sourceZ;
+  return distanceSq2d(viewerPosition, sourceX, sourceZ) <= COMBAT_VISUAL_RENDER_DISTANCE_SQ
+    || distanceSq2d(viewerPosition, event.targetX, event.targetZ) <= COMBAT_VISUAL_RENDER_DISTANCE_SQ;
+}
+
+function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
+  return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
 
 function TownWorld() {

@@ -11,10 +11,14 @@ type CreatureAvatarProps = {
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
   hasLoot?: boolean;
+  viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
 
 const targetPosition = new THREE.Vector3();
+const NAMEPLATE_RENDER_DISTANCE_SQ = 30 * 30;
+const QUEST_MARKER_RENDER_DISTANCE_SQ = 42 * 42;
+const LOOT_EFFECT_RENDER_DISTANCE_SQ = 28 * 28;
 
 export function CreatureAvatar({
   npc,
@@ -22,6 +26,7 @@ export function CreatureAvatar({
   isDefeated = false,
   questMarker = null,
   hasLoot = false,
+  viewerPosition = null,
   onTarget,
 }: CreatureAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -33,6 +38,10 @@ export function CreatureAvatar({
   const hitRadius = npc.model === "rabbit" ? 0.55 : npc.model === "hog" ? 0.86 : 0.74;
   const hitHeight = npc.model === "rabbit" ? 1.0 : npc.model === "hog" ? 1.35 : 1.7;
   const labelY = npc.model === "rabbit" ? 1.22 : npc.model === "hog" ? 1.55 : 1.86;
+  const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
+  const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
+  const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -53,15 +62,15 @@ export function CreatureAvatar({
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
       {isTargeted && <TargetRing color={ringColor} />}
-      {!isDefeated && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
-      {hasLoot && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
+      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
+      {showLootSparkles && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
       <mesh position={[0, 0.55, 0]} onPointerDown={handleTarget}>
         <cylinderGeometry args={[hitRadius, hitRadius, hitHeight, 10]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       <group ref={poseRef}>
         {npc.model === "rabbit" ? <RabbitModel color={accent} /> : npc.model === "hog" ? <HogModel /> : <DeerModel />}
-        {!isDefeated && (
+        {showNameplate && (
           <Billboard position={[0, labelY, 0]}>
             <Text
               fontSize={npc.model === "rabbit" ? 0.16 : 0.2}
@@ -228,4 +237,8 @@ function DeerModel() {
 function lerpAngle(a: number, b: number, t: number) {
   const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
   return a + delta * t;
+}
+
+function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
+  return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
