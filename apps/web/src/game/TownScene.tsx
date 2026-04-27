@@ -595,12 +595,12 @@ function TownBuilding({
       >
         {sign}
       </Text>
-      <mesh position={[2.72, 5.1, -0.8]}>
-        <boxGeometry args={[0.72, 1.55, 0.72]} />
+      <mesh position={[2.55, 5.78, -0.8]}>
+        <boxGeometry args={[0.62, 1.45, 0.62]} />
         <meshBasicMaterial map={stoneTexture} color="#b29b7e" />
       </mesh>
-      <mesh position={[2.72, 6.02, -0.8]}>
-        <boxGeometry args={[0.92, 0.35, 0.92]} />
+      <mesh position={[2.55, 6.58, -0.8]}>
+        <boxGeometry args={[0.86, 0.28, 0.86]} />
         <meshBasicMaterial color="#4b3325" />
       </mesh>
     </group>
@@ -608,23 +608,99 @@ function TownBuilding({
 }
 
 function GabledRoof({ roofTexture }: { roofTexture: THREE.Texture }) {
+  const eaveY = 4.62;
+  const ridgeY = 6.22;
+  const run = 4.22;
+  const depth = 5.62;
+  const rise = ridgeY - eaveY;
+  const slopeLength = Math.hypot(run, rise);
+  const slopeAngle = Math.atan2(rise, run);
+
   return (
     <group>
-      <mesh position={[0, 4.98, 0]} rotation-z={Math.PI / 4} scale={[1, 0.62, 1]}>
-        <boxGeometry args={[5.7, 5.7, 5.25]} />
+      <mesh position={[-run / 2, eaveY + rise / 2, 0]} rotation-z={slopeAngle}>
+        <boxGeometry args={[slopeLength, 0.18, depth]} />
         <meshBasicMaterial map={roofTexture} />
       </mesh>
-      <mesh position={[0, 4.23, 2.68]}>
-        <boxGeometry args={[8.05, 0.38, 0.34]} />
+      <mesh position={[run / 2, eaveY + rise / 2, 0]} rotation-z={-slopeAngle}>
+        <boxGeometry args={[slopeLength, 0.18, depth]} />
+        <meshBasicMaterial map={roofTexture} />
+      </mesh>
+      <RoofGable z={2.86} eaveY={eaveY - 0.08} ridgeY={ridgeY - 0.2} width={7.28} />
+      <RoofGable z={-2.86} eaveY={eaveY - 0.08} ridgeY={ridgeY - 0.2} width={7.28} rotation={Math.PI} />
+      <mesh position={[0, ridgeY + 0.03, 0]} rotation-x={Math.PI / 2}>
+        <cylinderGeometry args={[0.2, 0.2, depth + 0.42, 8]} />
+        <meshBasicMaterial color="#7c321c" />
+      </mesh>
+      <mesh position={[-run - 0.02, eaveY - 0.06, 0]} rotation-z={slopeAngle}>
+        <boxGeometry args={[0.26, 0.35, depth + 0.46]} />
         <meshBasicMaterial color="#6b341d" />
       </mesh>
-      <mesh position={[0, 4.23, -2.68]}>
-        <boxGeometry args={[8.05, 0.38, 0.34]} />
+      <mesh position={[run + 0.02, eaveY - 0.06, 0]} rotation-z={-slopeAngle}>
+        <boxGeometry args={[0.26, 0.35, depth + 0.46]} />
         <meshBasicMaterial color="#6b341d" />
       </mesh>
-      <mesh position={[0, 6.65, 0]}>
-        <boxGeometry args={[0.28, 0.28, 5.5]} />
-        <meshBasicMaterial color="#5a2d19" />
+      <RoofFascia z={2.95} eaveY={eaveY - 0.08} ridgeY={ridgeY} run={run} angle={slopeAngle} />
+      <RoofFascia z={-2.95} eaveY={eaveY - 0.08} ridgeY={ridgeY} run={run} angle={slopeAngle} />
+    </group>
+  );
+}
+
+function RoofGable({
+  z,
+  eaveY,
+  ridgeY,
+  width,
+  rotation = 0,
+}: {
+  z: number;
+  eaveY: number;
+  ridgeY: number;
+  width: number;
+  rotation?: number;
+}) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-width / 2, eaveY);
+  shape.lineTo(0, ridgeY);
+  shape.lineTo(width / 2, eaveY);
+  shape.lineTo(-width / 2, eaveY);
+
+  return (
+    <mesh position={[0, 0, z]} rotation-y={rotation}>
+      <shapeGeometry args={[shape]} />
+      <meshBasicMaterial color="#ead8b8" side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
+function RoofFascia({
+  z,
+  eaveY,
+  ridgeY,
+  run,
+  angle,
+}: {
+  z: number;
+  eaveY: number;
+  ridgeY: number;
+  run: number;
+  angle: number;
+}) {
+  const length = Math.hypot(run, ridgeY - eaveY);
+
+  return (
+    <group position={[0, 0, z]}>
+      <mesh position={[-run / 2, (eaveY + ridgeY) / 2, 0]} rotation-z={angle}>
+        <boxGeometry args={[length, 0.18, 0.18]} />
+        <meshBasicMaterial color="#5d2f1a" />
+      </mesh>
+      <mesh position={[run / 2, (eaveY + ridgeY) / 2, 0]} rotation-z={-angle}>
+        <boxGeometry args={[length, 0.18, 0.18]} />
+        <meshBasicMaterial color="#5d2f1a" />
+      </mesh>
+      <mesh position={[0, eaveY, 0]}>
+        <boxGeometry args={[run * 2.08, 0.2, 0.2]} />
+        <meshBasicMaterial color="#5d2f1a" />
       </mesh>
     </group>
   );
