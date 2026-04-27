@@ -118,11 +118,13 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
     const group = groupRef.current;
     if (!group) return;
 
+    playClip(player.animation);
     mixerRef.current?.update(delta);
     targetPosition.set(player.x, player.y, player.z);
-    const positionLerp = isLocal ? 0.42 : 0.18;
+    const positionLerp = isLocal ? 0.68 : 0.18;
+    const rotationDecay = isLocal ? 0.62 : 0.82;
     group.position.lerp(targetPosition, 1 - Math.pow(1 - positionLerp, delta * 60));
-    group.rotation.y = lerpAngle(group.rotation.y, player.yaw, 1 - Math.pow(0.82, delta * 60));
+    group.rotation.y = lerpAngle(group.rotation.y, player.yaw, 1 - Math.pow(rotationDecay, delta * 60));
   });
 
   return (

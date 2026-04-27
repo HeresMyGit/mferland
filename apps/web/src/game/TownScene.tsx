@@ -2,7 +2,16 @@ import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { INPUT_SEND_RATE, PLAZA_BOUNDS, type ClientInput, type ClientInteract, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
+import {
+  INPUT_SEND_RATE,
+  PLAYER,
+  PLAZA_BOUNDS,
+  type ClientInput,
+  type ClientInteract,
+  type NpcSnapshot,
+  type PlayerSnapshot,
+  type TargetSelection,
+} from "@mferland/shared";
 import { MferAvatar } from "../components/MferAvatar";
 
 type TownSceneProps = {
@@ -45,7 +54,14 @@ export function TownScene({
   const interactHeld = useRef(false);
   const tabHeld = useRef(false);
   const escapeHeld = useRef(false);
+  const localVisualPlayer = useRef<PlayerSnapshot | null>(null);
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
+
+  if (!localPlayer) {
+    localVisualPlayer.current = null;
+  } else if (localVisualPlayer.current?.sessionId !== localPlayer.sessionId) {
+    localVisualPlayer.current = { ...localPlayer };
+  }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -178,6 +194,8 @@ export function TownScene({
     const move = forward.multiplyScalar(forwardIntent).add(right.multiplyScalar(rightIntent));
     const moveLength = move.length();
     if (moveLength > 1) move.normalize();
+    const isSprinting = keys.has("shift");
+    const isJumping = keys.has(" ") || keys.has("space") || keys.has("spacebar");
 
     const interactPressed = keys.has("f") || keys.has("keyf");
     if (interactPressed && !interactHeld.current && localPlayer) {
@@ -207,13 +225,20 @@ export function TownScene({
         x: move.x,
         z: move.z,
         yaw: facingYaw.current,
-        sprint: keys.has("shift"),
-        jump: keys.has(" ") || keys.has("space") || keys.has("spacebar"),
+        sprint: isSprinting,
+        jump: isJumping,
       });
     }
 
-    if (localPlayer) {
-      const lookAt = new THREE.Vector3(localPlayer.x, localPlayer.y + 1.55, localPlayer.z);
+    if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
+      updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, move, moveLength, facingYaw.current, isSprinting, isJumping, delta);
+    }
+
+    const cameraPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
+      ? localVisualPlayer.current
+      : localPlayer;
+    if (cameraPlayer) {
+      const lookAt = new THREE.Vector3(cameraPlayer.x, cameraPlayer.y + 1.55, cameraPlayer.z);
       const horizontalDistance = cameraDistance.current * Math.cos(cameraPitch.current);
       const verticalDistance = cameraDistance.current * Math.sin(cameraPitch.current) + 0.4;
       const camForward = new THREE.Vector3(Math.sin(cameraYaw.current), 0, Math.cos(cameraYaw.current));
@@ -238,15 +263,21 @@ export function TownScene({
         <TownWorld />
       </Suspense>
       <Suspense fallback={null}>
-        {Array.from(players.entries()).map(([sessionId, player]) => (
-          <MferAvatar
-            key={sessionId}
-            player={player}
-            isLocal={sessionId === localSessionId}
-            isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
-            onTarget={sessionId === localSessionId ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
-          />
-        ))}
+        {Array.from(players.entries()).map(([sessionId, player]) => {
+          const isLocalPlayer = sessionId === localSessionId;
+          const renderedPlayer = isLocalPlayer && localVisualPlayer.current?.sessionId === sessionId
+            ? localVisualPlayer.current
+            : player;
+          return (
+            <MferAvatar
+              key={sessionId}
+              player={renderedPlayer}
+              isLocal={isLocalPlayer}
+              isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
+              onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
+            />
+          );
+        })}
         {Array.from(npcs.values()).map((npc) => (
           <MferAvatar
             key={npc.id}
@@ -1630,6 +1661,50 @@ function clamp(value: number, min: number, max: number) {
 
 function wrapAngle(value: number) {
   return Math.atan2(Math.sin(value), Math.cos(value));
+}
+
+function updateLocalVisualPlayer(
+  visual: PlayerSnapshot,
+  authoritative: PlayerSnapshot,
+  move: THREE.Vector3,
+  moveLength: number,
+  yaw: number,
+  sprint: boolean,
+  jump: boolean,
+  delta: number,
+) {
+  visual.name = authoritative.name;
+  visual.identityType = authoritative.identityType;
+  visual.walletAddress = authoritative.walletAddress;
+  visual.avatarSeed = authoritative.avatarSeed;
+  visual.lastSeq = authoritative.lastSeq;
+
+  const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
+  const heightDrift = Math.abs(visual.y - authoritative.y);
+  if (drift > 3.5 || heightDrift > 2.5) {
+    visual.x = authoritative.x;
+    visual.y = authoritative.y;
+    visual.z = authoritative.z;
+  } else {
+    const positionCorrection = 1 - Math.pow(moveLength > 0.01 ? 0.94 : 0.64, delta * 60);
+    const heightCorrection = 1 - Math.pow(0.48, delta * 60);
+    visual.x += (authoritative.x - visual.x) * positionCorrection;
+    visual.z += (authoritative.z - visual.z) * positionCorrection;
+    visual.y += (authoritative.y - visual.y) * heightCorrection;
+  }
+
+  if (moveLength > 0.01) {
+    const speed = sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
+    visual.x += move.x * speed * delta;
+    visual.z += move.z * speed * delta;
+  }
+
+  visual.x = clamp(visual.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
+  visual.z = clamp(visual.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+  visual.yaw = yaw;
+
+  const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
+  visual.animation = airborne ? "jump" : moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
 }
 
 function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>): NpcSnapshot | null {
