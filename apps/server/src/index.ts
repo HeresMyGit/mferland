@@ -8,7 +8,10 @@ import {
   FARMER_COMBAT,
   getNpcQuestIds,
   getQuestObjectives,
+  getQuestRequiredItemId,
   getQuestRequirement,
+  getQuestStartItemId,
+  getQuestTurnInNpcId,
   ITEMS,
   LOOT,
   isAttackableNpcRole,
@@ -24,6 +27,7 @@ import {
   ROOM_NAME,
   sanitizePlayerName,
   SERVER_TICK_RATE,
+  shouldConsumeQuestItem,
   stableHash,
   type AnimationState,
   type ChatMessage,
@@ -553,7 +557,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 12.5,
       yaw: 1.1,
       leashRadius: 1.2,
-      dialogue: "Shop is warming up. Soon you can try fits before minting or buying.",
+      dialogue: "Shop is warming up. If OG sent you, hand it over.",
     },
     {
       id: "gate-guard",
@@ -1251,8 +1255,13 @@ function populateCorpseLoot(player: PlayerState, npc: NpcState, now: number) {
     if (Math.random() < 0.42) {
       addLootItem(npc, "worn-antler", 1);
     }
-  } else if (npc.role === "farmer" && Math.random() < 0.35) {
-    addLootItem(npc, "farmhand-bandana", 1);
+  } else if (npc.role === "farmer") {
+    const bandanaDropRate = canDropQuestItem(player, "farmhand-bandanas") && "dropRate" in QUESTS["farmhand-bandanas"]
+      ? QUESTS["farmhand-bandanas"].dropRate
+      : 0.35;
+    if (Math.random() < bandanaDropRate) {
+      addLootItem(npc, "farmhand-bandana", 1);
+    }
   } else if (npc.role === "enemy" && Math.random() < 0.22) {
     addLootItem(npc, "dummy-splinter", 1);
   }
@@ -1483,28 +1492,41 @@ function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offer
   if (questIds.length === 0) return null;
 
   for (const questId of questIds) {
+    const isGiver = QUESTS[questId].giverNpcId === npc.id;
+    const isTurnInNpc = getQuestTurnInNpcId(questId) === npc.id;
     const quest = player.quests.get(questId);
     if (!quest) {
+      if (!isGiver) continue;
       if (!isQuestAvailable(player, questId)) continue;
 
       offerQuest(questId);
       return `quest available: ${QUESTS[questId].title}. ${QUESTS[questId].description}`;
     }
 
+    syncQuestItemProgress(player, questId);
     if (quest.status === "active" && isQuestAutoReady(questId)) {
       quest.status = "ready";
       quest.progress = quest.required;
     }
 
     if (quest.status === "active") {
+      if (!isTurnInNpc && isGiver) return getQuestTravelDialogue(questId);
+      if (!isTurnInNpc) continue;
       return getActiveQuestDialogue(questId, quest);
     }
 
     if (quest.status === "ready") {
-      completeQuest(player, questId, now);
+      if (!isTurnInNpc) {
+        if (isGiver) return getQuestTravelDialogue(questId);
+        continue;
+      }
+
+      if (!completeQuest(player, questId, now)) {
+        return getActiveQuestDialogue(questId, quest);
+      }
 
       const nextQuestId = getNextAvailableQuestId(player, questId);
-      if (nextQuestId) {
+      if (nextQuestId && QUESTS[nextQuestId].giverNpcId === npc.id) {
         offerQuest(nextQuestId);
         return `${getQuestCompletionDialogue(questId)} I have another job when you are ready.`;
       }
@@ -1528,6 +1550,15 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
 }
 
+function getQuestTravelDialogue(questId: QuestId) {
+  const turnInNpcId = getQuestTurnInNpcId(questId);
+  if (turnInNpcId !== QUESTS[questId].giverNpcId) {
+    return `${QUESTS[questId].title}: take it to ${getNpcDisplayName(turnInNpcId)}.`;
+  }
+
+  return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
+}
+
 function getNextAvailableQuestId(player: PlayerState, questId: QuestId): QuestId | null {
   const quest = QUESTS[questId];
   const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
@@ -1539,6 +1570,14 @@ function getQuestCompletionDialogue(questId: QuestId) {
 
   if (questId === "mfer-beginnings") {
     return `quest complete: ${questTitle}. You are checked in. The plaza is yours.`;
+  }
+
+  if (questId === "sealed-note") {
+    return `quest complete: ${questTitle}. Wearables mfer tucks the note away and starts pulling fabric scraps.`;
+  }
+
+  if (questId === "farmhand-bandanas") {
+    return `quest complete: ${questTitle}. These scraps will make warning flags for the farm road.`;
   }
 
   if (questId === "dao-tour") {
@@ -1562,10 +1601,20 @@ function getQuestCompletionDialogue(questId: QuestId) {
 
 function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "og-mfer") return "you are checked in. Roam around and see who needs help.";
+  if (npcId === "wearables-mfer") return "the red-eye scraps are enough for a few road flags.";
   if (npcId === "dao-mfer") return "the DAO hall is on the map now. Come back when proposals are live.";
   if (npcId === "fountain-mfer") return "fountain vibes are handled for today.";
   if (npcId === "hogwatch-mfer") return "the farm is quieter already. Town owes you one.";
   return "nothing else for now.";
+}
+
+function getNpcDisplayName(npcId: string) {
+  if (npcId === "og-mfer") return "OG mfer";
+  if (npcId === "wearables-mfer") return "Wearables mfer";
+  if (npcId === "dao-mfer") return "DAO mfer";
+  if (npcId === "fountain-mfer") return "Fountain mfer";
+  if (npcId === "hogwatch-mfer") return "Hogwatch mfer";
+  return "the right mfer";
 }
 
 function isQuestAvailable(player: PlayerState, questId: QuestId) {
@@ -1596,6 +1645,9 @@ function normalizeQuestId(input: unknown): QuestId | null {
 function startQuest(player: PlayerState, questId: QuestId) {
   if (player.quests.has(questId)) return;
 
+  const startItemId = getQuestStartItemId(questId);
+  if (startItemId) addInventoryItem(player, startItemId, QUESTS[questId].required);
+
   const quest = new QuestState();
   quest.id = questId;
   quest.required = QUESTS[questId].required;
@@ -1604,15 +1656,25 @@ function startQuest(player: PlayerState, questId: QuestId) {
   quest.flags = "";
   quest.completedAt = 0;
   player.quests.set(questId, quest);
+  syncQuestItemProgress(player, questId);
 }
 
 function completeQuest(player: PlayerState, questId: QuestId, now: number) {
   const quest = player.quests.get(questId);
-  if (!quest) return;
+  if (!quest) return false;
+
+  syncQuestItemProgress(player, questId);
+  if (quest.status !== "ready" && quest.progress < quest.required) return false;
+
+  const requiredItemId = getQuestRequiredItemId(questId);
+  if (requiredItemId && shouldConsumeQuestItem(questId)) {
+    removeInventoryItem(player, requiredItemId, quest.required);
+  }
 
   quest.status = "completed";
   quest.progress = quest.required;
   quest.completedAt = now;
+  return true;
 }
 
 function progressDefeatQuests(player: PlayerState, npc: NpcState) {
@@ -1644,6 +1706,19 @@ function progressQuest(player: PlayerState, questId: QuestId, amount: number) {
   quest.progress = clamp(quest.progress + amount, 0, quest.required);
   if (quest.progress >= quest.required) {
     quest.status = "ready";
+  }
+}
+
+function syncQuestItemProgress(player: PlayerState, questId: QuestId) {
+  const quest = player.quests.get(questId);
+  const requiredItemId = getQuestRequiredItemId(questId);
+  if (!quest || !requiredItemId || quest.status === "completed") return;
+
+  quest.progress = clamp(getInventoryItemCount(player, requiredItemId), 0, quest.required);
+  if (quest.progress >= quest.required) {
+    quest.status = "ready";
+  } else if (quest.status === "ready") {
+    quest.status = "active";
   }
 }
 
@@ -1698,9 +1773,25 @@ function addInventoryItem(player: PlayerState, itemId: ItemId, count: number) {
   player.inventory.set(itemId, item);
 }
 
+function removeInventoryItem(player: PlayerState, itemId: ItemId, count: number) {
+  const existing = player.inventory.get(itemId);
+  if (!existing) return;
+
+  existing.count = Math.max(0, existing.count - count);
+  if (existing.count <= 0) {
+    player.inventory.delete(itemId);
+  }
+}
+
+function getInventoryItemCount(player: PlayerState, itemId: ItemId) {
+  return player.inventory.get(itemId)?.count ?? 0;
+}
+
 function progressLootQuests(player: PlayerState, itemId: ItemId, count: number) {
-  if (itemId === "hog-liver") {
-    progressQuest(player, "hog-livers", count);
+  for (const questId of QUEST_IDS) {
+    if (getQuestRequiredItemId(questId) === itemId) {
+      progressQuest(player, questId, count);
+    }
   }
 }
 

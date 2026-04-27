@@ -1,4 +1,5 @@
 import { seeded } from "./random";
+import type { NpcSnapshot } from "@mferland/shared";
 
 const TRAIT_MESH_MAPPING: Record<string, Record<string, string[]>> = {
   type: {
@@ -172,6 +173,7 @@ const TYPE_EYE_BASE: Record<string, string> = {
 };
 
 export type MferTraits = Record<string, string>;
+export type NpcTraitSource = Pick<NpcSnapshot, "id" | "name" | "role">;
 
 export function generateRandomMferTraits(seed: number): MferTraits {
   const rand = seeded(seed);
@@ -193,6 +195,15 @@ export function generateRandomMferTraits(seed: number): MferTraits {
   }
 
   resolveTraitConflicts(rand, traits);
+  return traits;
+}
+
+export function generateMferTraitsForActor(seed: number, npc?: NpcTraitSource | null): MferTraits {
+  const traits = generateRandomMferTraits(seed);
+  if (!npc) return traits;
+
+  applyNpcTraitTheme(seed, npc, traits);
+  removeForcedTraitConflicts(traits);
   return traits;
 }
 
@@ -218,6 +229,117 @@ export function traitsToMeshes(traits: MferTraits): Set<string> {
   }
 
   return meshes;
+}
+
+function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTraits) {
+  const rand = seeded(seed + 4099);
+
+  if (npc.role === "farmer") {
+    traits.type = pick(rand, ["plain", "charcoal"]);
+    traits.eyes = "red";
+    traits.mouth = "flat";
+    traits.headphones = pick(rand, ["black", "red", "lined"]);
+    traits.hat_over_headphones = "cowboy";
+    traits.shirt = npc.id.includes("mage") ? "hoodie_down_red" : pick(rand, ["collared_yellow", "hoodie_down_red"]);
+    traits.shoes_and_gloves = "red";
+    if (!npc.id.includes("mage")) traits.smoke = pick(rand, ["pipe", "pipe_brown"]);
+    delete traits.hat_under_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
+    delete traits.chain;
+    return;
+  }
+
+  if (npc.id === "dao-mfer") {
+    traits.type = "based";
+    traits.eyes = "mfercoin";
+    traits.headphones = "gold";
+    traits.hat_under_headphones = "cap_based_blue";
+    traits.shirt = "collared_blue";
+    traits.watch = "sub_blue";
+    traits.chain = "onchain";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === "og-mfer") {
+    traits.type = pick(rand, ["plain", "charcoal"]);
+    traits.eyes = "shades";
+    traits.headphones = "black";
+    traits.hat_over_headphones = "top";
+    traits.shirt = "collared_white";
+    traits.chain = "gold";
+    traits.smoke = "pipe_brown";
+    delete traits.hat_under_headphones;
+    return;
+  }
+
+  if (npc.id === "fountain-mfer") {
+    traits.type = pick(rand, ["plain", "alien"]);
+    traits.eyes = traits.type === "alien" ? "alien" : "3d";
+    traits.headphones = "blue";
+    traits.hat_under_headphones = "headband_blue_green";
+    traits.shirt = "collared_turquoise";
+    traits.watch = "sub_turquoise";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.role === "merchant") {
+    traits.type = pick(rand, ["plain", "based"]);
+    traits.eyes = traits.type === "based" ? "mfercoin" : "purple_shades";
+    traits.headphones = "gold";
+    traits.hat_under_headphones = "cap_purple";
+    traits.shirt = "collared_pink";
+    traits.watch = "sub_rose";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.role === "guard") {
+    traits.type = pick(rand, ["plain", "metal"]);
+    traits.eyes = traits.type === "metal" ? "metal" : "shades";
+    traits.headphones = "black_square";
+    traits.hat_under_headphones = "cap_monochrome";
+    traits.shirt = "collared_blue";
+    traits.watch = "sub_black";
+    traits.mouth = "flat";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.role === "enemy") {
+    traits.type = "charcoal";
+    traits.eyes = "red";
+    traits.headphones = "red";
+    traits.hat_over_headphones = "hoodie_red";
+    traits.shoes_and_gloves = "red";
+    traits.mouth = "flat";
+    delete traits.hat_under_headphones;
+    return;
+  }
+}
+
+function removeForcedTraitConflicts(traits: MferTraits) {
+  if (traits.hat_over_headphones) {
+    delete traits.hat_under_headphones;
+  }
+
+  if (traits.hat_over_headphones && ["cowboy", "pilot", "top"].includes(traits.hat_over_headphones)) {
+    delete traits.short_hair;
+    delete traits.long_hair;
+  }
+
+  if (traits.hat_over_headphones?.startsWith("hoodie_")) {
+    delete traits.short_hair;
+    delete traits.long_hair;
+    delete traits.shirt;
+  }
+
+  if (traits.type === "based" && ["alien", "zombie", "red"].includes(traits.eyes)) traits.eyes = "mfercoin";
+  if (traits.type === "metal" && ["alien", "zombie", "red"].includes(traits.eyes)) traits.eyes = "metal";
+  if (traits.type === "zombie") traits.eyes = "zombie";
+  if (traits.type === "alien" && traits.eyes === "regular") traits.eyes = "alien";
 }
 
 function getRandomType(rand: () => number) {
