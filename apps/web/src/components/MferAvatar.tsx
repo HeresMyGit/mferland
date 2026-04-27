@@ -115,6 +115,7 @@ export function MferAvatar({
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
   const isFrozen = Boolean(npc && npc.frozenUntil > Date.now());
+  const isCastingFireblast = "castingAction" in player && player.castingAction === "fireblast" && player.castEndsAt > Date.now();
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
@@ -186,7 +187,10 @@ export function MferAvatar({
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
-      {npc && isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.78} y={1.18} />}
+      {npc && isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.95} y={1.35} />}
+      {isCastingFireblast && "castStartedAt" in player && (
+        <FireblastCastEffect startedAt={player.castStartedAt} endsAt={player.castEndsAt} />
+      )}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.95} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
@@ -562,6 +566,61 @@ export function FrozenStatusEffect({
         <torusGeometry args={[radius * 0.78, 0.03, 8, 32]} />
         <meshBasicMaterial color="#e9fbff" depthWrite={false} opacity={0.72} toneMapped={false} transparent />
       </mesh>
+    </group>
+  );
+}
+
+function FireblastCastEffect({ startedAt, endsAt }: { startedAt: number; endsAt: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const coreRef = useRef<THREE.Group>(null);
+  const clockEpochOffsetRef = useRef<number | null>(null);
+  const embers = useMemo(() => Array.from({ length: 7 }, (_, index) => ({
+    angle: (index / 7) * Math.PI * 2,
+    radius: 0.22 + (index % 3) * 0.05,
+    y: (index % 2) * 0.12 - 0.04,
+  })), []);
+
+  useFrame(({ clock }) => {
+    if (clockEpochOffsetRef.current === null) {
+      clockEpochOffsetRef.current = Date.now() - clock.elapsedTime * 1000;
+    }
+    const now = clockEpochOffsetRef.current + clock.elapsedTime * 1000;
+    const duration = Math.max(1, endsAt - startedAt);
+    const progress = Math.max(0, Math.min(1, (now - startedAt) / duration));
+    const group = groupRef.current;
+    const core = coreRef.current;
+    if (!group || !core) return;
+
+    group.visible = now < endsAt;
+    group.rotation.y += 0.08;
+    core.scale.setScalar(0.42 + progress * 0.72 + Math.sin(clock.elapsedTime * 16) * 0.035);
+  });
+
+  return (
+    <group ref={groupRef} position={[0.42, 1.42, 0.58]} visible={false}>
+      <group ref={coreRef}>
+        <mesh>
+          <sphereGeometry args={[0.24, 16, 10]} />
+          <meshBasicMaterial color="#fff08a" depthTest={false} toneMapped={false} />
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[0.42, 16, 10]} />
+          <meshBasicMaterial color="#ff6a28" depthWrite={false} opacity={0.3} toneMapped={false} transparent />
+        </mesh>
+      </group>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[0.42, 0.018, 8, 32]} />
+        <meshBasicMaterial color="#ffb34d" depthWrite={false} opacity={0.85} toneMapped={false} transparent />
+      </mesh>
+      {embers.map((ember, index) => (
+        <mesh
+          key={index}
+          position={[Math.sin(ember.angle) * ember.radius, ember.y, Math.cos(ember.angle) * ember.radius]}
+        >
+          <sphereGeometry args={[0.045, 8, 6]} />
+          <meshBasicMaterial color={index % 2 === 0 ? "#ffd35b" : "#ff382e"} depthTest={false} toneMapped={false} />
+        </mesh>
+      ))}
     </group>
   );
 }

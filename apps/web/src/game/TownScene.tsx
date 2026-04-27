@@ -624,6 +624,7 @@ function CombatEventVisual({
   const swordRef = useRef<THREE.Group>(null);
   const bowRef = useRef<THREE.Group>(null);
   const projectileRef = useRef<THREE.Group>(null);
+  const impactRef = useRef<THREE.Group>(null);
   const damageRef = useRef<THREE.Group>(null);
   const clockEpochOffsetRef = useRef<number | null>(null);
   const startVector = useMemo(() => new THREE.Vector3(...sourcePosition), [sourcePosition]);
@@ -669,6 +670,15 @@ function CombatEventVisual({
       }
     }
 
+    if (impactRef.current) {
+      const age = now - impactAt;
+      const progress = clamp(age / 620, 0, 1);
+      impactRef.current.visible = age >= 0 && progress < 1;
+      impactRef.current.position.set(targetPosition[0], targetPosition[1] - 0.12, targetPosition[2]);
+      impactRef.current.scale.setScalar(0.38 + progress * 1.25);
+      impactRef.current.rotation.y += 0.05;
+    }
+
     if (damageRef.current) {
       const age = now - impactAt;
       const progress = clamp(age / 1250, 0, 1);
@@ -695,9 +705,11 @@ function CombatEventVisual({
         <LinearProjectile refGroup={projectileRef} variant="fireblast" start={sourcePosition} />
       )}
       {isFrostNovaCast && <FrostNovaBurst refGroup={projectileRef} position={targetPosition} />}
+      {actionId === "fireblast" && <SpellImpactBurst refGroup={impactRef} position={targetPosition} />}
       {amount > 0 && (
         <FloatingDamageNumber
           refGroup={damageRef}
+          actionId={actionId}
           amount={amount}
           position={targetPosition}
           offset={damageOffset}
@@ -807,25 +819,44 @@ function LinearProjectile({
 
   return (
     <group ref={refGroup} position={start} visible={false}>
-      <mesh renderOrder={36}>
-        <sphereGeometry args={[0.46, 18, 12]} />
-        <meshBasicMaterial color="#ff6a28" depthTest={false} toneMapped={false} />
+      <mesh position={[0, 0.16, 0]} renderOrder={36}>
+        <sphereGeometry args={[0.34, 18, 12]} />
+        <meshBasicMaterial color="#fff08a" depthTest={false} toneMapped={false} />
       </mesh>
       <mesh>
-        <sphereGeometry args={[0.72, 18, 12]} />
-        <meshBasicMaterial color="#ffb34d" depthWrite={false} opacity={0.26} toneMapped={false} transparent />
+        <sphereGeometry args={[0.58, 18, 12]} />
+        <meshBasicMaterial color="#ff6a28" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
       </mesh>
-      <mesh position={[0, -0.28, 0]}>
-        <sphereGeometry args={[0.22, 12, 8]} />
-        <meshBasicMaterial color="#ffd35b" depthTest={false} toneMapped={false} />
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[0.46, 0.025, 8, 28]} />
+        <meshBasicMaterial color="#ffd35b" depthWrite={false} opacity={0.72} toneMapped={false} transparent />
       </mesh>
-      <mesh position={[0, -0.48, 0]}>
-        <sphereGeometry args={[0.14, 10, 6]} />
-        <meshBasicMaterial color="#ff382e" depthTest={false} toneMapped={false} />
+      <mesh position={[0, -0.34, 0]} rotation-x={Math.PI}>
+        <coneGeometry args={[0.32, 0.72, 8]} />
+        <meshBasicMaterial color="#ff7a2c" depthWrite={false} opacity={0.78} toneMapped={false} transparent />
       </mesh>
-      <mesh position={[0, -0.76, 0]}>
-        <sphereGeometry args={[0.08, 10, 6]} />
-        <meshBasicMaterial color="#ff8d2a" depthTest={false} toneMapped={false} />
+      <mesh position={[0, -0.7, 0]} rotation-x={Math.PI}>
+        <coneGeometry args={[0.2, 0.52, 7]} />
+        <meshBasicMaterial color="#ff382e" depthWrite={false} opacity={0.55} toneMapped={false} transparent />
+      </mesh>
+    </group>
+  );
+}
+
+function SpellImpactBurst({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  return (
+    <group ref={refGroup} position={position} visible={false}>
+      <mesh rotation-x={Math.PI / 2}>
+        <ringGeometry args={[0.3, 0.7, 28]} />
+        <meshBasicMaterial color="#ffb34d" depthWrite={false} opacity={0.45} toneMapped={false} transparent />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[0.36, 14, 10]} />
+        <meshBasicMaterial color="#ff6a28" depthWrite={false} opacity={0.38} toneMapped={false} transparent />
+      </mesh>
+      <mesh rotation-y={0.7}>
+        <torusGeometry args={[0.54, 0.026, 8, 28]} />
+        <meshBasicMaterial color="#fff08a" depthWrite={false} opacity={0.86} toneMapped={false} transparent />
       </mesh>
     </group>
   );
@@ -833,15 +864,19 @@ function LinearProjectile({
 
 function FloatingDamageNumber({
   refGroup,
+  actionId,
   amount,
   position,
   offset,
 }: {
   refGroup: RefObject<THREE.Group | null>;
+  actionId: CombatActionId;
   amount: number;
   position: Vec3Tuple;
   offset: [number, number];
 }) {
+  const style = getDamageNumberStyle(actionId);
+
   return (
     <group ref={refGroup} position={[position[0] + offset[0], position[1] + 0.38, position[2] + offset[1]]} visible={false}>
       <Billboard>
@@ -849,8 +884,8 @@ function FloatingDamageNumber({
           fontSize={0.36}
           anchorX="center"
           anchorY="middle"
-          color="#ffd35b"
-          outlineColor="#15100c"
+          color={style.color}
+          outlineColor={style.outlineColor}
           outlineWidth={0.045}
         >
           {Math.round(amount)}
@@ -858,6 +893,12 @@ function FloatingDamageNumber({
       </Billboard>
     </group>
   );
+}
+
+function getDamageNumberStyle(actionId: CombatActionId) {
+  if (actionId === "fireblast") return { color: "#ffb34d", outlineColor: "#2a0d05" };
+  if (actionId === "frostNova") return { color: "#c8f7ff", outlineColor: "#052331" };
+  return { color: "#ffd35b", outlineColor: "#15100c" };
 }
 
 function getEventOffset(id: string): [number, number] {
