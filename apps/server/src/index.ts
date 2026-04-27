@@ -12,6 +12,7 @@ import {
   PLAYER,
   PLAZA_BOUNDS,
   RESPAWN_POINT,
+  resolveWorldCollision,
   ROOM_NAME,
   sanitizePlayerName,
   SERVER_TICK_RATE,
@@ -330,8 +331,13 @@ class TownRoom extends Room<TownState> {
       const nx = activeInput.x / length;
       const nz = activeInput.z / length;
       const speed = activeInput.sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
-      player.x = clamp(player.x + nx * speed * delta, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
-      player.z = clamp(player.z + nz * speed * delta, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+      const nextPosition = resolveWorldCollision(
+        player.x + nx * speed * delta,
+        player.z + nz * speed * delta,
+        PLAYER.radius,
+      );
+      player.x = nextPosition.x;
+      player.z = nextPosition.z;
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
     });
   }
@@ -500,17 +506,18 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     npc.health = spec.health ?? 100;
     npc.maxHealth = spec.maxHealth ?? spec.health ?? 100;
     npc.isImmortal = Boolean(spec.isImmortal);
-    npc.x = spec.x;
+    const spawnPosition = resolveWorldCollision(spec.x, spec.z, getNpcCollisionRadius(npc));
+    npc.x = spawnPosition.x;
     npc.y = 0;
-    npc.z = spec.z;
+    npc.z = spawnPosition.z;
     npc.yaw = spec.yaw;
     npc.animation = "idle";
     npc.dialogue = spec.dialogue;
     npc.questId = spec.questId ?? "";
-    npc.homeX = spec.x;
-    npc.homeZ = spec.z;
-    npc.targetX = spec.x;
-    npc.targetZ = spec.z;
+    npc.homeX = npc.x;
+    npc.homeZ = npc.z;
+    npc.targetX = npc.x;
+    npc.targetZ = npc.z;
     npc.leashRadius = spec.leashRadius;
     npc.combatStyle = spec.combatStyle ?? "";
     npc.nextDecisionAt = Date.now() + randomRange(1000, 5000);
@@ -651,12 +658,25 @@ function updateNpcs(
       return;
     }
 
+    if (!isNpcNearAnyPlayer(npc, players, getNpcInterestRadius(npc))) {
+      npc.animation = "idle";
+      return;
+    }
+
     const canWander = npc.role === "wanderer" || npc.role === "guard" || npc.role === "critter" || npc.role === "beast";
     const canPace = npc.role === "quest_giver" || npc.role === "merchant";
     const shouldPickTarget = now >= npc.nextDecisionAt
       || Math.hypot(npc.targetX - npc.x, npc.targetZ - npc.z) < 0.35;
 
     if (shouldPickTarget) {
+      if (shouldNpcIdle(npc)) {
+        npc.targetX = npc.x;
+        npc.targetZ = npc.z;
+        npc.animation = "idle";
+        npc.nextDecisionAt = now + getNpcIdleDurationMs(npc);
+        return;
+      }
+
       if (canWander || (canPace && Math.random() < 0.35)) {
         const target = getNpcWanderTarget(npc);
         npc.targetX = target.x;
@@ -678,10 +698,17 @@ function updateNpcs(
 
     const speed = getNpcMoveSpeed(npc);
     const step = Math.min(distance, speed * delta);
-    npc.x = clamp(npc.x + (dx / distance) * step, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
-    npc.z = clamp(npc.z + (dz / distance) * step, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+    const previousX = npc.x;
+    const previousZ = npc.z;
+    const nextPosition = resolveWorldCollision(
+      npc.x + (dx / distance) * step,
+      npc.z + (dz / distance) * step,
+      getNpcCollisionRadius(npc),
+    );
+    npc.x = nextPosition.x;
+    npc.z = nextPosition.z;
     npc.yaw = Math.atan2(dx, dz);
-    npc.animation = "walk";
+    npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "walk" : "idle";
   });
 }
 
@@ -763,10 +790,17 @@ function moveNpcToward(npc: NpcState, x: number, z: number, delta: number, speed
   }
 
   const step = Math.min(distance, speed * delta);
-  npc.x = clamp(npc.x + (dx / distance) * step, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
-  npc.z = clamp(npc.z + (dz / distance) * step, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+  const previousX = npc.x;
+  const previousZ = npc.z;
+  const nextPosition = resolveWorldCollision(
+    npc.x + (dx / distance) * step,
+    npc.z + (dz / distance) * step,
+    getNpcCollisionRadius(npc),
+  );
+  npc.x = nextPosition.x;
+  npc.z = nextPosition.z;
   npc.yaw = Math.atan2(dx, dz);
-  npc.animation = "run";
+  npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "run" : "idle";
 }
 
 function distanceToHome(npc: NpcState, point: { x: number; z: number }) {
@@ -777,8 +811,11 @@ function getNpcWanderTarget(npc: NpcState) {
   const angle = Math.random() * Math.PI * 2;
   const radius = Math.sqrt(Math.random()) * npc.leashRadius;
   return {
-    x: clamp(npc.homeX + Math.cos(angle) * radius, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX),
-    z: clamp(npc.homeZ + Math.sin(angle) * radius, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ),
+    ...resolveWorldCollision(
+      npc.homeX + Math.cos(angle) * radius,
+      npc.homeZ + Math.sin(angle) * radius,
+      getNpcCollisionRadius(npc),
+    ),
   };
 }
 
@@ -788,6 +825,43 @@ function getNpcMoveSpeed(npc: NpcState) {
   if (npc.model === "hog") return 2.0;
   if (npc.role === "beast") return 2.2;
   return 1.85;
+}
+
+function getNpcCollisionRadius(npc: NpcState) {
+  if (npc.model === "rabbit") return 0.36;
+  if (npc.model === "hog") return 0.74;
+  if (npc.model === "deer") return 0.62;
+  return PLAYER.radius;
+}
+
+function getNpcInterestRadius(npc: NpcState) {
+  if (npc.role === "critter" || npc.role === "beast") return 34;
+  if (npc.role === "wanderer" || npc.role === "guard") return 42;
+  return 28;
+}
+
+function shouldNpcIdle(npc: NpcState) {
+  if (npc.role === "critter") return Math.random() < 0.58;
+  if (npc.role === "beast") return Math.random() < 0.48;
+  if (npc.role === "wanderer" || npc.role === "guard") return Math.random() < 0.38;
+  if (npc.role === "quest_giver" || npc.role === "merchant") return Math.random() < 0.78;
+  return false;
+}
+
+function getNpcIdleDurationMs(npc: NpcState) {
+  if (npc.role === "critter") return randomRange(1600, 4200);
+  if (npc.role === "beast") return randomRange(2200, 6200);
+  if (npc.role === "wanderer" || npc.role === "guard") return randomRange(2600, 7600);
+  return randomRange(5500, 12000);
+}
+
+function isNpcNearAnyPlayer(npc: NpcState, players: MapSchema<PlayerState>, radius: number) {
+  let isNear = false;
+  players.forEach((player) => {
+    if (isNear || player.health <= 0) return;
+    isNear = Math.hypot(player.x - npc.x, player.z - npc.z) <= radius;
+  });
+  return isNear;
 }
 
 function normalizeCombatActionId(actionId: unknown): CombatActionId | null {

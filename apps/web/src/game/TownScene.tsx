@@ -7,6 +7,7 @@ import {
   PLAYER,
   PLAZA_BOUNDS,
   isAttackableNpcRole,
+  resolveWorldCollision,
   type ClientInput,
   type CombatActionId,
   type CombatEvent,
@@ -2326,8 +2327,9 @@ function updateLocalVisualPlayer(
     visual.z += move.z * speed * delta;
   }
 
-  visual.x = clamp(visual.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
-  visual.z = clamp(visual.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+  const resolvedPosition = resolveWorldCollision(visual.x, visual.z, PLAYER.radius);
+  visual.x = resolvedPosition.x;
+  visual.z = resolvedPosition.z;
   visual.yaw = yaw;
 
   const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
