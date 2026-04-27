@@ -121,7 +121,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   }), [identity.avatarSeed, identity.name, localPlayer?.avatarSeed, localPlayer?.name]);
   const selectedTargetUnit = useMemo(
     () => getSelectedTargetUnit(selectedTarget, room.players, room.npcs),
-    [room.npcs, room.players, selectedTarget],
+    [room.npcs, room.players, room.snapshotRevision, selectedTarget],
   );
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;

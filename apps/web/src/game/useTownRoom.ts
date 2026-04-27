@@ -29,18 +29,52 @@ type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests" | "inventory"> 
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
 };
+type RuntimePlayerCollection = {
+  forEach(callback: (player: RuntimePlayer, id: string) => void): void;
+};
+type RuntimeNpcCollection = {
+  forEach(callback: (npc: NpcSnapshot, id: string) => void): void;
+};
+
+const SNAPSHOT_RENDER_INTERVAL_MS = 125;
 
 export function useTownRoom(identity: JoinOptions) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [players, setPlayers] = useState<Map<string, PlayerSnapshot>>(new Map());
-  const [npcs, setNpcs] = useState<Map<string, NpcSnapshot>>(new Map());
+  const [snapshotRevision, setSnapshotRevision] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
   const [questOffer, setQuestOffer] = useState<QuestOffer | null>(null);
   const [lootWindow, setLootWindow] = useState<LootWindow | null>(null);
   const roomRef = useRef<Room | null>(null);
+  const playersRef = useRef(new Map<string, PlayerSnapshot>());
+  const npcsRef = useRef(new Map<string, NpcSnapshot>());
+  const lastSnapshotRenderAtRef = useRef(0);
+  const pendingSnapshotRenderRef = useRef<number | null>(null);
+
+  const requestSnapshotRender = useCallback((force = false) => {
+    const pending = pendingSnapshotRenderRef.current;
+    if (force && pending !== null) {
+      window.clearTimeout(pending);
+      pendingSnapshotRenderRef.current = null;
+    }
+
+    const now = performance.now();
+    const elapsed = now - lastSnapshotRenderAtRef.current;
+    if (force || elapsed >= SNAPSHOT_RENDER_INTERVAL_MS) {
+      lastSnapshotRenderAtRef.current = now;
+      setSnapshotRevision((revision) => revision + 1);
+      return;
+    }
+
+    if (pending !== null) return;
+    pendingSnapshotRenderRef.current = window.setTimeout(() => {
+      pendingSnapshotRenderRef.current = null;
+      lastSnapshotRenderAtRef.current = performance.now();
+      setSnapshotRevision((revision) => revision + 1);
+    }, SNAPSHOT_RENDER_INTERVAL_MS - elapsed);
+  }, []);
 
   const serverUrl = useMemo(() => {
     if (import.meta.env.VITE_SERVER_URL) return String(import.meta.env.VITE_SERVER_URL);
@@ -48,10 +82,20 @@ export function useTownRoom(identity: JoinOptions) {
     return `${protocol}://${window.location.hostname}:2567`;
   }, []);
 
+  useEffect(() => () => {
+    if (pendingSnapshotRenderRef.current !== null) {
+      window.clearTimeout(pendingSnapshotRenderRef.current);
+      pendingSnapshotRenderRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     const client = new Client(serverUrl);
 
+    playersRef.current.clear();
+    npcsRef.current.clear();
+    requestSnapshotRender(true);
     setStatus("connecting");
     setError(null);
 
@@ -67,65 +111,9 @@ export function useTownRoom(identity: JoinOptions) {
         setStatus("connected");
 
         room.onStateChange((state) => {
-          const next = new Map<string, PlayerSnapshot>();
-          state.players.forEach((player: RuntimePlayer, id: string) => {
-            next.set(id, {
-              sessionId: id,
-              name: player.name,
-              identityType: player.identityType,
-              walletAddress: player.walletAddress,
-              avatarSeed: player.avatarSeed,
-              health: player.health,
-              maxHealth: player.maxHealth,
-              healthRegenPer5: player.healthRegenPer5,
-              mana: player.mana,
-              maxMana: player.maxMana,
-              manaRegenPer5: player.manaRegenPer5,
-              x: player.x,
-              y: player.y,
-              z: player.z,
-              yaw: player.yaw,
-              animation: player.animation,
-              lastSeq: player.lastSeq,
-              attackReadyAt: player.attackReadyAt,
-              shootReadyAt: player.shootReadyAt,
-              fireblastReadyAt: player.fireblastReadyAt,
-              castingAction: player.castingAction,
-              castStartedAt: player.castStartedAt,
-              castEndsAt: player.castEndsAt,
-              lastCastAt: player.lastCastAt,
-              lastDamagedAt: player.lastDamagedAt,
-              quests: snapshotQuests(player.quests),
-              inventory: snapshotInventory(player.inventory),
-            });
-          });
-          setPlayers(next);
-
-          const nextNpcs = new Map<string, NpcSnapshot>();
-          state.npcs?.forEach((npc: NpcSnapshot, id: string) => {
-            nextNpcs.set(id, {
-              id,
-              name: npc.name,
-              role: npc.role,
-              model: npc.model,
-              avatarSeed: npc.avatarSeed,
-              health: npc.health,
-              maxHealth: npc.maxHealth,
-              isImmortal: npc.isImmortal,
-              x: npc.x,
-              y: npc.y,
-              z: npc.z,
-              yaw: npc.yaw,
-              animation: npc.animation,
-              dialogue: npc.dialogue,
-              questId: npc.questId,
-              defeatedAt: npc.defeatedAt,
-              despawnAt: npc.despawnAt,
-              aggroTargetId: npc.aggroTargetId,
-              hasLoot: npc.hasLoot,
-            });
-          });
-          setNpcs(nextNpcs);
+          const playersChanged = syncPlayerSnapshots(playersRef.current, state.players);
+          const npcsChanged = syncNpcSnapshots(npcsRef.current, state.npcs);
+          requestSnapshotRender(playersChanged || npcsChanged);
         });
 
         room.onMessage("chat", (message: ChatMessage) => {
@@ -159,7 +147,12 @@ export function useTownRoom(identity: JoinOptions) {
         });
 
         room.onLeave(() => {
-          if (!disposed) setStatus("closed");
+          if (!disposed) {
+            playersRef.current.clear();
+            npcsRef.current.clear();
+            requestSnapshotRender(true);
+            setStatus("closed");
+          }
         });
       })
       .catch((err: unknown) => {
@@ -174,22 +167,22 @@ export function useTownRoom(identity: JoinOptions) {
       roomRef.current = null;
       if (room) void room.leave();
     };
-  }, [identity, serverUrl]);
+  }, [identity, requestSnapshotRender, serverUrl]);
 
   useEffect(() => {
     if (!questOffer || !sessionId) return;
 
-    const localPlayer = players.get(sessionId);
+    const localPlayer = playersRef.current.get(sessionId);
     if (localPlayer?.quests.some((quest) => quest.id === questOffer.questId)) {
       setQuestOffer(null);
     }
-  }, [players, questOffer, sessionId]);
+  }, [questOffer, sessionId, snapshotRevision]);
 
   useEffect(() => {
     if (!lootWindow) return;
-    const npc = npcs.get(lootWindow.npcId);
+    const npc = npcsRef.current.get(lootWindow.npcId);
     if (!npc?.hasLoot) setLootWindow(null);
-  }, [lootWindow, npcs]);
+  }, [lootWindow, snapshotRevision]);
 
   const sendInput = useCallback((input: ClientInput) => {
     roomRef.current?.send("input", input);
@@ -232,8 +225,9 @@ export function useTownRoom(identity: JoinOptions) {
     status,
     error,
     sessionId,
-    players,
-    npcs,
+    players: playersRef.current,
+    npcs: npcsRef.current,
+    snapshotRevision,
     chat,
     combatEvents,
     questOffer,
@@ -248,6 +242,168 @@ export function useTownRoom(identity: JoinOptions) {
     closeLootWindow,
     sendRespawn,
   };
+}
+
+function syncPlayerSnapshots(target: Map<string, PlayerSnapshot>, source: RuntimePlayerCollection) {
+  const seen = new Set<string>();
+  let membershipChanged = false;
+
+  source.forEach((player, id) => {
+    seen.add(id);
+    const existing = target.get(id);
+    if (existing) {
+      updatePlayerSnapshot(existing, player, id);
+      return;
+    }
+
+    target.set(id, createPlayerSnapshot(player, id));
+    membershipChanged = true;
+  });
+
+  return deleteMissingSnapshots(target, seen) || membershipChanged;
+}
+
+function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot {
+  return {
+    sessionId: id,
+    name: player.name,
+    identityType: player.identityType,
+    walletAddress: player.walletAddress,
+    avatarSeed: player.avatarSeed,
+    health: player.health,
+    maxHealth: player.maxHealth,
+    healthRegenPer5: player.healthRegenPer5,
+    mana: player.mana,
+    maxMana: player.maxMana,
+    manaRegenPer5: player.manaRegenPer5,
+    x: player.x,
+    y: player.y,
+    z: player.z,
+    yaw: player.yaw,
+    animation: player.animation,
+    lastSeq: player.lastSeq,
+    attackReadyAt: player.attackReadyAt,
+    shootReadyAt: player.shootReadyAt,
+    fireblastReadyAt: player.fireblastReadyAt,
+    castingAction: player.castingAction,
+    castStartedAt: player.castStartedAt,
+    castEndsAt: player.castEndsAt,
+    lastCastAt: player.lastCastAt,
+    lastDamagedAt: player.lastDamagedAt,
+    quests: snapshotQuests(player.quests),
+    inventory: snapshotInventory(player.inventory),
+  };
+}
+
+function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id: string) {
+  target.sessionId = id;
+  target.name = player.name;
+  target.identityType = player.identityType;
+  target.walletAddress = player.walletAddress;
+  target.avatarSeed = player.avatarSeed;
+  target.health = player.health;
+  target.maxHealth = player.maxHealth;
+  target.healthRegenPer5 = player.healthRegenPer5;
+  target.mana = player.mana;
+  target.maxMana = player.maxMana;
+  target.manaRegenPer5 = player.manaRegenPer5;
+  target.x = player.x;
+  target.y = player.y;
+  target.z = player.z;
+  target.yaw = player.yaw;
+  target.animation = player.animation;
+  target.lastSeq = player.lastSeq;
+  target.attackReadyAt = player.attackReadyAt;
+  target.shootReadyAt = player.shootReadyAt;
+  target.fireblastReadyAt = player.fireblastReadyAt;
+  target.castingAction = player.castingAction;
+  target.castStartedAt = player.castStartedAt;
+  target.castEndsAt = player.castEndsAt;
+  target.lastCastAt = player.lastCastAt;
+  target.lastDamagedAt = player.lastDamagedAt;
+  target.quests = snapshotQuests(player.quests);
+  target.inventory = snapshotInventory(player.inventory);
+}
+
+function syncNpcSnapshots(target: Map<string, NpcSnapshot>, source: RuntimeNpcCollection | undefined) {
+  if (!source) {
+    const hadNpcs = target.size > 0;
+    target.clear();
+    return hadNpcs;
+  }
+
+  const seen = new Set<string>();
+  let membershipChanged = false;
+
+  source.forEach((npc, id) => {
+    seen.add(id);
+    const existing = target.get(id);
+    if (existing) {
+      updateNpcSnapshot(existing, npc, id);
+      return;
+    }
+
+    target.set(id, createNpcSnapshot(npc, id));
+    membershipChanged = true;
+  });
+
+  return deleteMissingSnapshots(target, seen) || membershipChanged;
+}
+
+function createNpcSnapshot(npc: NpcSnapshot, id: string): NpcSnapshot {
+  return {
+    id,
+    name: npc.name,
+    role: npc.role,
+    model: npc.model,
+    avatarSeed: npc.avatarSeed,
+    health: npc.health,
+    maxHealth: npc.maxHealth,
+    isImmortal: npc.isImmortal,
+    x: npc.x,
+    y: npc.y,
+    z: npc.z,
+    yaw: npc.yaw,
+    animation: npc.animation,
+    dialogue: npc.dialogue,
+    questId: npc.questId,
+    defeatedAt: npc.defeatedAt,
+    despawnAt: npc.despawnAt,
+    aggroTargetId: npc.aggroTargetId,
+    hasLoot: npc.hasLoot,
+  };
+}
+
+function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
+  target.id = id;
+  target.name = npc.name;
+  target.role = npc.role;
+  target.model = npc.model;
+  target.avatarSeed = npc.avatarSeed;
+  target.health = npc.health;
+  target.maxHealth = npc.maxHealth;
+  target.isImmortal = npc.isImmortal;
+  target.x = npc.x;
+  target.y = npc.y;
+  target.z = npc.z;
+  target.yaw = npc.yaw;
+  target.animation = npc.animation;
+  target.dialogue = npc.dialogue;
+  target.questId = npc.questId;
+  target.defeatedAt = npc.defeatedAt;
+  target.despawnAt = npc.despawnAt;
+  target.aggroTargetId = npc.aggroTargetId;
+  target.hasLoot = npc.hasLoot;
+}
+
+function deleteMissingSnapshots<T>(target: Map<string, T>, seen: Set<string>) {
+  let changed = false;
+  for (const id of Array.from(target.keys())) {
+    if (seen.has(id)) continue;
+    target.delete(id);
+    changed = true;
+  }
+  return changed;
 }
 
 function snapshotQuests(quests: RuntimeQuestCollection | undefined): QuestSnapshot[] {

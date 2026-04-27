@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Billboard, Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -329,6 +329,46 @@ export function TownScene({
 }
 
 type Vec3Tuple = [number, number, number];
+type TreeSpec = {
+  position: Vec3Tuple;
+  scale: number;
+};
+type TreeInstance = {
+  matrix: THREE.Matrix4;
+  color?: THREE.Color;
+};
+
+const TREE_LEAF_COLORS = ["#3f7434", "#4e8a3b", "#5f9e45", "#77aa50"] as const;
+const TREE_ROOT_COLOR = new THREE.Color("#6b4227");
+const TOWN_TREES: TreeSpec[] = [
+  [-31, 0, -18, 1.2],
+  [-27, 0, -7, 0.9],
+  [-30, 0, 15, 1.05],
+  [-41, 0, 30, 0.98],
+  [-12, 0, 25, 0.95],
+  [12, 0, 25, 1.05],
+  [41, 0, 30, 0.98],
+  [30, 0, 16, 0.95],
+  [29, 0, -17, 1.15],
+  [42, 0, -4, 0.9],
+  [-42, 0, -4, 0.9],
+  [23, 0, -26, 0.85],
+  [-23, 0, -26, 0.9],
+  [35, 0, -39, 0.95],
+  [-35, 0, -39, 0.95],
+  [-67, 0, 51, 1.05],
+  [-65, 0, 68, 0.9],
+  [-38, 0, 72, 1.1],
+  [-22, 0, 60, 0.86],
+  [58, 0, 48, 0.95],
+  [66, 0, -36, 1.04],
+  [-66, 0, -42, 0.96],
+].map(([x, y, z, scale]) => ({ position: [x, y, z], scale }));
+const BACKDROP_TREES: TreeSpec[] = [-82, -72, -62, -54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54, 64, 74, 84]
+  .map((x, index) => ({
+    position: [x, 0, -68 - (index % 2) * 5] as Vec3Tuple,
+    scale: 0.95 + (index % 3) * 0.12,
+  }));
 
 function CombatFeedbackLayer({
   combatEvents,
@@ -1164,8 +1204,6 @@ function WorldBackdrop({
   barkTexture: THREE.Texture;
   leafTexture: THREE.Texture;
 }) {
-  const treeline = [-82, -72, -62, -54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54, 64, 74, 84];
-
   return (
     <group>
       <mesh position={[-58, 4.1, -82]} rotation-y={0.5} scale={[1.72, 0.9, 0.96]}>
@@ -1180,15 +1218,7 @@ function WorldBackdrop({
         <coneGeometry args={[8.2, 15, 4]} />
         <meshBasicMaterial color="#888c78" />
       </mesh>
-      {treeline.map((x, index) => (
-        <TownTree
-          key={index}
-          position={[x, 0, -68 - (index % 2) * 5]}
-          scale={0.95 + (index % 3) * 0.12}
-          barkTexture={barkTexture}
-          leafTexture={leafTexture}
-        />
-      ))}
+      <InstancedTrees trees={BACKDROP_TREES} barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );
 }
@@ -1619,138 +1649,157 @@ function TreeCluster({
   barkTexture: THREE.Texture;
   leafTexture: THREE.Texture;
 }) {
-  const trees: Array<[number, number, number, number]> = [
-    [-31, 0, -18, 1.2],
-    [-27, 0, -7, 0.9],
-    [-30, 0, 15, 1.05],
-    [-41, 0, 30, 0.98],
-    [-12, 0, 25, 0.95],
-    [12, 0, 25, 1.05],
-    [41, 0, 30, 0.98],
-    [30, 0, 16, 0.95],
-    [29, 0, -17, 1.15],
-    [42, 0, -4, 0.9],
-    [-42, 0, -4, 0.9],
-    [23, 0, -26, 0.85],
-    [-23, 0, -26, 0.9],
-    [35, 0, -39, 0.95],
-    [-35, 0, -39, 0.95],
-    [-67, 0, 51, 1.05],
-    [-65, 0, 68, 0.9],
-    [-38, 0, 72, 1.1],
-    [-22, 0, 60, 0.86],
-    [58, 0, 48, 0.95],
-    [66, 0, -36, 1.04],
-    [-66, 0, -42, 0.96],
-  ];
-
-  return (
-    <group>
-      {trees.map(([x, y, z, scale], index) => (
-        <TownTree
-          key={index}
-          position={[x, y, z]}
-          scale={scale}
-          barkTexture={barkTexture}
-          leafTexture={leafTexture}
-        />
-      ))}
-    </group>
-  );
+  return <InstancedTrees trees={TOWN_TREES} barkTexture={barkTexture} leafTexture={leafTexture} />;
 }
 
-function TownTree({
-  position,
-  scale = 1,
+function InstancedTrees({
+  trees,
   barkTexture,
   leafTexture,
 }: {
-  position: [number, number, number];
-  scale?: number;
+  trees: TreeSpec[];
   barkTexture: THREE.Texture;
   leafTexture: THREE.Texture;
 }) {
-  const variant = treeVariant(position[0], position[2]);
-  const leafColors = ["#3f7434", "#4e8a3b", "#5f9e45", "#77aa50"];
-  const barkColor = variant > 0.5 ? "#7b4c2f" : "#895737";
-  const bend = (variant - 0.5) * 0.16;
-  const canopyHeight = 2.45 + variant * 0.35;
+  const shadowRef = useRef<THREE.InstancedMesh>(null);
+  const trunkRef = useRef<THREE.InstancedMesh>(null);
+  const rootRef = useRef<THREE.InstancedMesh>(null);
+  const branchRef = useRef<THREE.InstancedMesh>(null);
+  const leafRef = useRef<THREE.InstancedMesh>(null);
+  const tuftRef = useRef<THREE.InstancedMesh>(null);
+  const instances = useMemo(() => buildTreeInstances(trees), [trees]);
+  const geometries = useMemo(() => ({
+    shadow: new THREE.CircleGeometry(1.38, 28),
+    trunk: new THREE.CylinderGeometry(0.2, 0.34, 1.8, 12),
+    root: new THREE.CylinderGeometry(0.06, 0.12, 1, 8),
+    branch: new THREE.CylinderGeometry(0.05, 0.12, 1, 8),
+    leaf: new THREE.SphereGeometry(1, 18, 12),
+    tuft: new THREE.ConeGeometry(0.46, 0.82, 7),
+  }), []);
+  const materials = useMemo(() => ({
+    shadow: new THREE.MeshBasicMaterial({ color: "#1c2615", transparent: true, opacity: 0.22, depthWrite: false }),
+    bark: new THREE.MeshStandardMaterial({ map: barkTexture, color: "#ffffff", roughness: 0.96 }),
+    root: new THREE.MeshStandardMaterial({ map: barkTexture, color: TREE_ROOT_COLOR, roughness: 1 }),
+    leaf: new THREE.MeshStandardMaterial({ map: leafTexture, color: "#ffffff", roughness: 0.88, metalness: 0, flatShading: true }),
+    tuft: new THREE.MeshStandardMaterial({ map: leafTexture, color: "#ffffff", roughness: 0.9, flatShading: true }),
+  }), [barkTexture, leafTexture]);
+
+  useLayoutEffect(() => {
+    applyTreeInstances(shadowRef.current, instances.shadow);
+    applyTreeInstances(trunkRef.current, instances.trunks);
+    applyTreeInstances(rootRef.current, instances.roots);
+    applyTreeInstances(branchRef.current, instances.branches);
+    applyTreeInstances(leafRef.current, instances.leaves);
+    applyTreeInstances(tuftRef.current, instances.tufts);
+  }, [instances]);
 
   return (
-    <group position={position} scale={scale}>
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.018, 0]}>
-        <circleGeometry args={[1.38, 28]} />
-        <meshBasicMaterial color="#1c2615" transparent opacity={0.22} depthWrite={false} />
-      </mesh>
-
-      <mesh position={[0, 0.9, 0]} rotation-z={bend}>
-        <cylinderGeometry args={[0.2, 0.34, 1.8, 12]} />
-        <meshStandardMaterial map={barkTexture} color={barkColor} roughness={0.96} />
-      </mesh>
-
-      {[
-        [-0.23, 0.18, 0.2, 0.62, 1.0],
-        [0.28, 0.2, -0.18, -0.58, 0.85],
-        [0.05, 0.13, -0.36, 0.2, 0.65],
-      ].map(([x, y, z, rot, length], index) => (
-        <mesh key={`root-${index}`} position={[x, y, z]} rotation-z={rot} rotation-y={index * 1.8}>
-          <cylinderGeometry args={[0.06, 0.12, length, 8]} />
-          <meshStandardMaterial map={barkTexture} color="#6b4227" roughness={1} />
-        </mesh>
-      ))}
-
-      {[
-        [-0.42, 1.45, 0.14, 0.7, 0.82, 0.1],
-        [0.44, 1.68, -0.08, -0.72, 0.92, 1.5],
-        [0.08, 1.86, -0.44, 0.54, 0.7, 2.85],
-      ].map(([x, y, z, rotZ, length, rotY], index) => (
-        <mesh key={`branch-${index}`} position={[x, y, z]} rotation-y={rotY} rotation-z={rotZ}>
-          <cylinderGeometry args={[0.05, 0.12, length, 8]} />
-          <meshStandardMaterial map={barkTexture} color={barkColor} roughness={0.96} />
-        </mesh>
-      ))}
-
-      {[
-        [0, canopyHeight, 0, 1.28, 0.98, 1.18, 0],
-        [-0.58, canopyHeight - 0.22, 0.12, 0.9, 0.72, 0.82, 1],
-        [0.55, canopyHeight - 0.08, -0.06, 0.92, 0.78, 0.86, 2],
-        [0.05, canopyHeight + 0.45, -0.05, 0.9, 0.75, 0.88, 3],
-        [0.08, canopyHeight - 0.36, 0.55, 0.78, 0.64, 0.72, 1],
-      ].map(([x, y, z, sx, sy, sz, colorIndex], index) => (
-        <mesh
-          key={`leaf-${index}`}
-          position={[x, y, z]}
-          scale={[sx, sy, sz]}
-          rotation-y={variant * Math.PI + index * 0.7}
-        >
-          <sphereGeometry args={[1, 18, 12]} />
-          <meshStandardMaterial
-            map={leafTexture}
-            color={leafColors[colorIndex]}
-            roughness={0.88}
-            metalness={0}
-            flatShading
-          />
-        </mesh>
-      ))}
-
-      {[
-        [-0.75, canopyHeight - 0.1, 0.45, 0.08],
-        [0.82, canopyHeight + 0.1, 0.2, -0.12],
-        [0.16, canopyHeight + 0.75, -0.48, 0.16],
-      ].map(([x, y, z, rot], index) => (
-        <mesh key={`leaf-tuft-${index}`} position={[x, y, z]} rotation-z={rot} rotation-y={index * 1.35}>
-          <coneGeometry args={[0.46, 0.82, 7]} />
-          <meshStandardMaterial
-            map={leafTexture}
-            color={leafColors[(index + 2) % leafColors.length]}
-            roughness={0.9}
-            flatShading
-          />
-        </mesh>
-      ))}
-    </group>
+    <>
+      <instancedMesh ref={shadowRef} args={[geometries.shadow, materials.shadow, instances.shadow.length]} />
+      <instancedMesh ref={trunkRef} args={[geometries.trunk, materials.bark, instances.trunks.length]} />
+      <instancedMesh ref={rootRef} args={[geometries.root, materials.root, instances.roots.length]} />
+      <instancedMesh ref={branchRef} args={[geometries.branch, materials.bark, instances.branches.length]} />
+      <instancedMesh ref={leafRef} args={[geometries.leaf, materials.leaf, instances.leaves.length]} />
+      <instancedMesh ref={tuftRef} args={[geometries.tuft, materials.tuft, instances.tufts.length]} />
+    </>
   );
+}
+
+function buildTreeInstances(trees: TreeSpec[]) {
+  const shadow: TreeInstance[] = [];
+  const trunks: TreeInstance[] = [];
+  const roots: TreeInstance[] = [];
+  const branches: TreeInstance[] = [];
+  const leaves: TreeInstance[] = [];
+  const tufts: TreeInstance[] = [];
+
+  for (const tree of trees) {
+    const [x, y, z] = tree.position;
+    const variant = treeVariant(x, z);
+    const barkColor = new THREE.Color(variant > 0.5 ? "#7b4c2f" : "#895737");
+    const bend = (variant - 0.5) * 0.16;
+    const canopyHeight = 2.45 + variant * 0.35;
+    const treeMatrix = composeTreeMatrix(tree.position, [0, 0, 0], [tree.scale, tree.scale, tree.scale]);
+
+    shadow.push({ matrix: composeTreeMatrix([0, 0.018, 0], [-Math.PI / 2, 0, 0], [1, 1, 1], treeMatrix) });
+    trunks.push({ matrix: composeTreeMatrix([0, 0.9, 0], [0, 0, bend], [1, 1, 1], treeMatrix), color: barkColor });
+
+    [
+      [-0.23, 0.18, 0.2, 0.62, 1.0],
+      [0.28, 0.2, -0.18, -0.58, 0.85],
+      [0.05, 0.13, -0.36, 0.2, 0.65],
+    ].forEach(([rx, ry, rz, rot, length], index) => {
+      roots.push({
+        matrix: composeTreeMatrix([rx, ry, rz], [0, index * 1.8, rot], [1, length, 1], treeMatrix),
+      });
+    });
+
+    [
+      [-0.42, 1.45, 0.14, 0.7, 0.82, 0.1],
+      [0.44, 1.68, -0.08, -0.72, 0.92, 1.5],
+      [0.08, 1.86, -0.44, 0.54, 0.7, 2.85],
+    ].forEach(([bx, by, bz, rotZ, length, rotY]) => {
+      branches.push({
+        matrix: composeTreeMatrix([bx, by, bz], [0, rotY, rotZ], [1, length, 1], treeMatrix),
+        color: barkColor,
+      });
+    });
+
+    [
+      [0, canopyHeight, 0, 1.28, 0.98, 1.18, 0],
+      [-0.58, canopyHeight - 0.22, 0.12, 0.9, 0.72, 0.82, 1],
+      [0.55, canopyHeight - 0.08, -0.06, 0.92, 0.78, 0.86, 2],
+      [0.05, canopyHeight + 0.45, -0.05, 0.9, 0.75, 0.88, 3],
+      [0.08, canopyHeight - 0.36, 0.55, 0.78, 0.64, 0.72, 1],
+    ].forEach(([lx, ly, lz, sx, sy, sz, colorIndex], index) => {
+      leaves.push({
+        matrix: composeTreeMatrix([lx, ly, lz], [0, variant * Math.PI + index * 0.7, 0], [sx, sy, sz], treeMatrix),
+        color: new THREE.Color(TREE_LEAF_COLORS[colorIndex]),
+      });
+    });
+
+    [
+      [-0.75, canopyHeight - 0.1, 0.45, 0.08],
+      [0.82, canopyHeight + 0.1, 0.2, -0.12],
+      [0.16, canopyHeight + 0.75, -0.48, 0.16],
+    ].forEach(([tx, ty, tz, rot], index) => {
+      tufts.push({
+        matrix: composeTreeMatrix([tx, ty, tz], [0, index * 1.35, rot], [1, 1, 1], treeMatrix),
+        color: new THREE.Color(TREE_LEAF_COLORS[(index + 2) % TREE_LEAF_COLORS.length]),
+      });
+    });
+  }
+
+  return { shadow, trunks, roots, branches, leaves, tufts };
+}
+
+function composeTreeMatrix(
+  position: Vec3Tuple,
+  rotation: Vec3Tuple,
+  scale: Vec3Tuple,
+  parent?: THREE.Matrix4,
+) {
+  const matrix = new THREE.Matrix4().compose(
+    new THREE.Vector3(...position),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)),
+    new THREE.Vector3(...scale),
+  );
+
+  return parent ? parent.clone().multiply(matrix) : matrix;
+}
+
+function applyTreeInstances(mesh: THREE.InstancedMesh | null, instances: TreeInstance[]) {
+  if (!mesh) return;
+
+  instances.forEach((instance, index) => {
+    mesh.setMatrixAt(index, instance.matrix);
+    if (instance.color) mesh.setColorAt(index, instance.color);
+  });
+
+  mesh.count = instances.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
 }
 
 function Fountain({
