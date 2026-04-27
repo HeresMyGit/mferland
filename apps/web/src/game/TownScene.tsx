@@ -354,6 +354,18 @@ type TreeInstance = {
   matrix: THREE.Matrix4;
   color?: THREE.Color;
 };
+type GroundRectDecalSpec = {
+  position: Vec3Tuple;
+  size: [number, number];
+  rotation?: number;
+  color?: string;
+};
+type GrassTuftSpec = {
+  position: Vec3Tuple;
+  scale: number;
+  rotation: number;
+  color: string;
+};
 type BuildingTextureKey = "stone" | "roof" | "wall" | "accent" | "solid";
 type BuildingModuleSpec =
   | {
@@ -474,6 +486,63 @@ const TOWN_BUILDINGS: TownBuildingPlacement[] = [
   { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565" },
   { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35" },
 ];
+const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
+  { position: [-4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },
+  { position: [4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },
+  { position: [-4.65, 0.024, 35], size: [0.74, 40], color: "#5f6f37" },
+  { position: [4.65, 0.024, 35], size: [0.74, 40], color: "#5f6f37" },
+  { position: [-35, 0.024, -4.1], size: [32, 0.7], color: "#5f6f37" },
+  { position: [-35, 0.024, 4.1], size: [32, 0.7], color: "#5f6f37" },
+  { position: [35, 0.024, -4.1], size: [32, 0.7], color: "#5f6f37" },
+  { position: [35, 0.024, 4.1], size: [32, 0.7], color: "#5f6f37" },
+  { position: [-26, 0.024, -37.4], size: [30, 0.66], color: "#78623f" },
+  { position: [26, 0.024, -37.4], size: [30, 0.66], color: "#78623f" },
+  { position: [-26, 0.024, 32.35], size: [30, 0.66], color: "#78623f" },
+  { position: [26, 0.024, 32.35], size: [30, 0.66], color: "#78623f" },
+  { position: [-35.9, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
+  { position: [-28.1, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
+  { position: [28.1, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
+  { position: [35.9, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
+  { position: [-57, 0.026, 58.2], size: [20, 0.78], color: "#6e5539" },
+  { position: [-57, 0.026, 63.8], size: [20, 0.78], color: "#6e5539" },
+];
+const PLAZA_CRACK_DECALS: GroundRectDecalSpec[] = [
+  { position: [-9.2, 0.128, -3.8], size: [4.8, 0.07], rotation: 0.28, color: "#3f3a31" },
+  { position: [-6.7, 0.129, -2.2], size: [2.2, 0.055], rotation: -0.56, color: "#4d453a" },
+  { position: [6.8, 0.128, -5.8], size: [5.6, 0.065], rotation: -0.18, color: "#454036" },
+  { position: [9.8, 0.129, -3.7], size: [2.4, 0.052], rotation: 0.72, color: "#4d453a" },
+  { position: [-13.2, 0.128, 6.2], size: [4.3, 0.06], rotation: -0.24, color: "#3f3a31" },
+  { position: [11.4, 0.128, 7.6], size: [4.7, 0.065], rotation: 0.36, color: "#494238" },
+  { position: [2.2, 0.128, 13.8], size: [5.1, 0.055], rotation: -0.42, color: "#4d453a" },
+  { position: [-2.7, 0.128, -13.3], size: [4.4, 0.06], rotation: 0.48, color: "#3f3a31" },
+];
+const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
+  ...TOWN_BUILDINGS.map((building) => {
+    const blueprint = BUILDING_BLUEPRINTS[building.blueprint];
+    return {
+      position: [building.position[0], 0.031, building.position[2]] as Vec3Tuple,
+      size: [blueprint.footprint[0] * 0.68, blueprint.footprint[1] * 0.64] as [number, number],
+      rotation: building.rotation,
+      color: "#1c150d",
+    };
+  }),
+  { position: [0, 0.03, -24], size: [12.8, 4.6], rotation: 0, color: "#17110b" },
+  { position: [-41, 0.03, -36], size: [3.1, 2.5], color: "#17110b" },
+  { position: [41, 0.03, -36], size: [3.1, 2.5], color: "#17110b" },
+  { position: [0, 0.03, 0], size: [7.2, 6.2], color: "#17110b" },
+  { position: [-6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
+  { position: [0, 0.03, 31.4], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
+  { position: [6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
+];
+const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
+  { position: [-6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: 0.08, color: "#765b3b" },
+  { position: [0, 0.032, 32.6], size: [4.5, 2.1], rotation: -0.05, color: "#725738" },
+  { position: [6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: -0.12, color: "#765b3b" },
+  { position: [-52, 0.034, 61], size: [18, 8.5], rotation: -0.18, color: "#563f2b" },
+  { position: [-18, 0.031, 38.6], size: [5.5, 1.7], rotation: 2.82, color: "#69503a" },
+  { position: [18, 0.031, 38.6], size: [5.5, 1.7], rotation: -2.82, color: "#69503a" },
+];
+const GRASS_TUFTS = buildGrassTufts();
 
 function CombatFeedbackLayer({
   combatEvents,
@@ -792,6 +861,7 @@ function TownWorld() {
   const barkTexture = useMemo(() => createBarkTexture(), []);
   const leafTexture = useMemo(() => createLeafTexture(), []);
   const waterTexture = useMemo(() => createWaterTexture(), []);
+  const grassTuftTexture = useMemo(() => createGrassTuftTexture(), []);
 
   useEffect(() => {
     configureTile(grassTexture, 22, 20);
@@ -837,6 +907,7 @@ function TownWorld() {
         <meshBasicMaterial color="#635f55" />
       </mesh>
 
+      <GroundDetailLayer grassTuftTexture={grassTuftTexture} />
       <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} />
       <CastleGate stoneTexture={stoneTexture} />
       {TOWN_BUILDINGS.map((building) => (
@@ -1221,6 +1292,39 @@ function createLeafTexture() {
   }, 2.1, 2.1);
 }
 
+function createGrassTuftTexture() {
+  return createCanvasTexture(64, 64, (context, width, height) => {
+    context.clearRect(0, 0, width, height);
+
+    const blades = [
+      [30, 60, 22, 12, 7],
+      [32, 60, 31, 6, 8],
+      [34, 60, 42, 14, 6],
+      [28, 60, 14, 25, 5],
+      [36, 60, 50, 25, 5],
+    ] as const;
+
+    for (const [baseX, baseY, tipX, tipY, lineWidth] of blades) {
+      const gradient = context.createLinearGradient(baseX, baseY, tipX, tipY);
+      gradient.addColorStop(0, "rgba(41, 93, 38, 0.98)");
+      gradient.addColorStop(0.58, "rgba(85, 149, 58, 0.96)");
+      gradient.addColorStop(1, "rgba(166, 206, 92, 0.74)");
+      context.strokeStyle = gradient;
+      context.lineWidth = lineWidth;
+      context.lineCap = "round";
+      context.beginPath();
+      context.moveTo(baseX, baseY);
+      context.quadraticCurveTo((baseX + tipX) / 2, tipY + 12, tipX, tipY);
+      context.stroke();
+    }
+
+    context.fillStyle = "rgba(30, 68, 28, 0.62)";
+    context.beginPath();
+    context.ellipse(width / 2, 59, 18, 5, 0, 0, Math.PI * 2);
+    context.fill();
+  });
+}
+
 function createWaterTexture() {
   return createCanvasTexture(256, 256, (context, width, height) => {
     const gradient = context.createRadialGradient(width / 2, height / 2, 8, width / 2, height / 2, width / 2);
@@ -1292,6 +1396,75 @@ function fract(value: number) {
   return value - Math.floor(value);
 }
 
+function buildGrassTufts(): GrassTuftSpec[] {
+  const zones = [
+    { center: [-39, -12], size: [17, 32], count: 34 },
+    { center: [39, -12], size: [17, 32], count: 34 },
+    { center: [-39, 26], size: [18, 25], count: 30 },
+    { center: [39, 26], size: [18, 25], count: 30 },
+    { center: [-16, 54], size: [22, 18], count: 28 },
+    { center: [16, 54], size: [22, 18], count: 28 },
+    { center: [-58, 60], size: [22, 20], count: 34 },
+  ] as const;
+
+  return zones.flatMap((zone, zoneIndex) => (
+    Array.from({ length: zone.count }, (_, index) => {
+      const seed = zoneIndex * 101 + index;
+      const x = zone.center[0] + (noise01(seed * 12.41) - 0.5) * zone.size[0];
+      const z = zone.center[1] + (noise01(seed * 7.73) - 0.5) * zone.size[1];
+      const scale = 0.68 + noise01(seed * 3.19) * 0.74;
+      const rotation = noise01(seed * 5.91) * Math.PI * 2;
+      const color = noise01(seed * 2.17) > 0.55 ? "#6da34b" : "#477c37";
+      return { position: [x, 0, z] as Vec3Tuple, scale, rotation, color };
+    })
+  ));
+}
+
+function applyGroundDecalInstances(mesh: THREE.InstancedMesh | null, decals: GroundRectDecalSpec[]) {
+  if (!mesh) return;
+
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  decals.forEach((decal, index) => {
+    dummy.position.set(...decal.position);
+    dummy.rotation.set(-Math.PI / 2, 0, decal.rotation ?? 0);
+    dummy.scale.set(decal.size[0], decal.size[1], 1);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(index, dummy.matrix);
+    mesh.setColorAt(index, color.set(decal.color ?? "#ffffff"));
+  });
+
+  mesh.count = decals.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+}
+
+function applyGrassTuftInstances(mesh: THREE.InstancedMesh | null, tufts: GrassTuftSpec[]) {
+  if (!mesh) return;
+
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  tufts.forEach((tuft, index) => {
+    for (let blade = 0; blade < 2; blade += 1) {
+      const instanceIndex = index * 2 + blade;
+      const height = 0.46 * tuft.scale;
+      const width = 0.22 * tuft.scale;
+      dummy.position.set(tuft.position[0], height * 0.5 + 0.018, tuft.position[2]);
+      dummy.rotation.set(0, tuft.rotation + blade * Math.PI / 2, 0);
+      dummy.scale.set(width, height, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(instanceIndex, dummy.matrix);
+      mesh.setColorAt(instanceIndex, color.set(tuft.color));
+    }
+  });
+
+  mesh.count = tufts.length * 2;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
+}
+
 function RoadStrip({
   position,
   size,
@@ -1322,6 +1495,96 @@ function DirtPath({
       <meshBasicMaterial color="#80613f" transparent opacity={0.78} />
     </mesh>
   );
+}
+
+function GroundDetailLayer({ grassTuftTexture }: { grassTuftTexture: THREE.Texture }) {
+  return (
+    <group>
+      <GroundCircleDecals decals={STATIC_CONTACT_SHADOWS} opacity={0.2} renderOrder={3} />
+      <GroundCircleDecals decals={GROUND_SMUDGE_DECALS} opacity={0.28} renderOrder={4} />
+      <GroundRectDecals decals={ROAD_EDGE_DECALS} opacity={0.3} renderOrder={5} />
+      <GroundRectDecals decals={PLAZA_CRACK_DECALS} opacity={0.34} renderOrder={7} />
+      <InstancedGrassTufts texture={grassTuftTexture} />
+    </group>
+  );
+}
+
+function GroundRectDecals({
+  decals,
+  opacity,
+  renderOrder,
+}: {
+  decals: GroundRectDecalSpec[];
+  opacity: number;
+  renderOrder: number;
+}) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
+  const material = useMemo(
+    () => new THREE.MeshBasicMaterial({
+      color: "#ffffff",
+      depthWrite: false,
+      transparent: true,
+      opacity,
+      vertexColors: true,
+    }),
+    [opacity],
+  );
+
+  useLayoutEffect(() => {
+    applyGroundDecalInstances(meshRef.current, decals);
+  }, [decals]);
+
+  return <instancedMesh ref={meshRef} args={[geometry, material, decals.length]} renderOrder={renderOrder} />;
+}
+
+function GroundCircleDecals({
+  decals,
+  opacity,
+  renderOrder,
+}: {
+  decals: GroundRectDecalSpec[];
+  opacity: number;
+  renderOrder: number;
+}) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.CircleGeometry(1, 32), []);
+  const material = useMemo(
+    () => new THREE.MeshBasicMaterial({
+      color: "#ffffff",
+      depthWrite: false,
+      transparent: true,
+      opacity,
+      vertexColors: true,
+    }),
+    [opacity],
+  );
+
+  useLayoutEffect(() => {
+    applyGroundDecalInstances(meshRef.current, decals);
+  }, [decals]);
+
+  return <instancedMesh ref={meshRef} args={[geometry, material, decals.length]} renderOrder={renderOrder} />;
+}
+
+function InstancedGrassTufts({ texture }: { texture: THREE.Texture }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.PlaneGeometry(1, 1), []);
+  const material = useMemo(
+    () => new THREE.MeshBasicMaterial({
+      map: texture,
+      alphaTest: 0.22,
+      side: THREE.DoubleSide,
+      vertexColors: true,
+    }),
+    [texture],
+  );
+
+  useLayoutEffect(() => {
+    applyGrassTuftInstances(meshRef.current, GRASS_TUFTS);
+  }, []);
+
+  return <instancedMesh ref={meshRef} args={[geometry, material, GRASS_TUFTS.length * 2]} renderOrder={8} />;
 }
 
 function WorldBackdrop({

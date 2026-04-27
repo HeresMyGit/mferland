@@ -27,6 +27,7 @@ type MferAvatarProps = {
   viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
+type ShadowScale = [number, number, number];
 
 type LoadedMferGltf = {
   scene: THREE.Group;
@@ -57,6 +58,13 @@ const animationClipCache = new WeakMap<THREE.AnimationClip, Map<AnimationState, 
 const avatarTemplateCache = new WeakMap<THREE.Group, Map<number, THREE.Group>>();
 const avatarHitGeometry = new THREE.CylinderGeometry(0.72, 0.72, 2.7, 12);
 const invisibleHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+const actorShadowGeometry = new THREE.CircleGeometry(1, 32);
+const actorShadowMaterial = new THREE.MeshBasicMaterial({
+  color: "#171109",
+  transparent: true,
+  opacity: 0.24,
+  depthWrite: false,
+});
 const NAMEPLATE_RENDER_DISTANCE_SQ = 34 * 34;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
@@ -161,6 +169,7 @@ export function MferAvatar({
 
   return (
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
+      <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {isTargeted && <TargetRing color={targetRingColor} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.65} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
@@ -258,6 +267,20 @@ function easeOutCubic(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+export function ActorBlobShadow({ scale = [0.72, 0.44, 1] }: { scale?: ShadowScale }) {
+  return (
+    <mesh
+      geometry={actorShadowGeometry}
+      material={actorShadowMaterial}
+      position={[0, 0.026, 0]}
+      rotation-x={-Math.PI / 2}
+      scale={scale}
+      renderOrder={6}
+      dispose={null}
+    />
+  );
 }
 
 export function TargetRing({ color }: { color: string }) {

@@ -3,7 +3,7 @@ import { Billboard, Text } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getNpcDisposition, type NpcDisposition, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
-import { LootSparkles, QuestMarker, TargetRing, TARGET_LABEL_COLORS, TARGET_RING_COLORS } from "./MferAvatar";
+import { ActorBlobShadow, LootSparkles, QuestMarker, TargetRing, TARGET_LABEL_COLORS, TARGET_RING_COLORS } from "./MferAvatar";
 
 type CreatureAvatarProps = {
   npc: NpcSnapshot;
@@ -89,6 +89,7 @@ export function CreatureAvatar({
   const ringColor = TARGET_RING_COLORS[disposition];
   const label = getCreatureLabel(npc, disposition);
   const hitGeometry = getCreatureHitGeometry(npc.model);
+  const shadowScale = getCreatureShadowScale(npc.model);
   const labelY = npc.model === "rabbit" ? 1.22 : npc.model === "hog" ? 1.55 : 1.86;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
@@ -113,6 +114,7 @@ export function CreatureAvatar({
 
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
+      <ActorBlobShadow scale={shadowScale} />
       {isTargeted && <TargetRing color={ringColor} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
       {showLootSparkles && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
@@ -155,6 +157,12 @@ function getCreatureHitGeometry(model: NpcSnapshot["model"]) {
   if (model === "rabbit") return creatureHitGeometries.rabbit;
   if (model === "hog") return creatureHitGeometries.hog;
   return creatureHitGeometries.deer;
+}
+
+function getCreatureShadowScale(model: NpcSnapshot["model"]): [number, number, number] {
+  if (model === "rabbit") return [0.4, 0.28, 1];
+  if (model === "hog") return [0.88, 0.48, 1];
+  return [0.68, 0.42, 1];
 }
 
 function getCreatureLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
