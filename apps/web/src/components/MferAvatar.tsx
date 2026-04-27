@@ -163,7 +163,6 @@ export function MferAvatar({
       deathAgeRef.current += delta;
       updateDeathPose(poseRef.current, deathAgeRef.current);
     } else {
-      playClip(player.animation);
       mixerRef.current?.update(delta);
     }
 
@@ -304,18 +303,10 @@ export function TargetRing({
   disposition?: NpcDisposition;
   radius?: number;
 }) {
-  const ringRef = useRef<THREE.Group>(null);
   const tickCount = disposition === "hostile" ? 6 : 4;
 
-  useFrame(({ clock }) => {
-    const ring = ringRef.current;
-    if (!ring) return;
-    const pulse = 1 + Math.sin(clock.elapsedTime * (disposition === "hostile" ? 5.6 : 4.2)) * 0.022;
-    ring.scale.set(pulse, pulse, pulse);
-  });
-
   return (
-    <group ref={ringRef} position={[0, 0.11, 0]}>
+    <group position={[0, 0.11, 0]}>
       <mesh rotation-x={Math.PI / 2} renderOrder={44}>
         <torusGeometry args={[radius, 0.04, 8, 80]} />
         <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
@@ -470,7 +461,6 @@ export function ActorNameplate({
 }
 
 export function LootSparkles({ y }: { y: number }) {
-  const groupRef = useRef<THREE.Group>(null);
   const points = useMemo(() => [
     [-0.42, 0.06, -0.18],
     [0.2, 0.24, -0.36],
@@ -479,14 +469,8 @@ export function LootSparkles({ y }: { y: number }) {
     [0.04, 0.5, 0.02],
   ] as const, []);
 
-  useFrame(({ clock }) => {
-    if (!groupRef.current) return;
-    groupRef.current.rotation.y = clock.elapsedTime * 1.6;
-    groupRef.current.position.y = y + Math.sin(clock.elapsedTime * 3.2) * 0.05;
-  });
-
   return (
-    <group ref={groupRef} position={[0, y, 0]}>
+    <group position={[0, y, 0]} rotation-y={0.45}>
       {points.map(([x, py, z], index) => (
         <mesh key={index} position={[x, py, z]}>
           <sphereGeometry args={[index === 4 ? 0.065 : 0.045, 8, 6]} />

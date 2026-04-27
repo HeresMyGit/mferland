@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { type RefObject, Suspense, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Billboard, Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -584,36 +584,32 @@ function CombatFeedbackLayer({
         const impactAt = event.impactAt ?? event.sentAt;
 
         return (
-          <group key={event.id}>
-            <CombatActionVisual
-              actionId={event.actionId}
-              sourcePosition={sourcePosition}
-              targetPosition={targetPosition}
-              yaw={yaw}
-              sentAt={event.sentAt}
-              impactAt={impactAt}
-            />
-            <FloatingDamageNumber
-              amount={event.amount}
-              position={targetPosition}
-              sentAt={event.sentAt}
-              impactAt={impactAt}
-              eventId={event.id}
-            />
-          </group>
+          <CombatEventVisual
+            key={event.id}
+            actionId={event.actionId}
+            sourcePosition={sourcePosition}
+            targetPosition={targetPosition}
+            yaw={yaw}
+            sentAt={event.sentAt}
+            impactAt={impactAt}
+            amount={event.amount}
+            eventId={event.id}
+          />
         );
       })}
     </group>
   );
 }
 
-function CombatActionVisual({
+function CombatEventVisual({
   actionId,
   sourcePosition,
   targetPosition,
   yaw,
   sentAt,
   impactAt,
+  amount,
+  eventId,
 }: {
   actionId: CombatActionId;
   sourcePosition: Vec3Tuple;
@@ -621,44 +617,88 @@ function CombatActionVisual({
   yaw: number;
   sentAt: number;
   impactAt: number;
+  amount: number;
+  eventId: string;
 }) {
-  if (actionId === "attack") {
-    return <SwordFlash position={sourcePosition} yaw={yaw} sentAt={sentAt} />;
-  }
-  if (actionId === "shoot") {
-    return (
-      <>
-        <BowFlash position={sourcePosition} yaw={yaw} sentAt={sentAt} />
-        <LinearProjectile variant="arrow" start={sourcePosition} end={targetPosition} sentAt={sentAt} durationMs={520} />
-      </>
-    );
-  }
-  return (
-    <LinearProjectile
-      variant="fireblast"
-      start={sourcePosition}
-      end={targetPosition}
-      sentAt={sentAt}
-      durationMs={Math.max(180, impactAt - sentAt)}
-    />
-  );
-}
+  const swordRef = useRef<THREE.Group>(null);
+  const bowRef = useRef<THREE.Group>(null);
+  const projectileRef = useRef<THREE.Group>(null);
+  const damageRef = useRef<THREE.Group>(null);
+  const clockEpochOffsetRef = useRef<number | null>(null);
+  const startVector = useMemo(() => new THREE.Vector3(...sourcePosition), [sourcePosition]);
+  const endVector = useMemo(() => new THREE.Vector3(...targetPosition), [targetPosition]);
+  const direction = useMemo(() => endVector.clone().sub(startVector).normalize(), [endVector, startVector]);
+  const projectileAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const damageOffset = useMemo(() => getEventOffset(eventId), [eventId]);
+  const projectileDurationMs = actionId === "shoot" ? 520 : Math.max(180, impactAt - sentAt);
 
-function SwordFlash({ position, yaw, sentAt }: { position: Vec3Tuple; yaw: number; sentAt: number }) {
-  const groupRef = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    if (clockEpochOffsetRef.current === null) {
+      clockEpochOffsetRef.current = Date.now() - clock.elapsedTime * 1000;
+    }
+    const now = clockEpochOffsetRef.current + clock.elapsedTime * 1000;
 
-  useFrame(() => {
-    const group = groupRef.current;
-    if (!group) return;
-    const age = Date.now() - sentAt;
-    const progress = clamp(age / 420, 0, 1);
-    group.visible = age >= 0 && progress < 1;
-    group.rotation.z = -0.9 + progress * 1.65;
-    group.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.18);
+    if (swordRef.current) {
+      const age = now - sentAt;
+      const progress = clamp(age / 420, 0, 1);
+      swordRef.current.visible = age >= 0 && progress < 1;
+      swordRef.current.rotation.z = -0.9 + progress * 1.65;
+      swordRef.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.18);
+    }
+
+    if (bowRef.current) {
+      const age = now - sentAt;
+      const progress = clamp(age / 430, 0, 1);
+      bowRef.current.visible = age >= 0 && progress < 1;
+      bowRef.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.1);
+    }
+
+    if (projectileRef.current) {
+      const age = now - sentAt;
+      const progress = clamp(age / projectileDurationMs, 0, 1);
+      projectileRef.current.visible = age >= 0 && progress < 1;
+      projectileRef.current.position.lerpVectors(startVector, endVector, progress);
+      if (direction.lengthSq() > 0.0001) projectileRef.current.quaternion.setFromUnitVectors(projectileAxis, direction);
+    }
+
+    if (damageRef.current) {
+      const age = now - impactAt;
+      const progress = clamp(age / 1250, 0, 1);
+      damageRef.current.visible = age >= 0 && progress < 1;
+      damageRef.current.position.set(
+        targetPosition[0] + damageOffset[0],
+        targetPosition[1] + 0.38 + progress * 1.15,
+        targetPosition[2] + damageOffset[1],
+      );
+      damageRef.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.22);
+    }
   });
 
   return (
-    <group ref={groupRef} position={position} rotation-y={yaw} rotation-z={-0.9}>
+    <group>
+      {actionId === "attack" && <SwordFlash refGroup={swordRef} position={sourcePosition} yaw={yaw} />}
+      {actionId === "shoot" && (
+        <>
+          <BowFlash refGroup={bowRef} position={sourcePosition} yaw={yaw} />
+          <LinearProjectile refGroup={projectileRef} variant="arrow" start={sourcePosition} />
+        </>
+      )}
+      {actionId === "fireblast" && (
+        <LinearProjectile refGroup={projectileRef} variant="fireblast" start={sourcePosition} />
+      )}
+      <FloatingDamageNumber
+        refGroup={damageRef}
+        amount={amount}
+        position={targetPosition}
+        offset={damageOffset}
+      />
+    </group>
+  );
+}
+
+function SwordFlash({ refGroup, position, yaw }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple; yaw: number }) {
+  return (
+    <group ref={refGroup} position={position} rotation-y={yaw} rotation-z={-0.9} visible={false}>
       <group position={[0.42, -0.04, 0.18]} rotation-x={0.28} rotation-z={-0.48}>
         <mesh position={[0, 0.42, 0]}>
           <boxGeometry args={[0.08, 0.84, 0.035]} />
@@ -677,20 +717,9 @@ function SwordFlash({ position, yaw, sentAt }: { position: Vec3Tuple; yaw: numbe
   );
 }
 
-function BowFlash({ position, yaw, sentAt }: { position: Vec3Tuple; yaw: number; sentAt: number }) {
-  const groupRef = useRef<THREE.Group>(null);
-
-  useFrame(() => {
-    const group = groupRef.current;
-    if (!group) return;
-    const age = Date.now() - sentAt;
-    const progress = clamp(age / 430, 0, 1);
-    group.visible = age >= 0 && progress < 1;
-    group.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.1);
-  });
-
+function BowFlash({ refGroup, position, yaw }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple; yaw: number }) {
   return (
-    <group ref={groupRef} position={position} rotation-y={yaw}>
+    <group ref={refGroup} position={position} rotation-y={yaw} visible={false}>
       <group position={[0.46, -0.02, 0.22]} rotation-z={Math.PI / 2}>
         <mesh>
           <torusGeometry args={[0.34, 0.018, 6, 22, Math.PI * 1.2]} />
@@ -706,37 +735,17 @@ function BowFlash({ position, yaw, sentAt }: { position: Vec3Tuple; yaw: number;
 }
 
 function LinearProjectile({
+  refGroup,
   variant,
   start,
-  end,
-  sentAt,
-  durationMs,
 }: {
+  refGroup: RefObject<THREE.Group | null>;
   variant: "arrow" | "fireblast";
   start: Vec3Tuple;
-  end: Vec3Tuple;
-  sentAt: number;
-  durationMs: number;
 }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const startVector = useMemo(() => new THREE.Vector3(...start), [start]);
-  const endVector = useMemo(() => new THREE.Vector3(...end), [end]);
-  const direction = useMemo(() => endVector.clone().sub(startVector).normalize(), [endVector, startVector]);
-  const axis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
-
-  useFrame(() => {
-    const group = groupRef.current;
-    if (!group) return;
-    const age = Date.now() - sentAt;
-    const progress = clamp(age / durationMs, 0, 1);
-    group.visible = age >= 0 && progress < 1;
-    group.position.lerpVectors(startVector, endVector, progress);
-    if (direction.lengthSq() > 0.0001) group.quaternion.setFromUnitVectors(axis, direction);
-  });
-
   if (variant === "arrow") {
     return (
-      <group ref={groupRef} position={start}>
+      <group ref={refGroup} position={start} visible={false}>
         <mesh>
           <cylinderGeometry args={[0.025, 0.025, 0.78, 8]} />
           <meshBasicMaterial color="#3c2c1c" />
@@ -754,7 +763,7 @@ function LinearProjectile({
   }
 
   return (
-    <group ref={groupRef} position={start}>
+    <group ref={refGroup} position={start} visible={false}>
       <mesh renderOrder={36}>
         <sphereGeometry args={[0.46, 18, 12]} />
         <meshBasicMaterial color="#ff6a28" depthTest={false} toneMapped={false} />
@@ -780,37 +789,18 @@ function LinearProjectile({
 }
 
 function FloatingDamageNumber({
+  refGroup,
   amount,
   position,
-  sentAt,
-  impactAt,
-  eventId,
+  offset,
 }: {
+  refGroup: RefObject<THREE.Group | null>;
   amount: number;
   position: Vec3Tuple;
-  sentAt: number;
-  impactAt: number;
-  eventId: string;
+  offset: [number, number];
 }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const offset = useMemo(() => getEventOffset(eventId), [eventId]);
-
-  useFrame(() => {
-    const group = groupRef.current;
-    if (!group) return;
-    const age = Date.now() - impactAt;
-    const progress = clamp(age / 1250, 0, 1);
-    group.visible = age >= 0 && progress < 1;
-    group.position.set(
-      position[0] + offset[0],
-      position[1] + 0.38 + progress * 1.15,
-      position[2] + offset[1],
-    );
-    group.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.22);
-  });
-
   return (
-    <group ref={groupRef} position={[position[0] + offset[0], position[1] + 0.38, position[2] + offset[1]]} visible={false}>
+    <group ref={refGroup} position={[position[0] + offset[0], position[1] + 0.38, position[2] + offset[1]]} visible={false}>
       <Billboard>
         <Text
           fontSize={0.36}
@@ -2288,6 +2278,7 @@ function Fountain({
   const surfaceRef = useRef<THREE.Mesh>(null);
   const rippleRef = useRef<THREE.Mesh>(null);
   const spillRef = useRef<THREE.Group>(null);
+  const dropletRef = useRef<THREE.Group>(null);
 
   useFrame(({ clock }, delta) => {
     const elapsed = clock.elapsedTime;
@@ -2306,6 +2297,9 @@ function Fountain({
     if (spillRef.current) {
       const shimmer = 1 + Math.sin(elapsed * 6.2) * 0.025;
       spillRef.current.scale.set(shimmer, 1, shimmer);
+    }
+    if (dropletRef.current) {
+      dropletRef.current.rotation.y = elapsed * 0.14;
     }
   });
 
@@ -2364,7 +2358,7 @@ function Fountain({
         <WaterArc start={[0, 2.18, 0]} mid={[0, 2.92, 0]} end={[0, 2.24, 0]} radius={0.045} opacity={0.52} />
       </group>
 
-      <FountainDroplets />
+      <FountainDroplets groupRef={dropletRef} />
       <Text
         position={[0, 0.92, 3.95]}
         rotation-x={-0.12}
@@ -2386,9 +2380,8 @@ function InstancedFountainStones({ stoneTexture }: { stoneTexture: THREE.Texture
   const material = useMemo(
     () => new THREE.MeshStandardMaterial({
       map: stoneTexture,
-      color: "#ffffff",
+      color: "#928a7d",
       roughness: 0.95,
-      vertexColors: true,
     }),
     [stoneTexture],
   );
@@ -2410,7 +2403,6 @@ function buildFountainStoneInstances() {
         [0, angle, 0],
         [1, 1, 1],
       ),
-      color: new THREE.Color(index % 2 ? "#8a8376" : "#9a9285"),
     };
   });
 }
@@ -2428,7 +2420,6 @@ function WaterArc({
   radius: number;
   opacity?: number;
 }) {
-  const materialRef = useRef<THREE.MeshPhysicalMaterial>(null);
   const curve = useMemo(
     () => new THREE.CatmullRomCurve3([
       new THREE.Vector3(...start),
@@ -2438,16 +2429,10 @@ function WaterArc({
     [end, mid, start],
   );
 
-  useFrame(({ clock }) => {
-    if (!materialRef.current) return;
-    materialRef.current.opacity = opacity + Math.sin(clock.elapsedTime * 7 + start[0] * 3 + start[2]) * 0.06;
-  });
-
   return (
     <mesh>
       <tubeGeometry args={[curve, 28, radius, 10, false]} />
       <meshPhysicalMaterial
-        ref={materialRef}
         color="#bff7ff"
         roughness={0.02}
         transmission={0.35}
@@ -2460,8 +2445,7 @@ function WaterArc({
   );
 }
 
-function FountainDroplets() {
-  const groupRef = useRef<THREE.Group>(null);
+function FountainDroplets({ groupRef }: { groupRef: RefObject<THREE.Group | null> }) {
   const droplets = useMemo(() => Array.from({ length: 34 }, (_, index) => {
     const angle = index * 2.399963;
     const radius = 0.45 + (index % 8) * 0.12;
@@ -2469,10 +2453,6 @@ function FountainDroplets() {
     const size = 0.026 + (index % 4) * 0.008;
     return { angle, height, radius, size };
   }), []);
-
-  useFrame(({ clock }) => {
-    if (groupRef.current) groupRef.current.rotation.y = clock.elapsedTime * 0.14;
-  });
 
   return (
     <group ref={groupRef}>
