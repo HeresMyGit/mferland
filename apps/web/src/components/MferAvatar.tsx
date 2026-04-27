@@ -11,6 +11,7 @@ import {
   type NpcDisposition,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type QuestMarkerType,
 } from "@mferland/shared";
 import { generateRandomMferTraits, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
@@ -21,6 +22,7 @@ type MferAvatarProps = {
   isNpc?: boolean;
   isTargeted?: boolean;
   isDefeated?: boolean;
+  questMarker?: QuestMarkerType | null;
   onTarget?: () => void;
 };
 
@@ -50,7 +52,15 @@ export const TARGET_LABEL_COLORS: Record<NpcDisposition, string> = {
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 
-export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted = false, isDefeated = false, onTarget }: MferAvatarProps) {
+export function MferAvatar({
+  player,
+  isLocal = false,
+  isNpc = false,
+  isTargeted = false,
+  isDefeated = false,
+  questMarker = null,
+  onTarget,
+}: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -172,6 +182,7 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
   return (
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
       {isTargeted && <TargetRing color={targetRingColor} />}
+      {!isDefeated && questMarker && <QuestMarker type={questMarker} y={3.65} />}
       <mesh position={[0, 1.35, 0]} onPointerDown={handleTarget}>
         <cylinderGeometry args={[0.72, 0.72, 2.7, 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -298,6 +309,23 @@ export function TargetRing({ color }: { color: string }) {
         <meshBasicMaterial color="#1c120b" depthTest={false} depthWrite={false} toneMapped={false} />
       </mesh>
     </group>
+  );
+}
+
+export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
+  return (
+    <Billboard position={[0, y, 0]}>
+      <Text
+        fontSize={0.62}
+        anchorX="center"
+        anchorY="middle"
+        color="#ffd84f"
+        outlineColor="#2b1b00"
+        outlineWidth={0.055}
+      >
+        {type === "turnIn" ? "?" : "!"}
+      </Text>
+    </Billboard>
   );
 }
 

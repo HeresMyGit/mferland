@@ -172,6 +172,7 @@ export type ActionId = "interact" | CombatActionId;
 export type NpcDisposition = "friendly" | "neutral" | "hostile";
 export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
+export type QuestMarkerType = "available" | "turnIn";
 
 export type QuestSnapshot = {
   id: QuestId;
@@ -179,6 +180,15 @@ export type QuestSnapshot = {
   progress: number;
   required: number;
   completedAt: number;
+};
+
+export type QuestOffer = {
+  questId: QuestId;
+  npcId: string;
+  title: string;
+  description: string;
+  objectiveLabel: string;
+  required: number;
 };
 
 export type JoinOptions = {
@@ -289,6 +299,11 @@ export type AgentVisibleNpc = Pick<
 };
 
 export type ClientInteract = {
+  npcId?: string;
+};
+
+export type ClientAcceptQuest = {
+  questId: QuestId;
   npcId?: string;
 };
 
@@ -417,4 +432,21 @@ export function getNpcDisposition(npc: Pick<NpcSnapshot, "role" | "model" | "agg
   if (!isAttackableNpcRole(npc.role)) return "friendly";
   if (npc.role === "farmer" || npc.aggroTargetId) return "hostile";
   return "neutral";
+}
+
+export function getNpcQuestMarker(
+  npc: Pick<NpcSnapshot, "id">,
+  quests: QuestSnapshot[] | undefined,
+): QuestMarkerType | null {
+  if (npc.id !== QUESTS["feral-farmers"].giverNpcId) return null;
+
+  const farmerQuest = quests?.find((quest) => quest.id === "feral-farmers");
+  if (!farmerQuest) return "available";
+  if (farmerQuest.status === "ready") return "turnIn";
+  if (farmerQuest.status !== "completed") return null;
+
+  const liverQuest = quests?.find((quest) => quest.id === "hog-livers");
+  if (!liverQuest) return "available";
+  if (liverQuest.status === "ready") return "turnIn";
+  return null;
 }

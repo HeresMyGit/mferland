@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Flame, Hand, LogOut, Map as MapIcon, Sword, X } from "lucide-react";
+import { BookOpen, Check, Crosshair, Flame, Hand, LogOut, Map as MapIcon, Sword, X } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -9,9 +9,11 @@ import {
   isAttackableNpcRole,
   type ActionId,
   type ChatMessage,
+  type ClientAcceptQuest,
   type CombatActionId,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type QuestOffer,
   type QuestSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
@@ -42,9 +44,12 @@ type HudProps = {
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   localSessionId: string | null;
   localPlayer: PlayerSnapshot | null;
+  questOffer: QuestOffer | null;
   actionSlots: ActionSlot[];
   onAction: (actionId: ActionId) => void;
   onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
+  onAcceptQuest: (message: ClientAcceptQuest) => void;
+  onDismissQuestOffer: () => void;
   onSendChat: (text: string) => void;
   onRespawn: () => void;
   onExit: () => void;
@@ -78,9 +83,12 @@ export function Hud({
   selectedTargetUnit,
   localSessionId,
   localPlayer,
+  questOffer,
   actionSlots,
   onAction,
   onMoveActionSlot,
+  onAcceptQuest,
+  onDismissQuestOffer,
   onSendChat,
   onRespawn,
   onExit,
@@ -91,9 +99,14 @@ export function Hud({
   const [dropSlot, setDropSlot] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
+  const trackedQuests = useMemo(
+    () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
+    [questLog],
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 100);
@@ -219,12 +232,36 @@ export function Hud({
         </section>
       )}
 
-      {questLog.length > 0 && (
-        <section className="quest-panel">
-          <h2>Quest Log</h2>
-          {questLog.map((quest) => (
-            <Quest key={quest.id} quest={quest} />
-          ))}
+      <section className="quest-panel">
+        <div className="quest-panel-header">
+          <h2>Quest Tracker</h2>
+          <button type="button" title="Quest log" aria-label="Open quest log" onClick={() => setIsQuestLogOpen(true)}>
+            <BookOpen size={17} />
+          </button>
+        </div>
+        {trackedQuests.length > 0 ? trackedQuests.map((quest) => (
+          <Quest key={quest.id} quest={quest} />
+        )) : (
+          <p className="quest-empty">No tracked quests</p>
+        )}
+      </section>
+
+      {questOffer && (
+        <section className="quest-offer-panel">
+          <button className="quest-offer-close" type="button" title="Dismiss" aria-label="Dismiss quest offer" onClick={onDismissQuestOffer}>
+            <X size={17} />
+          </button>
+          <strong>{questOffer.title}</strong>
+          <span>{questOffer.description}</span>
+          <em>{questOffer.objectiveLabel}: 0/{questOffer.required}</em>
+          <button
+            className="quest-accept-btn"
+            type="button"
+            onClick={() => onAcceptQuest({ questId: questOffer.questId, npcId: questOffer.npcId })}
+          >
+            <Check size={17} />
+            Accept
+          </button>
         </section>
       )}
 
@@ -325,6 +362,29 @@ export function Hud({
         </section>
       )}
 
+      {isQuestLogOpen && (
+        <section className="world-map-overlay" role="dialog" aria-label="Quest log">
+          <div className="quest-log-panel">
+            <div className="world-map-header">
+              <div>
+                <strong>Quest Log</strong>
+                <span>{questLog.length} quests</span>
+              </div>
+              <button type="button" title="Close quest log" aria-label="Close quest log" onClick={() => setIsQuestLogOpen(false)}>
+                <X size={22} />
+              </button>
+            </div>
+            <div className="quest-log-list">
+              {questLog.length > 0 ? questLog.map((quest) => (
+                <Quest key={quest.id} quest={quest} full />
+              )) : (
+                <p className="quest-empty">No accepted quests yet</p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="chat-panel">
         <div className="chat-log">
           {chat.length === 0 ? (
@@ -369,6 +429,10 @@ export function Hud({
       </section>
 
       <section className="menu-dock">
+        <button type="button" title="Quest log" onClick={() => setIsQuestLogOpen(true)}>
+          <BookOpen size={25} />
+          <span>Quests</span>
+        </button>
         <button type="button" title="Leave" onClick={onExit}>
           <LogOut size={25} />
           <span>Leave</span>
@@ -541,7 +605,7 @@ function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: Play
   );
 }
 
-function Quest({ quest }: { quest: QuestSnapshot }) {
+function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: boolean }) {
   const definition = QUESTS[quest.id];
   const statusText = quest.status === "completed"
     ? "Complete"
@@ -551,9 +615,10 @@ function Quest({ quest }: { quest: QuestSnapshot }) {
   const progress = quest.status === "completed" ? "Done" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
 
   return (
-    <div className={`quest-row ${quest.status}`}>
+    <div className={`quest-row ${quest.status} ${full ? "full" : ""}`}>
       <div>
         <strong>{definition.title}</strong>
+        {full && <small>{definition.description}</small>}
         <span>{statusText}</span>
       </div>
       <em>{progress}</em>

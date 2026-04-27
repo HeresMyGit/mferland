@@ -3,6 +3,7 @@ import { Client, type Room } from "colyseus.js";
 import {
   ROOM_NAME,
   type ChatMessage,
+  type ClientAcceptQuest,
   type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
@@ -10,6 +11,7 @@ import {
   type JoinOptions,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type QuestOffer,
   type QuestSnapshot,
 } from "@mferland/shared";
 
@@ -29,6 +31,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [npcs, setNpcs] = useState<Map<string, NpcSnapshot>>(new Map());
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
+  const [questOffer, setQuestOffer] = useState<QuestOffer | null>(null);
   const roomRef = useRef<Room | null>(null);
 
   const serverUrl = useMemo(() => {
@@ -129,6 +132,10 @@ export function useTownRoom(identity: JoinOptions) {
           ]);
         });
 
+        room.onMessage("questOffer", (message: QuestOffer) => {
+          setQuestOffer(message);
+        });
+
         room.onLeave(() => {
           if (!disposed) setStatus("closed");
         });
@@ -147,6 +154,15 @@ export function useTownRoom(identity: JoinOptions) {
     };
   }, [identity, serverUrl]);
 
+  useEffect(() => {
+    if (!questOffer || !sessionId) return;
+
+    const localPlayer = players.get(sessionId);
+    if (localPlayer?.quests.some((quest) => quest.id === questOffer.questId)) {
+      setQuestOffer(null);
+    }
+  }, [players, questOffer, sessionId]);
+
   const sendInput = useCallback((input: ClientInput) => {
     roomRef.current?.send("input", input);
   }, []);
@@ -157,6 +173,15 @@ export function useTownRoom(identity: JoinOptions) {
 
   const sendInteract = useCallback((message: ClientInteract = {}) => {
     roomRef.current?.send("interact", message);
+  }, []);
+
+  const sendAcceptQuest = useCallback((message: ClientAcceptQuest) => {
+    setQuestOffer(null);
+    roomRef.current?.send("acceptQuest", message);
+  }, []);
+
+  const dismissQuestOffer = useCallback(() => {
+    setQuestOffer(null);
   }, []);
 
   const sendCombatAction = useCallback((message: ClientCombatAction) => {
@@ -175,9 +200,12 @@ export function useTownRoom(identity: JoinOptions) {
     npcs,
     chat,
     combatEvents,
+    questOffer,
     sendInput,
     sendChat,
     sendInteract,
+    sendAcceptQuest,
+    dismissQuestOffer,
     sendCombatAction,
     sendRespawn,
   };

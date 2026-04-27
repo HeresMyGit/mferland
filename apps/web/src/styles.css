@@ -439,6 +439,28 @@ button {
   backdrop-filter: blur(10px);
 }
 
+.quest-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quest-panel-header button {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  color: #fff4ba;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.quest-panel-header button:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+
 .quest-panel h2,
 .minimap-panel h2 {
   margin: 0 0 10px;
@@ -464,11 +486,26 @@ button {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.quest-row.full {
+  gap: 22px;
+  padding: 13px 0;
+}
+
 .quest-row strong {
   display: block;
   color: #6dff71;
   font-size: 14px;
   text-transform: uppercase;
+}
+
+.quest-row small {
+  display: block;
+  max-width: 520px;
+  margin: 4px 0;
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .quest-row.ready strong {
@@ -489,6 +526,79 @@ button {
   font-size: 14px;
   font-style: normal;
   font-weight: 800;
+}
+
+.quest-empty {
+  margin: 6px 0 0;
+  color: rgba(255, 248, 224, 0.58);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.quest-offer-panel {
+  position: absolute;
+  left: 50%;
+  top: 132px;
+  z-index: 48;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 36px));
+  padding: 16px;
+  border: 1px solid rgba(255, 216, 79, 0.34);
+  border-radius: 8px;
+  color: #fff8e0;
+  background: rgba(18, 14, 10, 0.86);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+
+.quest-offer-panel strong {
+  padding-right: 32px;
+  color: #ffd84f;
+  font-size: 18px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.quest-offer-panel span,
+.quest-offer-panel em {
+  color: rgba(255, 248, 224, 0.84);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.quest-offer-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #fff4ba;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.quest-accept-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  justify-self: start;
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: #16110a;
+  background: #ffd84f;
+  font-size: 12px;
+  font-weight: 1000;
+  text-transform: uppercase;
 }
 
 .minimap-panel {
@@ -880,6 +990,21 @@ button {
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
 }
 
+.quest-log-panel {
+  width: min(640px, calc(100vw - 48px));
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 14, 10, 0.9);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.quest-log-list {
+  display: grid;
+  max-height: min(520px, calc(100vh - 160px));
+  overflow: auto;
+}
+
 .world-map-header {
   display: flex;
   align-items: center;
@@ -1028,7 +1153,26 @@ button {
 
 @media (max-width: 900px) {
   .quest-panel {
-    display: none;
+    top: 102px;
+    left: 10px;
+    width: min(300px, calc(100vw - 152px));
+    padding: 10px;
+  }
+
+  .quest-panel h2 {
+    font-size: 12px;
+  }
+
+  .quest-row {
+    gap: 8px;
+    padding: 8px 0;
+  }
+
+  .quest-row strong,
+  .quest-row span,
+  .quest-row em,
+  .quest-empty {
+    font-size: 11px;
   }
 
   .minimap {
@@ -1053,7 +1197,7 @@ button {
   }
 
   .menu-dock button span {
-    display: none;
+    font-size: 9px;
   }
 
   .hotbar {

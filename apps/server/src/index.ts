@@ -20,6 +20,7 @@ import {
   stableHash,
   type AnimationState,
   type ChatMessage,
+  type ClientAcceptQuest,
   type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
@@ -149,6 +150,10 @@ class TownRoom extends Room<TownState> {
       this.handleCombatAction(client, message);
     });
 
+    this.onMessage("acceptQuest", (client, message: Partial<ClientAcceptQuest>) => {
+      this.handleAcceptQuest(client, message);
+    });
+
     this.onMessage("respawn", (client) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.health > 0) return;
@@ -198,7 +203,7 @@ class TownRoom extends Room<TownState> {
         sessionId: npc.id,
         name: npc.name,
         identityType: "npc",
-        text: getNpcDialogue(npc, player, now),
+        text: getNpcDialogue(npc, player, now, (questId) => client.send("questOffer", makeQuestOffer(questId, npc))),
         sentAt: now,
       };
       this.broadcast("chat", payload);
@@ -259,6 +264,7 @@ class TownRoom extends Room<TownState> {
     const distance = distanceToNpc(player, target);
     if (distance < action.minRange || distance > action.maxRange) return;
 
+    aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
     player.yaw = Math.atan2(target.x - player.x, target.z - player.z);
 
     if (action.castTimeMs > 0) {
@@ -282,6 +288,28 @@ class TownRoom extends Room<TownState> {
       (event) => this.broadcast("combatEvent", event),
       this.pendingCombatImpacts,
     );
+  }
+
+  private handleAcceptQuest(client: Client, message: Partial<ClientAcceptQuest>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const questId = normalizeQuestId(message?.questId);
+    if (!questId || !isQuestAvailable(player, questId)) return;
+
+    const npc = this.state.npcs.get(QUESTS[questId].giverNpcId);
+    if (!npc || distanceToNpc(player, npc) > 3.75) return;
+    if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
+
+    const now = Date.now();
+    startQuest(player, questId);
+    this.broadcast("chat", {
+      sessionId: npc.id,
+      name: npc.name,
+      identityType: "npc",
+      text: `${player.name}, quest accepted: ${QUESTS[questId].title}.`,
+      sentAt: now,
+    } satisfies ChatMessage);
   }
 
   private update(dt: number) {
@@ -1136,6 +1164,11 @@ function aggroNpcOnPlayerHit(npc: NpcState, sourcePlayerId: string, player: Play
   npc.nextDecisionAt = 0;
 }
 
+function aggroNeutralNpcOnPlayerAttackStart(npc: NpcState, sourcePlayerId: string, player: PlayerState) {
+  if (npc.model !== "hog") return;
+  aggroNpcOnPlayerHit(npc, sourcePlayerId, player);
+}
+
 function canNpcAggroOnPlayerHit(npc: NpcState) {
   return npc.role === "farmer" || npc.model === "hog";
 }
@@ -1274,8 +1307,8 @@ function distanceToNpc(player: PlayerState, npc: NpcState) {
   return Math.hypot(player.x - npc.x, player.z - npc.z);
 }
 
-function getNpcDialogue(npc: NpcState, player: PlayerState, now: number) {
-  const questDialogue = getQuestDialogue(npc, player, now);
+function getNpcDialogue(npc: NpcState, player: PlayerState, now: number, offerQuest: (questId: QuestId) => void) {
+  const questDialogue = getQuestDialogue(npc, player, now, offerQuest);
   if (questDialogue) return `${player.name}, ${questDialogue}`;
 
   if (npc.role === "quest_giver" && npc.questId) {
@@ -1284,13 +1317,13 @@ function getNpcDialogue(npc: NpcState, player: PlayerState, now: number) {
   return npc.dialogue;
 }
 
-function getQuestDialogue(npc: NpcState, player: PlayerState, now: number) {
+function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offerQuest: (questId: QuestId) => void) {
   if (npc.id !== QUESTS["feral-farmers"].giverNpcId) return null;
 
   const farmerQuest = player.quests.get("feral-farmers");
   if (!farmerQuest) {
-    startQuest(player, "feral-farmers");
-    return `quest accepted: ${QUESTS["feral-farmers"].title}. ${QUESTS["feral-farmers"].description} Defeat the three farmers running that pen.`;
+    offerQuest("feral-farmers");
+    return `quest available: ${QUESTS["feral-farmers"].title}. ${QUESTS["feral-farmers"].description}`;
   }
 
   if (farmerQuest.status === "active") {
@@ -1299,14 +1332,14 @@ function getQuestDialogue(npc: NpcState, player: PlayerState, now: number) {
 
   if (farmerQuest.status === "ready") {
     completeQuest(player, "feral-farmers", now);
-    startQuest(player, "hog-livers");
-    return `good work. Quest complete: ${QUESTS["feral-farmers"].title}. Now I need hog livers for a ward brew. Quest accepted: ${QUESTS["hog-livers"].title}.`;
+    offerQuest("hog-livers");
+    return `good work. Quest complete: ${QUESTS["feral-farmers"].title}. I have another job when you are ready.`;
   }
 
   const liverQuest = player.quests.get("hog-livers");
   if (!liverQuest) {
-    startQuest(player, "hog-livers");
-    return `quest accepted: ${QUESTS["hog-livers"].title}. Bring me five hog livers so we can brew something that keeps the worst hogs away from town.`;
+    offerQuest("hog-livers");
+    return `quest available: ${QUESTS["hog-livers"].title}. Bring me five hog livers so we can brew something that keeps the worst hogs away from town.`;
   }
 
   if (liverQuest.status === "active") {
@@ -1319,6 +1352,29 @@ function getQuestDialogue(npc: NpcState, player: PlayerState, now: number) {
   }
 
   return "the farm is quieter already. Town owes you one.";
+}
+
+function isQuestAvailable(player: PlayerState, questId: QuestId) {
+  if (player.quests.has(questId)) return false;
+  if (questId === "feral-farmers") return true;
+  if (questId === "hog-livers") return player.quests.get("feral-farmers")?.status === "completed";
+  return false;
+}
+
+function makeQuestOffer(questId: QuestId, npc: NpcState) {
+  const quest = QUESTS[questId];
+  return {
+    questId,
+    npcId: npc.id,
+    title: quest.title,
+    description: quest.description,
+    objectiveLabel: quest.objectiveLabel,
+    required: quest.required,
+  };
+}
+
+function normalizeQuestId(input: unknown): QuestId | null {
+  return input === "feral-farmers" || input === "hog-livers" ? input : null;
 }
 
 function startQuest(player: PlayerState, questId: QuestId) {

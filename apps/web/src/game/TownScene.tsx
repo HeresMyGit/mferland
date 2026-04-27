@@ -6,6 +6,7 @@ import {
   INPUT_SEND_RATE,
   PLAYER,
   PLAZA_BOUNDS,
+  getNpcQuestMarker,
   isAttackableNpcRole,
   resolveWorldCollision,
   type ClientInput,
@@ -62,6 +63,7 @@ export function TownScene({
   const escapeHeld = useRef(false);
   const localVisualPlayer = useRef<PlayerSnapshot | null>(null);
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
+  const localQuestState = localPlayer?.quests ?? [];
 
   if (!localPlayer) {
     localVisualPlayer.current = null;
@@ -288,11 +290,13 @@ export function TownScene({
         {Array.from(npcs.values()).filter(isVisibleNpc).map((npc) => {
           const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
           const onTarget = () => onSelectTarget({ kind: "npc", id: npc.id });
+          const questMarker = getNpcQuestMarker(npc, localQuestState);
           if (npc.model !== "mfer") {
             return (
               <CreatureAvatar
                 key={npc.id}
                 npc={npc}
+                questMarker={questMarker}
                 isTargeted={isTargeted}
                 isDefeated={!npc.isImmortal && npc.health <= 0}
                 onTarget={onTarget}
@@ -305,6 +309,7 @@ export function TownScene({
               key={npc.id}
               player={npc}
               isNpc
+              questMarker={questMarker}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
               onTarget={onTarget}

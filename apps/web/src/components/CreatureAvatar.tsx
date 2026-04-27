@@ -2,19 +2,20 @@ import { useMemo, useRef } from "react";
 import { Billboard, Text } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { getNpcDisposition, type NpcDisposition, type NpcSnapshot } from "@mferland/shared";
-import { TargetRing, TARGET_LABEL_COLORS, TARGET_RING_COLORS } from "./MferAvatar";
+import { getNpcDisposition, type NpcDisposition, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
+import { QuestMarker, TargetRing, TARGET_LABEL_COLORS, TARGET_RING_COLORS } from "./MferAvatar";
 
 type CreatureAvatarProps = {
   npc: NpcSnapshot;
   isTargeted?: boolean;
   isDefeated?: boolean;
+  questMarker?: QuestMarkerType | null;
   onTarget?: () => void;
 };
 
 const targetPosition = new THREE.Vector3();
 
-export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, onTarget }: CreatureAvatarProps) {
+export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, questMarker = null, onTarget }: CreatureAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
   const accent = npc.model === "rabbit" ? "#f2eee0" : npc.model === "hog" ? "#5c3a2e" : "#b07a3d";
@@ -44,6 +45,7 @@ export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, on
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
       {isTargeted && <TargetRing color={ringColor} />}
+      {!isDefeated && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
       <mesh position={[0, 0.55, 0]} onPointerDown={handleTarget}>
         <cylinderGeometry args={[hitRadius, hitRadius, hitHeight, 10]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
