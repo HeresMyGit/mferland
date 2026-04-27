@@ -18,7 +18,7 @@ import { TownScene } from "./game/TownScene";
 import { Hud } from "./components/Hud";
 
 type ActionSlot = ActionId | null;
-const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "fireblast", null];
+const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "fireblast", "frostNova"];
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
@@ -235,8 +235,11 @@ function canUseCombatAction(
     ? player.attackReadyAt
     : actionId === "shoot"
       ? player.shootReadyAt
-      : player.fireblastReadyAt;
+      : actionId === "fireblast"
+        ? player.fireblastReadyAt
+        : player.frostNovaReadyAt;
   if (readyAt > now || player.mana < action.manaCost) return false;
+  if (actionId === "frostNova") return true;
 
   if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
     return true;

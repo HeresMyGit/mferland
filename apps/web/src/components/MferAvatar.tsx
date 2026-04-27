@@ -114,6 +114,7 @@ export function MferAvatar({
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
+  const isFrozen = Boolean(npc && npc.frozenUntil > Date.now());
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
@@ -185,6 +186,7 @@ export function MferAvatar({
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
+      {npc && isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.78} y={1.18} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.95} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
@@ -506,6 +508,49 @@ export function LootSparkles({ y }: { y: number }) {
           <meshBasicMaterial color={index === 4 ? "#fff3a3" : "#ffd84f"} transparent opacity={0.86} />
         </mesh>
       ))}
+    </group>
+  );
+}
+
+export function FrozenStatusEffect({
+  frozenUntil,
+  radius = 0.72,
+  y = 0.9,
+}: {
+  frozenUntil: number;
+  radius?: number;
+  y?: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const clockEpochOffsetRef = useRef<number | null>(null);
+
+  useFrame(({ clock }) => {
+    if (clockEpochOffsetRef.current === null) {
+      clockEpochOffsetRef.current = Date.now() - clock.elapsedTime * 1000;
+    }
+    const now = clockEpochOffsetRef.current + clock.elapsedTime * 1000;
+    const group = groupRef.current;
+    if (!group) return;
+
+    group.visible = now < frozenUntil;
+    group.rotation.y += 0.018;
+    group.scale.setScalar(1 + Math.sin(clock.elapsedTime * 8) * 0.035);
+  });
+
+  return (
+    <group ref={groupRef} position={[0, y, 0]}>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[radius, 0.035, 8, 36]} />
+        <meshBasicMaterial color="#b9f3ff" depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, -0.26, 0]}>
+        <torusGeometry args={[radius * 0.82, 0.026, 8, 32]} />
+        <meshBasicMaterial color="#e9fbff" depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, -0.14, 0]}>
+        <sphereGeometry args={[radius * 0.72, 16, 10]} />
+        <meshBasicMaterial color="#9be8ff" depthWrite={false} opacity={0.16} toneMapped={false} transparent />
+      </mesh>
     </group>
   );
 }

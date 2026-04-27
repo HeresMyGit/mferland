@@ -118,6 +118,17 @@ export const COMBAT = {
       castTimeMs: 4000,
       requiresStationary: true,
     },
+    frostNova: {
+      label: "Frost Nova",
+      damage: 4,
+      cooldownMs: 10000,
+      minRange: 0,
+      maxRange: 6.5,
+      manaCost: 8,
+      castTimeMs: 0,
+      requiresStationary: false,
+      freezeMs: 4000,
+    },
   },
 } as const;
 
@@ -365,6 +376,7 @@ export type PlayerSnapshot = {
   attackReadyAt: number;
   shootReadyAt: number;
   fireblastReadyAt: number;
+  frostNovaReadyAt: number;
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
@@ -392,6 +404,7 @@ export type NpcSnapshot = {
   questId: string;
   defeatedAt: number;
   despawnAt: number;
+  frozenUntil: number;
   aggroTargetId: string;
   hasLoot: boolean;
 };

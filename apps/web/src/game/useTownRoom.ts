@@ -285,6 +285,7 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     attackReadyAt: player.attackReadyAt,
     shootReadyAt: player.shootReadyAt,
     fireblastReadyAt: player.fireblastReadyAt,
+    frostNovaReadyAt: player.frostNovaReadyAt,
     castingAction: player.castingAction,
     castStartedAt: player.castStartedAt,
     castEndsAt: player.castEndsAt,
@@ -316,6 +317,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.attackReadyAt = player.attackReadyAt;
   target.shootReadyAt = player.shootReadyAt;
   target.fireblastReadyAt = player.fireblastReadyAt;
+  target.frostNovaReadyAt = player.frostNovaReadyAt;
   target.castingAction = player.castingAction;
   target.castStartedAt = player.castStartedAt;
   target.castEndsAt = player.castEndsAt;
@@ -369,6 +371,7 @@ function createNpcSnapshot(npc: NpcSnapshot, id: string): NpcSnapshot {
     questId: npc.questId,
     defeatedAt: npc.defeatedAt,
     despawnAt: npc.despawnAt,
+    frozenUntil: npc.frozenUntil,
     aggroTargetId: npc.aggroTargetId,
     hasLoot: npc.hasLoot,
   };
@@ -392,6 +395,7 @@ function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
   target.questId = npc.questId;
   target.defeatedAt = npc.defeatedAt;
   target.despawnAt = npc.despawnAt;
+  target.frozenUntil = npc.frozenUntil;
   target.aggroTargetId = npc.aggroTargetId;
   target.hasLoot = npc.hasLoot;
 }

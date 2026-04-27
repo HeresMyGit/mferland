@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Crosshair, Flame, Hand, LogOut, Map as MapIcon, Package, Sword, X } from "lucide-react";
+import { BookOpen, Check, Crosshair, Flame, Hand, LogOut, Map as MapIcon, Package, Snowflake, Sword, X } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -637,6 +637,13 @@ function getActionMeta(actionId: ActionId) {
       icon: Flame,
     };
   }
+  if (actionId === "frostNova") {
+    return {
+      id: actionId,
+      label: "Frost Nova",
+      icon: Snowflake,
+    };
+  }
 }
 
 function getSlotIndexFromPoint(x: number, y: number) {
@@ -900,7 +907,8 @@ function getActionReadyAt(player: PlayerSnapshot | null, actionId: CombatActionI
   if (!player) return 0;
   if (actionId === "attack") return player.attackReadyAt;
   if (actionId === "shoot") return player.shootReadyAt;
-  return player.fireblastReadyAt;
+  if (actionId === "fireblast") return player.fireblastReadyAt;
+  return player.frostNovaReadyAt;
 }
 
 function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number) {
@@ -925,6 +933,7 @@ function getCombatUsability(
   const action = COMBAT.actions[actionId];
   if (getActionReadyAt(player, actionId) > now) return { usable: false, reason: "" };
   if (player.mana < action.manaCost) return { usable: false, reason: "Mana" };
+  if (actionId === "frostNova") return { usable: true, reason: "" };
 
   if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
     return { usable: true, reason: "" };

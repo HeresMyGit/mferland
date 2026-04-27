@@ -88,6 +88,7 @@ class PlayerState extends Schema {
   @type("number") attackReadyAt = 0;
   @type("number") shootReadyAt = 0;
   @type("number") fireblastReadyAt = 0;
+  @type("number") frostNovaReadyAt = 0;
   @type("string") castingAction: CombatActionId | "" = "";
   @type("number") castStartedAt = 0;
   @type("number") castEndsAt = 0;
@@ -124,6 +125,7 @@ class NpcState extends Schema {
   @type("number") defeatedAt = 0;
   @type("number") despawnAt = 0;
   @type("number") respawnAt = 0;
+  @type("number") frozenUntil = 0;
   @type("string") aggroTargetId = "";
   @type("number") attackReadyAt = 0;
   @type("string") combatStyle = "";
@@ -299,6 +301,21 @@ class TownRoom extends Room<TownState> {
     if (getActionReadyAt(player, actionId) > now) return;
     if (action.manaCost > 0 && player.mana < action.manaCost) return;
     if (action.requiresStationary && !isPlayerStationary(player, this.inputs.get(client.sessionId), now)) return;
+
+    if (actionId === "frostNova") {
+      setActionReadyAt(player, actionId, now + action.cooldownMs);
+      player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+      player.lastCastAt = now;
+      applyFrostNova(
+        client.sessionId,
+        player,
+        this.state.npcs,
+        now,
+        (event) => this.broadcast("combatEvent", event),
+        this.pendingCombatImpacts,
+      );
+      return;
+    }
 
     const target = findCombatTarget(this.state.npcs, message?.target);
     if (!target) return;
@@ -771,6 +788,7 @@ function updateNpcs(
         npc.respawnAt = 0;
         npc.aggroTargetId = "";
         npc.attackReadyAt = 0;
+        npc.frozenUntil = 0;
         npc.hasLoot = false;
         npc.loot.clear();
         npc.x = npc.homeX;
@@ -789,6 +807,14 @@ function updateNpcs(
         npc.animation = "idle";
         return;
       }
+    }
+
+    if (npc.frozenUntil > 0) {
+      if (now < npc.frozenUntil) {
+        npc.animation = "idle";
+        return;
+      }
+      npc.frozenUntil = 0;
     }
 
     if (npc.role === "farmer") {
@@ -1062,19 +1088,23 @@ function isNpcNearAnyPlayer(npc: NpcState, players: MapSchema<PlayerState>, radi
 }
 
 function normalizeCombatActionId(actionId: unknown): CombatActionId | null {
-  return actionId === "attack" || actionId === "shoot" || actionId === "fireblast" ? actionId : null;
+  return typeof actionId === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, actionId)
+    ? actionId as CombatActionId
+    : null;
 }
 
 function getActionReadyAt(player: PlayerState, actionId: CombatActionId) {
   if (actionId === "attack") return player.attackReadyAt;
   if (actionId === "shoot") return player.shootReadyAt;
-  return player.fireblastReadyAt;
+  if (actionId === "fireblast") return player.fireblastReadyAt;
+  return player.frostNovaReadyAt;
 }
 
 function setActionReadyAt(player: PlayerState, actionId: CombatActionId, readyAt: number) {
   if (actionId === "attack") player.attackReadyAt = readyAt;
   else if (actionId === "shoot") player.shootReadyAt = readyAt;
-  else player.fireblastReadyAt = readyAt;
+  else if (actionId === "fireblast") player.fireblastReadyAt = readyAt;
+  else player.frostNovaReadyAt = readyAt;
 }
 
 function isPlayerStationary(player: PlayerState, input: TrackedInput | undefined, now: number) {
@@ -1173,11 +1203,47 @@ function applyCombatDamage(
   }
 
   const defeated = applyNpcDamage(target, damage, now);
+  if (actionId === "frostNova" && !defeated) {
+    applyNpcFreeze(target, now + COMBAT.actions.frostNova.freezeMs);
+  }
   if (defeated) {
     handleNpcDefeated(player, target, now);
   }
   aggroNpcOnPlayerHit(target, sourceId, player);
   emitCombatEvent(makeCombatEvent(sourceId, player, target, actionId, damage, now, defeated, now));
+}
+
+function applyFrostNova(
+  sourceId: string,
+  player: PlayerState,
+  npcs: MapSchema<NpcState>,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  npcs.forEach((npc) => {
+    if (!isNpcAlive(npc) || !isAttackableNpcRole(npc.role)) return;
+    if (distanceToNpc(player, npc) > COMBAT.actions.frostNova.maxRange) return;
+
+    applyCombatDamage(
+      sourceId,
+      player,
+      npc,
+      "frostNova",
+      COMBAT.actions.frostNova.damage,
+      now,
+      emitCombatEvent,
+      pendingCombatImpacts,
+    );
+  });
+}
+
+function applyNpcFreeze(npc: NpcState, frozenUntil: number) {
+  npc.frozenUntil = Math.max(npc.frozenUntil, frozenUntil);
+  npc.attackReadyAt = Math.max(npc.attackReadyAt, frozenUntil);
+  npc.targetX = npc.x;
+  npc.targetZ = npc.z;
+  npc.animation = "idle";
 }
 
 function applyNpcCombatDamage(
@@ -1219,6 +1285,7 @@ function applyNpcDamage(npc: NpcState, damage: number, now: number) {
     npc.respawnAt = now + (npc.role === "farmer" ? FARMER_COMBAT.respawnMs : COMBAT.defeatedRespawnMs);
     npc.aggroTargetId = "";
     npc.attackReadyAt = 0;
+    npc.frozenUntil = 0;
     npc.y = 0;
     npc.targetX = npc.homeX;
     npc.targetZ = npc.homeZ;

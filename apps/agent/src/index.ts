@@ -51,6 +51,7 @@ type RuntimePlayer = {
   attackReadyAt: number;
   shootReadyAt: number;
   fireblastReadyAt: number;
+  frostNovaReadyAt: number;
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
@@ -85,6 +86,7 @@ type RuntimeNpc = {
   questId: string;
   defeatedAt: number;
   despawnAt: number;
+  frozenUntil: number;
   aggroTargetId: string;
   hasLoot: boolean;
 };
@@ -152,6 +154,7 @@ class AgentCharacter {
           attackReadyAt: player.attackReadyAt,
           shootReadyAt: player.shootReadyAt,
           fireblastReadyAt: player.fireblastReadyAt,
+          frostNovaReadyAt: player.frostNovaReadyAt,
           castingAction: player.castingAction,
           castStartedAt: player.castStartedAt,
           castEndsAt: player.castEndsAt,
@@ -183,6 +186,7 @@ class AgentCharacter {
           questId: npc.questId,
           defeatedAt: npc.defeatedAt,
           despawnAt: npc.despawnAt,
+          frozenUntil: npc.frozenUntil,
           aggroTargetId: npc.aggroTargetId,
           hasLoot: npc.hasLoot,
         });
@@ -256,7 +260,7 @@ class AgentCharacter {
       nearbyNpcs,
       recentChat: this.recentChat.slice(-8),
       bounds: PLAZA_BOUNDS,
-      availableActions: ["move", "look", "jump", "sprint", "chat", "interact", "attack", "shoot", "fireblast"],
+      availableActions: ["move", "look", "jump", "sprint", "chat", "interact", "attack", "shoot", "fireblast", "frostNova"],
     };
   }
 

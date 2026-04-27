@@ -7,6 +7,7 @@ import {
   ActorBlobShadow,
   ActorNameplate,
   DispositionBaseMarker,
+  FrozenStatusEffect,
   LootSparkles,
   QuestMarker,
   TargetRing,
@@ -106,6 +107,7 @@ export function CreatureAvatar({
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = !isDefeated && (Boolean(questMarker) || isTargeted);
+  const isFrozen = npc.frozenUntil > Date.now();
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -128,6 +130,7 @@ export function CreatureAvatar({
       <ActorBlobShadow scale={shadowScale} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={markerRadius} />}
       {isTargeted && <TargetRing color={ringColor} disposition={disposition} radius={markerRadius + 0.16} />}
+      {isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={markerRadius * 0.9} y={Math.max(0.7, labelY - 0.45)} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.88} />}
       {showLootSparkles && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
       <mesh

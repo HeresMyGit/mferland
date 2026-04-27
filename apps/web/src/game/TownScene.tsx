@@ -630,7 +630,7 @@ function CombatEventVisual({
   const direction = useMemo(() => endVector.clone().sub(startVector).normalize(), [endVector, startVector]);
   const projectileAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const damageOffset = useMemo(() => getEventOffset(eventId), [eventId]);
-  const projectileDurationMs = actionId === "shoot" ? 520 : Math.max(180, impactAt - sentAt);
+  const projectileDurationMs = actionId === "shoot" ? 520 : actionId === "frostNova" ? 540 : Math.max(180, impactAt - sentAt);
 
   useFrame(({ clock }) => {
     if (clockEpochOffsetRef.current === null) {
@@ -657,8 +657,13 @@ function CombatEventVisual({
       const age = now - sentAt;
       const progress = clamp(age / projectileDurationMs, 0, 1);
       projectileRef.current.visible = age >= 0 && progress < 1;
-      projectileRef.current.position.lerpVectors(startVector, endVector, progress);
-      if (direction.lengthSq() > 0.0001) projectileRef.current.quaternion.setFromUnitVectors(projectileAxis, direction);
+      if (actionId === "frostNova") {
+        projectileRef.current.position.set(targetPosition[0], targetPosition[1] - 0.42, targetPosition[2]);
+        projectileRef.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.55);
+      } else {
+        projectileRef.current.position.lerpVectors(startVector, endVector, progress);
+        if (direction.lengthSq() > 0.0001) projectileRef.current.quaternion.setFromUnitVectors(projectileAxis, direction);
+      }
     }
 
     if (damageRef.current) {
@@ -686,12 +691,32 @@ function CombatEventVisual({
       {actionId === "fireblast" && (
         <LinearProjectile refGroup={projectileRef} variant="fireblast" start={sourcePosition} />
       )}
+      {actionId === "frostNova" && <FrostNovaBurst refGroup={projectileRef} position={targetPosition} />}
       <FloatingDamageNumber
         refGroup={damageRef}
         amount={amount}
         position={targetPosition}
         offset={damageOffset}
       />
+    </group>
+  );
+}
+
+function FrostNovaBurst({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  return (
+    <group ref={refGroup} position={position} visible={false}>
+      <mesh rotation-x={Math.PI / 2}>
+        <ringGeometry args={[0.32, 0.78, 36]} />
+        <meshBasicMaterial color="#b7f4ff" depthWrite={false} opacity={0.58} toneMapped={false} transparent />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.03, 0]}>
+        <torusGeometry args={[0.76, 0.035, 8, 36]} />
+        <meshBasicMaterial color="#f1fdff" depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 0.28, 0]}>
+        <sphereGeometry args={[0.26, 12, 8]} />
+        <meshBasicMaterial color="#83dfff" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+      </mesh>
     </group>
   );
 }
@@ -2946,6 +2971,7 @@ function updateLocalVisualPlayer(
   visual.attackReadyAt = authoritative.attackReadyAt;
   visual.shootReadyAt = authoritative.shootReadyAt;
   visual.fireblastReadyAt = authoritative.fireblastReadyAt;
+  visual.frostNovaReadyAt = authoritative.frostNovaReadyAt;
   visual.castingAction = authoritative.castingAction;
   visual.castStartedAt = authoritative.castStartedAt;
   visual.castEndsAt = authoritative.castEndsAt;
