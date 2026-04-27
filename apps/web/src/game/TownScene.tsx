@@ -354,6 +354,10 @@ type TreeInstance = {
   matrix: THREE.Matrix4;
   color?: THREE.Color;
 };
+type StaticPropInstance = {
+  matrix: THREE.Matrix4;
+  color?: THREE.Color;
+};
 type GroundRectDecalSpec = {
   position: Vec3Tuple;
   size: [number, number];
@@ -413,6 +417,12 @@ type TownBuildingPlacement = {
   rotation: number;
   sign: string;
   accent: string;
+};
+type MarketStallSpec = {
+  id: string;
+  position: Vec3Tuple;
+  rotation: number;
+  color: string;
 };
 type BuildingTextures = {
   stone: THREE.Texture;
@@ -485,6 +495,11 @@ const TOWN_BUILDINGS: TownBuildingPlacement[] = [
   { id: "arcade", blueprint: "shop", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: "#36b7c9" },
   { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565" },
   { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35" },
+];
+const MARKET_STALLS: MarketStallSpec[] = [
+  { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: "#9b45ff" },
+  { id: "center-market", position: [0, 0, 31.4], rotation: Math.PI, color: "#52d64f" },
+  { id: "right-market", position: [6.4, 0, 29.2], rotation: Math.PI, color: "#e754d8" },
 ];
 const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },
@@ -919,9 +934,11 @@ function TownWorld() {
           wallTexture={timberTexture}
         />
       ))}
-      <MarketStall position={[-6.4, 0, 29.2]} rotation={Math.PI} color="#9b45ff" roofTexture={roofTexture} />
-      <MarketStall position={[0, 0, 31.4]} rotation={Math.PI} color="#52d64f" roofTexture={roofTexture} />
-      <MarketStall position={[6.4, 0, 29.2]} rotation={Math.PI} color="#e754d8" roofTexture={roofTexture} />
+      <InstancedBuildingDetails />
+      {MARKET_STALLS.map((stall) => (
+        <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
+      ))}
+      <InstancedMarketProps stalls={MARKET_STALLS} />
       <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <RundownFarm position={[-52, 0, 61]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
@@ -1661,18 +1678,14 @@ function BannerPost({
 }
 
 function MarketStall({
-  position,
-  rotation = 0,
-  color,
+  stall,
   roofTexture,
 }: {
-  position: [number, number, number];
-  rotation?: number;
-  color: string;
+  stall: MarketStallSpec;
   roofTexture: THREE.Texture;
 }) {
   return (
-    <group position={position} rotation-y={rotation}>
+    <group position={stall.position} rotation-y={stall.rotation}>
       <mesh position={[0, 0.55, 0]}>
         <boxGeometry args={[3.3, 0.35, 1.7]} />
         <meshBasicMaterial color="#6a4428" />
@@ -1681,25 +1694,13 @@ function MarketStall({
         <boxGeometry args={[3.1, 0.18, 1.54]} />
         <meshBasicMaterial color="#c3a06f" />
       </mesh>
-      {[-1.45, 1.45].map((x) => (
-        <group key={x}>
-          <mesh position={[x, 1.48, -0.66]}>
-            <cylinderGeometry args={[0.06, 0.08, 2.1, 8]} />
-            <meshBasicMaterial color="#4b2d18" />
-          </mesh>
-          <mesh position={[x, 1.48, 0.66]}>
-            <cylinderGeometry args={[0.06, 0.08, 2.1, 8]} />
-            <meshBasicMaterial color="#4b2d18" />
-          </mesh>
-        </group>
-      ))}
       <mesh position={[0, 2.38, 0]} rotation-z={0.08}>
         <boxGeometry args={[3.65, 0.2, 2.18]} />
-        <meshBasicMaterial map={roofTexture} color={color} />
+        <meshBasicMaterial map={roofTexture} color={stall.color} />
       </mesh>
       <mesh position={[0, 2.08, 1.13]}>
         <boxGeometry args={[3.45, 0.55, 0.08]} />
-        <meshBasicMaterial color={color} />
+        <meshBasicMaterial color={stall.color} />
       </mesh>
       <Text
         position={[0, 2.09, 1.2]}
@@ -1712,14 +1713,65 @@ function MarketStall({
       >
         MKT
       </Text>
-      {[-1.04, -0.34, 0.4, 1.08].map((x, index) => (
-        <mesh key={x} position={[x, 1.08, 0.42 - (index % 2) * 0.38]}>
-          <boxGeometry args={[0.42, 0.36, 0.42]} />
-          <meshBasicMaterial color={index % 2 ? "#e8c063" : "#8fc263"} />
-        </mesh>
-      ))}
     </group>
   );
+}
+
+function InstancedMarketProps({ stalls }: { stalls: MarketStallSpec[] }) {
+  const postRef = useRef<THREE.InstancedMesh>(null);
+  const crateRef = useRef<THREE.InstancedMesh>(null);
+  const instances = useMemo(() => buildMarketPropInstances(stalls), [stalls]);
+  const geometries = useMemo(() => ({
+    post: new THREE.CylinderGeometry(0.06, 0.08, 2.1, 8),
+    crate: new THREE.BoxGeometry(1, 1, 1),
+  }), []);
+  const materials = useMemo(() => ({
+    post: new THREE.MeshBasicMaterial({ color: "#4b2d18" }),
+    crate: new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true }),
+  }), []);
+
+  useLayoutEffect(() => {
+    applyStaticPropInstances(postRef.current, instances.posts);
+    applyStaticPropInstances(crateRef.current, instances.crates);
+  }, [instances]);
+
+  return (
+    <>
+      <instancedMesh ref={postRef} args={[geometries.post, materials.post, instances.posts.length]} />
+      <instancedMesh ref={crateRef} args={[geometries.crate, materials.crate, instances.crates.length]} />
+    </>
+  );
+}
+
+function buildMarketPropInstances(stalls: MarketStallSpec[]) {
+  const posts: StaticPropInstance[] = [];
+  const crates: StaticPropInstance[] = [];
+
+  for (const stall of stalls) {
+    const parentMatrix = composeInstanceMatrix(stall.position, [0, stall.rotation, 0], [1, 1, 1]);
+    for (const x of [-1.45, 1.45]) {
+      posts.push({
+        matrix: composeInstanceMatrix([x, 1.48, -0.66], [0, 0, 0], [1, 1, 1], parentMatrix),
+      });
+      posts.push({
+        matrix: composeInstanceMatrix([x, 1.48, 0.66], [0, 0, 0], [1, 1, 1], parentMatrix),
+      });
+    }
+
+    [-1.04, -0.34, 0.4, 1.08].forEach((x, index) => {
+      crates.push({
+        matrix: composeInstanceMatrix(
+          [x, 1.08, 0.42 - (index % 2) * 0.38],
+          [0, 0, 0],
+          [0.42, 0.36, 0.42],
+          parentMatrix,
+        ),
+        color: new THREE.Color(index % 2 ? "#e8c063" : "#8fc263"),
+      });
+    });
+  }
+
+  return { posts, crates };
 }
 
 function WatchTower({
@@ -1979,66 +2031,68 @@ function BrokenFence({
   depth: number;
   barkTexture: THREE.Texture;
 }) {
+  const postRef = useRef<THREE.InstancedMesh>(null);
+  const railRef = useRef<THREE.InstancedMesh>(null);
+  const instances = useMemo(() => buildBrokenFenceInstances(width, depth), [depth, width]);
+  const geometries = useMemo(() => ({
+    post: new THREE.CylinderGeometry(0.08, 0.11, 1, 8),
+    rail: new THREE.BoxGeometry(1, 1, 1),
+  }), []);
+  const materials = useMemo(() => ({
+    post: new THREE.MeshStandardMaterial({ map: barkTexture, color: "#5b391f", roughness: 0.96 }),
+    rail: new THREE.MeshStandardMaterial({ map: barkTexture, color: "#6a4428", roughness: 0.95 }),
+  }), [barkTexture]);
+
+  useLayoutEffect(() => {
+    applyStaticPropInstances(postRef.current, instances.posts);
+    applyStaticPropInstances(railRef.current, instances.rails);
+  }, [instances]);
+
+  return (
+    <>
+      <instancedMesh ref={postRef} args={[geometries.post, materials.post, instances.posts.length]} />
+      <instancedMesh ref={railRef} args={[geometries.rail, materials.rail, instances.rails.length]} />
+    </>
+  );
+}
+
+function buildBrokenFenceInstances(width: number, depth: number) {
+  const posts: StaticPropInstance[] = [];
+  const rails: StaticPropInstance[] = [];
   const frontBackPosts = Array.from({ length: 8 }, (_, index) => -width / 2 + index * (width / 7));
   const sidePosts = Array.from({ length: 5 }, (_, index) => -depth / 2 + index * (depth / 4));
 
-  return (
-    <group>
-      {frontBackPosts.map((x, index) => (
-        <group key={`fb-${index}`}>
-          <FencePost position={[x, 0, -depth / 2]} barkTexture={barkTexture} broken={index === 2} />
-          {index !== 4 && <FencePost position={[x, 0, depth / 2]} barkTexture={barkTexture} broken={index === 6} />}
-        </group>
-      ))}
-      {sidePosts.map((z, index) => (
-        <group key={`side-${index}`}>
-          {index !== 2 && <FencePost position={[-width / 2, 0, z]} barkTexture={barkTexture} broken={index === 1} />}
-          <FencePost position={[width / 2, 0, z]} barkTexture={barkTexture} broken={index === 3} />
-        </group>
-      ))}
-      <FenceRail position={[0, 0.9, -depth / 2]} size={[width - 1.4, 0.11, 0.13]} barkTexture={barkTexture} />
-      <FenceRail position={[0, 0.58, -depth / 2 + 0.05]} size={[width - 5.8, 0.1, 0.12]} barkTexture={barkTexture} />
-      <FenceRail position={[-3.8, 0.78, depth / 2]} size={[width - 8.6, 0.11, 0.13]} barkTexture={barkTexture} />
-      <FenceRail position={[-width / 2, 0.78, 1.4]} size={[depth - 3.6, 0.11, 0.13]} rotation={Math.PI / 2} barkTexture={barkTexture} />
-      <FenceRail position={[width / 2, 0.78, -1.6]} size={[depth - 5.2, 0.11, 0.13]} rotation={Math.PI / 2} barkTexture={barkTexture} />
-    </group>
-  );
-}
+  const addPost = (position: Vec3Tuple, broken = false) => {
+    posts.push({
+      matrix: composeInstanceMatrix(
+        [position[0], broken ? 0.42 : 0.62, position[2]],
+        [0, 0, broken ? 0.3 : 0],
+        [1, broken ? 0.84 : 1.24, 1],
+      ),
+    });
+  };
+  const addRail = (position: Vec3Tuple, size: Vec3Tuple, rotation = 0) => {
+    rails.push({
+      matrix: composeInstanceMatrix(position, [0, rotation, rotation ? 0.08 : -0.035], size),
+    });
+  };
 
-function FencePost({
-  position,
-  barkTexture,
-  broken = false,
-}: {
-  position: [number, number, number];
-  barkTexture: THREE.Texture;
-  broken?: boolean;
-}) {
-  return (
-    <mesh position={[position[0], broken ? 0.42 : 0.62, position[2]]} rotation-z={broken ? 0.3 : 0}>
-      <cylinderGeometry args={[0.08, 0.11, broken ? 0.84 : 1.24, 8]} />
-      <meshStandardMaterial map={barkTexture} color="#5b391f" roughness={0.96} />
-    </mesh>
-  );
-}
+  frontBackPosts.forEach((x, index) => {
+    addPost([x, 0, -depth / 2], index === 2);
+    if (index !== 4) addPost([x, 0, depth / 2], index === 6);
+  });
+  sidePosts.forEach((z, index) => {
+    if (index !== 2) addPost([-width / 2, 0, z], index === 1);
+    addPost([width / 2, 0, z], index === 3);
+  });
 
-function FenceRail({
-  position,
-  size,
-  barkTexture,
-  rotation = 0,
-}: {
-  position: [number, number, number];
-  size: [number, number, number];
-  barkTexture: THREE.Texture;
-  rotation?: number;
-}) {
-  return (
-    <mesh position={position} rotation-y={rotation} rotation-z={rotation ? 0.08 : -0.035}>
-      <boxGeometry args={size} />
-      <meshStandardMaterial map={barkTexture} color="#6a4428" roughness={0.95} />
-    </mesh>
-  );
+  addRail([0, 0.9, -depth / 2], [width - 1.4, 0.11, 0.13]);
+  addRail([0, 0.58, -depth / 2 + 0.05], [width - 5.8, 0.1, 0.12]);
+  addRail([-3.8, 0.78, depth / 2], [width - 8.6, 0.11, 0.13]);
+  addRail([-width / 2, 0.78, 1.4], [depth - 3.6, 0.11, 0.13], Math.PI / 2);
+  addRail([width / 2, 0.78, -1.6], [depth - 5.2, 0.11, 0.13], Math.PI / 2);
+
+  return { posts, rails };
 }
 
 function TreeCluster({
@@ -2178,6 +2232,15 @@ function composeTreeMatrix(
   scale: Vec3Tuple,
   parent?: THREE.Matrix4,
 ) {
+  return composeInstanceMatrix(position, rotation, scale, parent);
+}
+
+function composeInstanceMatrix(
+  position: Vec3Tuple,
+  rotation: Vec3Tuple,
+  scale: Vec3Tuple,
+  parent?: THREE.Matrix4,
+) {
   const matrix = new THREE.Matrix4().compose(
     new THREE.Vector3(...position),
     new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)),
@@ -2185,6 +2248,20 @@ function composeTreeMatrix(
   );
 
   return parent ? parent.clone().multiply(matrix) : matrix;
+}
+
+function applyStaticPropInstances(mesh: THREE.InstancedMesh | null, instances: StaticPropInstance[]) {
+  if (!mesh) return;
+
+  instances.forEach((instance, index) => {
+    mesh.setMatrixAt(index, instance.matrix);
+    if (instance.color) mesh.setColorAt(index, instance.color);
+  });
+
+  mesh.count = instances.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  mesh.computeBoundingSphere();
 }
 
 function applyTreeInstances(mesh: THREE.InstancedMesh | null, instances: TreeInstance[]) {
@@ -2242,19 +2319,7 @@ function Fountain({
         <torusGeometry args={[4.08, 0.26, 12, 96]} />
         <meshStandardMaterial map={stoneTexture} color="#aaa293" roughness={0.86} />
       </mesh>
-      {Array.from({ length: 24 }, (_, index) => {
-        const angle = (index / 24) * Math.PI * 2;
-        return (
-          <mesh
-            key={`basin-stone-${index}`}
-            position={[Math.sin(angle) * 4.45, 0.58, Math.cos(angle) * 4.45]}
-            rotation-y={angle}
-          >
-            <boxGeometry args={[0.52, 0.18, 0.24]} />
-            <meshStandardMaterial map={stoneTexture} color={index % 2 ? "#8a8376" : "#9a9285"} roughness={0.95} />
-          </mesh>
-        );
-      })}
+      <InstancedFountainStones stoneTexture={stoneTexture} />
       <mesh ref={surfaceRef} rotation-x={-Math.PI / 2} position={[0, 0.635, 0]}>
         <circleGeometry args={[3.72, 128]} />
         <meshPhysicalMaterial
@@ -2313,6 +2378,41 @@ function Fountain({
       </Text>
     </group>
   );
+}
+
+function InstancedFountainStones({ stoneTexture }: { stoneTexture: THREE.Texture }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.BoxGeometry(0.52, 0.18, 0.24), []);
+  const material = useMemo(
+    () => new THREE.MeshStandardMaterial({
+      map: stoneTexture,
+      color: "#ffffff",
+      roughness: 0.95,
+      vertexColors: true,
+    }),
+    [stoneTexture],
+  );
+  const instances = useMemo(() => buildFountainStoneInstances(), []);
+
+  useLayoutEffect(() => {
+    applyStaticPropInstances(meshRef.current, instances);
+  }, [instances]);
+
+  return <instancedMesh ref={meshRef} args={[geometry, material, instances.length]} />;
+}
+
+function buildFountainStoneInstances() {
+  return Array.from({ length: 24 }, (_, index): StaticPropInstance => {
+    const angle = (index / 24) * Math.PI * 2;
+    return {
+      matrix: composeInstanceMatrix(
+        [Math.sin(angle) * 4.45, 0.58, Math.cos(angle) * 4.45],
+        [0, angle, 0],
+        [1, 1, 1],
+      ),
+      color: new THREE.Color(index % 2 ? "#8a8376" : "#9a9285"),
+    };
+  });
 }
 
 function WaterArc({
@@ -2475,6 +2575,177 @@ function CastleGate({ stoneTexture }: { stoneTexture: THREE.Texture }) {
   );
 }
 
+function InstancedBuildingDetails() {
+  const windowFrameRef = useRef<THREE.InstancedMesh>(null);
+  const windowGlassRef = useRef<THREE.InstancedMesh>(null);
+  const windowMuntinRef = useRef<THREE.InstancedMesh>(null);
+  const timberTrimRef = useRef<THREE.InstancedMesh>(null);
+  const timberBraceRef = useRef<THREE.InstancedMesh>(null);
+  const roofRidgeRef = useRef<THREE.InstancedMesh>(null);
+  const roofEaveRef = useRef<THREE.InstancedMesh>(null);
+  const roofFasciaRef = useRef<THREE.InstancedMesh>(null);
+  const instances = useMemo(() => ({
+    windows: buildBuildingWindowInstances(),
+    trim: buildBuildingTrimInstances(),
+    roofTrim: buildBuildingRoofTrimInstances(),
+  }), []);
+  const geometries = useMemo(() => ({
+    box: new THREE.BoxGeometry(1, 1, 1),
+    ridge: new THREE.CylinderGeometry(0.2, 0.2, 1, 8),
+  }), []);
+  const materials = useMemo(() => ({
+    windowFrame: new THREE.MeshBasicMaterial({ color: "#2e2019" }),
+    windowGlass: new THREE.MeshBasicMaterial({ color: "#49a4c8", transparent: true, opacity: 0.78 }),
+    windowMuntin: new THREE.MeshBasicMaterial({ color: "#f4d878" }),
+    timberTrim: new THREE.MeshBasicMaterial({ color: "#5b331d" }),
+    timberBrace: new THREE.MeshBasicMaterial({ color: "#6f3b20" }),
+    roofRidge: new THREE.MeshBasicMaterial({ color: "#7c321c" }),
+    roofEave: new THREE.MeshBasicMaterial({ color: "#6b341d" }),
+    roofFascia: new THREE.MeshBasicMaterial({ color: "#5d2f1a" }),
+  }), []);
+
+  useLayoutEffect(() => {
+    applyStaticPropInstances(windowFrameRef.current, instances.windows.frames);
+    applyStaticPropInstances(windowGlassRef.current, instances.windows.glass);
+    applyStaticPropInstances(windowMuntinRef.current, instances.windows.muntins);
+    applyStaticPropInstances(timberTrimRef.current, instances.trim.trim);
+    applyStaticPropInstances(timberBraceRef.current, instances.trim.braces);
+    applyStaticPropInstances(roofRidgeRef.current, instances.roofTrim.ridges);
+    applyStaticPropInstances(roofEaveRef.current, instances.roofTrim.eaves);
+    applyStaticPropInstances(roofFasciaRef.current, instances.roofTrim.fascia);
+  }, [instances]);
+
+  return (
+    <>
+      <instancedMesh ref={windowFrameRef} args={[geometries.box, materials.windowFrame, instances.windows.frames.length]} />
+      <instancedMesh ref={windowGlassRef} args={[geometries.box, materials.windowGlass, instances.windows.glass.length]} />
+      <instancedMesh ref={windowMuntinRef} args={[geometries.box, materials.windowMuntin, instances.windows.muntins.length]} />
+      <instancedMesh ref={timberTrimRef} args={[geometries.box, materials.timberTrim, instances.trim.trim.length]} />
+      <instancedMesh ref={timberBraceRef} args={[geometries.box, materials.timberBrace, instances.trim.braces.length]} />
+      <instancedMesh ref={roofRidgeRef} args={[geometries.ridge, materials.roofRidge, instances.roofTrim.ridges.length]} />
+      <instancedMesh ref={roofEaveRef} args={[geometries.box, materials.roofEave, instances.roofTrim.eaves.length]} />
+      <instancedMesh ref={roofFasciaRef} args={[geometries.box, materials.roofFascia, instances.roofTrim.fascia.length]} />
+    </>
+  );
+}
+
+function buildBuildingWindowInstances() {
+  const frames: StaticPropInstance[] = [];
+  const glass: StaticPropInstance[] = [];
+  const muntins: StaticPropInstance[] = [];
+
+  for (const placement of TOWN_BUILDINGS) {
+    const parentMatrix = composeInstanceMatrix(placement.position, [0, placement.rotation, 0], [1, 1, 1]);
+    for (const module of BUILDING_BLUEPRINTS[placement.blueprint].modules) {
+      if (module.kind !== "window") continue;
+      const windowMatrix = composeInstanceMatrix(
+        module.position,
+        [0, module.rotation ?? 0, 0],
+        [1, 1, 1],
+        parentMatrix,
+      );
+      frames.push({ matrix: composeInstanceMatrix([0, 0, 0], [0, 0, 0], [1.1, 1.15, 0.14], windowMatrix) });
+      glass.push({ matrix: composeInstanceMatrix([0, 0, 0.08], [0, 0, 0], [0.82, 0.86, 0.08], windowMatrix) });
+      muntins.push({ matrix: composeInstanceMatrix([0, 0, 0.13], [0, 0, 0], [0.08, 0.92, 0.05], windowMatrix) });
+      muntins.push({ matrix: composeInstanceMatrix([0, 0, 0.14], [0, 0, 0], [0.88, 0.08, 0.05], windowMatrix) });
+    }
+  }
+
+  return { frames, glass, muntins };
+}
+
+function buildBuildingTrimInstances() {
+  const trim: StaticPropInstance[] = [];
+  const braces: StaticPropInstance[] = [];
+  const trimSegments: Array<{ position: Vec3Tuple; scale: Vec3Tuple }> = [
+    { position: [-3.72, 2.62, 2.31], scale: [0.26, 4.4, 0.18] },
+    { position: [3.72, 2.62, 2.31], scale: [0.26, 4.4, 0.18] },
+    { position: [0, 4.72, 2.31], scale: [7.6, 0.26, 0.18] },
+    { position: [0, 0.74, 2.31], scale: [7.7, 0.28, 0.2] },
+  ];
+  const braceSegments: Array<{ position: Vec3Tuple; rotation: Vec3Tuple; scale: Vec3Tuple }> = [
+    { position: [-1.75, 3.95, 2.32], rotation: [0, 0, -0.55], scale: [0.25, 3, 0.18] },
+    { position: [1.75, 3.95, 2.32], rotation: [0, 0, 0.55], scale: [0.25, 3, 0.18] },
+  ];
+
+  for (const placement of TOWN_BUILDINGS) {
+    const parentMatrix = composeInstanceMatrix(placement.position, [0, placement.rotation, 0], [1, 1, 1]);
+    for (const segment of trimSegments) {
+      trim.push({ matrix: composeInstanceMatrix(segment.position, [0, 0, 0], segment.scale, parentMatrix) });
+    }
+    for (const segment of braceSegments) {
+      braces.push({ matrix: composeInstanceMatrix(segment.position, segment.rotation, segment.scale, parentMatrix) });
+    }
+  }
+
+  return { trim, braces };
+}
+
+function buildBuildingRoofTrimInstances() {
+  const ridges: StaticPropInstance[] = [];
+  const eaves: StaticPropInstance[] = [];
+  const fascia: StaticPropInstance[] = [];
+  const metrics = getGabledRoofMetrics();
+  const fasciaLength = Math.hypot(metrics.run, metrics.ridgeY - (metrics.eaveY - 0.08));
+
+  for (const placement of TOWN_BUILDINGS) {
+    const parentMatrix = composeInstanceMatrix(placement.position, [0, placement.rotation, 0], [1, 1, 1]);
+    ridges.push({
+      matrix: composeInstanceMatrix(
+        [0, metrics.ridgeY + 0.03, 0],
+        [Math.PI / 2, 0, 0],
+        [1, metrics.depth + 0.42, 1],
+        parentMatrix,
+      ),
+    });
+    eaves.push({
+      matrix: composeInstanceMatrix(
+        [-metrics.run - 0.02, metrics.eaveY - 0.06, 0],
+        [0, 0, metrics.slopeAngle],
+        [0.26, 0.35, metrics.depth + 0.46],
+        parentMatrix,
+      ),
+    });
+    eaves.push({
+      matrix: composeInstanceMatrix(
+        [metrics.run + 0.02, metrics.eaveY - 0.06, 0],
+        [0, 0, -metrics.slopeAngle],
+        [0.26, 0.35, metrics.depth + 0.46],
+        parentMatrix,
+      ),
+    });
+
+    for (const z of [2.95, -2.95]) {
+      fascia.push({
+        matrix: composeInstanceMatrix(
+          [-metrics.run / 2, (metrics.eaveY - 0.08 + metrics.ridgeY) / 2, z],
+          [0, 0, metrics.slopeAngle],
+          [fasciaLength, 0.18, 0.18],
+          parentMatrix,
+        ),
+      });
+      fascia.push({
+        matrix: composeInstanceMatrix(
+          [metrics.run / 2, (metrics.eaveY - 0.08 + metrics.ridgeY) / 2, z],
+          [0, 0, -metrics.slopeAngle],
+          [fasciaLength, 0.18, 0.18],
+          parentMatrix,
+        ),
+      });
+      fascia.push({
+        matrix: composeInstanceMatrix(
+          [0, metrics.eaveY - 0.08, z],
+          [0, 0, 0],
+          [metrics.run * 2.08, 0.2, 0.2],
+          parentMatrix,
+        ),
+      });
+    }
+  }
+
+  return { ridges, eaves, fascia };
+}
+
 function TownBuilding({
   placement,
   stoneTexture,
@@ -2509,8 +2780,7 @@ function BuildingModule({
 }) {
   if (module.kind === "box") return <BuildingBox module={module} placement={placement} textures={textures} />;
   if (module.kind === "gabled-roof") return <GabledRoof roofTexture={textures.roof} />;
-  if (module.kind === "trim") return <BuildingTrim />;
-  if (module.kind === "window") return <ShopWindow position={module.position} rotation={module.rotation} />;
+  if (module.kind === "trim" || module.kind === "window") return null;
   if (module.kind === "door") return <ShopDoor />;
   return <ShopSign sign={placement.sign} accent={placement.accent} />;
 }
@@ -2573,13 +2843,7 @@ function ShopSign({ sign, accent }: { sign: string; accent: string }) {
 }
 
 function GabledRoof({ roofTexture }: { roofTexture: THREE.Texture }) {
-  const eaveY = 4.62;
-  const ridgeY = 6.22;
-  const run = 4.22;
-  const depth = 5.62;
-  const rise = ridgeY - eaveY;
-  const slopeLength = Math.hypot(run, rise);
-  const slopeAngle = Math.atan2(rise, run);
+  const { eaveY, ridgeY, run, depth, rise, slopeLength, slopeAngle } = getGabledRoofMetrics();
 
   return (
     <group>
@@ -2593,22 +2857,19 @@ function GabledRoof({ roofTexture }: { roofTexture: THREE.Texture }) {
       </mesh>
       <RoofGable z={2.86} eaveY={eaveY - 0.08} ridgeY={ridgeY - 0.2} width={7.28} />
       <RoofGable z={-2.86} eaveY={eaveY - 0.08} ridgeY={ridgeY - 0.2} width={7.28} rotation={Math.PI} />
-      <mesh position={[0, ridgeY + 0.03, 0]} rotation-x={Math.PI / 2}>
-        <cylinderGeometry args={[0.2, 0.2, depth + 0.42, 8]} />
-        <meshBasicMaterial color="#7c321c" />
-      </mesh>
-      <mesh position={[-run - 0.02, eaveY - 0.06, 0]} rotation-z={slopeAngle}>
-        <boxGeometry args={[0.26, 0.35, depth + 0.46]} />
-        <meshBasicMaterial color="#6b341d" />
-      </mesh>
-      <mesh position={[run + 0.02, eaveY - 0.06, 0]} rotation-z={-slopeAngle}>
-        <boxGeometry args={[0.26, 0.35, depth + 0.46]} />
-        <meshBasicMaterial color="#6b341d" />
-      </mesh>
-      <RoofFascia z={2.95} eaveY={eaveY - 0.08} ridgeY={ridgeY} run={run} angle={slopeAngle} />
-      <RoofFascia z={-2.95} eaveY={eaveY - 0.08} ridgeY={ridgeY} run={run} angle={slopeAngle} />
     </group>
   );
+}
+
+function getGabledRoofMetrics() {
+  const eaveY = 4.62;
+  const ridgeY = 6.22;
+  const run = 4.22;
+  const depth = 5.62;
+  const rise = ridgeY - eaveY;
+  const slopeLength = Math.hypot(run, rise);
+  const slopeAngle = Math.atan2(rise, run);
+  return { eaveY, ridgeY, run, depth, rise, slopeLength, slopeAngle };
 }
 
 function RoofGable({
@@ -2635,99 +2896,6 @@ function RoofGable({
       <shapeGeometry args={[shape]} />
       <meshBasicMaterial color="#ead8b8" side={THREE.DoubleSide} />
     </mesh>
-  );
-}
-
-function RoofFascia({
-  z,
-  eaveY,
-  ridgeY,
-  run,
-  angle,
-}: {
-  z: number;
-  eaveY: number;
-  ridgeY: number;
-  run: number;
-  angle: number;
-}) {
-  const length = Math.hypot(run, ridgeY - eaveY);
-
-  return (
-    <group position={[0, 0, z]}>
-      <mesh position={[-run / 2, (eaveY + ridgeY) / 2, 0]} rotation-z={angle}>
-        <boxGeometry args={[length, 0.18, 0.18]} />
-        <meshBasicMaterial color="#5d2f1a" />
-      </mesh>
-      <mesh position={[run / 2, (eaveY + ridgeY) / 2, 0]} rotation-z={-angle}>
-        <boxGeometry args={[length, 0.18, 0.18]} />
-        <meshBasicMaterial color="#5d2f1a" />
-      </mesh>
-      <mesh position={[0, eaveY, 0]}>
-        <boxGeometry args={[run * 2.08, 0.2, 0.2]} />
-        <meshBasicMaterial color="#5d2f1a" />
-      </mesh>
-    </group>
-  );
-}
-
-function BuildingTrim() {
-  return (
-    <group>
-      <mesh position={[-3.72, 2.62, 2.31]}>
-        <boxGeometry args={[0.26, 4.4, 0.18]} />
-        <meshBasicMaterial color="#5b331d" />
-      </mesh>
-      <mesh position={[3.72, 2.62, 2.31]}>
-        <boxGeometry args={[0.26, 4.4, 0.18]} />
-        <meshBasicMaterial color="#5b331d" />
-      </mesh>
-      <mesh position={[0, 4.72, 2.31]}>
-        <boxGeometry args={[7.6, 0.26, 0.18]} />
-        <meshBasicMaterial color="#5b331d" />
-      </mesh>
-      <mesh position={[0, 0.74, 2.31]}>
-        <boxGeometry args={[7.7, 0.28, 0.2]} />
-        <meshBasicMaterial color="#5b331d" />
-      </mesh>
-      <mesh position={[-1.75, 3.95, 2.32]} rotation-z={-0.55}>
-        <boxGeometry args={[0.25, 3.0, 0.18]} />
-        <meshBasicMaterial color="#6f3b20" />
-      </mesh>
-      <mesh position={[1.75, 3.95, 2.32]} rotation-z={0.55}>
-        <boxGeometry args={[0.25, 3.0, 0.18]} />
-        <meshBasicMaterial color="#6f3b20" />
-      </mesh>
-    </group>
-  );
-}
-
-function ShopWindow({
-  position,
-  rotation = 0,
-}: {
-  position: [number, number, number];
-  rotation?: number;
-}) {
-  return (
-    <group position={position} rotation-y={rotation}>
-      <mesh>
-        <boxGeometry args={[1.1, 1.15, 0.14]} />
-        <meshBasicMaterial color="#2e2019" />
-      </mesh>
-      <mesh position={[0, 0, 0.08]}>
-        <boxGeometry args={[0.82, 0.86, 0.08]} />
-        <meshBasicMaterial color="#49a4c8" transparent opacity={0.78} />
-      </mesh>
-      <mesh position={[0, 0, 0.13]}>
-        <boxGeometry args={[0.08, 0.92, 0.05]} />
-        <meshBasicMaterial color="#f4d878" />
-      </mesh>
-      <mesh position={[0, 0, 0.14]}>
-        <boxGeometry args={[0.88, 0.08, 0.05]} />
-        <meshBasicMaterial color="#f4d878" />
-      </mesh>
-    </group>
   );
 }
 
