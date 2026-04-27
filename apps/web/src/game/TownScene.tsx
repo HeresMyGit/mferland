@@ -3,6 +3,7 @@ import { Billboard, Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
+  COMBAT,
   INPUT_SEND_RATE,
   PLAYER,
   PLAZA_BOUNDS,
@@ -630,7 +631,8 @@ function CombatEventVisual({
   const direction = useMemo(() => endVector.clone().sub(startVector).normalize(), [endVector, startVector]);
   const projectileAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const damageOffset = useMemo(() => getEventOffset(eventId), [eventId]);
-  const projectileDurationMs = actionId === "shoot" ? 520 : actionId === "frostNova" ? 540 : Math.max(180, impactAt - sentAt);
+  const isFrostNovaCast = actionId === "frostNova" && amount <= 0;
+  const projectileDurationMs = actionId === "shoot" ? 520 : isFrostNovaCast ? 720 : Math.max(180, impactAt - sentAt);
 
   useFrame(({ clock }) => {
     if (clockEpochOffsetRef.current === null) {
@@ -657,9 +659,10 @@ function CombatEventVisual({
       const age = now - sentAt;
       const progress = clamp(age / projectileDurationMs, 0, 1);
       projectileRef.current.visible = age >= 0 && progress < 1;
-      if (actionId === "frostNova") {
+      if (isFrostNovaCast) {
         projectileRef.current.position.set(targetPosition[0], targetPosition[1] - 0.42, targetPosition[2]);
-        projectileRef.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.55);
+        const easedProgress = 1 - (1 - progress) ** 3;
+        projectileRef.current.scale.setScalar(0.24 + easedProgress * COMBAT.actions.frostNova.maxRange);
       } else {
         projectileRef.current.position.lerpVectors(startVector, endVector, progress);
         if (direction.lengthSq() > 0.0001) projectileRef.current.quaternion.setFromUnitVectors(projectileAxis, direction);
@@ -691,32 +694,47 @@ function CombatEventVisual({
       {actionId === "fireblast" && (
         <LinearProjectile refGroup={projectileRef} variant="fireblast" start={sourcePosition} />
       )}
-      {actionId === "frostNova" && <FrostNovaBurst refGroup={projectileRef} position={targetPosition} />}
-      <FloatingDamageNumber
-        refGroup={damageRef}
-        amount={amount}
-        position={targetPosition}
-        offset={damageOffset}
-      />
+      {isFrostNovaCast && <FrostNovaBurst refGroup={projectileRef} position={targetPosition} />}
+      {amount > 0 && (
+        <FloatingDamageNumber
+          refGroup={damageRef}
+          amount={amount}
+          position={targetPosition}
+          offset={damageOffset}
+        />
+      )}
     </group>
   );
 }
 
 function FrostNovaBurst({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  const shardAngles = useMemo(() => Array.from({ length: 18 }, (_, index) => (index / 18) * Math.PI * 2), []);
+
   return (
     <group ref={refGroup} position={position} visible={false}>
       <mesh rotation-x={Math.PI / 2}>
-        <ringGeometry args={[0.32, 0.78, 36]} />
-        <meshBasicMaterial color="#b7f4ff" depthWrite={false} opacity={0.58} toneMapped={false} transparent />
+        <ringGeometry args={[0.84, 1.06, 72]} />
+        <meshBasicMaterial color="#b7f4ff" depthWrite={false} opacity={0.26} toneMapped={false} transparent />
       </mesh>
       <mesh rotation-x={Math.PI / 2} position={[0, 0.03, 0]}>
-        <torusGeometry args={[0.76, 0.035, 8, 36]} />
+        <torusGeometry args={[1, 0.018, 8, 72]} />
         <meshBasicMaterial color="#f1fdff" depthWrite={false} toneMapped={false} />
       </mesh>
-      <mesh position={[0, 0.28, 0]}>
-        <sphereGeometry args={[0.26, 12, 8]} />
-        <meshBasicMaterial color="#83dfff" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.05, 0]}>
+        <torusGeometry args={[0.72, 0.012, 8, 56]} />
+        <meshBasicMaterial color="#dffbff" depthWrite={false} opacity={0.8} toneMapped={false} transparent />
       </mesh>
+      {shardAngles.map((angle) => (
+        <mesh
+          key={angle}
+          position={[Math.sin(angle) * 0.92, 0.07, Math.cos(angle) * 0.92]}
+          rotation-y={angle}
+          rotation-x={Math.PI / 2}
+        >
+          <boxGeometry args={[0.018, 0.22, 0.012]} />
+          <meshBasicMaterial color="#e6fbff" depthWrite={false} opacity={0.74} toneMapped={false} transparent />
+        </mesh>
+      ))}
     </group>
   );
 }

@@ -533,23 +533,34 @@ export function FrozenStatusEffect({
     if (!group) return;
 
     group.visible = now < frozenUntil;
-    group.rotation.y += 0.018;
-    group.scale.setScalar(1 + Math.sin(clock.elapsedTime * 8) * 0.035);
+    group.scale.setScalar(1 + Math.sin(clock.elapsedTime * 8) * 0.012);
   });
 
+  const width = radius * 1.8;
+  const height = radius * 2.5;
+  const depth = radius * 1.35;
+
   return (
-    <group ref={groupRef} position={[0, y, 0]}>
-      <mesh rotation-x={Math.PI / 2}>
-        <torusGeometry args={[radius, 0.035, 8, 36]} />
-        <meshBasicMaterial color="#b9f3ff" depthWrite={false} toneMapped={false} />
+    <group ref={groupRef} position={[0, y, 0]} rotation-y={0.16}>
+      <mesh>
+        <boxGeometry args={[width, height, depth]} />
+        <meshBasicMaterial color="#aeefff" depthWrite={false} opacity={0.28} toneMapped={false} transparent />
       </mesh>
-      <mesh rotation-x={Math.PI / 2} position={[0, -0.26, 0]}>
-        <torusGeometry args={[radius * 0.82, 0.026, 8, 32]} />
-        <meshBasicMaterial color="#e9fbff" depthWrite={false} toneMapped={false} />
+      <mesh rotation-y={0.3} scale={[0.86, 1.05, 1.12]}>
+        <boxGeometry args={[width, height * 0.92, depth]} />
+        <meshBasicMaterial color="#e6fbff" depthWrite={false} opacity={0.16} toneMapped={false} transparent />
       </mesh>
-      <mesh position={[0, -0.14, 0]}>
-        <sphereGeometry args={[radius * 0.72, 16, 10]} />
-        <meshBasicMaterial color="#9be8ff" depthWrite={false} opacity={0.16} toneMapped={false} transparent />
+      <mesh>
+        <boxGeometry args={[width * 1.02, height * 1.02, depth * 1.02]} />
+        <meshBasicMaterial color="#f4feff" depthWrite={false} opacity={0.62} toneMapped={false} transparent wireframe />
+      </mesh>
+      <mesh position={[0, height * 0.5, 0]} rotation-y={Math.PI / 4}>
+        <coneGeometry args={[radius * 0.7, radius * 0.36, 4]} />
+        <meshBasicMaterial color="#d8fbff" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+      </mesh>
+      <mesh position={[0, -height * 0.52, 0]} rotation-x={Math.PI / 2}>
+        <torusGeometry args={[radius * 0.78, 0.03, 8, 32]} />
+        <meshBasicMaterial color="#e9fbff" depthWrite={false} opacity={0.72} toneMapped={false} transparent />
       </mesh>
     </group>
   );

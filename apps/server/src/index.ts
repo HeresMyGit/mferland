@@ -1221,6 +1221,8 @@ function applyFrostNova(
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
 ) {
+  emitCombatEvent(makeFrostNovaCastEvent(sourceId, player, now));
+
   npcs.forEach((npc) => {
     if (!isNpcAlive(npc) || !isAttackableNpcRole(npc.role)) return;
     if (distanceToNpc(player, npc) > COMBAT.actions.frostNova.maxRange) return;
@@ -1456,6 +1458,26 @@ function makeCombatEvent(
     sentAt: now,
     impactAt,
     defeated,
+  };
+}
+
+function makeFrostNovaCastEvent(sourceId: string, player: PlayerState, now: number): CombatEvent {
+  return {
+    id: `${now}:${sourceId}:frostNova:cast:${Math.random().toString(36).slice(2, 8)}`,
+    sourceId,
+    actionId: "frostNova",
+    target: { kind: "player", id: sourceId },
+    targetName: player.name,
+    amount: 0,
+    sourceX: player.x,
+    sourceY: player.y + 1.2,
+    sourceZ: player.z,
+    targetX: player.x,
+    targetY: player.y + 0.42,
+    targetZ: player.z,
+    sentAt: now,
+    impactAt: now,
+    defeated: false,
   };
 }
 
