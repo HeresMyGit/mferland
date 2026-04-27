@@ -3,6 +3,7 @@ import { Client, type Room } from "colyseus.js";
 import {
   ROOM_NAME,
   type ChatMessage,
+  type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
   type JoinOptions,
@@ -54,12 +55,22 @@ export function useTownRoom(identity: JoinOptions) {
               identityType: player.identityType,
               walletAddress: player.walletAddress,
               avatarSeed: player.avatarSeed,
+              health: player.health,
+              maxHealth: player.maxHealth,
+              mana: player.mana,
+              maxMana: player.maxMana,
               x: player.x,
               y: player.y,
               z: player.z,
               yaw: player.yaw,
               animation: player.animation,
               lastSeq: player.lastSeq,
+              attackReadyAt: player.attackReadyAt,
+              shootReadyAt: player.shootReadyAt,
+              fireblastReadyAt: player.fireblastReadyAt,
+              castingAction: player.castingAction,
+              castStartedAt: player.castStartedAt,
+              castEndsAt: player.castEndsAt,
             });
           });
           setPlayers(next);
@@ -70,9 +81,11 @@ export function useTownRoom(identity: JoinOptions) {
               id,
               name: npc.name,
               role: npc.role,
+              model: npc.model,
               avatarSeed: npc.avatarSeed,
               health: npc.health,
               maxHealth: npc.maxHealth,
+              isImmortal: npc.isImmortal,
               x: npc.x,
               y: npc.y,
               z: npc.z,
@@ -119,6 +132,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("interact", message);
   }, []);
 
+  const sendCombatAction = useCallback((message: ClientCombatAction) => {
+    roomRef.current?.send("combatAction", message);
+  }, []);
+
   return {
     status,
     error,
@@ -129,5 +146,6 @@ export function useTownRoom(identity: JoinOptions) {
     sendInput,
     sendChat,
     sendInteract,
+    sendCombatAction,
   };
 }

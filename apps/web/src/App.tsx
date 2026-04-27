@@ -2,15 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { type JoinOptions, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
+import { isAttackableNpcRole, type ActionId, type JoinOptions, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
 import { Hud } from "./components/Hud";
 
-type ActionId = "interact";
 type ActionSlot = ActionId | null;
-const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", null, null, null, null];
+const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "fireblast", null];
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
@@ -122,7 +121,13 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   }, [localPlayer, room]);
   const performAction = useCallback((actionId: ActionId | null) => {
     if (actionId === "interact") performInteract();
-  }, [performInteract]);
+    else if (actionId) {
+      room.sendCombatAction({
+        actionId,
+        target: selectedTarget,
+      });
+    }
+  }, [performInteract, room, selectedTarget]);
   const moveActionSlot = useCallback((fromIndex: number, toIndex: number) => {
     setActionSlots((current) => {
       if (!current[fromIndex] || fromIndex === toIndex) return current;
@@ -175,6 +180,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         selectedTarget={selectedTarget}
         selectedTargetUnit={selectedTargetUnit}
         localSessionId={room.sessionId}
+        localPlayer={localPlayer ?? null}
         actionSlots={actionSlots}
         onAction={performAction}
         onMoveActionSlot={moveActionSlot}
@@ -191,9 +197,11 @@ function getSelectedTargetUnit(
   npcs: Map<string, NpcSnapshot>,
 ) {
   if (!selectedTarget) return null;
-  return selectedTarget.kind === "player"
-    ? players.get(selectedTarget.id) ?? null
-    : npcs.get(selectedTarget.id) ?? null;
+  if (selectedTarget.kind === "player") return players.get(selectedTarget.id) ?? null;
+
+  const npc = npcs.get(selectedTarget.id);
+  if (!npc || (!npc.isImmortal && npc.health <= 0)) return null;
+  return npc;
 }
 
 function numberKeyToSlotIndex(event: KeyboardEvent) {
@@ -212,6 +220,7 @@ function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>):
   let nearest: NpcSnapshot | null = null;
   let nearestDistance = Infinity;
   for (const npc of npcs.values()) {
+    if (isAttackableNpcRole(npc.role) && !npc.isImmortal && npc.health <= 0) continue;
     const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
     if (distance < nearestDistance) {
       nearest = npc;

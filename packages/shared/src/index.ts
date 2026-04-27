@@ -4,10 +4,10 @@ export const SERVER_TICK_RATE = 20;
 export const INPUT_SEND_RATE = 20;
 
 export const PLAZA_BOUNDS = {
-  minX: -44,
-  maxX: 44,
-  minZ: -40,
-  maxZ: 42,
+  minX: -72,
+  maxX: 72,
+  minZ: -58,
+  maxZ: 74,
 };
 
 export const PLAYER = {
@@ -16,7 +16,47 @@ export const PLAYER = {
   jumpVelocity: 6.4,
   gravity: 17,
   radius: 0.55,
+  maxHealth: 100,
+  maxMana: 50,
 };
+
+export const COMBAT = {
+  manaRegenPer5: 12,
+  defeatedRespawnMs: 12000,
+  stationaryInputThreshold: 0.05,
+  actions: {
+    attack: {
+      label: "Attack",
+      damage: 6,
+      cooldownMs: 1500,
+      minRange: 0,
+      maxRange: 2.6,
+      manaCost: 0,
+      castTimeMs: 0,
+      requiresStationary: false,
+    },
+    shoot: {
+      label: "Shoot",
+      damage: 12,
+      cooldownMs: 3000,
+      minRange: 4.0,
+      maxRange: 14,
+      manaCost: 0,
+      castTimeMs: 0,
+      requiresStationary: true,
+    },
+    fireblast: {
+      label: "Fireblast",
+      damage: 32,
+      cooldownMs: 8000,
+      minRange: 0,
+      maxRange: 8,
+      manaCost: 15,
+      castTimeMs: 2000,
+      requiresStationary: true,
+    },
+  },
+} as const;
 
 export const CHAT = {
   maxLength: 180,
@@ -31,8 +71,11 @@ export const AGENT = {
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
-export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy";
+export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast";
+export type NpcModel = "mfer" | "rabbit" | "deer" | "hog";
 export type TargetKind = "player" | "npc";
+export type CombatActionId = keyof typeof COMBAT.actions;
+export type ActionId = "interact" | CombatActionId;
 
 export type JoinOptions = {
   name?: string;
@@ -56,21 +99,33 @@ export type PlayerSnapshot = {
   identityType: IdentityType;
   walletAddress: string;
   avatarSeed: number;
+  health: number;
+  maxHealth: number;
+  mana: number;
+  maxMana: number;
   x: number;
   y: number;
   z: number;
   yaw: number;
   animation: AnimationState;
   lastSeq: number;
+  attackReadyAt: number;
+  shootReadyAt: number;
+  fireblastReadyAt: number;
+  castingAction: CombatActionId | "";
+  castStartedAt: number;
+  castEndsAt: number;
 };
 
 export type NpcSnapshot = {
   id: string;
   name: string;
   role: NpcRole;
+  model: NpcModel;
   avatarSeed: number;
   health: number;
   maxHealth: number;
+  isImmortal: boolean;
   x: number;
   y: number;
   z: number;
@@ -95,14 +150,14 @@ export type ChatMessage = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "avatarSeed" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
 > & {
   distance: number;
 };
 
 export type AgentVisibleNpc = Pick<
   NpcSnapshot,
-  "id" | "name" | "role" | "avatarSeed" | "health" | "maxHealth" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId"
+  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId"
 > & {
   distance: number;
 };
@@ -111,13 +166,18 @@ export type ClientInteract = {
   npcId?: string;
 };
 
+export type ClientCombatAction = {
+  actionId: CombatActionId;
+  target?: TargetSelection | null;
+};
+
 export type AgentObservation = {
   self: PlayerSnapshot;
   nearbyPlayers: AgentVisiblePlayer[];
   nearbyNpcs: AgentVisibleNpc[];
   recentChat: ChatMessage[];
   bounds: typeof PLAZA_BOUNDS;
-  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat" | "interact">;
+  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat" | "interact" | CombatActionId>;
 };
 
 export function sanitizePlayerName(input: unknown, fallback = "mfer"): string {
@@ -146,4 +206,8 @@ export function stableHash(value: string): number {
 
 export function makeGuestName(seed: string): string {
   return `mfer#${String(stableHash(seed) % 10000).padStart(4, "0")}`;
+}
+
+export function isAttackableNpcRole(role: NpcRole): boolean {
+  return role === "enemy" || role === "critter" || role === "beast";
 }

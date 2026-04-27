@@ -213,6 +213,7 @@ button {
 
 .player-card,
 .target-frame,
+.cast-bar,
 .quest-panel,
 .chat-panel,
 .minimap-panel,
@@ -260,6 +261,40 @@ button {
   color: #fff9df;
   font-size: 20px;
   text-shadow: 0 2px 0 #101010;
+}
+
+.cast-bar {
+  left: 50%;
+  bottom: 102px;
+  width: 270px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.cast-bar strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #fff7d4;
+  font-size: 12px;
+  font-weight: 1000;
+  text-align: center;
+  text-shadow: 0 2px 0 #111;
+  text-transform: uppercase;
+}
+
+.cast-bar div {
+  height: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  background: rgba(15, 12, 10, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
+.cast-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff6a36, #ffd35b);
 }
 
 .target-frame {
@@ -579,6 +614,7 @@ button {
   place-items: center;
   width: 64px;
   height: 64px;
+  overflow: hidden;
   pointer-events: auto;
   touch-action: none;
   user-select: none;
@@ -589,6 +625,12 @@ button {
   grid-template-rows: 1fr auto;
   gap: 2px;
   color: #f3d04e;
+}
+
+.action-slot svg,
+.action-slot.filled strong {
+  position: relative;
+  z-index: 2;
 }
 
 .action-slot.filled strong {
@@ -609,6 +651,11 @@ button {
   background: rgba(15, 13, 12, 0.42);
 }
 
+.action-slot.oom svg,
+.action-slot.oom strong {
+  opacity: 0.5;
+}
+
 .action-slot.dragging {
   opacity: 0.44;
   transform: scale(0.96);
@@ -619,8 +666,27 @@ button {
   box-shadow: 0 0 0 2px rgba(243, 208, 78, 0.22), 0 8px 18px rgba(0, 0, 0, 0.25);
 }
 
+.cooldown-sweep {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+}
+
+.cooldown-label {
+  position: absolute;
+  z-index: 2;
+  color: #fff7d4;
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 1000;
+  text-shadow: 0 2px 0 #111;
+}
+
 .slot-key {
   position: absolute;
+  z-index: 3;
   right: 7px;
   bottom: 6px;
   font-size: 11px;

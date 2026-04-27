@@ -4,6 +4,8 @@ import { MapSchema, Schema, type } from "@colyseus/schema";
 import {
   CHAT,
   clamp,
+  COMBAT,
+  isAttackableNpcRole,
   makeGuestName,
   MAX_PLAYERS,
   PLAYER,
@@ -14,10 +16,13 @@ import {
   stableHash,
   type AnimationState,
   type ChatMessage,
+  type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
+  type CombatActionId,
   type IdentityType,
   type JoinOptions,
+  type NpcModel,
   type NpcRole,
 } from "@mferland/shared";
 
@@ -26,6 +31,10 @@ class PlayerState extends Schema {
   @type("string") identityType: IdentityType = "guest";
   @type("string") walletAddress = "";
   @type("number") avatarSeed = 0;
+  @type("number") health = PLAYER.maxHealth;
+  @type("number") maxHealth = PLAYER.maxHealth;
+  @type("number") mana = PLAYER.maxMana;
+  @type("number") maxMana = PLAYER.maxMana;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") z = 0;
@@ -33,15 +42,25 @@ class PlayerState extends Schema {
   @type("number") verticalVelocity = 0;
   @type("string") animation: AnimationState = "idle";
   @type("number") lastSeq = 0;
+  @type("number") attackReadyAt = 0;
+  @type("number") shootReadyAt = 0;
+  @type("number") fireblastReadyAt = 0;
+  @type("string") castingAction: CombatActionId | "" = "";
+  @type("number") castStartedAt = 0;
+  @type("number") castEndsAt = 0;
+  @type("string") castTargetKind = "";
+  @type("string") castTargetId = "";
 }
 
 class NpcState extends Schema {
   @type("string") id = "";
   @type("string") name = "";
   @type("string") role: NpcRole = "wanderer";
+  @type("string") model: NpcModel = "mfer";
   @type("number") avatarSeed = 0;
   @type("number") health = 100;
   @type("number") maxHealth = 100;
+  @type("boolean") isImmortal = false;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") z = 0;
@@ -55,6 +74,7 @@ class NpcState extends Schema {
   @type("number") targetZ = 0;
   @type("number") leashRadius = 0;
   @type("number") nextDecisionAt = 0;
+  @type("number") respawnAt = 0;
 }
 
 class TownState extends Schema {
@@ -86,6 +106,10 @@ class TownRoom extends Room<TownState> {
         ...input,
         receivedAt: Date.now(),
       });
+    });
+
+    this.onMessage("combatAction", (client, message: Partial<ClientCombatAction>) => {
+      this.handleCombatAction(client, message);
     });
 
     this.onMessage("chat", (client, message: { text?: string }) => {
@@ -150,6 +174,8 @@ class TownRoom extends Room<TownState> {
     player.avatarSeed = Number.isFinite(options?.avatarSeed)
       ? Number(options?.avatarSeed)
       : stableHash(`${client.sessionId}:${player.name}:${walletAddress}`);
+    player.health = player.maxHealth;
+    player.mana = player.maxMana;
     player.x = spawn.x;
     player.y = 0;
     player.z = spawn.z;
@@ -166,6 +192,43 @@ class TownRoom extends Room<TownState> {
     this.lastInteractAt.delete(client.sessionId);
   }
 
+  private handleCombatAction(client: Client, message: Partial<ClientCombatAction>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const actionId = normalizeCombatActionId(message?.actionId);
+    if (!actionId) return;
+
+    const action = COMBAT.actions[actionId];
+    const now = Date.now();
+    if (player.castingAction) return;
+    if (getActionReadyAt(player, actionId) > now) return;
+    if (action.manaCost > 0 && player.mana < action.manaCost) return;
+    if (action.requiresStationary && !isPlayerStationary(player, this.inputs.get(client.sessionId), now)) return;
+
+    const target = findCombatTarget(this.state.npcs, message?.target);
+    if (!target) return;
+    if (!isNpcAlive(target)) return;
+
+    const distance = distanceToNpc(player, target);
+    if (distance < action.minRange || distance > action.maxRange) return;
+
+    player.yaw = Math.atan2(target.x - player.x, target.z - player.z);
+
+    if (action.castTimeMs > 0) {
+      player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+      player.castingAction = actionId;
+      player.castStartedAt = now;
+      player.castEndsAt = now + action.castTimeMs;
+      player.castTargetKind = "npc";
+      player.castTargetId = target.id;
+      return;
+    }
+
+    setActionReadyAt(player, actionId, now + action.cooldownMs);
+    applyNpcDamage(target, action.damage, now);
+  }
+
   private update(dt: number) {
     const delta = Math.min(dt, 0.1);
     const now = Date.now();
@@ -174,6 +237,8 @@ class TownRoom extends Room<TownState> {
     this.state.players.forEach((player, sessionId) => {
       const input = this.inputs.get(sessionId);
       const activeInput = input && now - input.receivedAt < 1000 ? input : null;
+      player.mana = clamp(player.mana + (COMBAT.manaRegenPer5 / 5) * delta, 0, player.maxMana);
+      updatePlayerCast(player, activeInput, this.state.npcs, now);
       let grounded = player.y <= 0.001;
 
       if (activeInput?.jump && !this.jumpHeld.get(sessionId) && grounded) {
@@ -261,6 +326,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     id: string;
     name: string;
     role: NpcRole;
+    model?: NpcModel;
     x: number;
     z: number;
     yaw: number;
@@ -269,6 +335,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     questId?: string;
     health?: number;
     maxHealth?: number;
+    isImmortal?: boolean;
   }> = [
     {
       id: "og-mfer",
@@ -336,26 +403,33 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
       id: "training-dummy-left",
       name: "Training dummy",
       role: "enemy",
+      model: "mfer",
       x: -10.5,
       z: -11.5,
       yaw: 2.5,
       leashRadius: 0,
       health: 160,
       maxHealth: 160,
+      isImmortal: true,
       dialogue: "The dummy looks ready to get bonked.",
     },
     {
       id: "training-dummy-right",
       name: "Training dummy",
       role: "enemy",
+      model: "mfer",
       x: -7.8,
       z: -13.8,
       yaw: 2.2,
       leashRadius: 0,
       health: 160,
       maxHealth: 160,
+      isImmortal: true,
       dialogue: "This dummy is for target practice.",
     },
+    ...makeRabbitSpecs(),
+    ...makeDeerSpecs(),
+    ...makeWildHogSpecs(),
   ];
 
   for (const spec of specs) {
@@ -363,9 +437,11 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     npc.id = spec.id;
     npc.name = spec.name;
     npc.role = spec.role;
+    npc.model = spec.model ?? "mfer";
     npc.avatarSeed = stableHash(`npc:${spec.id}`);
     npc.health = spec.health ?? 100;
     npc.maxHealth = spec.maxHealth ?? spec.health ?? 100;
+    npc.isImmortal = Boolean(spec.isImmortal);
     npc.x = spec.x;
     npc.y = 0;
     npc.z = spec.z;
@@ -383,14 +459,98 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
   }
 }
 
+function makeRabbitSpecs() {
+  return [
+    { id: "rabbit-north", x: -21.5, z: -20.5 },
+    { id: "rabbit-plaza", x: 18.5, z: 10.2 },
+    { id: "rabbit-grove", x: -28.2, z: 17.4 },
+    { id: "rabbit-path", x: 24.4, z: -14.6 },
+    { id: "rabbit-fountain", x: -15.3, z: -5.8 },
+    { id: "rabbit-gate", x: 11.7, z: -27.5 },
+  ].map((rabbit, index) => ({
+    id: rabbit.id,
+    name: "Rabbit",
+    role: "critter" as NpcRole,
+    model: "rabbit" as NpcModel,
+    x: rabbit.x,
+    z: rabbit.z,
+    yaw: index * 0.9,
+    leashRadius: 5.4,
+    health: 1,
+    maxHealth: 1,
+    dialogue: "The rabbit wiggles its nose.",
+  }));
+}
+
+function makeDeerSpecs() {
+  return [
+    { id: "deer-west", x: -33.5, z: -2.2 },
+    { id: "deer-south", x: 29.5, z: 22.4 },
+    { id: "deer-hill", x: -19.2, z: 30.2 },
+    { id: "deer-copse", x: 34.8, z: -25.8 },
+  ].map((deer, index) => ({
+    id: deer.id,
+    name: "Deer",
+    role: "beast" as NpcRole,
+    model: "deer" as NpcModel,
+    x: deer.x,
+    z: deer.z,
+    yaw: Math.PI - index * 0.7,
+    leashRadius: 7.2,
+    health: 10,
+    maxHealth: 10,
+    dialogue: "The deer watches the plaza carefully.",
+  }));
+}
+
+function makeWildHogSpecs() {
+  return [
+    { id: "wild-hog-rooter", x: -52.5, z: 59.8 },
+    { id: "wild-hog-bristle", x: -46.8, z: 63.5 },
+    { id: "wild-hog-snort", x: -57.2, z: 65.4 },
+    { id: "wild-hog-mud", x: -42.4, z: 56.9 },
+    { id: "wild-hog-runt", x: -60.8, z: 55.3 },
+    { id: "wild-hog-tusk", x: -48.7, z: 52.1 },
+    { id: "wild-hog-grub", x: -55.9, z: 48.8 },
+    { id: "wild-hog-boar", x: -38.6, z: 61.4 },
+  ].map((hog, index) => ({
+    id: hog.id,
+    name: index === 7 ? "Old boar" : "Wild hog",
+    role: "beast" as NpcRole,
+    model: "hog" as NpcModel,
+    x: hog.x,
+    z: hog.z,
+    yaw: Math.PI * 0.35 + index * 0.58,
+    leashRadius: index === 7 ? 10.5 : 8.4,
+    health: index === 7 ? 42 : 24,
+    maxHealth: index === 7 ? 42 : 24,
+    dialogue: index === 7 ? "The old boar paws at the broken fence." : "The wild hog snorts and roots through the mud.",
+  }));
+}
+
 function updateNpcs(npcs: MapSchema<NpcState>, delta: number, now: number) {
   npcs.forEach((npc) => {
+    if (!isNpcAlive(npc)) {
+      if (npc.respawnAt > 0 && now >= npc.respawnAt) {
+        npc.health = npc.maxHealth;
+        npc.respawnAt = 0;
+        npc.x = npc.homeX;
+        npc.y = 0;
+        npc.z = npc.homeZ;
+        npc.targetX = npc.homeX;
+        npc.targetZ = npc.homeZ;
+      } else {
+        npc.animation = "idle";
+        return;
+      }
+    }
+
     if (npc.role === "enemy") {
       npc.animation = "idle";
       return;
     }
 
-    const canWander = npc.role === "wanderer" || npc.role === "guard";
+    const canWander = npc.role === "wanderer" || npc.role === "guard" || npc.role === "critter" || npc.role === "beast";
     const canPace = npc.role === "quest_giver" || npc.role === "merchant";
     const shouldPickTarget = now >= npc.nextDecisionAt
       || Math.hypot(npc.targetX - npc.x, npc.targetZ - npc.z) < 0.35;
@@ -415,7 +575,7 @@ function updateNpcs(npcs: MapSchema<NpcState>, delta: number, now: number) {
       return;
     }
 
-    const speed = npc.role === "guard" ? 2.35 : 1.85;
+    const speed = getNpcMoveSpeed(npc);
     const step = Math.min(distance, speed * delta);
     npc.x = clamp(npc.x + (dx / distance) * step, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
     npc.z = clamp(npc.z + (dz / distance) * step, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
@@ -431,6 +591,97 @@ function getNpcWanderTarget(npc: NpcState) {
     x: clamp(npc.homeX + Math.cos(angle) * radius, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX),
     z: clamp(npc.homeZ + Math.sin(angle) * radius, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ),
   };
+}
+
+function getNpcMoveSpeed(npc: NpcState) {
+  if (npc.role === "guard") return 2.35;
+  if (npc.role === "critter") return 2.65;
+  if (npc.model === "hog") return 2.0;
+  if (npc.role === "beast") return 2.2;
+  return 1.85;
+}
+
+function normalizeCombatActionId(actionId: unknown): CombatActionId | null {
+  return actionId === "attack" || actionId === "shoot" || actionId === "fireblast" ? actionId : null;
+}
+
+function getActionReadyAt(player: PlayerState, actionId: CombatActionId) {
+  if (actionId === "attack") return player.attackReadyAt;
+  if (actionId === "shoot") return player.shootReadyAt;
+  return player.fireblastReadyAt;
+}
+
+function setActionReadyAt(player: PlayerState, actionId: CombatActionId, readyAt: number) {
+  if (actionId === "attack") player.attackReadyAt = readyAt;
+  else if (actionId === "shoot") player.shootReadyAt = readyAt;
+  else player.fireblastReadyAt = readyAt;
+}
+
+function isPlayerStationary(player: PlayerState, input: TrackedInput | undefined, now: number) {
+  if (player.y > 0.05) return false;
+  if (!input || now - input.receivedAt >= 350) return true;
+  return Math.hypot(input.x, input.z) <= COMBAT.stationaryInputThreshold && !input.jump;
+}
+
+function updatePlayerCast(
+  player: PlayerState,
+  activeInput: TrackedInput | null,
+  npcs: MapSchema<NpcState>,
+  now: number,
+) {
+  const actionId = normalizeCombatActionId(player.castingAction);
+  if (!actionId) return;
+
+  if (!isPlayerStationary(player, activeInput ?? undefined, now)) {
+    clearPlayerCast(player);
+    return;
+  }
+
+  if (now < player.castEndsAt) return;
+
+  const action = COMBAT.actions[actionId];
+  setActionReadyAt(player, actionId, now + action.cooldownMs);
+  const target = findCombatTarget(npcs, { kind: player.castTargetKind, id: player.castTargetId });
+  if (target && isNpcAlive(target) && distanceToNpc(player, target) <= action.maxRange && distanceToNpc(player, target) >= action.minRange) {
+    applyNpcDamage(target, action.damage, now);
+  }
+  clearPlayerCast(player);
+}
+
+function clearPlayerCast(player: PlayerState) {
+  player.castingAction = "";
+  player.castStartedAt = 0;
+  player.castEndsAt = 0;
+  player.castTargetKind = "";
+  player.castTargetId = "";
+}
+
+function findCombatTarget(npcs: MapSchema<NpcState>, target: unknown) {
+  if (!target || typeof target !== "object") return null;
+  const maybeTarget = target as { kind?: unknown; id?: unknown };
+  if (maybeTarget.kind !== "npc" || typeof maybeTarget.id !== "string") return null;
+  const npc = npcs.get(maybeTarget.id);
+  if (!npc || !isAttackableNpcRole(npc.role)) return null;
+  return npc;
+}
+
+function isNpcAlive(npc: NpcState) {
+  return npc.isImmortal || npc.health > 0;
+}
+
+function applyNpcDamage(npc: NpcState, damage: number, now: number) {
+  if (npc.isImmortal) {
+    npc.health = npc.maxHealth;
+    return;
+  }
+
+  npc.health = clamp(npc.health - damage, 0, npc.maxHealth);
+  if (npc.health <= 0) {
+    npc.respawnAt = now + COMBAT.defeatedRespawnMs;
+    npc.targetX = npc.homeX;
+    npc.targetZ = npc.homeZ;
+    npc.animation = "idle";
+  }
 }
 
 function findInteractNpc(player: PlayerState, npcs: MapSchema<NpcState>, requestedNpcId?: string) {

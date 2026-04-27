@@ -6,11 +6,13 @@ import {
   INPUT_SEND_RATE,
   PLAYER,
   PLAZA_BOUNDS,
+  isAttackableNpcRole,
   type ClientInput,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
+import { CreatureAvatar } from "../components/CreatureAvatar";
 import { MferAvatar } from "../components/MferAvatar";
 
 type TownSceneProps = {
@@ -276,15 +278,30 @@ export function TownScene({
             />
           );
         })}
-        {Array.from(npcs.values()).map((npc) => (
-          <MferAvatar
-            key={npc.id}
-            player={npc}
-            isNpc
-            isTargeted={isTargetSelected(selectedTarget, "npc", npc.id)}
-            onTarget={() => onSelectTarget({ kind: "npc", id: npc.id })}
-          />
-        ))}
+        {Array.from(npcs.values()).filter(isVisibleNpc).map((npc) => {
+          const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
+          const onTarget = () => onSelectTarget({ kind: "npc", id: npc.id });
+          if (npc.model !== "mfer") {
+            return (
+              <CreatureAvatar
+                key={npc.id}
+                npc={npc}
+                isTargeted={isTargeted}
+                onTarget={onTarget}
+              />
+            );
+          }
+
+          return (
+            <MferAvatar
+              key={npc.id}
+              player={npc}
+              isNpc
+              isTargeted={isTargeted}
+              onTarget={onTarget}
+            />
+          );
+        })}
       </Suspense>
     </>
   );
@@ -303,8 +320,8 @@ function TownWorld() {
   const waterTexture = useMemo(() => createWaterTexture(), []);
 
   useEffect(() => {
-    configureTile(grassTexture, 14, 13);
-    configureTile(cobbleTexture, 9, 9);
+    configureTile(grassTexture, 22, 20);
+    configureTile(cobbleTexture, 12, 12);
     configureTile(stoneTexture, 2.2, 2.2);
     configureTile(roofTexture, 1.6, 1.6);
     configureTile(timberTexture, 1.25, 1.25);
@@ -327,6 +344,9 @@ function TownWorld() {
       <RoadStrip position={[0, 0.011, 29]} size={[52, 6.2]} texture={cobbleTexture} />
       <RoadStrip position={[-32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
       <RoadStrip position={[32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.011, 56]} size={[8.5, 42]} texture={cobbleTexture} />
+      <DirtPath position={[-29, 0.015, 59]} size={[54, 5.8]} />
+      <DirtPath position={[-52, 0.016, 61]} size={[22, 14]} />
 
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry args={[21, 21, 0.16, 96]} />
@@ -360,6 +380,7 @@ function TownWorld() {
       <MarketStall position={[6.4, 0, 29.2]} rotation={Math.PI} color="#e754d8" roofTexture={roofTexture} />
       <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <RundownFarm position={[-52, 0, 61]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
       <SpawnRing position={[5.6, 0.12, 5.6]} />
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
       <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
@@ -805,6 +826,21 @@ function RoadStrip({
   );
 }
 
+function DirtPath({
+  position,
+  size,
+}: {
+  position: [number, number, number];
+  size: [number, number];
+}) {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={position}>
+      <planeGeometry args={size} />
+      <meshBasicMaterial color="#80613f" transparent opacity={0.78} />
+    </mesh>
+  );
+}
+
 function WorldBackdrop({
   barkTexture,
   leafTexture,
@@ -812,26 +848,26 @@ function WorldBackdrop({
   barkTexture: THREE.Texture;
   leafTexture: THREE.Texture;
 }) {
-  const treeline = [-54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54];
+  const treeline = [-82, -72, -62, -54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54, 64, 74, 84];
 
   return (
     <group>
-      <mesh position={[-42, 4.1, -68]} rotation-y={0.5} scale={[1.55, 0.86, 0.9]}>
+      <mesh position={[-58, 4.1, -82]} rotation-y={0.5} scale={[1.72, 0.9, 0.96]}>
         <coneGeometry args={[8.5, 16, 4]} />
         <meshBasicMaterial color="#8b8978" />
       </mesh>
-      <mesh position={[-20, 3.7, -71]} rotation-y={0.1} scale={[1.2, 0.76, 0.92]}>
+      <mesh position={[-26, 3.7, -86]} rotation-y={0.1} scale={[1.34, 0.8, 0.98]}>
         <coneGeometry args={[7.6, 14, 4]} />
         <meshBasicMaterial color="#9b947f" />
       </mesh>
-      <mesh position={[38, 3.95, -68]} rotation-y={0.25} scale={[1.45, 0.82, 0.9]}>
+      <mesh position={[54, 3.95, -82]} rotation-y={0.25} scale={[1.62, 0.86, 0.96]}>
         <coneGeometry args={[8.2, 15, 4]} />
         <meshBasicMaterial color="#888c78" />
       </mesh>
       {treeline.map((x, index) => (
         <TownTree
           key={index}
-          position={[x, 0, -50 - (index % 2) * 4]}
+          position={[x, 0, -68 - (index % 2) * 5]}
           scale={0.95 + (index % 3) * 0.12}
           barkTexture={barkTexture}
           leafTexture={leafTexture}
@@ -982,6 +1018,284 @@ function WatchTower({
   );
 }
 
+function RundownFarm({
+  position,
+  rotation = 0,
+  stoneTexture,
+  roofTexture,
+  wallTexture,
+  barkTexture,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+  stoneTexture: THREE.Texture;
+  roofTexture: THREE.Texture;
+  wallTexture: THREE.Texture;
+  barkTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <MudPatch position={[-1, 0.026, 0]} scale={[9.5, 5.8, 1]} />
+      <MudPatch position={[7.8, 0.027, 3.8]} scale={[6.2, 3.2, 1]} />
+      <MudPatch position={[-8.8, 0.027, 4.4]} scale={[5.8, 3.6, 1]} />
+      <BrokenFence width={26} depth={18} barkTexture={barkTexture} />
+      <FarmHouse position={[-7.8, 0, -3.8]} rotation={0.1} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
+      <SaggingBarn position={[7.2, 0, -3.2]} rotation={-0.12} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
+      <CollapsedShed position={[5.8, 0, 6.4]} rotation={0.38} roofTexture={roofTexture} barkTexture={barkTexture} />
+      <Scarecrow position={[-10.2, 0, 5.8]} rotation={0.34} barkTexture={barkTexture} />
+      <Text
+        position={[0, 1.6, -9.5]}
+        rotation-y={0}
+        fontSize={0.42}
+        color="#e9d7ad"
+        outlineColor="#2d2016"
+        outlineWidth={0.035}
+        anchorX="center"
+      >
+        OLD FARM
+      </Text>
+    </group>
+  );
+}
+
+function MudPatch({
+  position,
+  scale,
+}: {
+  position: [number, number, number];
+  scale: [number, number, number];
+}) {
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={position} scale={scale}>
+      <circleGeometry args={[1, 32]} />
+      <meshBasicMaterial color="#5d432f" transparent opacity={0.82} />
+    </mesh>
+  );
+}
+
+function FarmHouse({
+  position,
+  rotation,
+  stoneTexture,
+  roofTexture,
+  wallTexture,
+}: {
+  position: [number, number, number];
+  rotation: number;
+  stoneTexture: THREE.Texture;
+  roofTexture: THREE.Texture;
+  wallTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh position={[0, 0.28, 0]}>
+        <boxGeometry args={[5.6, 0.56, 4.1]} />
+        <meshBasicMaterial map={stoneTexture} color="#a08b70" />
+      </mesh>
+      <mesh position={[0, 2.05, 0]}>
+        <boxGeometry args={[5.25, 3.45, 3.85]} />
+        <meshBasicMaterial map={wallTexture} color="#b79b79" />
+      </mesh>
+      <mesh position={[-0.22, 4.02, 0]} rotation-z={0.16}>
+        <boxGeometry args={[6.45, 0.28, 4.86]} />
+        <meshBasicMaterial map={roofTexture} color="#6f3525" />
+      </mesh>
+      <mesh position={[1.95, 2.35, 2.02]}>
+        <boxGeometry args={[1.08, 1.0, 0.16]} />
+        <meshBasicMaterial color="#201811" />
+      </mesh>
+      <mesh position={[-1.64, 1.52, 2.04]}>
+        <boxGeometry args={[1.15, 1.85, 0.16]} />
+        <meshBasicMaterial color="#3e2919" />
+      </mesh>
+      {[[-2.48, 2.2, 2.12, 0.22], [0.18, 3.72, 2.12, -0.48], [2.6, 1.15, 2.12, 0.08]].map(([x, y, z, rot], index) => (
+        <mesh key={index} position={[x, y, z]} rotation-z={rot}>
+          <boxGeometry args={[0.18, 2.3, 0.15]} />
+          <meshBasicMaterial color="#4d2f1b" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function SaggingBarn({
+  position,
+  rotation,
+  stoneTexture,
+  roofTexture,
+  wallTexture,
+}: {
+  position: [number, number, number];
+  rotation: number;
+  stoneTexture: THREE.Texture;
+  roofTexture: THREE.Texture;
+  wallTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh position={[0, 0.25, 0]}>
+        <boxGeometry args={[7.3, 0.5, 5.7]} />
+        <meshBasicMaterial map={stoneTexture} color="#8e7a62" />
+      </mesh>
+      <mesh position={[0, 2.35, 0]}>
+        <boxGeometry args={[6.9, 4.1, 5.35]} />
+        <meshBasicMaterial map={wallTexture} color="#8b5336" />
+      </mesh>
+      <mesh position={[-0.18, 4.95, 0]} rotation-z={-0.1}>
+        <boxGeometry args={[8.1, 0.34, 6.35]} />
+        <meshBasicMaterial map={roofTexture} color="#5f291d" />
+      </mesh>
+      <mesh position={[0, 1.52, 2.76]}>
+        <boxGeometry args={[2.6, 2.45, 0.18]} />
+        <meshBasicMaterial color="#2f1f16" />
+      </mesh>
+      <mesh position={[0, 1.55, 2.88]} rotation-z={0.55}>
+        <boxGeometry args={[0.22, 3.2, 0.12]} />
+        <meshBasicMaterial color="#a06b42" />
+      </mesh>
+      <mesh position={[0, 1.55, 2.9]} rotation-z={-0.55}>
+        <boxGeometry args={[0.22, 3.2, 0.12]} />
+        <meshBasicMaterial color="#a06b42" />
+      </mesh>
+      {[[-2.85, 2.4, 2.82, 0.1], [2.8, 2.2, 2.82, -0.2], [-1.2, 4.55, 2.84, -0.42]].map(([x, y, z, rot], index) => (
+        <mesh key={index} position={[x, y, z]} rotation-z={rot}>
+          <boxGeometry args={[0.18, 2.2, 0.14]} />
+          <meshBasicMaterial color="#4d2f1b" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function CollapsedShed({
+  position,
+  rotation,
+  roofTexture,
+  barkTexture,
+}: {
+  position: [number, number, number];
+  rotation: number;
+  roofTexture: THREE.Texture;
+  barkTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh position={[0, 0.75, 0]} rotation-z={0.62}>
+        <boxGeometry args={[4.8, 0.28, 2.7]} />
+        <meshBasicMaterial map={roofTexture} color="#5d3020" />
+      </mesh>
+      {[-1.8, -0.4, 1.1, 2.2].map((x, index) => (
+        <mesh key={index} position={[x, 0.42, index % 2 ? -0.72 : 0.62]} rotation-z={0.5 - index * 0.18}>
+          <cylinderGeometry args={[0.07, 0.1, 2.2, 8]} />
+          <meshStandardMaterial map={barkTexture} color="#664125" roughness={0.96} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Scarecrow({
+  position,
+  rotation,
+  barkTexture,
+}: {
+  position: [number, number, number];
+  rotation: number;
+  barkTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh position={[0, 1.22, 0]}>
+        <cylinderGeometry args={[0.06, 0.08, 2.44, 8]} />
+        <meshStandardMaterial map={barkTexture} color="#5d3b22" roughness={0.96} />
+      </mesh>
+      <mesh position={[0, 1.78, 0]} rotation-z={Math.PI / 2}>
+        <cylinderGeometry args={[0.045, 0.06, 2.2, 8]} />
+        <meshStandardMaterial map={barkTexture} color="#5d3b22" roughness={0.96} />
+      </mesh>
+      <mesh position={[0, 2.3, 0]}>
+        <sphereGeometry args={[0.28, 12, 8]} />
+        <meshBasicMaterial color="#b58a45" />
+      </mesh>
+      <mesh position={[0, 1.55, 0.03]}>
+        <coneGeometry args={[0.58, 1.1, 4]} />
+        <meshBasicMaterial color="#826b34" />
+      </mesh>
+    </group>
+  );
+}
+
+function BrokenFence({
+  width,
+  depth,
+  barkTexture,
+}: {
+  width: number;
+  depth: number;
+  barkTexture: THREE.Texture;
+}) {
+  const frontBackPosts = Array.from({ length: 8 }, (_, index) => -width / 2 + index * (width / 7));
+  const sidePosts = Array.from({ length: 5 }, (_, index) => -depth / 2 + index * (depth / 4));
+
+  return (
+    <group>
+      {frontBackPosts.map((x, index) => (
+        <group key={`fb-${index}`}>
+          <FencePost position={[x, 0, -depth / 2]} barkTexture={barkTexture} broken={index === 2} />
+          {index !== 4 && <FencePost position={[x, 0, depth / 2]} barkTexture={barkTexture} broken={index === 6} />}
+        </group>
+      ))}
+      {sidePosts.map((z, index) => (
+        <group key={`side-${index}`}>
+          {index !== 2 && <FencePost position={[-width / 2, 0, z]} barkTexture={barkTexture} broken={index === 1} />}
+          <FencePost position={[width / 2, 0, z]} barkTexture={barkTexture} broken={index === 3} />
+        </group>
+      ))}
+      <FenceRail position={[0, 0.9, -depth / 2]} size={[width - 1.4, 0.11, 0.13]} barkTexture={barkTexture} />
+      <FenceRail position={[0, 0.58, -depth / 2 + 0.05]} size={[width - 5.8, 0.1, 0.12]} barkTexture={barkTexture} />
+      <FenceRail position={[-3.8, 0.78, depth / 2]} size={[width - 8.6, 0.11, 0.13]} barkTexture={barkTexture} />
+      <FenceRail position={[-width / 2, 0.78, 1.4]} size={[depth - 3.6, 0.11, 0.13]} rotation={Math.PI / 2} barkTexture={barkTexture} />
+      <FenceRail position={[width / 2, 0.78, -1.6]} size={[depth - 5.2, 0.11, 0.13]} rotation={Math.PI / 2} barkTexture={barkTexture} />
+    </group>
+  );
+}
+
+function FencePost({
+  position,
+  barkTexture,
+  broken = false,
+}: {
+  position: [number, number, number];
+  barkTexture: THREE.Texture;
+  broken?: boolean;
+}) {
+  return (
+    <mesh position={[position[0], broken ? 0.42 : 0.62, position[2]]} rotation-z={broken ? 0.3 : 0}>
+      <cylinderGeometry args={[0.08, 0.11, broken ? 0.84 : 1.24, 8]} />
+      <meshStandardMaterial map={barkTexture} color="#5b391f" roughness={0.96} />
+    </mesh>
+  );
+}
+
+function FenceRail({
+  position,
+  size,
+  barkTexture,
+  rotation = 0,
+}: {
+  position: [number, number, number];
+  size: [number, number, number];
+  barkTexture: THREE.Texture;
+  rotation?: number;
+}) {
+  return (
+    <mesh position={position} rotation-y={rotation} rotation-z={rotation ? 0.08 : -0.035}>
+      <boxGeometry args={size} />
+      <meshStandardMaterial map={barkTexture} color="#6a4428" roughness={0.95} />
+    </mesh>
+  );
+}
+
 function TreeCluster({
   barkTexture,
   leafTexture,
@@ -1005,6 +1319,13 @@ function TreeCluster({
     [-23, 0, -26, 0.9],
     [35, 0, -39, 0.95],
     [-35, 0, -39, 0.95],
+    [-67, 0, 51, 1.05],
+    [-65, 0, 68, 0.9],
+    [-38, 0, 72, 1.1],
+    [-22, 0, 60, 0.86],
+    [58, 0, 48, 0.95],
+    [66, 0, -36, 1.04],
+    [-66, 0, -42, 0.96],
   ];
 
   return (
@@ -1675,7 +1996,17 @@ function updateLocalVisualPlayer(
   visual.identityType = authoritative.identityType;
   visual.walletAddress = authoritative.walletAddress;
   visual.avatarSeed = authoritative.avatarSeed;
+  visual.health = authoritative.health;
+  visual.maxHealth = authoritative.maxHealth;
+  visual.mana = authoritative.mana;
+  visual.maxMana = authoritative.maxMana;
   visual.lastSeq = authoritative.lastSeq;
+  visual.attackReadyAt = authoritative.attackReadyAt;
+  visual.shootReadyAt = authoritative.shootReadyAt;
+  visual.fireblastReadyAt = authoritative.fireblastReadyAt;
+  visual.castingAction = authoritative.castingAction;
+  visual.castStartedAt = authoritative.castStartedAt;
+  visual.castEndsAt = authoritative.castEndsAt;
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);
@@ -1712,7 +2043,7 @@ function getNextEnemyTarget(
   reverse: boolean,
 ): TargetSelection | null {
   const enemies = Array.from(npcs.values())
-    .filter((npc) => npc.role === "enemy")
+    .filter((npc) => isAttackableNpcRole(npc.role) && isVisibleNpc(npc))
     .map((npc) => ({
       npc,
       distance: Math.hypot(player.x - npc.x, player.z - npc.z),
@@ -1731,6 +2062,10 @@ function getNextEnemyTarget(
     : (currentIndex + offset + enemies.length) % enemies.length;
 
   return { kind: "npc", id: enemies[nextIndex].npc.id };
+}
+
+function isVisibleNpc(npc: NpcSnapshot) {
+  return npc.isImmortal || npc.health > 0;
 }
 
 function isTargetSelected(

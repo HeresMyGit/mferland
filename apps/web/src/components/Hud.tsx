@@ -1,9 +1,19 @@
-import { type CSSProperties, type FormEvent, type PointerEvent, useMemo, useRef, useState } from "react";
-import { Hand, LogOut } from "lucide-react";
-import { CHAT, PLAZA_BOUNDS, type ChatMessage, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
+import { type CSSProperties, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Crosshair, Flame, Hand, LogOut, Sword } from "lucide-react";
+import {
+  CHAT,
+  COMBAT,
+  PLAZA_BOUNDS,
+  isAttackableNpcRole,
+  type ActionId,
+  type ChatMessage,
+  type CombatActionId,
+  type NpcSnapshot,
+  type PlayerSnapshot,
+  type TargetSelection,
+} from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
 
-type ActionId = "interact";
 type ActionSlot = ActionId | null;
 type DragState = {
   fromIndex: number;
@@ -28,6 +38,7 @@ type HudProps = {
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   localSessionId: string | null;
+  localPlayer: PlayerSnapshot | null;
   actionSlots: ActionSlot[];
   onAction: (actionId: ActionId) => void;
   onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
@@ -46,6 +57,7 @@ export function Hud({
   selectedTarget,
   selectedTargetUnit,
   localSessionId,
+  localPlayer,
   actionSlots,
   onAction,
   onMoveActionSlot,
@@ -56,7 +68,13 @@ export function Hud({
   const dragStateRef = useRef<DragState | null>(null);
   const [dragState, setDragStateState] = useState<DragState | null>(null);
   const [dropSlot, setDropSlot] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(interval);
+  }, []);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -125,15 +143,30 @@ export function Hud({
   return (
     <div className="hud">
       <section className="player-card">
-        <div className="portrait" style={{ "--accent": accent } as CSSProperties}>
-          <span>mf</span>
-        </div>
-        <div className="player-vitals">
-          <strong>{identity.name}</strong>
-          <div className="bar hp"><span style={{ width: "100%" }} />100/100</div>
-          <div className="bar mp"><span style={{ width: "100%" }} />50/50</div>
+          <div className="portrait" style={{ "--accent": accent } as CSSProperties}>
+            <span>mf</span>
+          </div>
+          <div className="player-vitals">
+            <strong>{identity.name}</strong>
+          <div className="bar hp">
+            <span style={{ width: `${percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100)}%` }} />
+            {Math.ceil(localPlayer?.health ?? 100)}/{Math.ceil(localPlayer?.maxHealth ?? 100)}
+          </div>
+          <div className="bar mp">
+            <span style={{ width: `${percent(localPlayer?.mana ?? 50, localPlayer?.maxMana ?? 50)}%` }} />
+            {Math.floor(localPlayer?.mana ?? 50)}/{Math.ceil(localPlayer?.maxMana ?? 50)}
+          </div>
         </div>
       </section>
+
+      {localPlayer?.castingAction && (
+        <section className="cast-bar">
+          <strong>{getActionMeta(localPlayer.castingAction)?.label}</strong>
+          <div>
+            <span style={{ width: `${getCastPercent(localPlayer, now)}%` }} />
+          </div>
+        </section>
+      )}
 
       <section className="quest-panel">
         <h2>Quests</h2>
@@ -163,10 +196,10 @@ export function Hud({
               }}
             />
           ))}
-          {Array.from(npcs.values()).map((npc) => (
+          {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
             <span
               key={npc.id}
-              className={`map-dot npc ${npc.role === "enemy" ? "enemy" : ""}`}
+              className={`map-dot npc ${isAttackableNpcRole(npc.role) ? "enemy" : ""}`}
               title={npc.name}
               style={{
                 left: `${normalize(npc.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
@@ -212,6 +245,8 @@ export function Hud({
             index={index}
             isDragging={dragState?.fromIndex === index && dragState.isDragging}
             isDropTarget={dropSlot === index && dragState?.isDragging === true}
+            localPlayer={localPlayer}
+            now={now}
             onAction={onAction}
             onPointerStart={beginActionDrag}
             onPointerMove={updateActionDrag}
@@ -243,6 +278,8 @@ function ActionSlotButton({
   onPointerStart,
   onPointerMove,
   onPointerEnd,
+  localPlayer,
+  now,
 }: {
   actionId: ActionSlot;
   index: number;
@@ -252,14 +289,22 @@ function ActionSlotButton({
   onPointerStart: (index: number, event: PointerEvent<HTMLElement>) => void;
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
+  localPlayer: PlayerSnapshot | null;
+  now: number;
 }) {
   const action = actionId ? getActionMeta(actionId) : null;
   const Icon = action?.icon;
+  const cooldown = actionId && actionId !== "interact" ? getCooldownState(localPlayer, actionId, now) : null;
+  const hasMana = actionId && actionId !== "interact"
+    ? (localPlayer?.mana ?? 0) >= COMBAT.actions[actionId].manaCost
+    : true;
   const className = [
     "action-slot",
     action ? "filled" : "empty",
     isDragging ? "dragging" : "",
     isDropTarget ? "drop-target" : "",
+    cooldown && cooldown.remainingMs > 0 ? "cooling" : "",
+    hasMana ? "" : "oom",
   ].filter(Boolean).join(" ");
 
   if (!action || !Icon) {
@@ -289,6 +334,12 @@ function ActionSlotButton({
     >
       <Icon size={25} />
       <strong>{action.label}</strong>
+      {cooldown && cooldown.remainingMs > 0 && (
+        <span className="cooldown-sweep" style={{ height: `${cooldown.percent}%` }} />
+      )}
+      {cooldown && cooldown.remainingMs > 0 && (
+        <em className="cooldown-label">{formatCooldown(cooldown.remainingMs)}</em>
+      )}
       <span className="slot-key">{index + 1}</span>
     </button>
   );
@@ -300,6 +351,27 @@ function getActionMeta(actionId: ActionId) {
       id: actionId,
       label: "Interact",
       icon: Hand,
+    };
+  }
+  if (actionId === "attack") {
+    return {
+      id: actionId,
+      label: "Attack",
+      icon: Sword,
+    };
+  }
+  if (actionId === "shoot") {
+    return {
+      id: actionId,
+      label: "Shoot",
+      icon: Crosshair,
+    };
+  }
+  if (actionId === "fireblast") {
+    return {
+      id: actionId,
+      label: "Fireblast",
+      icon: Flame,
     };
   }
 }
@@ -314,11 +386,12 @@ function getSlotIndexFromPoint(x: number, y: number) {
 function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {
   const isNpc = kind === "npc";
   const npc = isNpc ? (unit as NpcSnapshot) : null;
-  const isEnemy = npc?.role === "enemy";
+  const isEnemy = npc ? isAttackableNpcRole(npc.role) : false;
   const maxHealth = npc?.maxHealth || 100;
   const health = npc?.health ?? 100;
   const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
-  const label = npc ? (isEnemy ? "Enemy" : roleLabel(npc.role)) : playerLabel(unit as PlayerSnapshot);
+  const label = npc ? roleLabel(npc.role) : playerLabel(unit as PlayerSnapshot);
+  const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
 
   return (
     <section className={`target-frame ${isEnemy ? "enemy" : ""}`}>
@@ -330,7 +403,7 @@ function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: Play
         <em>{label}</em>
         <div className="target-health">
           <span style={{ width: `${healthPercent}%` }} />
-          {Math.round(health)}/{Math.round(maxHealth)}
+          {healthText}
         </div>
       </div>
     </section>
@@ -354,6 +427,8 @@ function roleLabel(role: NpcSnapshot["role"]) {
   if (role === "merchant") return "Merchant";
   if (role === "guard") return "Guard";
   if (role === "enemy") return "Training";
+  if (role === "critter") return "Critter";
+  if (role === "beast") return "Beast";
   return "Town NPC";
 }
 
@@ -365,4 +440,36 @@ function playerLabel(player: PlayerSnapshot) {
 
 function normalize(value: number, min: number, max: number) {
   return Math.max(7, Math.min(93, ((value - min) / (max - min)) * 100));
+}
+
+function percent(value: number, max: number) {
+  if (max <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / max) * 100));
+}
+
+function getActionReadyAt(player: PlayerSnapshot | null, actionId: CombatActionId) {
+  if (!player) return 0;
+  if (actionId === "attack") return player.attackReadyAt;
+  if (actionId === "shoot") return player.shootReadyAt;
+  return player.fireblastReadyAt;
+}
+
+function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number) {
+  const remainingMs = Math.max(0, getActionReadyAt(player, actionId) - now);
+  const cooldownMs = COMBAT.actions[actionId].cooldownMs;
+  return {
+    remainingMs,
+    percent: cooldownMs > 0 ? Math.min(100, (remainingMs / cooldownMs) * 100) : 0,
+  };
+}
+
+function getCastPercent(player: PlayerSnapshot, now: number) {
+  if (!player.castingAction) return 0;
+  const duration = Math.max(1, player.castEndsAt - player.castStartedAt);
+  return Math.max(0, Math.min(100, ((now - player.castStartedAt) / duration) * 100));
+}
+
+function formatCooldown(ms: number) {
+  const seconds = ms / 1000;
+  return seconds >= 1 ? String(Math.ceil(seconds)) : seconds.toFixed(1);
 }

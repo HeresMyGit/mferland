@@ -9,7 +9,9 @@ import {
   type AgentObservation,
   type ChatMessage,
   type ClientInput,
+  type CombatActionId,
   type IdentityType,
+  type NpcModel,
   type NpcRole,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -32,20 +34,32 @@ type RuntimePlayer = {
   identityType: IdentityType;
   walletAddress: string;
   avatarSeed: number;
+  health: number;
+  maxHealth: number;
+  mana: number;
+  maxMana: number;
   x: number;
   y: number;
   z: number;
   yaw: number;
   animation: PlayerSnapshot["animation"];
   lastSeq: number;
+  attackReadyAt: number;
+  shootReadyAt: number;
+  fireblastReadyAt: number;
+  castingAction: CombatActionId | "";
+  castStartedAt: number;
+  castEndsAt: number;
 };
 
 type RuntimeNpc = {
   name: string;
   role: NpcRole;
+  model: NpcModel;
   avatarSeed: number;
   health: number;
   maxHealth: number;
+  isImmortal: boolean;
   x: number;
   y: number;
   z: number;
@@ -103,12 +117,22 @@ class AgentCharacter {
           identityType: player.identityType,
           walletAddress: player.walletAddress,
           avatarSeed: player.avatarSeed,
+          health: player.health,
+          maxHealth: player.maxHealth,
+          mana: player.mana,
+          maxMana: player.maxMana,
           x: player.x,
           y: player.y,
           z: player.z,
           yaw: player.yaw,
           animation: player.animation,
           lastSeq: player.lastSeq,
+          attackReadyAt: player.attackReadyAt,
+          shootReadyAt: player.shootReadyAt,
+          fireblastReadyAt: player.fireblastReadyAt,
+          castingAction: player.castingAction,
+          castStartedAt: player.castStartedAt,
+          castEndsAt: player.castEndsAt,
         });
       });
       this.players = next;
@@ -119,9 +143,11 @@ class AgentCharacter {
           id,
           name: npc.name,
           role: npc.role,
+          model: npc.model,
           avatarSeed: npc.avatarSeed,
           health: npc.health,
           maxHealth: npc.maxHealth,
+          isImmortal: npc.isImmortal,
           x: npc.x,
           y: npc.y,
           z: npc.z,
@@ -200,7 +226,7 @@ class AgentCharacter {
       nearbyNpcs,
       recentChat: this.recentChat.slice(-8),
       bounds: PLAZA_BOUNDS,
-      availableActions: ["move", "look", "jump", "sprint", "chat", "interact"],
+      availableActions: ["move", "look", "jump", "sprint", "chat", "interact", "attack", "shoot", "fireblast"],
     };
   }
 

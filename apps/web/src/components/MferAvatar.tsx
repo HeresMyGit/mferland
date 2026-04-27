@@ -5,7 +5,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
-import { type AnimationState, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
+import { isAttackableNpcRole, type AnimationState, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
 import { generateRandomMferTraits, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
 
@@ -198,7 +198,7 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
   }
 }
 
-function TargetRing({ color }: { color: string }) {
+export function TargetRing({ color }: { color: string }) {
   const ringRef = useRef<THREE.Group>(null);
 
   useFrame(({ clock }) => {
@@ -235,7 +235,7 @@ function TargetRing({ color }: { color: string }) {
 }
 
 function getTargetFaction(player: PlayerSnapshot | NpcSnapshot, isNpc: boolean) {
-  if (isNpc && "role" in player) return player.role === "enemy" ? "hostile" : "neutral";
+  if (isNpc && "role" in player) return isAttackableNpcRole(player.role) ? "hostile" : "neutral";
   return "friendly";
 }
 
