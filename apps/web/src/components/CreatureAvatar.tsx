@@ -1,9 +1,18 @@
 import { useRef } from "react";
-import { Billboard, Text } from "@react-three/drei";
+import { Billboard } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getNpcDisposition, type NpcDisposition, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
-import { ActorBlobShadow, LootSparkles, QuestMarker, TargetRing, TARGET_LABEL_COLORS, TARGET_RING_COLORS } from "./MferAvatar";
+import {
+  ActorBlobShadow,
+  ActorNameplate,
+  DispositionBaseMarker,
+  LootSparkles,
+  QuestMarker,
+  TargetRing,
+  TARGET_LABEL_COLORS,
+  TARGET_RING_COLORS,
+} from "./MferAvatar";
 
 type CreatureAvatarProps = {
   npc: NpcSnapshot;
@@ -87,14 +96,16 @@ export function CreatureAvatar({
   const poseRef = useRef<THREE.Group>(null);
   const disposition = getNpcDisposition(npc);
   const ringColor = TARGET_RING_COLORS[disposition];
-  const label = getCreatureLabel(npc, disposition);
+  const nameplate = getCreatureNameplate(npc, disposition);
   const hitGeometry = getCreatureHitGeometry(npc.model);
   const shadowScale = getCreatureShadowScale(npc.model);
   const labelY = npc.model === "rabbit" ? 1.22 : npc.model === "hog" ? 1.55 : 1.86;
+  const markerRadius = npc.model === "rabbit" ? 0.48 : npc.model === "hog" ? 0.76 : 0.66;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
+  const showBaseMarker = !isDefeated && (disposition !== "friendly" || Boolean(questMarker));
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -115,7 +126,8 @@ export function CreatureAvatar({
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
       <ActorBlobShadow scale={shadowScale} />
-      {isTargeted && <TargetRing color={ringColor} />}
+      {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={markerRadius} />}
+      {isTargeted && <TargetRing color={ringColor} disposition={disposition} radius={markerRadius + 0.16} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
       {showLootSparkles && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
       <mesh
@@ -129,17 +141,14 @@ export function CreatureAvatar({
         {npc.model === "rabbit" ? <RabbitModel /> : npc.model === "hog" ? <HogModel /> : <DeerModel />}
         {showNameplate && (
           <Billboard position={[0, labelY, 0]}>
-            <Text
-              fontSize={npc.model === "rabbit" ? 0.16 : 0.2}
-              anchorX="center"
-              anchorY="middle"
+            <ActorNameplate
+              title={nameplate.title}
+              badge={nameplate.badge}
               color={TARGET_LABEL_COLORS[disposition]}
-              outlineColor="#16140f"
-              outlineWidth={0.022}
-              maxWidth={2.1}
-            >
-              {label}
-            </Text>
+              badgeColor={ringColor}
+              fontSize={npc.model === "rabbit" ? 0.16 : 0.19}
+              maxWidth={2.8}
+            />
           </Billboard>
         )}
       </group>
@@ -165,11 +174,11 @@ function getCreatureShadowScale(model: NpcSnapshot["model"]): [number, number, n
   return [0.68, 0.42, 1];
 }
 
-function getCreatureLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
-  if (disposition === "hostile") return `${npc.name} [Hostile]`;
-  if (npc.model === "rabbit") return "Rabbit [Critter]";
-  if (npc.model === "hog") return `${npc.name} [Beast]`;
-  return "Deer [Beast]";
+function getCreatureNameplate(npc: NpcSnapshot, disposition: NpcDisposition) {
+  if (disposition === "hostile") return { title: npc.name, badge: "HOSTILE" };
+  if (npc.model === "rabbit") return { title: "Rabbit", badge: "CRITTER" };
+  if (npc.model === "hog") return { title: npc.name, badge: "BEAST" };
+  return { title: "Deer", badge: "BEAST" };
 }
 
 function HogModel() {

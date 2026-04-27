@@ -52,6 +52,14 @@ export const TARGET_LABEL_COLORS: Record<NpcDisposition, string> = {
   neutral: "#ffd84f",
   hostile: "#ff6258",
 };
+const TARGET_BADGE_COLORS: Record<NpcDisposition | "player" | "local" | "agent", string> = {
+  friendly: "#7dfc8f",
+  neutral: "#ffd84f",
+  hostile: "#ff5a4f",
+  player: "#6ec8ff",
+  local: "#f3d04e",
+  agent: "#b38cff",
+};
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 const animationClipCache = new WeakMap<THREE.AnimationClip, Map<AnimationState, THREE.AnimationClip>>();
@@ -93,13 +101,19 @@ export function MferAvatar({
   const npc = isNpc && "role" in player ? player : null;
   const disposition = npc ? getNpcDisposition(npc) : "friendly";
   const isAgentPlayer = "identityType" in player && player.identityType === "agent";
-  const label = npc ? getNpcLabel(npc, disposition) : isAgentPlayer ? `${player.name} [AI]` : player.name;
+  const nameplate = npc
+    ? getNpcNameplate(npc, disposition)
+    : getPlayerNameplate(player.name, isLocal, isAgentPlayer);
   const targetRingColor = TARGET_RING_COLORS[disposition];
   const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? "#f3d04e" : accent;
+  const badgeColor = npc
+    ? TARGET_BADGE_COLORS[disposition]
+    : isLocal ? TARGET_BADGE_COLORS.local : isAgentPlayer ? TARGET_BADGE_COLORS.agent : TARGET_BADGE_COLORS.player;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, player.x, player.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
+  const showBaseMarker = npc && !isDefeated && (disposition !== "friendly" || Boolean(questMarker));
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
@@ -170,7 +184,8 @@ export function MferAvatar({
   return (
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
-      {isTargeted && <TargetRing color={targetRingColor} />}
+      {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
+      {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.65} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
@@ -183,18 +198,15 @@ export function MferAvatar({
       <group ref={poseRef}>
         <primitive object={avatar} />
         {showNameplate && (
-          <Billboard position={[0, 3.05, 0]}>
-            <Text
-              fontSize={0.24}
-              anchorX="center"
-              anchorY="middle"
+          <Billboard position={[0, isLocal ? 3.22 : 3.08, 0]}>
+            <ActorNameplate
+              title={nameplate.title}
+              badge={nameplate.badge}
               color={labelColor}
-              outlineColor="#16140f"
-              outlineWidth={0.025}
-              maxWidth={2.4}
-            >
-              {label}
-            </Text>
+              badgeColor={badgeColor}
+              fontSize={0.22}
+              maxWidth={3.2}
+            />
           </Billboard>
         )}
       </group>
@@ -283,56 +295,177 @@ export function ActorBlobShadow({ scale = [0.72, 0.44, 1] }: { scale?: ShadowSca
   );
 }
 
-export function TargetRing({ color }: { color: string }) {
+export function TargetRing({
+  color,
+  disposition = "friendly",
+  radius = 0.94,
+}: {
+  color: string;
+  disposition?: NpcDisposition;
+  radius?: number;
+}) {
   const ringRef = useRef<THREE.Group>(null);
+  const tickCount = disposition === "hostile" ? 6 : 4;
 
   useFrame(({ clock }) => {
     const ring = ringRef.current;
     if (!ring) return;
-    const pulse = 1 + Math.sin(clock.elapsedTime * 4.6) * 0.025;
+    const pulse = 1 + Math.sin(clock.elapsedTime * (disposition === "hostile" ? 5.6 : 4.2)) * 0.022;
     ring.scale.set(pulse, pulse, pulse);
   });
 
   return (
     <group ref={ringRef} position={[0, 0.11, 0]}>
       <mesh rotation-x={Math.PI / 2} renderOrder={44}>
-        <torusGeometry args={[0.94, 0.045, 8, 96]} />
+        <torusGeometry args={[radius, 0.04, 8, 80]} />
         <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.012, 0]} renderOrder={43}>
-        <ringGeometry args={[0.7, 1.12, 96]} />
+        <ringGeometry args={[radius * 0.74, radius * 1.14, 80]} />
         <meshBasicMaterial
           color={color}
           depthTest={false}
           depthWrite={false}
-          opacity={0.2}
+          opacity={disposition === "hostile" ? 0.24 : 0.16}
           side={THREE.DoubleSide}
           toneMapped={false}
           transparent
         />
       </mesh>
       <mesh rotation-x={Math.PI / 2} position={[0, -0.02, 0]} renderOrder={42}>
-        <torusGeometry args={[1.08, 0.018, 6, 96]} />
+        <torusGeometry args={[radius * 1.14, 0.016, 6, 80]} />
         <meshBasicMaterial color="#1c120b" depthTest={false} depthWrite={false} toneMapped={false} />
       </mesh>
+      {Array.from({ length: tickCount }, (_, index) => {
+        const angle = (index / tickCount) * Math.PI * 2;
+        return (
+          <mesh
+            key={index}
+            position={[Math.sin(angle) * radius * 1.18, 0.018, Math.cos(angle) * radius * 1.18]}
+            rotation-y={angle}
+            renderOrder={45}
+          >
+            <boxGeometry args={[disposition === "hostile" ? 0.26 : 0.2, 0.035, 0.075]} />
+            <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+export function DispositionBaseMarker({
+  disposition,
+  questMarker,
+  radius = 0.78,
+}: {
+  disposition: NpcDisposition;
+  questMarker?: QuestMarkerType | null;
+  radius?: number;
+}) {
+  const color = questMarker ? (questMarker === "turnIn" ? "#7dff8c" : "#ffd84f") : TARGET_RING_COLORS[disposition];
+
+  return (
+    <group position={[0, 0.045, 0]}>
+      <mesh rotation-x={-Math.PI / 2} renderOrder={18}>
+        <ringGeometry args={[radius, radius + 0.07, 36]} />
+        <meshBasicMaterial color={color} depthWrite={false} opacity={0.48} side={THREE.DoubleSide} transparent />
+      </mesh>
+      {disposition === "hostile" && (
+        <mesh position={[0, 0.018, radius + 0.1]} renderOrder={19}>
+          <boxGeometry args={[0.34, 0.04, 0.08]} />
+          <meshBasicMaterial color={color} depthWrite={false} />
+        </mesh>
+      )}
     </group>
   );
 }
 
 export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
+  const color = type === "turnIn" ? "#74ff7a" : "#ffd84f";
+  const label = type === "turnIn" ? "?" : "!";
+
   return (
     <Billboard position={[0, y, 0]}>
+      <mesh position={[0, 0, -0.025]} renderOrder={58}>
+        <circleGeometry args={[0.34, 28]} />
+        <meshBasicMaterial color="#21180b" depthTest={false} depthWrite={false} opacity={0.82} transparent />
+      </mesh>
+      <mesh position={[0, 0, -0.018]} renderOrder={59}>
+        <ringGeometry args={[0.28, 0.35, 28]} />
+        <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
+      </mesh>
       <Text
-        fontSize={0.62}
+        fontSize={0.54}
         anchorX="center"
         anchorY="middle"
-        color="#ffd84f"
+        color={color}
         outlineColor="#2b1b00"
         outlineWidth={0.055}
       >
-        {type === "turnIn" ? "?" : "!"}
+        {label}
       </Text>
     </Billboard>
+  );
+}
+
+export function ActorNameplate({
+  title,
+  badge,
+  color,
+  badgeColor,
+  fontSize = 0.22,
+  maxWidth = 2.55,
+}: {
+  title: string;
+  badge?: string;
+  color: string;
+  badgeColor: string;
+  fontSize?: number;
+  maxWidth?: number;
+}) {
+  const normalizedTitle = title.trim() || "mfer";
+  const width = Math.min(maxWidth, Math.max(1.0, normalizedTitle.length * fontSize * 0.58 + (badge ? badge.length * 0.065 : 0) + 0.54));
+  const height = badge ? 0.4 : 0.3;
+
+  return (
+    <group>
+      <mesh position={[0, 0, -0.035]} renderOrder={50}>
+        <planeGeometry args={[width, height]} />
+        <meshBasicMaterial color="#16120d" depthTest={false} depthWrite={false} opacity={0.48} transparent />
+      </mesh>
+      <mesh position={[0, -height / 2 + 0.026, -0.028]} renderOrder={51}>
+        <planeGeometry args={[width * 0.82, 0.04]} />
+        <meshBasicMaterial color={badgeColor} depthTest={false} depthWrite={false} opacity={0.72} transparent toneMapped={false} />
+      </mesh>
+      <Text
+        position={[0, badge ? 0.085 : 0.02, 0]}
+        renderOrder={54}
+        fontSize={fontSize}
+        anchorX="center"
+        anchorY="middle"
+        color={color}
+        outlineColor="#0b0907"
+        outlineWidth={0.026}
+      >
+        {normalizedTitle}
+      </Text>
+      {badge && (
+        <Text
+          position={[0, -0.13, 0]}
+          renderOrder={55}
+          fontSize={fontSize * 0.52}
+          anchorX="center"
+          anchorY="middle"
+          color={badgeColor}
+          outlineColor="#0b0907"
+          outlineWidth={0.018}
+          letterSpacing={0.04}
+        >
+          {badge}
+        </Text>
+      )}
+    </group>
   );
 }
 
@@ -364,10 +497,17 @@ export function LootSparkles({ y }: { y: number }) {
   );
 }
 
-function getNpcLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
-  if (disposition === "hostile") return `${npc.name} [Hostile]`;
-  if (disposition === "neutral") return `${npc.name} [Attackable]`;
-  return `${npc.name} [NPC]`;
+function getPlayerNameplate(name: string, isLocal: boolean, isAgentPlayer: boolean) {
+  return {
+    title: name,
+    badge: isLocal ? undefined : isAgentPlayer ? "AI" : "PLAYER",
+  };
+}
+
+function getNpcNameplate(npc: NpcSnapshot, disposition: NpcDisposition) {
+  if (disposition === "hostile") return { title: npc.name, badge: "HOSTILE" };
+  if (disposition === "neutral") return { title: npc.name, badge: "ATTACKABLE" };
+  return { title: npc.name, badge: "NPC" };
 }
 
 function lerpAngle(a: number, b: number, t: number) {
