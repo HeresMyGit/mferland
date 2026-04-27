@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useRef } from "react";
 import { Billboard, Text } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -20,6 +20,60 @@ const NAMEPLATE_RENDER_DISTANCE_SQ = 30 * 30;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 42 * 42;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 28 * 28;
 
+const creatureHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+const creatureHitGeometries = {
+  rabbit: new THREE.CylinderGeometry(0.55, 0.55, 1.0, 10),
+  hog: new THREE.CylinderGeometry(0.86, 0.86, 1.35, 10),
+  deer: new THREE.CylinderGeometry(0.74, 0.74, 1.7, 10),
+} as const;
+
+const creatureMaterials = {
+  hogHide: new THREE.MeshBasicMaterial({ color: "#5c3a2e" }),
+  hogDark: new THREE.MeshBasicMaterial({ color: "#2f201a" }),
+  hogSnout: new THREE.MeshBasicMaterial({ color: "#806052" }),
+  rabbitHide: new THREE.MeshBasicMaterial({ color: "#f2eee0" }),
+  rabbitShade: new THREE.MeshBasicMaterial({ color: "#d8d1c2" }),
+  rabbitDark: new THREE.MeshBasicMaterial({ color: "#1f1812" }),
+  deerHide: new THREE.MeshBasicMaterial({ color: "#a66b36" }),
+  deerBelly: new THREE.MeshBasicMaterial({ color: "#e3c694" }),
+  deerDark: new THREE.MeshBasicMaterial({ color: "#2d1c12" }),
+  deerAntler: new THREE.MeshBasicMaterial({ color: "#ead38f" }),
+} as const;
+
+const creatureGeometries = {
+  hogBody: new THREE.SphereGeometry(0.46, 18, 12),
+  hogHead: new THREE.SphereGeometry(0.34, 16, 10),
+  hogSnout: new THREE.SphereGeometry(0.22, 14, 8),
+  hogNostril: new THREE.BoxGeometry(0.12, 0.06, 0.05),
+  hogEar: new THREE.ConeGeometry(0.1, 0.28, 4),
+  hogLeg: new THREE.CapsuleGeometry(0.055, 0.34, 5, 8),
+  hogTail: new THREE.TorusGeometry(0.13, 0.018, 6, 16, Math.PI * 1.3),
+  unitBox: new THREE.BoxGeometry(1, 1, 1),
+  rabbitBody: new THREE.SphereGeometry(0.32, 18, 12),
+  rabbitHead: new THREE.SphereGeometry(0.22, 18, 12),
+  rabbitEar: new THREE.CapsuleGeometry(0.045, 0.42, 5, 8),
+  rabbitTail: new THREE.SphereGeometry(0.12, 12, 8),
+  rabbitEye: new THREE.SphereGeometry(0.025, 8, 6),
+  rabbitFoot: new THREE.CapsuleGeometry(0.04, 0.24, 5, 8),
+  deerBody: new THREE.SphereGeometry(0.45, 18, 12),
+  deerNeck: new THREE.CapsuleGeometry(0.13, 0.42, 6, 10),
+  deerHead: new THREE.SphereGeometry(0.2, 14, 10),
+  deerBelly: new THREE.SphereGeometry(0.32, 14, 8),
+  deerLeg: new THREE.CapsuleGeometry(0.045, 0.56, 5, 8),
+  deerAntlerMain: new THREE.CapsuleGeometry(0.025, 0.32, 4, 7),
+  deerAntlerBranch: new THREE.CapsuleGeometry(0.018, 0.18, 4, 7),
+  deerEye: new THREE.SphereGeometry(0.024, 8, 6),
+} as const;
+
+const hogLegOffsets = [
+  [-0.36, -0.26],
+  [-0.36, 0.34],
+  [0.36, -0.26],
+  [0.36, 0.34],
+] as const;
+const deerLegXOffsets = [-0.27, 0.27] as const;
+const deerAntlerXOffsets = [-0.12, 0.12] as const;
+
 export function CreatureAvatar({
   npc,
   isTargeted = false,
@@ -31,12 +85,10 @@ export function CreatureAvatar({
 }: CreatureAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
-  const accent = npc.model === "rabbit" ? "#f2eee0" : npc.model === "hog" ? "#5c3a2e" : "#b07a3d";
   const disposition = getNpcDisposition(npc);
   const ringColor = TARGET_RING_COLORS[disposition];
   const label = getCreatureLabel(npc, disposition);
-  const hitRadius = npc.model === "rabbit" ? 0.55 : npc.model === "hog" ? 0.86 : 0.74;
-  const hitHeight = npc.model === "rabbit" ? 1.0 : npc.model === "hog" ? 1.35 : 1.7;
+  const hitGeometry = getCreatureHitGeometry(npc.model);
   const labelY = npc.model === "rabbit" ? 1.22 : npc.model === "hog" ? 1.55 : 1.86;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
@@ -64,12 +116,15 @@ export function CreatureAvatar({
       {isTargeted && <TargetRing color={ringColor} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
       {showLootSparkles && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
-      <mesh position={[0, 0.55, 0]} onPointerDown={handleTarget}>
-        <cylinderGeometry args={[hitRadius, hitRadius, hitHeight, 10]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
+      <mesh
+        geometry={hitGeometry}
+        material={creatureHitMaterial}
+        position={[0, 0.55, 0]}
+        dispose={null}
+        onPointerDown={handleTarget}
+      />
       <group ref={poseRef}>
-        {npc.model === "rabbit" ? <RabbitModel color={accent} /> : npc.model === "hog" ? <HogModel /> : <DeerModel />}
+        {npc.model === "rabbit" ? <RabbitModel /> : npc.model === "hog" ? <HogModel /> : <DeerModel />}
         {showNameplate && (
           <Billboard position={[0, labelY, 0]}>
             <Text
@@ -96,6 +151,12 @@ export function CreatureAvatar({
   }
 }
 
+function getCreatureHitGeometry(model: NpcSnapshot["model"]) {
+  if (model === "rabbit") return creatureHitGeometries.rabbit;
+  if (model === "hog") return creatureHitGeometries.hog;
+  return creatureHitGeometries.deer;
+}
+
 function getCreatureLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
   if (disposition === "hostile") return `${npc.name} [Hostile]`;
   if (npc.model === "rabbit") return "Rabbit [Critter]";
@@ -104,132 +165,66 @@ function getCreatureLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
 }
 
 function HogModel() {
-  const hide = useMemo(() => new THREE.MeshBasicMaterial({ color: "#5c3a2e" }), []);
-  const dark = useMemo(() => new THREE.MeshBasicMaterial({ color: "#2f201a" }), []);
-  const snout = useMemo(() => new THREE.MeshBasicMaterial({ color: "#806052" }), []);
-
   return (
-    <group position={[0, 0.58, 0]} scale={[1.02, 1.02, 1.02]}>
-      <mesh material={hide} position={[0, 0.1, 0]} scale={[1.45, 0.78, 0.9]}>
-        <sphereGeometry args={[0.46, 18, 12]} />
-      </mesh>
-      <mesh material={hide} position={[0, 0.24, 0.52]} scale={[0.9, 0.64, 0.74]}>
-        <sphereGeometry args={[0.34, 16, 10]} />
-      </mesh>
-      <mesh material={snout} position={[0, 0.16, 0.86]} scale={[0.72, 0.42, 0.34]}>
-        <sphereGeometry args={[0.22, 14, 8]} />
-      </mesh>
-      <mesh material={dark} position={[-0.14, 0.19, 1.02]} rotation-z={0.24}>
-        <boxGeometry args={[0.12, 0.06, 0.05]} />
-      </mesh>
-      <mesh material={dark} position={[0.14, 0.19, 1.02]} rotation-z={-0.24}>
-        <boxGeometry args={[0.12, 0.06, 0.05]} />
-      </mesh>
-      <mesh material={dark} position={[-0.23, 0.54, 0.48]} rotation-z={0.52}>
-        <coneGeometry args={[0.1, 0.28, 4]} />
-      </mesh>
-      <mesh material={dark} position={[0.23, 0.54, 0.48]} rotation-z={-0.52}>
-        <coneGeometry args={[0.1, 0.28, 4]} />
-      </mesh>
-      {[-0.36, 0.36].flatMap((x) => [-0.26, 0.34].map((z) => (
-        <mesh key={`${x}-${z}`} material={dark} position={[x, -0.38, z]}>
-          <capsuleGeometry args={[0.055, 0.34, 5, 8]} />
-        </mesh>
-      )))}
-      <mesh material={dark} position={[0, 0.44, -0.62]} rotation-x={Math.PI / 2}>
-        <torusGeometry args={[0.13, 0.018, 6, 16, Math.PI * 1.3]} />
-      </mesh>
-      <mesh material={dark} position={[0, 0.56, 0.02]} scale={[0.22, 0.12, 0.88]}>
-        <boxGeometry args={[1, 1, 1]} />
-      </mesh>
+    <group position={[0, 0.58, 0]} scale={[1.02, 1.02, 1.02]} dispose={null}>
+      <mesh geometry={creatureGeometries.hogBody} material={creatureMaterials.hogHide} position={[0, 0.1, 0]} scale={[1.45, 0.78, 0.9]} />
+      <mesh geometry={creatureGeometries.hogHead} material={creatureMaterials.hogHide} position={[0, 0.24, 0.52]} scale={[0.9, 0.64, 0.74]} />
+      <mesh geometry={creatureGeometries.hogSnout} material={creatureMaterials.hogSnout} position={[0, 0.16, 0.86]} scale={[0.72, 0.42, 0.34]} />
+      <mesh geometry={creatureGeometries.hogNostril} material={creatureMaterials.hogDark} position={[-0.14, 0.19, 1.02]} rotation-z={0.24} />
+      <mesh geometry={creatureGeometries.hogNostril} material={creatureMaterials.hogDark} position={[0.14, 0.19, 1.02]} rotation-z={-0.24} />
+      <mesh geometry={creatureGeometries.hogEar} material={creatureMaterials.hogDark} position={[-0.23, 0.54, 0.48]} rotation-z={0.52} />
+      <mesh geometry={creatureGeometries.hogEar} material={creatureMaterials.hogDark} position={[0.23, 0.54, 0.48]} rotation-z={-0.52} />
+      {hogLegOffsets.map(([x, z]) => (
+        <mesh key={`${x}-${z}`} geometry={creatureGeometries.hogLeg} material={creatureMaterials.hogDark} position={[x, -0.38, z]} />
+      ))}
+      <mesh geometry={creatureGeometries.hogTail} material={creatureMaterials.hogDark} position={[0, 0.44, -0.62]} rotation-x={Math.PI / 2} />
+      <mesh geometry={creatureGeometries.unitBox} material={creatureMaterials.hogDark} position={[0, 0.56, 0.02]} scale={[0.22, 0.12, 0.88]} />
     </group>
   );
 }
 
-function RabbitModel({ color }: { color: string }) {
-  const material = useMemo(() => new THREE.MeshBasicMaterial({ color }), [color]);
-  const shade = useMemo(() => new THREE.MeshBasicMaterial({ color: "#d8d1c2" }), []);
-  const dark = useMemo(() => new THREE.MeshBasicMaterial({ color: "#1f1812" }), []);
-
+function RabbitModel() {
   return (
-    <group position={[0, 0.18, 0]} scale={[0.9, 0.9, 0.9]}>
-      <mesh material={material} position={[0, 0.26, 0]}>
-        <sphereGeometry args={[0.32, 18, 12]} />
-      </mesh>
-      <mesh material={material} position={[0, 0.45, 0.31]}>
-        <sphereGeometry args={[0.22, 18, 12]} />
-      </mesh>
-      <mesh material={material} position={[-0.11, 0.78, 0.32]} rotation-x={-0.16}>
-        <capsuleGeometry args={[0.045, 0.42, 5, 8]} />
-      </mesh>
-      <mesh material={material} position={[0.11, 0.78, 0.32]} rotation-x={-0.16}>
-        <capsuleGeometry args={[0.045, 0.42, 5, 8]} />
-      </mesh>
-      <mesh material={shade} position={[0, 0.31, -0.32]}>
-        <sphereGeometry args={[0.12, 12, 8]} />
-      </mesh>
-      <mesh material={dark} position={[-0.08, 0.49, 0.5]}>
-        <sphereGeometry args={[0.025, 8, 6]} />
-      </mesh>
-      <mesh material={dark} position={[0.08, 0.49, 0.5]}>
-        <sphereGeometry args={[0.025, 8, 6]} />
-      </mesh>
-      <mesh material={shade} position={[-0.17, 0.07, 0.12]} rotation-z={0.3}>
-        <capsuleGeometry args={[0.04, 0.24, 5, 8]} />
-      </mesh>
-      <mesh material={shade} position={[0.17, 0.07, 0.12]} rotation-z={-0.3}>
-        <capsuleGeometry args={[0.04, 0.24, 5, 8]} />
-      </mesh>
+    <group position={[0, 0.18, 0]} scale={[0.9, 0.9, 0.9]} dispose={null}>
+      <mesh geometry={creatureGeometries.rabbitBody} material={creatureMaterials.rabbitHide} position={[0, 0.26, 0]} />
+      <mesh geometry={creatureGeometries.rabbitHead} material={creatureMaterials.rabbitHide} position={[0, 0.45, 0.31]} />
+      <mesh geometry={creatureGeometries.rabbitEar} material={creatureMaterials.rabbitHide} position={[-0.11, 0.78, 0.32]} rotation-x={-0.16} />
+      <mesh geometry={creatureGeometries.rabbitEar} material={creatureMaterials.rabbitHide} position={[0.11, 0.78, 0.32]} rotation-x={-0.16} />
+      <mesh geometry={creatureGeometries.rabbitTail} material={creatureMaterials.rabbitShade} position={[0, 0.31, -0.32]} />
+      <mesh geometry={creatureGeometries.rabbitEye} material={creatureMaterials.rabbitDark} position={[-0.08, 0.49, 0.5]} />
+      <mesh geometry={creatureGeometries.rabbitEye} material={creatureMaterials.rabbitDark} position={[0.08, 0.49, 0.5]} />
+      <mesh geometry={creatureGeometries.rabbitFoot} material={creatureMaterials.rabbitShade} position={[-0.17, 0.07, 0.12]} rotation-z={0.3} />
+      <mesh geometry={creatureGeometries.rabbitFoot} material={creatureMaterials.rabbitShade} position={[0.17, 0.07, 0.12]} rotation-z={-0.3} />
     </group>
   );
 }
 
 function DeerModel() {
-  const hide = useMemo(() => new THREE.MeshBasicMaterial({ color: "#a66b36" }), []);
-  const belly = useMemo(() => new THREE.MeshBasicMaterial({ color: "#e3c694" }), []);
-  const dark = useMemo(() => new THREE.MeshBasicMaterial({ color: "#2d1c12" }), []);
-  const antler = useMemo(() => new THREE.MeshBasicMaterial({ color: "#ead38f" }), []);
-
   return (
-    <group position={[0, 0.15, 0]} scale={[0.95, 0.95, 0.95]}>
-      <mesh material={hide} position={[0, 0.55, 0]}>
-        <sphereGeometry args={[0.45, 18, 12]} />
-      </mesh>
-      <mesh material={hide} position={[0, 0.84, 0.42]} rotation-x={0.45}>
-        <capsuleGeometry args={[0.13, 0.42, 6, 10]} />
-      </mesh>
-      <mesh material={hide} position={[0, 1.05, 0.66]}>
-        <sphereGeometry args={[0.2, 14, 10]} />
-      </mesh>
-      <mesh material={belly} position={[0, 0.43, 0.2]} scale={[0.7, 0.5, 0.7]}>
-        <sphereGeometry args={[0.32, 14, 8]} />
-      </mesh>
-      {[-0.27, 0.27].map((x) => (
+    <group position={[0, 0.15, 0]} scale={[0.95, 0.95, 0.95]} dispose={null}>
+      <mesh geometry={creatureGeometries.deerBody} material={creatureMaterials.deerHide} position={[0, 0.55, 0]} />
+      <mesh geometry={creatureGeometries.deerNeck} material={creatureMaterials.deerHide} position={[0, 0.84, 0.42]} rotation-x={0.45} />
+      <mesh geometry={creatureGeometries.deerHead} material={creatureMaterials.deerHide} position={[0, 1.05, 0.66]} />
+      <mesh geometry={creatureGeometries.deerBelly} material={creatureMaterials.deerBelly} position={[0, 0.43, 0.2]} scale={[0.7, 0.5, 0.7]} />
+      {deerLegXOffsets.map((x) => (
         <group key={x}>
-          <mesh material={dark} position={[x, 0.28, 0.29]}>
-            <capsuleGeometry args={[0.045, 0.56, 5, 8]} />
-          </mesh>
-          <mesh material={dark} position={[x, 0.28, -0.24]}>
-            <capsuleGeometry args={[0.045, 0.56, 5, 8]} />
-          </mesh>
+          <mesh geometry={creatureGeometries.deerLeg} material={creatureMaterials.deerDark} position={[x, 0.28, 0.29]} />
+          <mesh geometry={creatureGeometries.deerLeg} material={creatureMaterials.deerDark} position={[x, 0.28, -0.24]} />
         </group>
       ))}
-      {[-0.12, 0.12].map((x) => (
+      {deerAntlerXOffsets.map((x) => (
         <group key={x} position={[x, 1.28, 0.66]} rotation-z={x < 0 ? -0.28 : 0.28}>
-          <mesh material={antler} rotation-z={0.1}>
-            <capsuleGeometry args={[0.025, 0.32, 4, 7]} />
-          </mesh>
-          <mesh material={antler} position={[x < 0 ? -0.05 : 0.05, 0.1, 0]} rotation-z={x < 0 ? -0.75 : 0.75}>
-            <capsuleGeometry args={[0.018, 0.18, 4, 7]} />
-          </mesh>
+          <mesh geometry={creatureGeometries.deerAntlerMain} material={creatureMaterials.deerAntler} rotation-z={0.1} />
+          <mesh
+            geometry={creatureGeometries.deerAntlerBranch}
+            material={creatureMaterials.deerAntler}
+            position={[x < 0 ? -0.05 : 0.05, 0.1, 0]}
+            rotation-z={x < 0 ? -0.75 : 0.75}
+          />
         </group>
       ))}
-      <mesh material={dark} position={[-0.07, 1.08, 0.83]}>
-        <sphereGeometry args={[0.024, 8, 6]} />
-      </mesh>
-      <mesh material={dark} position={[0.07, 1.08, 0.83]}>
-        <sphereGeometry args={[0.024, 8, 6]} />
-      </mesh>
+      <mesh geometry={creatureGeometries.deerEye} material={creatureMaterials.deerDark} position={[-0.07, 1.08, 0.83]} />
+      <mesh geometry={creatureGeometries.deerEye} material={creatureMaterials.deerDark} position={[0.07, 1.08, 0.83]} />
     </group>
   );
 }
