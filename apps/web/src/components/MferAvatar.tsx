@@ -185,7 +185,7 @@ export function MferAvatar({
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
-      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.65} />}
+      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.95} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
         geometry={avatarHitGeometry}
@@ -373,29 +373,58 @@ export function DispositionBaseMarker({
 }
 
 export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
-  const color = type === "turnIn" ? "#74ff7a" : "#ffd84f";
+  const markerRef = useRef<THREE.Group>(null);
+  const color = "#ffd23f";
+  const highlight = "#fff1a6";
+  const shadow = "#241407";
   const label = type === "turnIn" ? "?" : "!";
+
+  useFrame(({ clock }) => {
+    const marker = markerRef.current;
+    if (!marker) return;
+
+    const bob = Math.sin(clock.elapsedTime * 3.2) * 0.055;
+    marker.position.y = bob;
+    marker.scale.setScalar(1 + Math.sin(clock.elapsedTime * 2.8) * 0.025);
+  });
 
   return (
     <Billboard position={[0, y, 0]}>
-      <mesh position={[0, 0, -0.025]} renderOrder={58}>
-        <circleGeometry args={[0.34, 28]} />
-        <meshBasicMaterial color="#21180b" depthTest={false} depthWrite={false} opacity={0.82} transparent />
-      </mesh>
-      <mesh position={[0, 0, -0.018]} renderOrder={59}>
-        <ringGeometry args={[0.28, 0.35, 28]} />
-        <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
-      </mesh>
-      <Text
-        fontSize={0.54}
-        anchorX="center"
-        anchorY="middle"
-        color={color}
-        outlineColor="#2b1b00"
-        outlineWidth={0.055}
-      >
-        {label}
-      </Text>
+      <group ref={markerRef}>
+        <Text
+          position={[0.035, -0.04, -0.035]}
+          fontSize={0.96}
+          anchorX="center"
+          anchorY="middle"
+          color={shadow}
+          outlineColor={shadow}
+          outlineWidth={0.13}
+          renderOrder={70}
+        >
+          {label}
+        </Text>
+        <Text
+          fontSize={0.92}
+          anchorX="center"
+          anchorY="middle"
+          color={color}
+          outlineColor="#3b2205"
+          outlineWidth={0.095}
+          renderOrder={71}
+        >
+          {label}
+        </Text>
+        <Text
+          position={[-0.04, 0.06, 0.015]}
+          fontSize={0.62}
+          anchorX="center"
+          anchorY="middle"
+          color={highlight}
+          renderOrder={72}
+        >
+          {label}
+        </Text>
+      </group>
     </Billboard>
   );
 }

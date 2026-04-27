@@ -128,7 +128,7 @@ export function CreatureAvatar({
       <ActorBlobShadow scale={shadowScale} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={markerRadius} />}
       {isTargeted && <TargetRing color={ringColor} disposition={disposition} radius={markerRadius + 0.16} />}
-      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.58} />}
+      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={labelY + 0.88} />}
       {showLootSparkles && <LootSparkles y={Math.max(0.7, labelY - 0.25)} />}
       <mesh
         geometry={hitGeometry}
