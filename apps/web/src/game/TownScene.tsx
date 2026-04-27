@@ -80,7 +80,7 @@ export function TownScene({ players, localSessionId, sendInput }: TownSceneProps
       state.lastY = event.clientY;
 
       cameraYaw.current = wrapAngle(cameraYaw.current - dx * 0.0042);
-      cameraPitch.current = clamp(cameraPitch.current - dy * 0.0032, -0.08, 1.08);
+      cameraPitch.current = clamp(cameraPitch.current + dy * 0.0032, -0.08, 1.08);
       if (state.right) facingYaw.current = cameraYaw.current;
     };
 
