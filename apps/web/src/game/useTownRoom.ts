@@ -71,6 +71,8 @@ export function useTownRoom(identity: JoinOptions) {
               name: npc.name,
               role: npc.role,
               avatarSeed: npc.avatarSeed,
+              health: npc.health,
+              maxHealth: npc.maxHealth,
               x: npc.x,
               y: npc.y,
               z: npc.z,

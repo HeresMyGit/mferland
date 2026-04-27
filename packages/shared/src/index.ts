@@ -4,10 +4,10 @@ export const SERVER_TICK_RATE = 20;
 export const INPUT_SEND_RATE = 20;
 
 export const PLAZA_BOUNDS = {
-  minX: -26,
-  maxX: 26,
-  minZ: -22,
-  maxZ: 22,
+  minX: -44,
+  maxX: 44,
+  minZ: -40,
+  maxZ: 42,
 };
 
 export const PLAYER = {
@@ -31,7 +31,8 @@ export const AGENT = {
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
-export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard";
+export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy";
+export type TargetKind = "player" | "npc";
 
 export type JoinOptions = {
   name?: string;
@@ -68,6 +69,8 @@ export type NpcSnapshot = {
   name: string;
   role: NpcRole;
   avatarSeed: number;
+  health: number;
+  maxHealth: number;
   x: number;
   y: number;
   z: number;
@@ -75,6 +78,11 @@ export type NpcSnapshot = {
   animation: AnimationState;
   dialogue: string;
   questId: string;
+};
+
+export type TargetSelection = {
+  kind: TargetKind;
+  id: string;
 };
 
 export type ChatMessage = {
@@ -94,7 +102,7 @@ export type AgentVisiblePlayer = Pick<
 
 export type AgentVisibleNpc = Pick<
   NpcSnapshot,
-  "id" | "name" | "role" | "avatarSeed" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId"
+  "id" | "name" | "role" | "avatarSeed" | "health" | "maxHealth" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId"
 > & {
   distance: number;
 };

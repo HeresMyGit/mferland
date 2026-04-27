@@ -212,6 +212,7 @@ button {
 }
 
 .player-card,
+.target-frame,
 .quest-panel,
 .chat-panel,
 .minimap-panel,
@@ -259,6 +260,104 @@ button {
   color: #fff9df;
   font-size: 20px;
   text-shadow: 0 2px 0 #101010;
+}
+
+.target-frame {
+  top: 22px;
+  left: 50%;
+  display: grid;
+  grid-template-columns: 58px minmax(160px, 230px);
+  gap: 10px;
+  align-items: center;
+  transform: translateX(-50%);
+}
+
+.target-portrait {
+  width: 58px;
+  height: 58px;
+  padding: 5px;
+  border-radius: 50%;
+  background: #d0b05a;
+  box-shadow: inset 0 0 0 4px #15110b, 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+.target-frame.enemy .target-portrait {
+  background: #d3483f;
+}
+
+.target-portrait span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #1f1812;
+  color: #fff3ca;
+  font-size: 18px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.target-vitals {
+  min-width: 0;
+}
+
+.target-vitals strong,
+.target-vitals em {
+  display: block;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 2px 0 #111;
+}
+
+.target-vitals strong {
+  color: #fff7d4;
+  font-size: 17px;
+}
+
+.target-vitals em {
+  margin-bottom: 4px;
+  color: #d8cfb2;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.target-health {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 220px;
+  height: 21px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.44);
+  border-radius: 4px;
+  background: rgba(25, 10, 8, 0.72);
+  color: #fff8dd;
+  font-size: 12px;
+  font-weight: 1000;
+  text-shadow: 0 1px 0 #111;
+}
+
+.target-health span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #b63531;
+}
+
+.target-health {
+  isolation: isolate;
+}
+
+.target-health::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(255, 255, 255, 0.18), transparent 50%);
+  z-index: -1;
 }
 
 .bar {
@@ -394,6 +493,11 @@ button {
   border-radius: 2px;
   background: #8eff75;
   border-color: #173014;
+}
+
+.map-dot.npc.enemy {
+  background: #e8453c;
+  border-color: #260b08;
 }
 
 .online-row {

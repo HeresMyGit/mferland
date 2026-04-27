@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useMemo, useState } from "react";
 import { LogOut, type LucideIcon } from "lucide-react";
-import { CHAT, PLAZA_BOUNDS, type ChatMessage, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
+import { CHAT, PLAZA_BOUNDS, type ChatMessage, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
 
 type HudProps = {
@@ -14,6 +14,8 @@ type HudProps = {
   chat: ChatMessage[];
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
+  selectedTarget: TargetSelection | null;
+  selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   localSessionId: string | null;
   quickSlots: Array<{ icon: LucideIcon; label: string }>;
   menuButtons: Array<{ icon: LucideIcon; label: string }>;
@@ -29,6 +31,8 @@ export function Hud({
   chat,
   players,
   npcs,
+  selectedTarget,
+  selectedTargetUnit,
   localSessionId,
   quickSlots,
   menuButtons,
@@ -65,6 +69,13 @@ export function Hud({
         <Quest title="Daily vibes" detail="Chill in the plaza" progress="0/1" />
       </section>
 
+      {selectedTarget && selectedTargetUnit && (
+        <TargetFrame
+          kind={selectedTarget.kind}
+          unit={selectedTargetUnit}
+        />
+      )}
+
       <section className="minimap-panel">
         <h2>Mfer Town</h2>
         <div className="minimap">
@@ -83,7 +94,7 @@ export function Hud({
           {Array.from(npcs.values()).map((npc) => (
             <span
               key={npc.id}
-              className="map-dot npc"
+              className={`map-dot npc ${npc.role === "enemy" ? "enemy" : ""}`}
               title={npc.name}
               style={{
                 left: `${normalize(npc.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
@@ -156,6 +167,32 @@ export function Hud({
   );
 }
 
+function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {
+  const isNpc = kind === "npc";
+  const npc = isNpc ? (unit as NpcSnapshot) : null;
+  const isEnemy = npc?.role === "enemy";
+  const maxHealth = npc?.maxHealth || 100;
+  const health = npc?.health ?? 100;
+  const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
+  const label = npc ? (isEnemy ? "Enemy" : roleLabel(npc.role)) : playerLabel(unit as PlayerSnapshot);
+
+  return (
+    <section className={`target-frame ${isEnemy ? "enemy" : ""}`}>
+      <div className="target-portrait">
+        <span>{isEnemy ? "!" : "mf"}</span>
+      </div>
+      <div className="target-vitals">
+        <strong>{unit.name}</strong>
+        <em>{label}</em>
+        <div className="target-health">
+          <span style={{ width: `${healthPercent}%` }} />
+          {Math.round(health)}/{Math.round(maxHealth)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Quest({ title, detail, progress }: { title: string; detail: string; progress: string }) {
   return (
     <div className="quest-row">
@@ -166,6 +203,20 @@ function Quest({ title, detail, progress }: { title: string; detail: string; pro
       <em>{progress}</em>
     </div>
   );
+}
+
+function roleLabel(role: NpcSnapshot["role"]) {
+  if (role === "quest_giver") return "Quest giver";
+  if (role === "merchant") return "Merchant";
+  if (role === "guard") return "Guard";
+  if (role === "enemy") return "Training";
+  return "Town NPC";
+}
+
+function playerLabel(player: PlayerSnapshot) {
+  if (player.identityType === "agent") return "Agent";
+  if (player.identityType === "wallet") return "Wallet player";
+  return "Player";
 }
 
 function normalize(value: number, min: number, max: number) {

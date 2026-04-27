@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Billboard, Text } from "@react-three/drei";
-import { useFrame, useLoader } from "@react-three/fiber";
+import { type ThreeEvent, useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -13,6 +13,8 @@ type MferAvatarProps = {
   player: PlayerSnapshot | NpcSnapshot;
   isLocal?: boolean;
   isNpc?: boolean;
+  isTargeted?: boolean;
+  onTarget?: () => void;
 };
 
 type LoadedMferGltf = {
@@ -27,10 +29,15 @@ const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.Animation
   run: { file: "Slow_Run_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1.08 },
   jump: { file: "Forward_Running_Jump", loop: THREE.LoopOnce, timeScale: 1 },
 };
+const TARGET_RING_COLORS = {
+  friendly: "#46ff7b",
+  neutral: "#ffd84f",
+  hostile: "#ff453f",
+} as const;
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 
-export function MferAvatar({ player, isLocal = false, isNpc = false }: MferAvatarProps) {
+export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted = false, onTarget }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
@@ -38,8 +45,10 @@ export function MferAvatar({ player, isLocal = false, isNpc = false }: MferAvata
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
+  const isEnemy = isNpc && "role" in player && player.role === "enemy";
   const isAgentPlayer = "identityType" in player && player.identityType === "agent";
-  const label = isNpc ? `${player.name} [NPC]` : isAgentPlayer ? `${player.name} [AI]` : player.name;
+  const label = isEnemy ? `${player.name} [Enemy]` : isNpc ? `${player.name} [NPC]` : isAgentPlayer ? `${player.name} [AI]` : player.name;
+  const targetRingColor = TARGET_RING_COLORS[getTargetFaction(player, isNpc)];
 
   const clips = useMemo(() => {
     const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
@@ -117,14 +126,19 @@ export function MferAvatar({ player, isLocal = false, isNpc = false }: MferAvata
   });
 
   return (
-    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw}>
+    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
+      <mesh position={[0, 1.35, 0]} onPointerDown={handleTarget}>
+        <cylinderGeometry args={[0.72, 0.72, 2.7, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+      {isTargeted && <TargetRing color={targetRingColor} />}
       <primitive object={avatar} />
       <Billboard position={[0, 3.05, 0]}>
         <Text
           fontSize={0.24}
           anchorX="center"
           anchorY="middle"
-          color={isNpc ? "#8eff75" : isLocal ? "#f3d04e" : accent}
+          color={isEnemy ? "#ff6258" : isNpc ? "#8eff75" : isLocal ? "#f3d04e" : accent}
           outlineColor="#16140f"
           outlineWidth={0.025}
           maxWidth={2.4}
@@ -134,6 +148,12 @@ export function MferAvatar({ player, isLocal = false, isNpc = false }: MferAvata
       </Billboard>
     </group>
   );
+
+  function handleTarget(event: ThreeEvent<PointerEvent>) {
+    if (!onTarget) return;
+    event.stopPropagation();
+    onTarget();
+  }
 
   function playClip(state: AnimationState, options: { fadeDuration?: number; forceRestart?: boolean } = {}) {
     const mixer = mixerRef.current;
@@ -174,6 +194,47 @@ export function MferAvatar({ player, isLocal = false, isNpc = false }: MferAvata
     currentClipNameRef.current = clipName;
     mixer.update(0);
   }
+}
+
+function TargetRing({ color }: { color: string }) {
+  const ringRef = useRef<THREE.Group>(null);
+
+  useFrame(({ clock }) => {
+    const ring = ringRef.current;
+    if (!ring) return;
+    const pulse = 1 + Math.sin(clock.elapsedTime * 4.6) * 0.025;
+    ring.scale.set(pulse, pulse, pulse);
+  });
+
+  return (
+    <group ref={ringRef} position={[0, 0.11, 0]}>
+      <mesh rotation-x={Math.PI / 2} renderOrder={44}>
+        <torusGeometry args={[0.94, 0.045, 8, 96]} />
+        <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, -0.012, 0]} renderOrder={43}>
+        <ringGeometry args={[0.7, 1.12, 96]} />
+        <meshBasicMaterial
+          color={color}
+          depthTest={false}
+          depthWrite={false}
+          opacity={0.2}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+          transparent
+        />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, -0.02, 0]} renderOrder={42}>
+        <torusGeometry args={[1.08, 0.018, 6, 96]} />
+        <meshBasicMaterial color="#1c120b" depthTest={false} depthWrite={false} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function getTargetFaction(player: PlayerSnapshot | NpcSnapshot, isNpc: boolean) {
+  if (isNpc && "role" in player) return player.role === "enemy" ? "hostile" : "neutral";
+  return "friendly";
 }
 
 function lerpAngle(a: number, b: number, t: number) {

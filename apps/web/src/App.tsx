@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Backpack, Gem, LogOut, Settings, Shield, ShoppingCart, Smile, Sparkles, UserRound } from "lucide-react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { type JoinOptions } from "@mferland/shared";
+import { type JoinOptions, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
@@ -99,12 +99,17 @@ function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
 
 function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => void }) {
   const room = useTownRoom(identity);
+  const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
     name: localPlayer?.name || identity.name || "mfer",
     avatarSeed: localPlayer?.avatarSeed || identity.avatarSeed || 1,
   }), [identity.avatarSeed, identity.name, localPlayer?.avatarSeed, localPlayer?.name]);
+  const selectedTargetUnit = useMemo(
+    () => getSelectedTargetUnit(selectedTarget, room.players, room.npcs),
+    [room.npcs, room.players, selectedTarget],
+  );
 
   return (
     <main className="game-shell">
@@ -116,6 +121,8 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
           players={room.players}
           npcs={room.npcs}
           localSessionId={room.sessionId}
+          selectedTarget={selectedTarget}
+          onSelectTarget={setSelectedTarget}
           sendInput={room.sendInput}
           sendInteract={room.sendInteract}
         />
@@ -129,6 +136,8 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         chat={room.chat}
         players={room.players}
         npcs={room.npcs}
+        selectedTarget={selectedTarget}
+        selectedTargetUnit={selectedTargetUnit}
         localSessionId={room.sessionId}
         onSendChat={room.sendChat}
         onExit={onExit}
@@ -148,4 +157,15 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
       />
     </main>
   );
+}
+
+function getSelectedTargetUnit(
+  selectedTarget: TargetSelection | null,
+  players: Map<string, PlayerSnapshot>,
+  npcs: Map<string, NpcSnapshot>,
+) {
+  if (!selectedTarget) return null;
+  return selectedTarget.kind === "player"
+    ? players.get(selectedTarget.id) ?? null
+    : npcs.get(selectedTarget.id) ?? null;
 }

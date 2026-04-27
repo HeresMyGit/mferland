@@ -2,18 +2,32 @@ import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { INPUT_SEND_RATE, type ClientInput, type ClientInteract, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
+import { INPUT_SEND_RATE, PLAZA_BOUNDS, type ClientInput, type ClientInteract, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
 import { MferAvatar } from "../components/MferAvatar";
 
 type TownSceneProps = {
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
   localSessionId: string | null;
+  selectedTarget: TargetSelection | null;
+  onSelectTarget: (target: TargetSelection | null) => void;
   sendInput: (input: ClientInput) => void;
   sendInteract: (input?: ClientInteract) => void;
 };
 
-export function TownScene({ players, npcs, localSessionId, sendInput, sendInteract }: TownSceneProps) {
+const GROUND_MARGIN = 36;
+const TOWN_GROUND_WIDTH = PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX + GROUND_MARGIN;
+const TOWN_GROUND_DEPTH = PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ + GROUND_MARGIN;
+
+export function TownScene({
+  players,
+  npcs,
+  localSessionId,
+  selectedTarget,
+  onSelectTarget,
+  sendInput,
+  sendInteract,
+}: TownSceneProps) {
   const { gl } = useThree();
   const keyState = useRef(new Set<string>());
   const pointerState = useRef({
@@ -29,6 +43,8 @@ export function TownScene({ players, npcs, localSessionId, sendInput, sendIntera
   const cameraDistance = useRef(8.2);
   const facingYaw = useRef(Math.PI);
   const interactHeld = useRef(false);
+  const tabHeld = useRef(false);
+  const escapeHeld = useRef(false);
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
 
   useEffect(() => {
@@ -170,6 +186,19 @@ export function TownScene({ players, npcs, localSessionId, sendInput, sendIntera
     }
     interactHeld.current = interactPressed;
 
+    const tabPressed = keys.has("tab");
+    if (tabPressed && !tabHeld.current && localPlayer) {
+      const nextTarget = getNextEnemyTarget(localPlayer, npcs, selectedTarget, keys.has("shift"));
+      if (nextTarget) onSelectTarget(nextTarget);
+    }
+    tabHeld.current = tabPressed;
+
+    const escapePressed = keys.has("escape");
+    if (escapePressed && !escapeHeld.current) {
+      onSelectTarget(null);
+    }
+    escapeHeld.current = escapePressed;
+
     inputTimer.current += delta;
     if (inputTimer.current >= 1 / INPUT_SEND_RATE) {
       inputTimer.current = 0;
@@ -214,6 +243,8 @@ export function TownScene({ players, npcs, localSessionId, sendInput, sendIntera
             key={sessionId}
             player={player}
             isLocal={sessionId === localSessionId}
+            isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
+            onTarget={sessionId === localSessionId ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
           />
         ))}
         {Array.from(npcs.values()).map((npc) => (
@@ -221,6 +252,8 @@ export function TownScene({ players, npcs, localSessionId, sendInput, sendIntera
             key={npc.id}
             player={npc}
             isNpc
+            isTargeted={isTargetSelected(selectedTarget, "npc", npc.id)}
+            onTarget={() => onSelectTarget({ kind: "npc", id: npc.id })}
           />
         ))}
       </Suspense>
@@ -241,8 +274,8 @@ function TownWorld() {
   const waterTexture = useMemo(() => createWaterTexture(), []);
 
   useEffect(() => {
-    configureTile(grassTexture, 10, 9);
-    configureTile(cobbleTexture, 7, 7);
+    configureTile(grassTexture, 14, 13);
+    configureTile(cobbleTexture, 9, 9);
     configureTile(stoneTexture, 2.2, 2.2);
     configureTile(roofTexture, 1.6, 1.6);
     configureTile(timberTexture, 1.25, 1.25);
@@ -253,14 +286,18 @@ function TownWorld() {
       <WorldBackdrop barkTexture={barkTexture} leafTexture={leafTexture} />
 
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.05, 0]}>
-        <planeGeometry args={[90, 80, 1, 1]} />
+        <planeGeometry args={[TOWN_GROUND_WIDTH, TOWN_GROUND_DEPTH, 1, 1]} />
         <meshBasicMaterial map={grassTexture} />
       </mesh>
 
-      <RoadStrip position={[0, 0.012, -30]} size={[8.5, 32]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.013, 31]} size={[8.5, 30]} texture={cobbleTexture} />
-      <RoadStrip position={[-29, 0.014, 0]} size={[24, 7.5]} texture={cobbleTexture} />
-      <RoadStrip position={[29, 0.014, 0]} size={[24, 7.5]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.012, -34]} size={[8.5, 44]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.013, 35]} size={[8.5, 42]} texture={cobbleTexture} />
+      <RoadStrip position={[-35, 0.014, 0]} size={[34, 7.5]} texture={cobbleTexture} />
+      <RoadStrip position={[35, 0.014, 0]} size={[34, 7.5]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.011, -34]} size={[52, 6.2]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.011, 29]} size={[52, 6.2]} texture={cobbleTexture} />
+      <RoadStrip position={[-32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
+      <RoadStrip position={[32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
 
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry args={[21, 21, 0.16, 96]} />
@@ -283,10 +320,25 @@ function TownWorld() {
       <TownBuilding position={[18, 0, -7.5]} rotation={-0.45} sign="DAO" accent="#52d64f" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
       <TownBuilding position={[-18, 0, 11]} rotation={-0.2} sign="WEARABLES" accent="#e754d8" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
       <TownBuilding position={[18, 0, 10.5]} rotation={0.25} sign="SHOP" accent="#f5c344" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[-25.5, 0, -33.8]} rotation={1.28} sign="BARRACKS" accent="#3ba464" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[25.5, 0, -33.8]} rotation={-1.28} sign="KEEP" accent="#477fe7" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[-36, 0, 17.5]} rotation={1.5} sign="GALLERY" accent="#ef7741" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[36, 0, 17.5]} rotation={-1.5} sign="ARCADE" accent="#36b7c9" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[-16, 0, 36.5]} rotation={2.82} sign="INN" accent="#d56565" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <TownBuilding position={[16, 0, 36.5]} rotation={-2.82} sign="FORGE" accent="#e18b35" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      <MarketStall position={[-6.4, 0, 29.2]} rotation={Math.PI} color="#9b45ff" roofTexture={roofTexture} />
+      <MarketStall position={[0, 0, 31.4]} rotation={Math.PI} color="#52d64f" roofTexture={roofTexture} />
+      <MarketStall position={[6.4, 0, 29.2]} rotation={Math.PI} color="#e754d8" roofTexture={roofTexture} />
+      <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <SpawnRing position={[5.6, 0.12, 5.6]} />
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
       <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
       <BannerPost position={[7.2, 0, -19.8]} color="#328346" />
+      <BannerPost position={[-23.5, 0, -39]} color="#395da8" rotation={Math.PI / 2} />
+      <BannerPost position={[23.5, 0, -39]} color="#395da8" rotation={-Math.PI / 2} />
+      <BannerPost position={[-7.2, 0, 39]} color="#9b45ff" rotation={Math.PI} />
+      <BannerPost position={[7.2, 0, 39]} color="#e18b35" rotation={Math.PI} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );
@@ -731,26 +783,26 @@ function WorldBackdrop({
   barkTexture: THREE.Texture;
   leafTexture: THREE.Texture;
 }) {
-  const treeline = [-38, -31, -24, -17, 18, 25, 32, 39];
+  const treeline = [-54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54];
 
   return (
     <group>
-      <mesh position={[-32, 4.1, -58]} rotation-y={0.5} scale={[1.35, 0.82, 0.85]}>
+      <mesh position={[-42, 4.1, -68]} rotation-y={0.5} scale={[1.55, 0.86, 0.9]}>
         <coneGeometry args={[8.5, 16, 4]} />
         <meshBasicMaterial color="#8b8978" />
       </mesh>
-      <mesh position={[-18, 3.7, -61]} rotation-y={0.1} scale={[1.1, 0.72, 0.9]}>
+      <mesh position={[-20, 3.7, -71]} rotation-y={0.1} scale={[1.2, 0.76, 0.92]}>
         <coneGeometry args={[7.6, 14, 4]} />
         <meshBasicMaterial color="#9b947f" />
       </mesh>
-      <mesh position={[30, 3.95, -58]} rotation-y={0.25} scale={[1.25, 0.78, 0.85]}>
+      <mesh position={[38, 3.95, -68]} rotation-y={0.25} scale={[1.45, 0.82, 0.9]}>
         <coneGeometry args={[8.2, 15, 4]} />
         <meshBasicMaterial color="#888c78" />
       </mesh>
       {treeline.map((x, index) => (
         <TownTree
           key={index}
-          position={[x, 0, -42 - (index % 2) * 3]}
+          position={[x, 0, -50 - (index % 2) * 4]}
           scale={0.95 + (index % 3) * 0.12}
           barkTexture={barkTexture}
           leafTexture={leafTexture}
@@ -798,6 +850,109 @@ function BannerPost({
   );
 }
 
+function MarketStall({
+  position,
+  rotation = 0,
+  color,
+  roofTexture,
+}: {
+  position: [number, number, number];
+  rotation?: number;
+  color: string;
+  roofTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position} rotation-y={rotation}>
+      <mesh position={[0, 0.55, 0]}>
+        <boxGeometry args={[3.3, 0.35, 1.7]} />
+        <meshBasicMaterial color="#6a4428" />
+      </mesh>
+      <mesh position={[0, 0.86, 0.05]}>
+        <boxGeometry args={[3.1, 0.18, 1.54]} />
+        <meshBasicMaterial color="#c3a06f" />
+      </mesh>
+      {[-1.45, 1.45].map((x) => (
+        <group key={x}>
+          <mesh position={[x, 1.48, -0.66]}>
+            <cylinderGeometry args={[0.06, 0.08, 2.1, 8]} />
+            <meshBasicMaterial color="#4b2d18" />
+          </mesh>
+          <mesh position={[x, 1.48, 0.66]}>
+            <cylinderGeometry args={[0.06, 0.08, 2.1, 8]} />
+            <meshBasicMaterial color="#4b2d18" />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, 2.38, 0]} rotation-z={0.08}>
+        <boxGeometry args={[3.65, 0.2, 2.18]} />
+        <meshBasicMaterial map={roofTexture} color={color} />
+      </mesh>
+      <mesh position={[0, 2.08, 1.13]}>
+        <boxGeometry args={[3.45, 0.55, 0.08]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      <Text
+        position={[0, 2.09, 1.2]}
+        fontSize={0.34}
+        color="#fff8df"
+        outlineColor="#2d2822"
+        outlineWidth={0.025}
+        anchorX="center"
+        anchorY="middle"
+      >
+        MKT
+      </Text>
+      {[-1.04, -0.34, 0.4, 1.08].map((x, index) => (
+        <mesh key={x} position={[x, 1.08, 0.42 - (index % 2) * 0.38]}>
+          <boxGeometry args={[0.42, 0.36, 0.42]} />
+          <meshBasicMaterial color={index % 2 ? "#e8c063" : "#8fc263"} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function WatchTower({
+  position,
+  stoneTexture,
+  roofTexture,
+}: {
+  position: [number, number, number];
+  stoneTexture: THREE.Texture;
+  roofTexture: THREE.Texture;
+}) {
+  return (
+    <group position={position}>
+      <mesh position={[0, 1.85, 0]}>
+        <cylinderGeometry args={[1.15, 1.35, 3.7, 12]} />
+        <meshBasicMaterial map={stoneTexture} color="#9c9589" />
+      </mesh>
+      <mesh position={[0, 3.86, 0]}>
+        <cylinderGeometry args={[1.62, 1.38, 0.55, 12]} />
+        <meshBasicMaterial map={stoneTexture} color="#837b70" />
+      </mesh>
+      {Array.from({ length: 6 }, (_, index) => {
+        const angle = (index / 6) * Math.PI * 2;
+        return (
+          <mesh
+            key={index}
+            position={[Math.sin(angle) * 1.34, 4.35, Math.cos(angle) * 1.34]}
+            rotation-y={angle}
+          >
+            <boxGeometry args={[0.34, 0.68, 0.28]} />
+            <meshBasicMaterial map={stoneTexture} color="#8d8579" />
+          </mesh>
+        );
+      })}
+      <mesh position={[0, 5.05, 0]} rotation-y={Math.PI / 4}>
+        <coneGeometry args={[1.98, 1.6, 4]} />
+        <meshBasicMaterial map={roofTexture} color="#8e3823" />
+      </mesh>
+      <BannerPost position={[0, 0.04, 1.9]} color="#395da8" />
+    </group>
+  );
+}
+
 function TreeCluster({
   barkTexture,
   leafTexture,
@@ -809,12 +964,18 @@ function TreeCluster({
     [-31, 0, -18, 1.2],
     [-27, 0, -7, 0.9],
     [-30, 0, 15, 1.05],
+    [-41, 0, 30, 0.98],
     [-12, 0, 25, 0.95],
     [12, 0, 25, 1.05],
+    [41, 0, 30, 0.98],
     [30, 0, 16, 0.95],
     [29, 0, -17, 1.15],
+    [42, 0, -4, 0.9],
+    [-42, 0, -4, 0.9],
     [23, 0, -26, 0.85],
     [-23, 0, -26, 0.9],
+    [35, 0, -39, 0.95],
+    [-35, 0, -39, 0.95],
   ];
 
   return (
@@ -1459,8 +1620,8 @@ function isTypingTarget(target: EventTarget | null) {
 function isGameKey(event: KeyboardEvent) {
   const key = event.key.toLowerCase();
   const code = event.code.toLowerCase();
-  return ["w", "a", "s", "d", "q", "e", "f", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
-    || ["space", "spacebar", "keyf"].includes(code);
+  return ["w", "a", "s", "d", "q", "e", "f", "tab", "escape", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
+    || ["space", "spacebar", "keyf", "tab", "escape"].includes(code);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -1484,4 +1645,40 @@ function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>):
 
   if (nearest && nearestDistance <= 3.25) return nearest;
   return null;
+}
+
+function getNextEnemyTarget(
+  player: PlayerSnapshot,
+  npcs: Map<string, NpcSnapshot>,
+  selectedTarget: TargetSelection | null,
+  reverse: boolean,
+): TargetSelection | null {
+  const enemies = Array.from(npcs.values())
+    .filter((npc) => npc.role === "enemy")
+    .map((npc) => ({
+      npc,
+      distance: Math.hypot(player.x - npc.x, player.z - npc.z),
+    }))
+    .filter(({ distance }) => distance <= 36)
+    .sort((a, b) => a.distance - b.distance);
+
+  if (enemies.length === 0) return null;
+
+  const currentIndex = selectedTarget?.kind === "npc"
+    ? enemies.findIndex(({ npc }) => npc.id === selectedTarget.id)
+    : -1;
+  const offset = reverse ? -1 : 1;
+  const nextIndex = currentIndex === -1
+    ? 0
+    : (currentIndex + offset + enemies.length) % enemies.length;
+
+  return { kind: "npc", id: enemies[nextIndex].npc.id };
+}
+
+function isTargetSelected(
+  selectedTarget: TargetSelection | null,
+  kind: TargetSelection["kind"],
+  id: string,
+) {
+  return selectedTarget?.kind === kind && selectedTarget.id === id;
 }

@@ -40,6 +40,8 @@ class NpcState extends Schema {
   @type("string") name = "";
   @type("string") role: NpcRole = "wanderer";
   @type("number") avatarSeed = 0;
+  @type("number") health = 100;
+  @type("number") maxHealth = 100;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") z = 0;
@@ -265,6 +267,8 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     leashRadius: number;
     dialogue: string;
     questId?: string;
+    health?: number;
+    maxHealth?: number;
   }> = [
     {
       id: "og-mfer",
@@ -328,6 +332,30 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
       leashRadius: 7.5,
       dialogue: "Daily vibes quest: chill by the fountain for a minute.",
     },
+    {
+      id: "training-dummy-left",
+      name: "Training dummy",
+      role: "enemy",
+      x: -10.5,
+      z: -11.5,
+      yaw: 2.5,
+      leashRadius: 0,
+      health: 160,
+      maxHealth: 160,
+      dialogue: "The dummy looks ready to get bonked.",
+    },
+    {
+      id: "training-dummy-right",
+      name: "Training dummy",
+      role: "enemy",
+      x: -7.8,
+      z: -13.8,
+      yaw: 2.2,
+      leashRadius: 0,
+      health: 160,
+      maxHealth: 160,
+      dialogue: "This dummy is for target practice.",
+    },
   ];
 
   for (const spec of specs) {
@@ -336,6 +364,8 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     npc.name = spec.name;
     npc.role = spec.role;
     npc.avatarSeed = stableHash(`npc:${spec.id}`);
+    npc.health = spec.health ?? 100;
+    npc.maxHealth = spec.maxHealth ?? spec.health ?? 100;
     npc.x = spec.x;
     npc.y = 0;
     npc.z = spec.z;
@@ -355,6 +385,11 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
 
 function updateNpcs(npcs: MapSchema<NpcState>, delta: number, now: number) {
   npcs.forEach((npc) => {
+    if (npc.role === "enemy") {
+      npc.animation = "idle";
+      return;
+    }
+
     const canWander = npc.role === "wanderer" || npc.role === "guard";
     const canPace = npc.role === "quest_giver" || npc.role === "merchant";
     const shouldPickTarget = now >= npc.nextDecisionAt
