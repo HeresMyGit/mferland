@@ -23,6 +23,7 @@ type MferAvatarProps = {
   isTargeted?: boolean;
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
+  hasLoot?: boolean;
   onTarget?: () => void;
 };
 
@@ -59,6 +60,7 @@ export function MferAvatar({
   isTargeted = false,
   isDefeated = false,
   questMarker = null,
+  hasLoot = false,
   onTarget,
 }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -183,6 +185,7 @@ export function MferAvatar({
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
       {isTargeted && <TargetRing color={targetRingColor} />}
       {!isDefeated && questMarker && <QuestMarker type={questMarker} y={3.65} />}
+      {hasLoot && <LootSparkles y={1.35} />}
       <mesh position={[0, 1.35, 0]} onPointerDown={handleTarget}>
         <cylinderGeometry args={[0.72, 0.72, 2.7, 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -326,6 +329,34 @@ export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
         {type === "turnIn" ? "?" : "!"}
       </Text>
     </Billboard>
+  );
+}
+
+export function LootSparkles({ y }: { y: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const points = useMemo(() => [
+    [-0.42, 0.06, -0.18],
+    [0.2, 0.24, -0.36],
+    [0.44, 0.12, 0.2],
+    [-0.18, 0.34, 0.36],
+    [0.04, 0.5, 0.02],
+  ] as const, []);
+
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return;
+    groupRef.current.rotation.y = clock.elapsedTime * 1.6;
+    groupRef.current.position.y = y + Math.sin(clock.elapsedTime * 3.2) * 0.05;
+  });
+
+  return (
+    <group ref={groupRef} position={[0, y, 0]}>
+      {points.map(([x, py, z], index) => (
+        <mesh key={index} position={[x, py, z]}>
+          <sphereGeometry args={[index === 4 ? 0.065 : 0.045, 8, 6]} />
+          <meshBasicMaterial color={index === 4 ? "#fff3a3" : "#ffd84f"} transparent opacity={0.86} />
+        </mesh>
+      ))}
+    </group>
   );
 }
 

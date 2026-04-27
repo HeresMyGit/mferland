@@ -297,6 +297,7 @@ export function TownScene({
                 key={npc.id}
                 npc={npc}
                 questMarker={questMarker}
+                hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
                 isDefeated={!npc.isImmortal && npc.health <= 0}
                 onTarget={onTarget}
@@ -310,6 +311,7 @@ export function TownScene({
               player={npc}
               isNpc
               questMarker={questMarker}
+              hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
               onTarget={onTarget}
@@ -2312,8 +2314,10 @@ function updateLocalVisualPlayer(
   visual.avatarSeed = authoritative.avatarSeed;
   visual.health = authoritative.health;
   visual.maxHealth = authoritative.maxHealth;
+  visual.healthRegenPer5 = authoritative.healthRegenPer5;
   visual.mana = authoritative.mana;
   visual.maxMana = authoritative.maxMana;
+  visual.manaRegenPer5 = authoritative.manaRegenPer5;
   visual.lastSeq = authoritative.lastSeq;
   visual.attackReadyAt = authoritative.attackReadyAt;
   visual.shootReadyAt = authoritative.shootReadyAt;
@@ -2321,7 +2325,10 @@ function updateLocalVisualPlayer(
   visual.castingAction = authoritative.castingAction;
   visual.castStartedAt = authoritative.castStartedAt;
   visual.castEndsAt = authoritative.castEndsAt;
+  visual.lastCastAt = authoritative.lastCastAt;
+  visual.lastDamagedAt = authoritative.lastDamagedAt;
   visual.quests = authoritative.quests;
+  visual.inventory = authoritative.inventory;
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);

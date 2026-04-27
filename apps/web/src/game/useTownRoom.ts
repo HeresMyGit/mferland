@@ -7,8 +7,11 @@ import {
   type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
+  type ClientLootCorpse,
   type CombatEvent,
+  type InventoryItemSnapshot,
   type JoinOptions,
+  type LootWindow,
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
@@ -19,8 +22,12 @@ type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
 type RuntimeQuestCollection = {
   forEach(callback: (quest: QuestSnapshot, id: string) => void): void;
 };
-type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests"> & {
+type RuntimeInventoryCollection = {
+  forEach(callback: (item: InventoryItemSnapshot, id: string) => void): void;
+};
+type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests" | "inventory"> & {
   quests?: RuntimeQuestCollection;
+  inventory?: RuntimeInventoryCollection;
 };
 
 export function useTownRoom(identity: JoinOptions) {
@@ -32,6 +39,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
   const [questOffer, setQuestOffer] = useState<QuestOffer | null>(null);
+  const [lootWindow, setLootWindow] = useState<LootWindow | null>(null);
   const roomRef = useRef<Room | null>(null);
 
   const serverUrl = useMemo(() => {
@@ -69,8 +77,10 @@ export function useTownRoom(identity: JoinOptions) {
               avatarSeed: player.avatarSeed,
               health: player.health,
               maxHealth: player.maxHealth,
+              healthRegenPer5: player.healthRegenPer5,
               mana: player.mana,
               maxMana: player.maxMana,
+              manaRegenPer5: player.manaRegenPer5,
               x: player.x,
               y: player.y,
               z: player.z,
@@ -83,7 +93,10 @@ export function useTownRoom(identity: JoinOptions) {
               castingAction: player.castingAction,
               castStartedAt: player.castStartedAt,
               castEndsAt: player.castEndsAt,
+              lastCastAt: player.lastCastAt,
+              lastDamagedAt: player.lastDamagedAt,
               quests: snapshotQuests(player.quests),
+              inventory: snapshotInventory(player.inventory),
             });
           });
           setPlayers(next);
@@ -109,6 +122,7 @@ export function useTownRoom(identity: JoinOptions) {
               defeatedAt: npc.defeatedAt,
               despawnAt: npc.despawnAt,
               aggroTargetId: npc.aggroTargetId,
+              hasLoot: npc.hasLoot,
             });
           });
           setNpcs(nextNpcs);
@@ -134,6 +148,14 @@ export function useTownRoom(identity: JoinOptions) {
 
         room.onMessage("questOffer", (message: QuestOffer) => {
           setQuestOffer(message);
+        });
+
+        room.onMessage("lootWindow", (message: LootWindow) => {
+          setLootWindow(message);
+        });
+
+        room.onMessage("closeLootWindow", () => {
+          setLootWindow(null);
         });
 
         room.onLeave(() => {
@@ -163,6 +185,12 @@ export function useTownRoom(identity: JoinOptions) {
     }
   }, [players, questOffer, sessionId]);
 
+  useEffect(() => {
+    if (!lootWindow) return;
+    const npc = npcs.get(lootWindow.npcId);
+    if (!npc?.hasLoot) setLootWindow(null);
+  }, [lootWindow, npcs]);
+
   const sendInput = useCallback((input: ClientInput) => {
     roomRef.current?.send("input", input);
   }, []);
@@ -188,6 +216,14 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("combatAction", message);
   }, []);
 
+  const sendLootCorpse = useCallback((message: ClientLootCorpse) => {
+    roomRef.current?.send("lootCorpse", message);
+  }, []);
+
+  const closeLootWindow = useCallback(() => {
+    setLootWindow(null);
+  }, []);
+
   const sendRespawn = useCallback(() => {
     roomRef.current?.send("respawn", {});
   }, []);
@@ -201,12 +237,15 @@ export function useTownRoom(identity: JoinOptions) {
     chat,
     combatEvents,
     questOffer,
+    lootWindow,
     sendInput,
     sendChat,
     sendInteract,
     sendAcceptQuest,
     dismissQuestOffer,
     sendCombatAction,
+    sendLootCorpse,
+    closeLootWindow,
     sendRespawn,
   };
 }
@@ -219,7 +258,19 @@ function snapshotQuests(quests: RuntimeQuestCollection | undefined): QuestSnapsh
       status: quest.status,
       progress: quest.progress,
       required: quest.required,
+      flags: quest.flags,
       completedAt: quest.completedAt,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): InventoryItemSnapshot[] {
+  const next: InventoryItemSnapshot[] = [];
+  inventory?.forEach((item, id) => {
+    next.push({
+      id: (item.id || id) as InventoryItemSnapshot["id"],
+      count: item.count,
     });
   });
   return next.sort((left, right) => left.id.localeCompare(right.id));

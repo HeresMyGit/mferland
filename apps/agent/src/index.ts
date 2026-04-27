@@ -11,6 +11,7 @@ import {
   type ClientInput,
   type CombatActionId,
   type IdentityType,
+  type InventoryItemSnapshot,
   type NpcModel,
   type NpcRole,
   type NpcSnapshot,
@@ -37,8 +38,10 @@ type RuntimePlayer = {
   avatarSeed: number;
   health: number;
   maxHealth: number;
+  healthRegenPer5: number;
   mana: number;
   maxMana: number;
+  manaRegenPer5: number;
   x: number;
   y: number;
   z: number;
@@ -51,11 +54,18 @@ type RuntimePlayer = {
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
+  lastCastAt: number;
+  lastDamagedAt: number;
   quests?: RuntimeQuestCollection;
+  inventory?: RuntimeInventoryCollection;
 };
 
 type RuntimeQuestCollection = {
   forEach(callback: (quest: QuestSnapshot, id: string) => void): void;
+};
+
+type RuntimeInventoryCollection = {
+  forEach(callback: (item: InventoryItemSnapshot, id: string) => void): void;
 };
 
 type RuntimeNpc = {
@@ -76,6 +86,7 @@ type RuntimeNpc = {
   defeatedAt: number;
   despawnAt: number;
   aggroTargetId: string;
+  hasLoot: boolean;
 };
 
 const config = readConfig();
@@ -128,8 +139,10 @@ class AgentCharacter {
           avatarSeed: player.avatarSeed,
           health: player.health,
           maxHealth: player.maxHealth,
+          healthRegenPer5: player.healthRegenPer5,
           mana: player.mana,
           maxMana: player.maxMana,
+          manaRegenPer5: player.manaRegenPer5,
           x: player.x,
           y: player.y,
           z: player.z,
@@ -142,7 +155,10 @@ class AgentCharacter {
           castingAction: player.castingAction,
           castStartedAt: player.castStartedAt,
           castEndsAt: player.castEndsAt,
+          lastCastAt: player.lastCastAt,
+          lastDamagedAt: player.lastDamagedAt,
           quests: snapshotQuests(player.quests),
+          inventory: snapshotInventory(player.inventory),
         });
       });
       this.players = next;
@@ -168,6 +184,7 @@ class AgentCharacter {
           defeatedAt: npc.defeatedAt,
           despawnAt: npc.despawnAt,
           aggroTargetId: npc.aggroTargetId,
+          hasLoot: npc.hasLoot,
         });
       });
       this.npcs = nextNpcs;
@@ -330,7 +347,19 @@ function snapshotQuests(quests: RuntimeQuestCollection | undefined): QuestSnapsh
       status: quest.status,
       progress: quest.progress,
       required: quest.required,
+      flags: quest.flags,
       completedAt: quest.completedAt,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): InventoryItemSnapshot[] {
+  const next: InventoryItemSnapshot[] = [];
+  inventory?.forEach((item, id) => {
+    next.push({
+      id: (item.id || id) as InventoryItemSnapshot["id"],
+      count: item.count,
     });
   });
   return next.sort((left, right) => left.id.localeCompare(right.id));

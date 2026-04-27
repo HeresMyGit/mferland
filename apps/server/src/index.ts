@@ -6,6 +6,8 @@ import {
   clamp,
   COMBAT,
   FARMER_COMBAT,
+  ITEMS,
+  LOOT,
   isAttackableNpcRole,
   makeGuestName,
   MAX_PLAYERS,
@@ -24,10 +26,13 @@ import {
   type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
+  type ClientLootCorpse,
   type CombatEvent,
   type CombatActionId,
   type IdentityType,
+  type ItemId,
   type JoinOptions,
+  type LootWindow,
   type NpcModel,
   type NpcRole,
   type QuestId,
@@ -39,7 +44,18 @@ class QuestState extends Schema {
   @type("string") status: QuestStatus = "active";
   @type("number") progress = 0;
   @type("number") required = 1;
+  @type("string") flags = "";
   @type("number") completedAt = 0;
+}
+
+class InventoryItemState extends Schema {
+  @type("string") id: ItemId = "hog-liver";
+  @type("number") count = 0;
+}
+
+class LootItemState extends Schema {
+  @type("string") id: ItemId = "hog-liver";
+  @type("number") count = 0;
 }
 
 class PlayerState extends Schema {
@@ -49,8 +65,10 @@ class PlayerState extends Schema {
   @type("number") avatarSeed = 0;
   @type("number") health = PLAYER.maxHealth;
   @type("number") maxHealth = PLAYER.maxHealth;
+  @type("number") healthRegenPer5 = PLAYER.healthRegenPer5;
   @type("number") mana = PLAYER.maxMana;
   @type("number") maxMana = PLAYER.maxMana;
+  @type("number") manaRegenPer5 = PLAYER.manaRegenPer5;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") z = 0;
@@ -64,9 +82,12 @@ class PlayerState extends Schema {
   @type("string") castingAction: CombatActionId | "" = "";
   @type("number") castStartedAt = 0;
   @type("number") castEndsAt = 0;
+  @type("number") lastCastAt = 0;
+  @type("number") lastDamagedAt = 0;
   @type("string") castTargetKind = "";
   @type("string") castTargetId = "";
   @type({ map: QuestState }) quests = new MapSchema<QuestState>();
+  @type({ map: InventoryItemState }) inventory = new MapSchema<InventoryItemState>();
 }
 
 class NpcState extends Schema {
@@ -97,6 +118,8 @@ class NpcState extends Schema {
   @type("string") aggroTargetId = "";
   @type("number") attackReadyAt = 0;
   @type("string") combatStyle = "";
+  @type("boolean") hasLoot = false;
+  @type({ map: LootItemState }) loot = new MapSchema<LootItemState>();
 }
 
 class TownState extends Schema {
@@ -154,6 +177,10 @@ class TownRoom extends Room<TownState> {
       this.handleAcceptQuest(client, message);
     });
 
+    this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
+      this.handleLootCorpse(client, message);
+    });
+
     this.onMessage("respawn", (client) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.health > 0) return;
@@ -195,6 +222,13 @@ class TownRoom extends Room<TownState> {
 
       const npc = findInteractNpc(player, this.state.npcs, message?.npcId);
       if (!npc) return;
+
+      if (!isNpcAlive(npc)) {
+        if (npcHasLoot(npc)) {
+          client.send("lootWindow", makeLootWindow(npc));
+        }
+        return;
+      }
 
       npc.yaw = Math.atan2(player.x - npc.x, player.z - npc.z);
       npc.animation = "idle";
@@ -264,11 +298,10 @@ class TownRoom extends Room<TownState> {
     const distance = distanceToNpc(player, target);
     if (distance < action.minRange || distance > action.maxRange) return;
 
-    aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
     player.yaw = Math.atan2(target.x - player.x, target.z - player.z);
 
     if (action.castTimeMs > 0) {
-      player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+      player.lastCastAt = now;
       player.castingAction = actionId;
       player.castStartedAt = now;
       player.castEndsAt = now + action.castTimeMs;
@@ -278,6 +311,8 @@ class TownRoom extends Room<TownState> {
     }
 
     setActionReadyAt(player, actionId, now + action.cooldownMs);
+    player.lastCastAt = now;
+    aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
     applyCombatDamage(
       client.sessionId,
       player,
@@ -312,6 +347,41 @@ class TownRoom extends Room<TownState> {
     } satisfies ChatMessage);
   }
 
+  private handleLootCorpse(client: Client, message: Partial<ClientLootCorpse>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const npcId = typeof message?.npcId === "string" ? message.npcId : "";
+    const npc = this.state.npcs.get(npcId);
+    if (!npc || isNpcAlive(npc) || !npcHasLoot(npc)) return;
+    if (distanceToNpc(player, npc) > LOOT.interactRange) return;
+
+    const requestedItemId = message?.itemId;
+    const itemId = requestedItemId === undefined ? null : normalizeItemId(requestedItemId);
+    if (requestedItemId !== undefined && !itemId) return;
+    if (itemId && !npc.loot.has(itemId)) return;
+
+    if (itemId) {
+      lootCorpseItem(player, npc, itemId);
+    } else {
+      const itemIds: ItemId[] = [];
+      npc.loot.forEach((item) => itemIds.push(item.id));
+      for (const nextItemId of itemIds) {
+        lootCorpseItem(player, npc, nextItemId);
+      }
+    }
+
+    if (npcHasLoot(npc)) {
+      client.send("lootWindow", makeLootWindow(npc));
+      return;
+    }
+
+    npc.hasLoot = false;
+    npc.despawnAt = Date.now() + LOOT.lootedDespawnMs;
+    npc.respawnAt = Math.max(npc.respawnAt, npc.despawnAt + 250);
+    client.send("closeLootWindow", { npcId: npc.id });
+  }
+
   private update(dt: number) {
     const delta = Math.min(dt, 0.1);
     const now = Date.now();
@@ -328,7 +398,7 @@ class TownRoom extends Room<TownState> {
     this.state.players.forEach((player, sessionId) => {
       const input = this.inputs.get(sessionId);
       const activeInput = input && now - input.receivedAt < 1000 ? input : null;
-      player.mana = clamp(player.mana + (COMBAT.manaRegenPer5 / 5) * delta, 0, player.maxMana);
+      updatePlayerRegen(player, delta, now);
       if (player.health <= 0) {
         player.verticalVelocity = 0;
         player.animation = "idle";
@@ -691,6 +761,8 @@ function updateNpcs(
         npc.respawnAt = 0;
         npc.aggroTargetId = "";
         npc.attackReadyAt = 0;
+        npc.hasLoot = false;
+        npc.loot.clear();
         npc.x = npc.homeX;
         npc.y = 0;
         npc.z = npc.homeZ;
@@ -698,6 +770,8 @@ function updateNpcs(
         npc.targetZ = npc.homeZ;
       } else if (npc.despawnAt > 0 && now >= npc.despawnAt) {
         npc.despawnAt = 0;
+        npc.hasLoot = false;
+        npc.loot.clear();
         npc.y = -1000;
         npc.animation = "idle";
         return;
@@ -1019,9 +1093,15 @@ function updatePlayerCast(
   if (now < player.castEndsAt) return;
 
   const action = COMBAT.actions[actionId];
-  setActionReadyAt(player, actionId, now + action.cooldownMs);
+  if (action.manaCost > 0 && player.mana < action.manaCost) {
+    clearPlayerCast(player);
+    return;
+  }
+
   const target = findCombatTarget(npcs, { kind: player.castTargetKind, id: player.castTargetId });
   if (target && isNpcAlive(target) && distanceToNpc(player, target) <= action.maxRange && distanceToNpc(player, target) >= action.minRange) {
+    player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+    setActionReadyAt(player, actionId, now + action.cooldownMs);
     applyCombatDamage(sessionId, player, target, actionId, action.damage, now, emitCombatEvent, pendingCombatImpacts);
   }
   clearPlayerCast(player);
@@ -1033,6 +1113,18 @@ function clearPlayerCast(player: PlayerState) {
   player.castEndsAt = 0;
   player.castTargetKind = "";
   player.castTargetId = "";
+}
+
+function updatePlayerRegen(player: PlayerState, delta: number, now: number) {
+  if (player.health <= 0) return;
+
+  if (now - player.lastCastAt >= COMBAT.manaRegenDelayMs) {
+    player.mana = clamp(player.mana + (player.manaRegenPer5 / 5) * delta, 0, player.maxMana);
+  }
+
+  if (now - player.lastDamagedAt >= COMBAT.healthRegenDelayMs) {
+    player.health = clamp(player.health + (player.healthRegenPer5 / 5) * delta, 0, player.maxHealth);
+  }
 }
 
 function findCombatTarget(npcs: MapSchema<NpcState>, target: unknown) {
@@ -1072,7 +1164,7 @@ function applyCombatDamage(
 
   const defeated = applyNpcDamage(target, damage, now);
   if (defeated) {
-    progressDefeatQuests(player, target);
+    handleNpcDefeated(player, target, now);
   }
   aggroNpcOnPlayerHit(target, sourceId, player);
   emitCombatEvent(makeCombatEvent(sourceId, player, target, actionId, damage, now, defeated, now));
@@ -1126,6 +1218,59 @@ function applyNpcDamage(npc: NpcState, damage: number, now: number) {
   return false;
 }
 
+function handleNpcDefeated(player: PlayerState, npc: NpcState, now: number) {
+  populateCorpseLoot(player, npc, now);
+  progressDefeatQuests(player, npc);
+}
+
+function populateCorpseLoot(player: PlayerState, npc: NpcState, now: number) {
+  npc.loot.clear();
+  npc.hasLoot = false;
+
+  if (npc.model === "hog") {
+    if (canDropQuestItem(player, "hog-livers") && Math.random() < QUESTS["hog-livers"].dropRate) {
+      addLootItem(npc, "hog-liver", 1);
+    }
+    if (Math.random() < 0.28) {
+      addLootItem(npc, "muddy-tusk", 1);
+    }
+    if (Math.random() < 0.18) {
+      addLootItem(npc, "small-tooth", 1);
+    }
+  } else if (npc.model === "rabbit") {
+    if (Math.random() < 0.36) {
+      addLootItem(npc, "small-tooth", 1);
+    }
+  } else if (npc.model === "deer") {
+    if (Math.random() < 0.42) {
+      addLootItem(npc, "worn-antler", 1);
+    }
+  } else if (npc.role === "farmer" && Math.random() < 0.35) {
+    addLootItem(npc, "farmhand-bandana", 1);
+  } else if (npc.role === "enemy" && Math.random() < 0.22) {
+    addLootItem(npc, "dummy-splinter", 1);
+  }
+
+  npc.hasLoot = npcHasLoot(npc);
+  if (!npc.hasLoot) return;
+
+  npc.despawnAt = now + LOOT.corpseDespawnMs;
+  npc.respawnAt = npc.despawnAt + 250;
+}
+
+function addLootItem(npc: NpcState, itemId: ItemId, count: number) {
+  const existing = npc.loot.get(itemId);
+  if (existing) {
+    existing.count += count;
+    return;
+  }
+
+  const item = new LootItemState();
+  item.id = itemId;
+  item.count = count;
+  npc.loot.set(itemId, item);
+}
+
 function processPendingCombatImpacts(
   pendingCombatImpacts: PendingCombatImpact[],
   players: MapSchema<PlayerState>,
@@ -1144,7 +1289,7 @@ function processPendingCombatImpacts(
         const defeated = applyNpcDamage(npc, impact.damage, now);
         if (sourcePlayer && impact.sourcePlayerId) {
           if (defeated) {
-            progressDefeatQuests(sourcePlayer, npc);
+            handleNpcDefeated(sourcePlayer, npc, now);
           }
           aggroNpcOnPlayerHit(npc, impact.sourcePlayerId, sourcePlayer);
         }
@@ -1177,7 +1322,10 @@ function applyPlayerDamage(player: PlayerState, damage: number, now: number) {
   if (player.health <= 0) return false;
 
   player.health = clamp(player.health - damage, 0, player.maxHealth);
-  if (damage > 0 && player.castingAction) pushbackPlayerCast(player, now);
+  if (damage > 0) {
+    player.lastDamagedAt = now;
+    if (player.castingAction) pushbackPlayerCast(player, now);
+  }
   if (player.health > 0) return false;
 
   clearPlayerCast(player);
@@ -1277,6 +1425,8 @@ function getNpcImpactHeight(npc: NpcState) {
 function respawnPlayerAtFountain(player: PlayerState) {
   player.health = player.maxHealth;
   player.mana = player.maxMana;
+  player.lastDamagedAt = 0;
+  player.lastCastAt = 0;
   player.x = RESPAWN_POINT.x;
   player.y = 0;
   player.z = RESPAWN_POINT.z;
@@ -1288,11 +1438,12 @@ function respawnPlayerAtFountain(player: PlayerState) {
 
 function findInteractNpc(player: PlayerState, npcs: MapSchema<NpcState>, requestedNpcId?: string) {
   const requested = typeof requestedNpcId === "string" ? npcs.get(requestedNpcId) : undefined;
-  if (requested && distanceToNpc(player, requested) <= 3.25) return requested;
+  if (requested && isInteractableNpc(requested) && distanceToNpc(player, requested) <= LOOT.interactRange) return requested;
 
   let nearest: NpcState | null = null;
   let nearestDistance = Infinity;
   npcs.forEach((npc) => {
+    if (!isInteractableNpc(npc)) return;
     const distance = distanceToNpc(player, npc);
     if (distance < nearestDistance) {
       nearest = npc;
@@ -1300,7 +1451,11 @@ function findInteractNpc(player: PlayerState, npcs: MapSchema<NpcState>, request
     }
   });
 
-  return nearestDistance <= 3.25 ? nearest : null;
+  return nearestDistance <= LOOT.interactRange ? nearest : null;
+}
+
+function isInteractableNpc(npc: NpcState) {
+  return isNpcAlive(npc) || npcHasLoot(npc);
 }
 
 function distanceToNpc(player: PlayerState, npc: NpcState) {
@@ -1327,7 +1482,7 @@ function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offer
   }
 
   if (farmerQuest.status === "active") {
-    return `${QUESTS["feral-farmers"].title}: ${formatQuestProgress(farmerQuest)} farmers dealt with.`;
+    return `${QUESTS["feral-farmers"].title}: ${formatNamedQuestProgress(farmerQuest)}.`;
   }
 
   if (farmerQuest.status === "ready") {
@@ -1385,6 +1540,7 @@ function startQuest(player: PlayerState, questId: QuestId) {
   quest.status = "active";
   quest.progress = 0;
   quest.required = QUESTS[questId].required;
+  quest.flags = "";
   quest.completedAt = 0;
   player.quests.set(questId, quest);
 }
@@ -1400,12 +1556,23 @@ function completeQuest(player: PlayerState, questId: QuestId, now: number) {
 
 function progressDefeatQuests(player: PlayerState, npc: NpcState) {
   if (npc.role === "farmer") {
-    progressQuest(player, "feral-farmers", 1);
-    return;
+    progressNamedQuestObjective(player, "feral-farmers", npc.id);
   }
+}
 
-  if (npc.model === "hog" && hasActiveQuest(player, "hog-livers") && Math.random() < QUESTS["hog-livers"].dropRate) {
-    progressQuest(player, "hog-livers", 1);
+function progressNamedQuestObjective(player: PlayerState, questId: QuestId, objectiveId: string) {
+  const quest = player.quests.get(questId);
+  if (!quest || quest.status !== "active") return;
+  if (!getQuestObjectiveIds(questId).includes(objectiveId)) return;
+
+  const completed = getQuestFlags(quest);
+  if (completed.has(objectiveId)) return;
+
+  completed.add(objectiveId);
+  quest.flags = Array.from(completed).sort().join(",");
+  quest.progress = clamp(completed.size, 0, quest.required);
+  if (quest.progress >= quest.required) {
+    quest.status = "ready";
   }
 }
 
@@ -1423,8 +1590,86 @@ function hasActiveQuest(player: PlayerState, questId: QuestId) {
   return player.quests.get(questId)?.status === "active";
 }
 
+function canDropQuestItem(player: PlayerState, questId: QuestId) {
+  return hasActiveQuest(player, questId);
+}
+
 function formatQuestProgress(quest: QuestState) {
   return `${Math.min(quest.progress, quest.required)}/${quest.required}`;
+}
+
+function formatNamedQuestProgress(quest: QuestState) {
+  const completed = getQuestFlags(quest);
+  const labels = QUESTS["feral-farmers"].objectives.map((objective) => (
+    `${objective.label.replace("Defeat ", "")}: ${completed.has(objective.id) ? "done" : "needed"}`
+  ));
+  return labels.join(", ");
+}
+
+function getQuestFlags(quest: QuestState) {
+  return new Set(quest.flags.split(",").filter(Boolean));
+}
+
+function getQuestObjectiveIds(questId: QuestId) {
+  if (questId === "feral-farmers") {
+    return QUESTS["feral-farmers"].objectives.map((objective) => objective.id as string);
+  }
+  return [];
+}
+
+function lootCorpseItem(player: PlayerState, npc: NpcState, itemId: ItemId) {
+  const loot = npc.loot.get(itemId);
+  if (!loot || loot.count <= 0) return;
+
+  addInventoryItem(player, itemId, loot.count);
+  progressLootQuests(player, itemId, loot.count);
+  npc.loot.delete(itemId);
+  npc.hasLoot = npcHasLoot(npc);
+}
+
+function addInventoryItem(player: PlayerState, itemId: ItemId, count: number) {
+  const existing = player.inventory.get(itemId);
+  if (existing) {
+    existing.count += count;
+    return;
+  }
+
+  const item = new InventoryItemState();
+  item.id = itemId;
+  item.count = count;
+  player.inventory.set(itemId, item);
+}
+
+function progressLootQuests(player: PlayerState, itemId: ItemId, count: number) {
+  if (itemId === "hog-liver") {
+    progressQuest(player, "hog-livers", count);
+  }
+}
+
+function npcHasLoot(npc: NpcState) {
+  let hasLoot = false;
+  npc.loot.forEach((item) => {
+    if (item.count > 0 && ITEMS[item.id]) hasLoot = true;
+  });
+  return hasLoot;
+}
+
+function makeLootWindow(npc: NpcState): LootWindow {
+  const items: LootWindow["items"] = [];
+  npc.loot.forEach((item) => {
+    if (item.count > 0 && ITEMS[item.id]) {
+      items.push({ id: item.id, count: item.count });
+    }
+  });
+  return {
+    npcId: npc.id,
+    npcName: npc.name,
+    items,
+  };
+}
+
+function normalizeItemId(input: unknown): ItemId | null {
+  return typeof input === "string" && Object.prototype.hasOwnProperty.call(ITEMS, input) ? input as ItemId : null;
 }
 
 function getSpawnPoint(index: number) {

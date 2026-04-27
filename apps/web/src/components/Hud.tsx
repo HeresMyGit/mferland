@@ -1,8 +1,9 @@
 import { type CSSProperties, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Crosshair, Flame, Hand, LogOut, Map as MapIcon, Sword, X } from "lucide-react";
+import { BookOpen, Check, Crosshair, Flame, Hand, LogOut, Map as MapIcon, Package, Sword, X } from "lucide-react";
 import {
   CHAT,
   COMBAT,
+  ITEMS,
   PLAZA_BOUNDS,
   QUESTS,
   getNpcDisposition,
@@ -10,7 +11,9 @@ import {
   type ActionId,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientLootCorpse,
   type CombatActionId,
+  type LootWindow,
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
@@ -45,11 +48,14 @@ type HudProps = {
   localSessionId: string | null;
   localPlayer: PlayerSnapshot | null;
   questOffer: QuestOffer | null;
+  lootWindow: LootWindow | null;
   actionSlots: ActionSlot[];
   onAction: (actionId: ActionId) => void;
   onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onDismissQuestOffer: () => void;
+  onLootCorpse: (message: ClientLootCorpse) => void;
+  onCloseLootWindow: () => void;
   onSendChat: (text: string) => void;
   onRespawn: () => void;
   onExit: () => void;
@@ -84,11 +90,14 @@ export function Hud({
   localSessionId,
   localPlayer,
   questOffer,
+  lootWindow,
   actionSlots,
   onAction,
   onMoveActionSlot,
   onAcceptQuest,
   onDismissQuestOffer,
+  onLootCorpse,
+  onCloseLootWindow,
   onSendChat,
   onRespawn,
   onExit,
@@ -100,6 +109,7 @@ export function Hud({
   const [now, setNow] = useState(() => Date.now());
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
+  const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
@@ -265,6 +275,33 @@ export function Hud({
         </section>
       )}
 
+      {lootWindow && (
+        <section className="loot-panel">
+          <button className="quest-offer-close" type="button" title="Close loot" aria-label="Close loot" onClick={onCloseLootWindow}>
+            <X size={17} />
+          </button>
+          <strong>{lootWindow.npcName}</strong>
+          <div className="loot-list">
+            {lootWindow.items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="item-row"
+                onClick={() => onLootCorpse({ npcId: lootWindow.npcId, itemId: item.id })}
+              >
+                <ItemIcon itemId={item.id} />
+                <span>{ITEMS[item.id].name}</span>
+                <em>x{item.count}</em>
+              </button>
+            ))}
+          </div>
+          <button className="quest-accept-btn" type="button" onClick={() => onLootCorpse({ npcId: lootWindow.npcId })}>
+            <Package size={17} />
+            Loot all
+          </button>
+        </section>
+      )}
+
       {selectedTarget && selectedTargetUnit && (
         <TargetFrame
           kind={selectedTarget.kind}
@@ -385,6 +422,33 @@ export function Hud({
         </section>
       )}
 
+      {isInventoryOpen && (
+        <section className="world-map-overlay" role="dialog" aria-label="Inventory">
+          <div className="inventory-panel">
+            <div className="world-map-header">
+              <div>
+                <strong>Inventory</strong>
+                <span>{localPlayer?.inventory.length ?? 0} stacks</span>
+              </div>
+              <button type="button" title="Close inventory" aria-label="Close inventory" onClick={() => setIsInventoryOpen(false)}>
+                <X size={22} />
+              </button>
+            </div>
+            <div className="inventory-grid">
+              {localPlayer && localPlayer.inventory.length > 0 ? localPlayer.inventory.map((item) => (
+                <div key={item.id} className="inventory-slot" title={ITEMS[item.id].description}>
+                  <ItemIcon itemId={item.id} />
+                  <strong>{ITEMS[item.id].name}</strong>
+                  <em>x{item.count}</em>
+                </div>
+              )) : (
+                <p className="quest-empty">Inventory empty</p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="chat-panel">
         <div className="chat-log">
           {chat.length === 0 ? (
@@ -429,6 +493,10 @@ export function Hud({
       </section>
 
       <section className="menu-dock">
+        <button type="button" title="Inventory" onClick={() => setIsInventoryOpen(true)}>
+          <Package size={25} />
+          <span>Inventory</span>
+        </button>
         <button type="button" title="Quest log" onClick={() => setIsQuestLogOpen(true)}>
           <BookOpen size={25} />
           <span>Quests</span>
@@ -619,10 +687,38 @@ function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: boolean }
       <div>
         <strong>{definition.title}</strong>
         {full && <small>{definition.description}</small>}
-        <span>{statusText}</span>
+        {quest.id === "feral-farmers" && quest.status !== "completed" ? (
+          <QuestObjectiveList quest={quest} />
+        ) : (
+          <span>{statusText}</span>
+        )}
       </div>
       <em>{progress}</em>
     </div>
+  );
+}
+
+function QuestObjectiveList({ quest }: { quest: QuestSnapshot }) {
+  const completed = new Set(quest.flags.split(",").filter(Boolean));
+  return (
+    <span className="quest-objectives">
+      {QUESTS["feral-farmers"].objectives.map((objective) => (
+        <span key={objective.id} className={completed.has(objective.id) ? "done" : ""}>
+          {objective.label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ItemIcon({ itemId }: { itemId: keyof typeof ITEMS }) {
+  return (
+    <span
+      className={`item-icon ${ITEMS[itemId].quality}`}
+      style={{ "--item-color": ITEMS[itemId].iconColor } as CSSProperties}
+    >
+      {ITEMS[itemId].name.slice(0, 1)}
+    </span>
   );
 }
 

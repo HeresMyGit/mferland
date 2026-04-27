@@ -193,11 +193,14 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         localSessionId={room.sessionId}
         localPlayer={localPlayer ?? null}
         questOffer={room.questOffer}
+        lootWindow={room.lootWindow}
         actionSlots={actionSlots}
         onAction={performAction}
         onMoveActionSlot={moveActionSlot}
         onAcceptQuest={room.sendAcceptQuest}
         onDismissQuestOffer={room.dismissQuestOffer}
+        onLootCorpse={room.sendLootCorpse}
+        onCloseLootWindow={room.closeLootWindow}
         onSendChat={room.sendChat}
         onRespawn={room.sendRespawn}
         onExit={onExit}
@@ -265,7 +268,7 @@ function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>):
   let nearest: NpcSnapshot | null = null;
   let nearestDistance = Infinity;
   for (const npc of npcs.values()) {
-    if (isAttackableNpcRole(npc.role) && !npc.isImmortal && npc.health <= 0) continue;
+    if (isAttackableNpcRole(npc.role) && !npc.isImmortal && npc.health <= 0 && !npc.hasLoot) continue;
     const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
     if (distance < nearestDistance) {
       nearest = npc;

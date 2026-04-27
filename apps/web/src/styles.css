@@ -528,6 +528,26 @@ button {
   font-weight: 800;
 }
 
+.quest-objectives {
+  display: grid;
+  gap: 3px;
+}
+
+.quest-objectives span {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.quest-objectives span::before {
+  content: "- ";
+}
+
+.quest-objectives span.done {
+  color: rgba(255, 248, 224, 0.58);
+  text-decoration: line-through;
+}
+
 .quest-empty {
   margin: 6px 0 0;
   color: rgba(255, 248, 224, 0.58);
@@ -599,6 +619,88 @@ button {
   font-size: 12px;
   font-weight: 1000;
   text-transform: uppercase;
+}
+
+.loot-panel {
+  position: absolute;
+  right: 118px;
+  bottom: 104px;
+  z-index: 50;
+  display: grid;
+  gap: 10px;
+  width: min(280px, calc(100vw - 36px));
+  padding: 14px;
+  border: 1px solid rgba(255, 216, 79, 0.3);
+  border-radius: 8px;
+  color: #fff8e0;
+  background: rgba(18, 14, 10, 0.9);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+  pointer-events: auto;
+}
+
+.loot-panel > strong {
+  padding-right: 32px;
+  color: #ffd84f;
+  font-size: 16px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.loot-list {
+  display: grid;
+  gap: 7px;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 9px;
+  align-items: center;
+  min-height: 42px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff8e0;
+  background: rgba(0, 0, 0, 0.32);
+  text-align: left;
+}
+
+.item-row > span:not(.item-icon) {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-row em,
+.inventory-slot em {
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.item-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: #fff8e0;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.24), transparent 42%),
+    var(--item-color);
+  font-size: 15px;
+  font-weight: 1000;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.22);
+}
+
+.item-icon.quest {
+  border-color: #ffd84f;
 }
 
 .minimap-panel {
@@ -997,6 +1099,50 @@ button {
   border-radius: 8px;
   background: rgba(18, 14, 10, 0.9);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.inventory-panel {
+  width: min(560px, calc(100vw - 48px));
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 14, 10, 0.9);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  min-height: 110px;
+}
+
+.inventory-slot {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  grid-template-rows: 1fr auto;
+  gap: 6px 8px;
+  align-items: center;
+  min-height: 72px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff8e0;
+  background: rgba(0, 0, 0, 0.34);
+}
+
+.inventory-slot .item-icon {
+  grid-row: span 2;
+}
+
+.inventory-slot strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 1000;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
 }
 
 .quest-log-list {

@@ -18,6 +18,8 @@ export const PLAYER = {
   radius: 0.55,
   maxHealth: 100,
   maxMana: 50,
+  healthRegenPer5: 8,
+  manaRegenPer5: 12,
 };
 
 export const RESPAWN_POINT = {
@@ -76,7 +78,8 @@ export const WORLD_SOLIDS: SolidObstacle[] = [
 ];
 
 export const COMBAT = {
-  manaRegenPer5: 12,
+  manaRegenDelayMs: 5000,
+  healthRegenDelayMs: 10000,
   defeatedDespawnMs: 6500,
   defeatedRespawnMs: 12000,
   castPushbackMs: 500,
@@ -97,8 +100,8 @@ export const COMBAT = {
     },
     shoot: {
       label: "Shoot",
-      damage: 12,
-      cooldownMs: 3000,
+      damage: 8,
+      cooldownMs: 2000,
       minRange: 4.0,
       maxRange: 40,
       manaCost: 0,
@@ -107,12 +110,12 @@ export const COMBAT = {
     },
     fireblast: {
       label: "Fireblast",
-      damage: 24,
-      cooldownMs: 4000,
+      damage: 16,
+      cooldownMs: 0,
       minRange: 0,
       maxRange: 30,
-      manaCost: 15,
-      castTimeMs: 2000,
+      manaCost: 10,
+      castTimeMs: 4000,
       requiresStationary: true,
     },
   },
@@ -123,8 +126,13 @@ export const QUESTS = {
     title: "Feral Farmers",
     giverNpcId: "hogwatch-mfer",
     description: "The busted farm is raising feral hogs that keep charging townspeople.",
-    objectiveLabel: "Defeat hostile farmers",
+    objectiveLabel: "Defeat Bran, Mae, and Sol",
     required: 3,
+    objectives: [
+      { id: "farmhand-bran", label: "Defeat Farmhand Bran" },
+      { id: "farmhand-mae", label: "Defeat Farmhand Mae" },
+      { id: "field-mage-sol", label: "Defeat Field mage Sol" },
+    ],
     nextQuestId: "hog-livers",
   },
   "hog-livers": {
@@ -136,6 +144,51 @@ export const QUESTS = {
     requiredQuestId: "feral-farmers",
     dropRate: 0.66,
   },
+} as const;
+
+export const ITEMS = {
+  "hog-liver": {
+    name: "Hog Liver",
+    description: "A grimy quest item for Hogwatch mfer's ward brew.",
+    quality: "quest",
+    iconColor: "#7a2d25",
+  },
+  "muddy-tusk": {
+    name: "Muddy Tusk",
+    description: "A chipped tusk from a wild hog.",
+    quality: "common",
+    iconColor: "#d8c89c",
+  },
+  "small-tooth": {
+    name: "Small Tooth",
+    description: "A tiny animal tooth with no obvious use.",
+    quality: "common",
+    iconColor: "#e7dfc4",
+  },
+  "worn-antler": {
+    name: "Worn Antler",
+    description: "A scuffed antler tip from a deer.",
+    quality: "common",
+    iconColor: "#b89360",
+  },
+  "farmhand-bandana": {
+    name: "Farmhand Bandana",
+    description: "A rough scrap from the busted farm crew.",
+    quality: "common",
+    iconColor: "#b84a3d",
+  },
+  "dummy-splinter": {
+    name: "Dummy Splinter",
+    description: "A training dummy splinter. Probably worthless.",
+    quality: "common",
+    iconColor: "#9b6a3f",
+  },
+} as const;
+
+export const LOOT = {
+  interactRange: 3.25,
+  corpseDespawnMs: 180000,
+  lootedDespawnMs: 6500,
 } as const;
 
 export const CHAT = {
@@ -173,12 +226,14 @@ export type NpcDisposition = "friendly" | "neutral" | "hostile";
 export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
 export type QuestMarkerType = "available" | "turnIn";
+export type ItemId = keyof typeof ITEMS;
 
 export type QuestSnapshot = {
   id: QuestId;
   status: QuestStatus;
   progress: number;
   required: number;
+  flags: string;
   completedAt: number;
 };
 
@@ -189,6 +244,22 @@ export type QuestOffer = {
   description: string;
   objectiveLabel: string;
   required: number;
+};
+
+export type InventoryItemSnapshot = {
+  id: ItemId;
+  count: number;
+};
+
+export type LootItemSnapshot = {
+  id: ItemId;
+  count: number;
+};
+
+export type LootWindow = {
+  npcId: string;
+  npcName: string;
+  items: LootItemSnapshot[];
 };
 
 export type JoinOptions = {
@@ -215,8 +286,10 @@ export type PlayerSnapshot = {
   avatarSeed: number;
   health: number;
   maxHealth: number;
+  healthRegenPer5: number;
   mana: number;
   maxMana: number;
+  manaRegenPer5: number;
   x: number;
   y: number;
   z: number;
@@ -229,7 +302,10 @@ export type PlayerSnapshot = {
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
+  lastCastAt: number;
+  lastDamagedAt: number;
   quests: QuestSnapshot[];
+  inventory: InventoryItemSnapshot[];
 };
 
 export type NpcSnapshot = {
@@ -251,6 +327,7 @@ export type NpcSnapshot = {
   defeatedAt: number;
   despawnAt: number;
   aggroTargetId: string;
+  hasLoot: boolean;
 };
 
 export type TargetSelection = {
@@ -305,6 +382,11 @@ export type ClientInteract = {
 export type ClientAcceptQuest = {
   questId: QuestId;
   npcId?: string;
+};
+
+export type ClientLootCorpse = {
+  npcId: string;
+  itemId?: ItemId;
 };
 
 export type ClientCombatAction = {
