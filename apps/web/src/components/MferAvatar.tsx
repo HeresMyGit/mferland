@@ -52,6 +52,10 @@ export const TARGET_LABEL_COLORS: Record<NpcDisposition, string> = {
 };
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
+const animationClipCache = new WeakMap<THREE.AnimationClip, Map<AnimationState, THREE.AnimationClip>>();
+const avatarTemplateCache = new WeakMap<THREE.Group, Map<number, THREE.Group>>();
+const avatarHitGeometry = new THREE.CylinderGeometry(0.72, 0.72, 2.7, 12);
+const invisibleHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
 
 export function MferAvatar({
   player,
@@ -80,46 +84,11 @@ export function MferAvatar({
   const targetRingColor = TARGET_RING_COLORS[disposition];
   const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? "#f3d04e" : accent;
 
-  const clips = useMemo(() => {
-    const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
-    return entries.reduce((map, [state, config], index) => {
-      const sourceClip = fbxAnimations[index]?.animations?.[0];
-      if (!sourceClip) return map;
-
-      const clip = makeInPlaceClip(sourceClip);
-      clip.name = config.file;
-      map.set(state, clip);
-      return map;
-    }, new Map<AnimationState, THREE.AnimationClip>());
-  }, [fbxAnimations]);
+  const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
   const avatar = useMemo(() => {
-    const scene = SkeletonUtils.clone(gltf.scene) as THREE.Group;
-    const visibleMeshes = traitsToMeshes(generateRandomMferTraits(player.avatarSeed));
-
-    scene.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      child.visible = visibleMeshes.has(child.name);
-      child.frustumCulled = false;
-      child.castShadow = false;
-      child.receiveShadow = false;
-    });
-
-    scene.updateMatrixWorld(true);
-    const box = new THREE.Box3();
-    scene.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.visible) {
-        box.union(new THREE.Box3().setFromObject(child));
-      }
-    });
-
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    const scale = size.y > 0.01 ? 2.55 / size.y : 1;
-    scene.scale.setScalar(scale);
-    scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-
-    return scene;
+    const template = getMferAvatarTemplate(gltf.scene, player.avatarSeed);
+    return SkeletonUtils.clone(template) as THREE.Group;
   }, [gltf.scene, player.avatarSeed]);
 
   useEffect(() => {
@@ -186,10 +155,13 @@ export function MferAvatar({
       {isTargeted && <TargetRing color={targetRingColor} />}
       {!isDefeated && questMarker && <QuestMarker type={questMarker} y={3.65} />}
       {hasLoot && <LootSparkles y={1.35} />}
-      <mesh position={[0, 1.35, 0]} onPointerDown={handleTarget}>
-        <cylinderGeometry args={[0.72, 0.72, 2.7, 12]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-      </mesh>
+      <mesh
+        geometry={avatarHitGeometry}
+        material={invisibleHitMaterial}
+        position={[0, 1.35, 0]}
+        dispose={null}
+        onPointerDown={handleTarget}
+      />
       <group ref={poseRef}>
         <primitive object={avatar} />
         {!isDefeated && (
@@ -369,6 +341,74 @@ function getNpcLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
 function lerpAngle(a: number, b: number, t: number) {
   const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
   return a + delta * t;
+}
+
+function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
+  const cacheKey = fbxAnimations[0]?.animations?.[0];
+  if (cacheKey) {
+    const cached = animationClipCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
+  const clips = new Map<AnimationState, THREE.AnimationClip>();
+  const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
+  for (let index = 0; index < entries.length; index += 1) {
+    const [state, config] = entries[index];
+    const sourceClip = fbxAnimations[index]?.animations?.[0];
+    if (!sourceClip) continue;
+
+    const clip = makeInPlaceClip(sourceClip);
+    clip.name = config.file;
+    clips.set(state, clip);
+  }
+
+  if (cacheKey) animationClipCache.set(cacheKey, clips);
+  return clips;
+}
+
+function getMferAvatarTemplate(sourceScene: THREE.Group, seed: number) {
+  let seedCache = avatarTemplateCache.get(sourceScene);
+  if (!seedCache) {
+    seedCache = new Map();
+    avatarTemplateCache.set(sourceScene, seedCache);
+  }
+
+  const cached = seedCache.get(seed);
+  if (cached) return cached;
+
+  const template = createMferAvatarTemplate(sourceScene, seed);
+  seedCache.set(seed, template);
+  return template;
+}
+
+function createMferAvatarTemplate(sourceScene: THREE.Group, seed: number) {
+  const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
+  const visibleMeshes = traitsToMeshes(generateRandomMferTraits(seed));
+
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.visible = visibleMeshes.has(child.name);
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const meshBox = new THREE.Box3();
+  scene.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.visible) {
+      box.union(meshBox.setFromObject(child));
+    }
+  });
+
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const scale = size.y > 0.01 ? 2.55 / size.y : 1;
+  scene.scale.setScalar(scale);
+  scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+
+  return scene;
 }
 
 function makeInPlaceClip(sourceClip: THREE.AnimationClip) {
