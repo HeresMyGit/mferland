@@ -7,7 +7,6 @@ import {
   PLAYER,
   PLAZA_BOUNDS,
   type ClientInput,
-  type ClientInteract,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
@@ -20,8 +19,8 @@ type TownSceneProps = {
   localSessionId: string | null;
   selectedTarget: TargetSelection | null;
   onSelectTarget: (target: TargetSelection | null) => void;
+  onInteractAction: () => void;
   sendInput: (input: ClientInput) => void;
-  sendInteract: (input?: ClientInteract) => void;
 };
 
 const GROUND_MARGIN = 36;
@@ -34,8 +33,8 @@ export function TownScene({
   localSessionId,
   selectedTarget,
   onSelectTarget,
+  onInteractAction,
   sendInput,
-  sendInteract,
 }: TownSceneProps) {
   const { gl } = useThree();
   const keyState = useRef(new Set<string>());
@@ -199,8 +198,7 @@ export function TownScene({
 
     const interactPressed = keys.has("f") || keys.has("keyf");
     if (interactPressed && !interactHeld.current && localPlayer) {
-      const nearestNpc = findNearestNpc(localPlayer, npcs);
-      sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
+      onInteractAction();
     }
     interactHeld.current = interactPressed;
 
@@ -1705,21 +1703,6 @@ function updateLocalVisualPlayer(
 
   const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
   visual.animation = airborne ? "jump" : moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
-}
-
-function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>): NpcSnapshot | null {
-  let nearest: NpcSnapshot | null = null;
-  let nearestDistance = Infinity;
-  for (const npc of npcs.values()) {
-    const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
-    if (distance < nearestDistance) {
-      nearest = npc;
-      nearestDistance = distance;
-    }
-  }
-
-  if (nearest && nearestDistance <= 3.25) return nearest;
-  return null;
 }
 
 function getNextEnemyTarget(

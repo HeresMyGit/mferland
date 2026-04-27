@@ -1,12 +1,16 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Backpack, Gem, LogOut, Settings, Shield, ShoppingCart, Smile, Sparkles, UserRound } from "lucide-react";
+import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { type JoinOptions, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
 import { Hud } from "./components/Hud";
+
+type ActionId = "interact";
+type ActionSlot = ActionId | null;
+const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", null, null, null, null];
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
@@ -100,6 +104,7 @@ function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
 function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => void }) {
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
+  const [actionSlots, setActionSlots] = useState<ActionSlot[]>(DEFAULT_ACTION_SLOTS);
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
@@ -110,6 +115,37 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
     () => getSelectedTargetUnit(selectedTarget, room.players, room.npcs),
     [room.npcs, room.players, selectedTarget],
   );
+  const performInteract = useCallback(() => {
+    if (!localPlayer) return;
+    const nearestNpc = findNearestNpc(localPlayer, room.npcs);
+    room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
+  }, [localPlayer, room]);
+  const performAction = useCallback((actionId: ActionId | null) => {
+    if (actionId === "interact") performInteract();
+  }, [performInteract]);
+  const moveActionSlot = useCallback((fromIndex: number, toIndex: number) => {
+    setActionSlots((current) => {
+      if (!current[fromIndex] || fromIndex === toIndex) return current;
+      const next = [...current];
+      [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || isTypingTarget(event.target)) return;
+      const slotIndex = numberKeyToSlotIndex(event);
+      if (slotIndex === null) return;
+      const actionId = actionSlots[slotIndex] ?? null;
+      if (!actionId) return;
+      event.preventDefault();
+      performAction(actionId);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [actionSlots, performAction]);
 
   return (
     <main className="game-shell">
@@ -123,8 +159,8 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
           localSessionId={room.sessionId}
           selectedTarget={selectedTarget}
           onSelectTarget={setSelectedTarget}
+          onInteractAction={performInteract}
           sendInput={room.sendInput}
-          sendInteract={room.sendInteract}
         />
       </Canvas>
 
@@ -139,21 +175,11 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         selectedTarget={selectedTarget}
         selectedTargetUnit={selectedTargetUnit}
         localSessionId={room.sessionId}
+        actionSlots={actionSlots}
+        onAction={performAction}
+        onMoveActionSlot={moveActionSlot}
         onSendChat={room.sendChat}
         onExit={onExit}
-        quickSlots={[
-          { icon: Gem, label: "spark" },
-          { icon: UserRound, label: "emote" },
-          { icon: Shield, label: "guard" },
-          { icon: Sparkles, label: "cast" },
-          { icon: Smile, label: "vibe" },
-        ]}
-        menuButtons={[
-          { icon: Backpack, label: "Inventory" },
-          { icon: ShoppingCart, label: "Shop" },
-          { icon: Smile, label: "Collection" },
-          { icon: Settings, label: "Settings" },
-        ]}
       />
     </main>
   );
@@ -168,4 +194,31 @@ function getSelectedTargetUnit(
   return selectedTarget.kind === "player"
     ? players.get(selectedTarget.id) ?? null
     : npcs.get(selectedTarget.id) ?? null;
+}
+
+function numberKeyToSlotIndex(event: KeyboardEvent) {
+  const key = event.key;
+  if (/^[1-5]$/.test(key)) return Number(key) - 1;
+  if (/^Digit[1-5]$/.test(event.code)) return Number(event.code.slice(-1)) - 1;
+  return null;
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+}
+
+function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>): NpcSnapshot | null {
+  let nearest: NpcSnapshot | null = null;
+  let nearestDistance = Infinity;
+  for (const npc of npcs.values()) {
+    const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
+    if (distance < nearestDistance) {
+      nearest = npc;
+      nearestDistance = distance;
+    }
+  }
+
+  if (nearest && nearestDistance <= 3.25) return nearest;
+  return null;
 }

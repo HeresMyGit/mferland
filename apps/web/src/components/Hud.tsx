@@ -1,7 +1,18 @@
-import { type CSSProperties, type FormEvent, useMemo, useState } from "react";
-import { LogOut, type LucideIcon } from "lucide-react";
+import { type CSSProperties, type FormEvent, type PointerEvent, useMemo, useRef, useState } from "react";
+import { Hand, LogOut } from "lucide-react";
 import { CHAT, PLAZA_BOUNDS, type ChatMessage, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
+
+type ActionId = "interact";
+type ActionSlot = ActionId | null;
+type DragState = {
+  fromIndex: number;
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+  isDragging: boolean;
+};
 
 type HudProps = {
   identity: {
@@ -17,8 +28,9 @@ type HudProps = {
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   localSessionId: string | null;
-  quickSlots: Array<{ icon: LucideIcon; label: string }>;
-  menuButtons: Array<{ icon: LucideIcon; label: string }>;
+  actionSlots: ActionSlot[];
+  onAction: (actionId: ActionId) => void;
+  onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
   onSendChat: (text: string) => void;
   onExit: () => void;
 };
@@ -34,12 +46,16 @@ export function Hud({
   selectedTarget,
   selectedTargetUnit,
   localSessionId,
-  quickSlots,
-  menuButtons,
+  actionSlots,
+  onAction,
+  onMoveActionSlot,
   onSendChat,
   onExit,
 }: HudProps) {
   const [draft, setDraft] = useState("");
+  const dragStateRef = useRef<DragState | null>(null);
+  const [dragState, setDragStateState] = useState<DragState | null>(null);
+  const [dropSlot, setDropSlot] = useState<number | null>(null);
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
 
   function submit(event: FormEvent) {
@@ -48,6 +64,62 @@ export function Hud({
     if (!text) return;
     onSendChat(text);
     setDraft("");
+  }
+
+  function setDragState(nextDragState: DragState | null) {
+    dragStateRef.current = nextDragState;
+    setDragStateState(nextDragState);
+  }
+
+  function beginActionDrag(index: number, event: PointerEvent<HTMLElement>) {
+    if (!actionSlots[index] || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragState({
+      fromIndex: index,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      isDragging: false,
+    });
+  }
+
+  function updateActionDrag(event: PointerEvent<HTMLElement>) {
+    const current = dragStateRef.current;
+    if (!current) return;
+
+    const distance = Math.hypot(event.clientX - current.startX, event.clientY - current.startY);
+    const isDragging = current.isDragging || distance > 5;
+    setDragState({
+      ...current,
+      x: event.clientX,
+      y: event.clientY,
+      isDragging,
+    });
+    setDropSlot(isDragging ? getSlotIndexFromPoint(event.clientX, event.clientY) : null);
+  }
+
+  function endActionDrag(event: PointerEvent<HTMLElement>) {
+    const current = dragStateRef.current;
+    if (!current) return;
+
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can be lost if the gesture leaves the browser window.
+    }
+
+    const actionId = actionSlots[current.fromIndex];
+    const toIndex = current.isDragging ? getSlotIndexFromPoint(event.clientX, event.clientY) : null;
+    if (current.isDragging && toIndex !== null) {
+      onMoveActionSlot(current.fromIndex, toIndex);
+    } else if (actionId) {
+      onAction(actionId);
+    }
+
+    setDragState(null);
+    setDropSlot(null);
   }
 
   return (
@@ -133,27 +205,22 @@ export function Hud({
       </section>
 
       <section className="hotbar">
-        {quickSlots.map((slot, index) => {
-          const Icon = slot.icon;
-          return (
-            <button key={slot.label} type="button" title={slot.label}>
-              <Icon size={24} />
-              <span>{index + 1}</span>
-            </button>
-          );
-        })}
+        {actionSlots.map((actionId, index) => (
+          <ActionSlotButton
+            key={index}
+            actionId={actionId}
+            index={index}
+            isDragging={dragState?.fromIndex === index && dragState.isDragging}
+            isDropTarget={dropSlot === index && dragState?.isDragging === true}
+            onAction={onAction}
+            onPointerStart={beginActionDrag}
+            onPointerMove={updateActionDrag}
+            onPointerEnd={endActionDrag}
+          />
+        ))}
       </section>
 
       <section className="menu-dock">
-        {menuButtons.map((button) => {
-          const Icon = button.icon;
-          return (
-            <button key={button.label} type="button" title={button.label}>
-              <Icon size={25} />
-              <span>{button.label}</span>
-            </button>
-          );
-        })}
         <button type="button" title="Leave" onClick={onExit}>
           <LogOut size={25} />
           <span>Leave</span>
@@ -165,6 +232,83 @@ export function Hud({
       </div>
     </div>
   );
+}
+
+function ActionSlotButton({
+  actionId,
+  index,
+  isDragging,
+  isDropTarget,
+  onAction,
+  onPointerStart,
+  onPointerMove,
+  onPointerEnd,
+}: {
+  actionId: ActionSlot;
+  index: number;
+  isDragging: boolean;
+  isDropTarget: boolean;
+  onAction: (actionId: ActionId) => void;
+  onPointerStart: (index: number, event: PointerEvent<HTMLElement>) => void;
+  onPointerMove: (event: PointerEvent<HTMLElement>) => void;
+  onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
+}) {
+  const action = actionId ? getActionMeta(actionId) : null;
+  const Icon = action?.icon;
+  const className = [
+    "action-slot",
+    action ? "filled" : "empty",
+    isDragging ? "dragging" : "",
+    isDropTarget ? "drop-target" : "",
+  ].filter(Boolean).join(" ");
+
+  if (!action || !Icon) {
+    return (
+      <div className={className} data-action-slot={index}>
+        <span className="slot-key">{index + 1}</span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className={className}
+      type="button"
+      data-action-slot={index}
+      title={`${action.label} (${index + 1})`}
+      aria-label={`${action.label}, slot ${index + 1}`}
+      onPointerDown={(event) => onPointerStart(index, event)}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      onPointerCancel={onPointerEnd}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onAction(action.id);
+      }}
+    >
+      <Icon size={25} />
+      <strong>{action.label}</strong>
+      <span className="slot-key">{index + 1}</span>
+    </button>
+  );
+}
+
+function getActionMeta(actionId: ActionId) {
+  if (actionId === "interact") {
+    return {
+      id: actionId,
+      label: "Interact",
+      icon: Hand,
+    };
+  }
+}
+
+function getSlotIndexFromPoint(x: number, y: number) {
+  const element = document.elementFromPoint(x, y);
+  const slot = element?.closest<HTMLElement>("[data-action-slot]");
+  const slotIndex = Number(slot?.dataset.actionSlot);
+  return Number.isInteger(slotIndex) ? slotIndex : null;
 }
 
 function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {

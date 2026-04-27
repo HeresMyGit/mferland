@@ -563,7 +563,7 @@ button {
   transform: translateX(-50%);
 }
 
-.hotbar button,
+.action-slot,
 .menu-dock button {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
@@ -573,20 +573,55 @@ button {
   backdrop-filter: blur(8px);
 }
 
-.hotbar button {
+.action-slot {
   position: relative;
   display: grid;
   place-items: center;
   width: 64px;
   height: 64px;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease, transform 120ms ease;
 }
 
-.hotbar button:first-child {
-  color: #b666ff;
+.action-slot.filled {
+  grid-template-rows: 1fr auto;
+  gap: 2px;
+  color: #f3d04e;
 }
 
-.hotbar button span {
+.action-slot.filled strong {
+  max-width: 54px;
+  overflow: hidden;
+  color: #fff8dc;
+  font-size: 10px;
+  font-weight: 1000;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.action-slot.empty {
+  border-style: dashed;
+  color: rgba(255, 248, 224, 0.36);
+  background: rgba(15, 13, 12, 0.42);
+}
+
+.action-slot.dragging {
+  opacity: 0.44;
+  transform: scale(0.96);
+}
+
+.action-slot.drop-target {
+  border-color: #f3d04e;
+  box-shadow: 0 0 0 2px rgba(243, 208, 78, 0.22), 0 8px 18px rgba(0, 0, 0, 0.25);
+}
+
+.slot-key {
   position: absolute;
+  right: 7px;
   bottom: 6px;
   font-size: 11px;
   font-weight: 900;
@@ -661,9 +696,13 @@ button {
     bottom: 16px;
   }
 
-  .hotbar button {
+  .action-slot {
     width: 52px;
     height: 52px;
+  }
+
+  .action-slot.filled strong {
+    display: none;
   }
 
   .player-card {
