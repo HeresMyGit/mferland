@@ -677,7 +677,7 @@ function updateNpcs(
         return;
       }
 
-      if (canWander || (canPace && Math.random() < 0.35)) {
+      if (canWander || (canPace && Math.random() < getNpcPaceChance(npc))) {
         const target = getNpcWanderTarget(npc);
         npc.targetX = target.x;
         npc.targetZ = target.z;
@@ -685,7 +685,7 @@ function updateNpcs(
         npc.targetX = npc.homeX;
         npc.targetZ = npc.homeZ;
       }
-      npc.nextDecisionAt = now + randomRange(canWander ? 1800 : 3500, canWander ? 5200 : 9000);
+      npc.nextDecisionAt = now + getNpcWanderDecisionMs(npc);
     }
 
     const dx = npc.targetX - npc.x;
@@ -841,18 +841,32 @@ function getNpcInterestRadius(npc: NpcState) {
 }
 
 function shouldNpcIdle(npc: NpcState) {
-  if (npc.role === "critter") return Math.random() < 0.58;
-  if (npc.role === "beast") return Math.random() < 0.48;
-  if (npc.role === "wanderer" || npc.role === "guard") return Math.random() < 0.38;
-  if (npc.role === "quest_giver" || npc.role === "merchant") return Math.random() < 0.78;
+  if (npc.role === "critter") return Math.random() < 0.62;
+  if (npc.role === "beast") return Math.random() < 0.55;
+  if (npc.role === "wanderer" || npc.role === "guard") return Math.random() < 0.82;
+  if (npc.role === "quest_giver" || npc.role === "merchant") return Math.random() < 0.94;
   return false;
 }
 
 function getNpcIdleDurationMs(npc: NpcState) {
   if (npc.role === "critter") return randomRange(1600, 4200);
   if (npc.role === "beast") return randomRange(2200, 6200);
-  if (npc.role === "wanderer" || npc.role === "guard") return randomRange(2600, 7600);
+  if (npc.role === "wanderer" || npc.role === "guard") return randomRange(9000, 22000);
+  if (npc.role === "quest_giver" || npc.role === "merchant") return randomRange(16000, 38000);
   return randomRange(5500, 12000);
+}
+
+function getNpcWanderDecisionMs(npc: NpcState) {
+  if (npc.role === "critter") return randomRange(3000, 8000);
+  if (npc.role === "beast") return randomRange(4500, 11000);
+  if (npc.role === "wanderer" || npc.role === "guard") return randomRange(9000, 22000);
+  if (npc.role === "quest_giver" || npc.role === "merchant") return randomRange(14000, 32000);
+  return randomRange(5000, 12000);
+}
+
+function getNpcPaceChance(npc: NpcState) {
+  if (npc.role === "quest_giver" || npc.role === "merchant") return 0.08;
+  return 0.35;
 }
 
 function isNpcNearAnyPlayer(npc: NpcState, players: MapSchema<PlayerState>, radius: number) {
