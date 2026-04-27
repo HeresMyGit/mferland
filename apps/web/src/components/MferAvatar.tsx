@@ -113,7 +113,7 @@ export function MferAvatar({
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
-  const showBaseMarker = npc && !isDefeated && (disposition !== "friendly" || Boolean(questMarker));
+  const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 

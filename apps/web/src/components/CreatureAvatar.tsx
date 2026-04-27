@@ -105,7 +105,7 @@ export function CreatureAvatar({
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
-  const showBaseMarker = !isDefeated && (disposition !== "friendly" || Boolean(questMarker));
+  const showBaseMarker = !isDefeated && (Boolean(questMarker) || isTargeted);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
