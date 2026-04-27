@@ -387,13 +387,20 @@ type BuildingModuleSpec =
     kind: "sign";
     id: string;
   };
-type TownBuildingSpec = {
+type BuildingBlueprintId = "shop";
+type BuildingBlueprint = {
+  id: BuildingBlueprintId;
+  label: string;
+  footprint: [number, number];
+  modules: BuildingModuleSpec[];
+};
+type TownBuildingPlacement = {
   id: string;
+  blueprint: BuildingBlueprintId;
   position: Vec3Tuple;
   rotation: number;
   sign: string;
   accent: string;
-  modules: BuildingModuleSpec[];
 };
 type BuildingTextures = {
   stone: THREE.Texture;
@@ -433,32 +440,39 @@ const BACKDROP_TREES: TreeSpec[] = [-82, -72, -62, -54, -47, -38, -31, -24, -17,
     scale: 0.95 + (index % 3) * 0.12,
   }));
 
-const SHOP_BUILDING_MODULES: BuildingModuleSpec[] = [
-  { kind: "box", id: "foundation", position: [0, 0.32, 0], size: [7.45, 0.64, 4.85], material: "stone", color: "#c7b69d" },
-  { kind: "box", id: "body", position: [0, 2.65, 0], size: [7.05, 4.55, 4.45], material: "wall" },
-  { kind: "gabled-roof", id: "roof" },
-  { kind: "trim", id: "front-trim" },
-  { kind: "window", id: "front-left-window", position: [-2.15, 2.45, 2.28] },
-  { kind: "window", id: "front-right-window", position: [2.15, 2.45, 2.28] },
-  { kind: "window", id: "back-left-window", position: [-2.65, 2.2, -2.28], rotation: Math.PI },
-  { kind: "window", id: "back-right-window", position: [2.65, 2.2, -2.28], rotation: Math.PI },
-  { kind: "door", id: "front-door" },
-  { kind: "sign", id: "front-sign" },
-  { kind: "box", id: "chimney-stack", position: [2.55, 5.78, -0.8], size: [0.62, 1.45, 0.62], material: "stone", color: "#b29b7e" },
-  { kind: "box", id: "chimney-cap", position: [2.55, 6.58, -0.8], size: [0.86, 0.28, 0.86], material: "solid", color: "#4b3325" },
-];
+const BUILDING_BLUEPRINTS: Record<BuildingBlueprintId, BuildingBlueprint> = {
+  shop: {
+    id: "shop",
+    label: "Shopfront",
+    footprint: [7.45, 4.85],
+    modules: [
+      { kind: "box", id: "foundation", position: [0, 0.32, 0], size: [7.45, 0.64, 4.85], material: "stone", color: "#c7b69d" },
+      { kind: "box", id: "body", position: [0, 2.65, 0], size: [7.05, 4.55, 4.45], material: "wall" },
+      { kind: "gabled-roof", id: "roof" },
+      { kind: "trim", id: "front-trim" },
+      { kind: "window", id: "front-left-window", position: [-2.15, 2.45, 2.28] },
+      { kind: "window", id: "front-right-window", position: [2.15, 2.45, 2.28] },
+      { kind: "window", id: "back-left-window", position: [-2.65, 2.2, -2.28], rotation: Math.PI },
+      { kind: "window", id: "back-right-window", position: [2.65, 2.2, -2.28], rotation: Math.PI },
+      { kind: "door", id: "front-door" },
+      { kind: "sign", id: "front-sign" },
+      { kind: "box", id: "chimney-stack", position: [2.55, 5.78, -0.8], size: [0.62, 1.45, 0.62], material: "stone", color: "#b29b7e" },
+      { kind: "box", id: "chimney-cap", position: [2.55, 6.58, -0.8], size: [0.86, 0.28, 0.86], material: "solid", color: "#4b3325" },
+    ],
+  },
+};
 
-const TOWN_BUILDINGS: TownBuildingSpec[] = [
-  { id: "mfers", position: [-18, 0, -8], rotation: 0.4, sign: "MFERS", accent: "#9b45ff", modules: SHOP_BUILDING_MODULES },
-  { id: "dao", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO", accent: "#52d64f", modules: SHOP_BUILDING_MODULES },
-  { id: "wearables", position: [-18, 0, 11], rotation: -0.2, sign: "WEARABLES", accent: "#e754d8", modules: SHOP_BUILDING_MODULES },
-  { id: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SHOP", accent: "#f5c344", modules: SHOP_BUILDING_MODULES },
-  { id: "barracks", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BARRACKS", accent: "#3ba464", modules: SHOP_BUILDING_MODULES },
-  { id: "keep", position: [25.5, 0, -33.8], rotation: -1.28, sign: "KEEP", accent: "#477fe7", modules: SHOP_BUILDING_MODULES },
-  { id: "gallery", position: [-36, 0, 17.5], rotation: 1.5, sign: "GALLERY", accent: "#ef7741", modules: SHOP_BUILDING_MODULES },
-  { id: "arcade", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: "#36b7c9", modules: SHOP_BUILDING_MODULES },
-  { id: "inn", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565", modules: SHOP_BUILDING_MODULES },
-  { id: "forge", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35", modules: SHOP_BUILDING_MODULES },
+const TOWN_BUILDINGS: TownBuildingPlacement[] = [
+  { id: "mfers", blueprint: "shop", position: [-18, 0, -8], rotation: 0.4, sign: "MFERS", accent: "#9b45ff" },
+  { id: "dao", blueprint: "shop", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO", accent: "#52d64f" },
+  { id: "wearables", blueprint: "shop", position: [-18, 0, 11], rotation: -0.2, sign: "WEARABLES", accent: "#e754d8" },
+  { id: "shop", blueprint: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SHOP", accent: "#f5c344" },
+  { id: "barracks", blueprint: "shop", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BARRACKS", accent: "#3ba464" },
+  { id: "keep", blueprint: "shop", position: [25.5, 0, -33.8], rotation: -1.28, sign: "KEEP", accent: "#477fe7" },
+  { id: "gallery", blueprint: "shop", position: [-36, 0, 17.5], rotation: 1.5, sign: "GALLERY", accent: "#ef7741" },
+  { id: "arcade", blueprint: "shop", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: "#36b7c9" },
+  { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565" },
+  { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35" },
 ];
 
 function CombatFeedbackLayer({
@@ -828,7 +842,7 @@ function TownWorld() {
       {TOWN_BUILDINGS.map((building) => (
         <TownBuilding
           key={building.id}
-          spec={building}
+          placement={building}
           stoneTexture={stoneTexture}
           roofTexture={roofTexture}
           wallTexture={timberTexture}
@@ -2190,22 +2204,23 @@ function CastleGate({ stoneTexture }: { stoneTexture: THREE.Texture }) {
 }
 
 function TownBuilding({
-  spec,
+  placement,
   stoneTexture,
   roofTexture,
   wallTexture,
 }: {
-  spec: TownBuildingSpec;
+  placement: TownBuildingPlacement;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
+  const blueprint = BUILDING_BLUEPRINTS[placement.blueprint];
   const textures = { stone: stoneTexture, roof: roofTexture, wall: wallTexture };
 
   return (
-    <group position={spec.position} rotation-y={spec.rotation}>
-      {spec.modules.map((module) => (
-        <BuildingModule key={module.id} module={module} spec={spec} textures={textures} />
+    <group position={placement.position} rotation-y={placement.rotation}>
+      {blueprint.modules.map((module) => (
+        <BuildingModule key={module.id} module={module} placement={placement} textures={textures} />
       ))}
     </group>
   );
@@ -2213,32 +2228,32 @@ function TownBuilding({
 
 function BuildingModule({
   module,
-  spec,
+  placement,
   textures,
 }: {
   module: BuildingModuleSpec;
-  spec: TownBuildingSpec;
+  placement: TownBuildingPlacement;
   textures: BuildingTextures;
 }) {
-  if (module.kind === "box") return <BuildingBox module={module} spec={spec} textures={textures} />;
+  if (module.kind === "box") return <BuildingBox module={module} placement={placement} textures={textures} />;
   if (module.kind === "gabled-roof") return <GabledRoof roofTexture={textures.roof} />;
   if (module.kind === "trim") return <BuildingTrim />;
   if (module.kind === "window") return <ShopWindow position={module.position} rotation={module.rotation} />;
   if (module.kind === "door") return <ShopDoor />;
-  return <ShopSign sign={spec.sign} accent={spec.accent} />;
+  return <ShopSign sign={placement.sign} accent={placement.accent} />;
 }
 
 function BuildingBox({
   module,
-  spec,
+  placement,
   textures,
 }: {
   module: Extract<BuildingModuleSpec, { kind: "box" }>;
-  spec: TownBuildingSpec;
+  placement: TownBuildingPlacement;
   textures: BuildingTextures;
 }) {
   const texture = getBuildingTexture(module.material, textures);
-  const color = module.material === "accent" ? spec.accent : module.color;
+  const color = module.material === "accent" ? placement.accent : module.color;
 
   return (
     <mesh position={module.position} rotation={module.rotation}>
