@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Flame, Hand, LogOut, Sword } from "lucide-react";
+import { Crosshair, Flame, Hand, LogOut, Map as MapIcon, Sword, X } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -43,8 +43,25 @@ type HudProps = {
   onAction: (actionId: ActionId) => void;
   onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
   onSendChat: (text: string) => void;
+  onRespawn: () => void;
   onExit: () => void;
 };
+
+const MINIMAP_RANGE_YARDS = 48;
+const MINIMAP_EDGE_PERCENT = 42;
+const EXPLORE_CELL_SIZE = 8;
+const EXPLORE_RADIUS_CELLS = 2;
+const MINIMAP_ROADS = [
+  { x: 0, z: -34, width: 8.5, depth: 44 },
+  { x: 0, z: 35, width: 8.5, depth: 42 },
+  { x: -35, z: 0, width: 34, depth: 7.5 },
+  { x: 35, z: 0, width: 34, depth: 7.5 },
+  { x: 0, z: -34, width: 52, depth: 6.2 },
+  { x: 0, z: 29, width: 52, depth: 6.2 },
+  { x: -32, z: 22, width: 7, depth: 28 },
+  { x: 32, z: 22, width: 7, depth: 28 },
+  { x: 0, z: 56, width: 8.5, depth: 42 },
+];
 
 export function Hud({
   identity,
@@ -62,6 +79,7 @@ export function Hud({
   onAction,
   onMoveActionSlot,
   onSendChat,
+  onRespawn,
   onExit,
 }: HudProps) {
   const [draft, setDraft] = useState("");
@@ -69,11 +87,40 @@ export function Hud({
   const [dragState, setDragStateState] = useState<DragState | null>(null);
   const [dropSlot, setDropSlot] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [isMapOpen, setIsMapOpen] = useState(false);
+  const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 100);
     return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!localPlayer) return;
+    const newlyExplored = getExploredCellKeys(localPlayer.x, localPlayer.z);
+    setExploredCells((current) => {
+      let changed = false;
+      const next = new Set(current);
+      for (const key of newlyExplored) {
+        if (next.has(key)) continue;
+        next.add(key);
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [localPlayer?.x, localPlayer?.z]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || isTypingTarget(event.target)) return;
+      if (event.key.toLowerCase() !== "m") return;
+      event.preventDefault();
+      setIsMapOpen((open) => !open);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   function submit(event: FormEvent) {
@@ -182,16 +229,30 @@ export function Hud({
       )}
 
       <section className="minimap-panel">
-        <h2>Mfer Town</h2>
+        <div className="minimap-header">
+          <h2>Mfer Town</h2>
+          <button type="button" title="Map (M)" aria-label="Open map" onClick={() => setIsMapOpen(true)}>
+            <MapIcon size={18} />
+          </button>
+        </div>
         <div className="minimap">
+          <div className="minimap-terrain" />
+          <span className="minimap-plaza" style={getMinimapCircleStyle(localPlayer, 0, 0, 24)} />
+          {MINIMAP_ROADS.map((road, index) => (
+            <span
+              key={`${road.x}:${road.z}:${index}`}
+              className="minimap-road"
+              style={getMinimapRoadStyle(localPlayer, road)}
+            />
+          ))}
           <div className="minimap-ring" />
+          <div className="minimap-vision-cone" />
           {Array.from(players.entries()).map(([id, player]) => (
             <span
               key={id}
               className={id === localSessionId ? "map-dot local" : "map-dot"}
               style={{
-                left: `${normalize(player.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
-                top: `${normalize(player.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+                ...getMinimapPointStyle(localPlayer, player.x, player.z),
                 backgroundColor: id === localSessionId ? "#f3d04e" : colorFromSeed(player.avatarSeed),
               }}
             />
@@ -202,8 +263,7 @@ export function Hud({
               className={`map-dot npc ${isAttackableNpcRole(npc.role) ? "enemy" : ""}`}
               title={npc.name}
               style={{
-                left: `${normalize(npc.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
-                top: `${normalize(npc.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+                ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
               }}
             />
           ))}
@@ -213,6 +273,50 @@ export function Hud({
           <span>{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
         </div>
       </section>
+
+      {isMapOpen && (
+        <section className="world-map-overlay" role="dialog" aria-label="World map">
+          <div className="world-map-panel">
+            <div className="world-map-header">
+              <div>
+                <strong>Mfer Town</strong>
+                <span>{exploredCells.size} areas uncovered</span>
+              </div>
+              <button type="button" title="Close map" aria-label="Close map" onClick={() => setIsMapOpen(false)}>
+                <X size={22} />
+              </button>
+            </div>
+            <div className="world-map">
+              <div className="world-map-terrain" />
+              {Array.from(exploredCells).map((key) => (
+                <span key={key} className="world-map-uncovered" style={getExploredCellStyle(key)} />
+              ))}
+              <span className="world-map-plaza" style={getWorldMapCircleStyle(0, 0, 24)} />
+              {MINIMAP_ROADS.map((road, index) => (
+                <span
+                  key={`${road.x}:${road.z}:${index}`}
+                  className="world-map-road"
+                  style={getWorldMapRoadStyle(road)}
+                />
+              ))}
+              {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
+                <span
+                  key={npc.id}
+                  className={`map-dot npc ${isAttackableNpcRole(npc.role) ? "enemy" : ""}`}
+                  title={npc.name}
+                  style={getWorldMapPointStyle(npc.x, npc.z)}
+                />
+              ))}
+              {localPlayer && (
+                <span
+                  className="map-dot local"
+                  style={getWorldMapPointStyle(localPlayer.x, localPlayer.z)}
+                />
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="chat-panel">
         <div className="chat-log">
@@ -246,6 +350,8 @@ export function Hud({
             isDragging={dragState?.fromIndex === index && dragState.isDragging}
             isDropTarget={dropSlot === index && dragState?.isDragging === true}
             localPlayer={localPlayer}
+            selectedTarget={selectedTarget}
+            selectedTargetUnit={selectedTargetUnit}
             now={now}
             onAction={onAction}
             onPointerStart={beginActionDrag}
@@ -265,6 +371,13 @@ export function Hud({
       <div className={`status-pill ${connectionStatus}`}>
         {connectionError || connectionStatus}
       </div>
+
+      {localPlayer && localPlayer.health <= 0 && (
+        <section className="death-panel">
+          <strong>You died</strong>
+          <button type="button" onClick={onRespawn}>Respawn</button>
+        </section>
+      )}
     </div>
   );
 }
@@ -279,6 +392,8 @@ function ActionSlotButton({
   onPointerMove,
   onPointerEnd,
   localPlayer,
+  selectedTarget,
+  selectedTargetUnit,
   now,
 }: {
   actionId: ActionSlot;
@@ -290,6 +405,8 @@ function ActionSlotButton({
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
   localPlayer: PlayerSnapshot | null;
+  selectedTarget: TargetSelection | null;
+  selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   now: number;
 }) {
   const action = actionId ? getActionMeta(actionId) : null;
@@ -298,6 +415,9 @@ function ActionSlotButton({
   const hasMana = actionId && actionId !== "interact"
     ? (localPlayer?.mana ?? 0) >= COMBAT.actions[actionId].manaCost
     : true;
+  const usability = actionId && actionId !== "interact"
+    ? getCombatUsability(actionId, localPlayer, selectedTarget, selectedTargetUnit, now)
+    : { usable: true, reason: "" };
   const className = [
     "action-slot",
     action ? "filled" : "empty",
@@ -305,6 +425,7 @@ function ActionSlotButton({
     isDropTarget ? "drop-target" : "",
     cooldown && cooldown.remainingMs > 0 ? "cooling" : "",
     hasMana ? "" : "oom",
+    usability.usable ? "" : "unusable",
   ].filter(Boolean).join(" ");
 
   if (!action || !Icon) {
@@ -322,6 +443,7 @@ function ActionSlotButton({
       data-action-slot={index}
       title={`${action.label} (${index + 1})`}
       aria-label={`${action.label}, slot ${index + 1}`}
+      aria-disabled={!usability.usable}
       onPointerDown={(event) => onPointerStart(index, event)}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
@@ -335,11 +457,12 @@ function ActionSlotButton({
       <Icon size={25} />
       <strong>{action.label}</strong>
       {cooldown && cooldown.remainingMs > 0 && (
-        <span className="cooldown-sweep" style={{ height: `${cooldown.percent}%` }} />
+        <span className="cooldown-sweep" style={{ "--cooldown-fill": cooldown.percent / 100 } as CSSProperties} />
       )}
       {cooldown && cooldown.remainingMs > 0 && (
         <em className="cooldown-label">{formatCooldown(cooldown.remainingMs)}</em>
       )}
+      {!usability.usable && usability.reason && <em className="range-label">{usability.reason}</em>}
       <span className="slot-key">{index + 1}</span>
     </button>
   );
@@ -429,6 +552,7 @@ function roleLabel(role: NpcSnapshot["role"]) {
   if (role === "enemy") return "Training";
   if (role === "critter") return "Critter";
   if (role === "beast") return "Beast";
+  if (role === "farmer") return "Hostile farmer";
   return "Town NPC";
 }
 
@@ -440,6 +564,146 @@ function playerLabel(player: PlayerSnapshot) {
 
 function normalize(value: number, min: number, max: number) {
   return Math.max(7, Math.min(93, ((value - min) / (max - min)) * 100));
+}
+
+function getMinimapPointStyle(localPlayer: PlayerSnapshot | null, x: number, z: number): CSSProperties {
+  if (!localPlayer) {
+    return {
+      left: `${normalize(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+      top: `${normalize(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+    };
+  }
+
+  const point = getMinimapLocalPoint(localPlayer, x, z, true);
+  return {
+    left: `${point.left}%`,
+    top: `${point.top}%`,
+  };
+}
+
+function getMinimapRoadStyle(
+  localPlayer: PlayerSnapshot | null,
+  road: { x: number; z: number; width: number; depth: number },
+): CSSProperties {
+  const scale = MINIMAP_EDGE_PERCENT / MINIMAP_RANGE_YARDS;
+  const point = localPlayer
+    ? getMinimapLocalPoint(localPlayer, road.x, road.z, false)
+    : {
+        left: normalize(road.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX),
+        top: normalize(road.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ),
+      };
+
+  return {
+    left: `${point.left}%`,
+    top: `${point.top}%`,
+    width: `${road.width * scale}%`,
+    height: `${road.depth * scale}%`,
+    transform: `translate(-50%, -50%) rotate(${localPlayer?.yaw ?? 0}rad)`,
+  };
+}
+
+function getMinimapCircleStyle(localPlayer: PlayerSnapshot | null, x: number, z: number, diameter: number): CSSProperties {
+  const scale = MINIMAP_EDGE_PERCENT / MINIMAP_RANGE_YARDS;
+  const point = localPlayer
+    ? getMinimapLocalPoint(localPlayer, x, z, false)
+    : {
+        left: normalize(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX),
+        top: normalize(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ),
+      };
+
+  return {
+    left: `${point.left}%`,
+    top: `${point.top}%`,
+    width: `${diameter * scale}%`,
+    height: `${diameter * scale}%`,
+  };
+}
+
+function getMinimapLocalPoint(localPlayer: PlayerSnapshot, x: number, z: number, clampToEdge: boolean) {
+  const dx = x - localPlayer.x;
+  const dz = z - localPlayer.z;
+  const yaw = localPlayer.yaw;
+  let rotatedX = -(dx * Math.cos(yaw) - dz * Math.sin(yaw));
+  let rotatedY = -dx * Math.sin(yaw) - dz * Math.cos(yaw);
+  const distance = Math.hypot(rotatedX, rotatedY);
+
+  if (clampToEdge && distance > MINIMAP_RANGE_YARDS) {
+    const edgeScale = MINIMAP_RANGE_YARDS / distance;
+    rotatedX *= edgeScale;
+    rotatedY *= edgeScale;
+  }
+
+  const scale = MINIMAP_EDGE_PERCENT / MINIMAP_RANGE_YARDS;
+  return {
+    left: 50 + rotatedX * scale,
+    top: 50 + rotatedY * scale,
+  };
+}
+
+function getExploredCellKeys(x: number, z: number) {
+  const centerX = Math.floor((x - PLAZA_BOUNDS.minX) / EXPLORE_CELL_SIZE);
+  const centerZ = Math.floor((z - PLAZA_BOUNDS.minZ) / EXPLORE_CELL_SIZE);
+  const maxCellX = Math.ceil((PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX) / EXPLORE_CELL_SIZE);
+  const maxCellZ = Math.ceil((PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ) / EXPLORE_CELL_SIZE);
+  const keys: string[] = [];
+
+  for (let dz = -EXPLORE_RADIUS_CELLS; dz <= EXPLORE_RADIUS_CELLS; dz += 1) {
+    for (let dx = -EXPLORE_RADIUS_CELLS; dx <= EXPLORE_RADIUS_CELLS; dx += 1) {
+      if (Math.hypot(dx, dz) > EXPLORE_RADIUS_CELLS + 0.35) continue;
+      const cellX = centerX + dx;
+      const cellZ = centerZ + dz;
+      if (cellX < 0 || cellZ < 0 || cellX > maxCellX || cellZ > maxCellZ) continue;
+      keys.push(`${cellX}:${cellZ}`);
+    }
+  }
+
+  return keys;
+}
+
+function getExploredCellStyle(key: string): CSSProperties {
+  const [cellX, cellZ] = key.split(":").map(Number);
+  const x = PLAZA_BOUNDS.minX + cellX * EXPLORE_CELL_SIZE + EXPLORE_CELL_SIZE / 2;
+  const z = PLAZA_BOUNDS.minZ + cellZ * EXPLORE_CELL_SIZE + EXPLORE_CELL_SIZE / 2;
+  return {
+    left: `${worldPercent(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+    top: `${worldPercent(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+    width: `${(EXPLORE_CELL_SIZE / (PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX)) * 100}%`,
+    height: `${(EXPLORE_CELL_SIZE / (PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ)) * 100}%`,
+  };
+}
+
+function getWorldMapPointStyle(x: number, z: number): CSSProperties {
+  return {
+    left: `${worldPercent(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+    top: `${worldPercent(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+  };
+}
+
+function getWorldMapRoadStyle(road: { x: number; z: number; width: number; depth: number }): CSSProperties {
+  return {
+    left: `${worldPercent(road.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+    top: `${worldPercent(road.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+    width: `${(road.width / (PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX)) * 100}%`,
+    height: `${(road.depth / (PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ)) * 100}%`,
+  };
+}
+
+function getWorldMapCircleStyle(x: number, z: number, diameter: number): CSSProperties {
+  return {
+    left: `${worldPercent(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+    top: `${worldPercent(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+    width: `${(diameter / (PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX)) * 100}%`,
+    height: `${(diameter / (PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ)) * 100}%`,
+  };
+}
+
+function worldPercent(value: number, min: number, max: number) {
+  return Math.max(2, Math.min(98, ((value - min) / (max - min)) * 100));
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 }
 
 function percent(value: number, max: number) {
@@ -461,6 +725,36 @@ function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionI
     remainingMs,
     percent: cooldownMs > 0 ? Math.min(100, (remainingMs / cooldownMs) * 100) : 0,
   };
+}
+
+function getCombatUsability(
+  actionId: CombatActionId,
+  player: PlayerSnapshot | null,
+  selectedTarget: TargetSelection | null,
+  selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
+  now: number,
+) {
+  if (!player) return { usable: false, reason: "" };
+  if (player.castingAction) return { usable: false, reason: "Casting" };
+
+  const action = COMBAT.actions[actionId];
+  if (getActionReadyAt(player, actionId) > now) return { usable: false, reason: "" };
+  if (player.mana < action.manaCost) return { usable: false, reason: "Mana" };
+
+  if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
+    return { usable: true, reason: "" };
+  }
+  if (!isAttackableNpcRole(selectedTargetUnit.role)) return { usable: true, reason: "" };
+  if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return { usable: false, reason: "Dead" };
+
+  const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
+  if (distance < action.minRange) return { usable: false, reason: "Close" };
+  if (distance > action.maxRange) return { usable: false, reason: "Range" };
+  return { usable: true, reason: "" };
+}
+
+function isNpcSnapshot(unit: PlayerSnapshot | NpcSnapshot): unit is NpcSnapshot {
+  return "role" in unit;
 }
 
 function getCastPercent(player: PlayerSnapshot, now: number) {

@@ -5,11 +5,13 @@ import {
   CHAT,
   clamp,
   COMBAT,
+  FARMER_COMBAT,
   isAttackableNpcRole,
   makeGuestName,
   MAX_PLAYERS,
   PLAYER,
   PLAZA_BOUNDS,
+  RESPAWN_POINT,
   ROOM_NAME,
   sanitizePlayerName,
   SERVER_TICK_RATE,
@@ -19,6 +21,7 @@ import {
   type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
+  type CombatEvent,
   type CombatActionId,
   type IdentityType,
   type JoinOptions,
@@ -74,7 +77,12 @@ class NpcState extends Schema {
   @type("number") targetZ = 0;
   @type("number") leashRadius = 0;
   @type("number") nextDecisionAt = 0;
+  @type("number") defeatedAt = 0;
+  @type("number") despawnAt = 0;
   @type("number") respawnAt = 0;
+  @type("string") aggroTargetId = "";
+  @type("number") attackReadyAt = 0;
+  @type("string") combatStyle = "";
 }
 
 class TownState extends Schema {
@@ -86,6 +94,13 @@ type TrackedInput = ClientInput & {
   receivedAt: number;
 };
 
+type PendingCombatImpact = {
+  target: CombatEvent["target"];
+  sourcePlayerId?: string;
+  damage: number;
+  impactAt: number;
+};
+
 class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
 
@@ -93,6 +108,7 @@ class TownRoom extends Room<TownState> {
   private readonly jumpHeld = new Map<string, boolean>();
   private readonly lastChatAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
+  private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
 
   onCreate() {
     this.setState(new TownState());
@@ -110,6 +126,14 @@ class TownRoom extends Room<TownState> {
 
     this.onMessage("combatAction", (client, message: Partial<ClientCombatAction>) => {
       this.handleCombatAction(client, message);
+    });
+
+    this.onMessage("respawn", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player || player.health > 0) return;
+      respawnPlayerAtFountain(player);
+      this.inputs.delete(client.sessionId);
+      this.jumpHeld.set(client.sessionId, false);
     });
 
     this.onMessage("chat", (client, message: { text?: string }) => {
@@ -195,6 +219,7 @@ class TownRoom extends Room<TownState> {
   private handleCombatAction(client: Client, message: Partial<ClientCombatAction>) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
+    if (player.health <= 0) return;
 
     const actionId = normalizeCombatActionId(message?.actionId);
     if (!actionId) return;
@@ -226,19 +251,50 @@ class TownRoom extends Room<TownState> {
     }
 
     setActionReadyAt(player, actionId, now + action.cooldownMs);
-    applyNpcDamage(target, action.damage, now);
+    applyCombatDamage(
+      client.sessionId,
+      player,
+      target,
+      actionId,
+      action.damage,
+      now,
+      (event) => this.broadcast("combatEvent", event),
+      this.pendingCombatImpacts,
+    );
   }
 
   private update(dt: number) {
     const delta = Math.min(dt, 0.1);
     const now = Date.now();
-    updateNpcs(this.state.npcs, delta, now);
+    updateNpcs(
+      this.state.npcs,
+      this.state.players,
+      delta,
+      now,
+      (event) => this.broadcast("combatEvent", event),
+      this.pendingCombatImpacts,
+    );
+    processPendingCombatImpacts(this.pendingCombatImpacts, this.state.players, this.state.npcs, now);
 
     this.state.players.forEach((player, sessionId) => {
       const input = this.inputs.get(sessionId);
       const activeInput = input && now - input.receivedAt < 1000 ? input : null;
       player.mana = clamp(player.mana + (COMBAT.manaRegenPer5 / 5) * delta, 0, player.maxMana);
-      updatePlayerCast(player, activeInput, this.state.npcs, now);
+      if (player.health <= 0) {
+        player.verticalVelocity = 0;
+        player.animation = "idle";
+        clearPlayerCast(player);
+        return;
+      }
+      updatePlayerCast(
+        sessionId,
+        player,
+        activeInput,
+        this.state.npcs,
+        now,
+        (event) => this.broadcast("combatEvent", event),
+        this.pendingCombatImpacts,
+      );
       let grounded = player.y <= 0.001;
 
       if (activeInput?.jump && !this.jumpHeld.get(sessionId) && grounded) {
@@ -336,6 +392,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     health?: number;
     maxHealth?: number;
     isImmortal?: boolean;
+    combatStyle?: "melee" | "caster";
   }> = [
     {
       id: "og-mfer",
@@ -430,6 +487,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     ...makeRabbitSpecs(),
     ...makeDeerSpecs(),
     ...makeWildHogSpecs(),
+    ...makeFarmerSpecs(),
   ];
 
   for (const spec of specs) {
@@ -454,6 +512,7 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
     npc.targetX = spec.x;
     npc.targetZ = spec.z;
     npc.leashRadius = spec.leashRadius;
+    npc.combatStyle = spec.combatStyle ?? "";
     npc.nextDecisionAt = Date.now() + randomRange(1000, 5000);
     npcs.set(npc.id, npc);
   }
@@ -528,21 +587,63 @@ function makeWildHogSpecs() {
   }));
 }
 
-function updateNpcs(npcs: MapSchema<NpcState>, delta: number, now: number) {
+function makeFarmerSpecs() {
+  return [
+    { id: "farmhand-bran", name: "Farmhand Bran", x: -47.5, z: 55.5, yaw: -0.7, style: "melee" },
+    { id: "farmhand-mae", name: "Farmhand Mae", x: -55.5, z: 58.5, yaw: 0.8, style: "melee" },
+    { id: "field-mage-sol", name: "Field mage Sol", x: -43.2, z: 64.8, yaw: -1.6, style: "caster" },
+  ].map((farmer) => ({
+    id: farmer.id,
+    name: farmer.name,
+    role: "farmer" as NpcRole,
+    model: "mfer" as NpcModel,
+    x: farmer.x,
+    z: farmer.z,
+    yaw: farmer.yaw,
+    leashRadius: 8.5,
+    health: farmer.style === "caster" ? 70 : 90,
+    maxHealth: farmer.style === "caster" ? 70 : 90,
+    combatStyle: farmer.style as "melee" | "caster",
+    dialogue: farmer.style === "caster" ? "The field mage guards the busted farm." : "This farmer grips a pitchfork and watches the pen.",
+  }));
+}
+
+function updateNpcs(
+  npcs: MapSchema<NpcState>,
+  players: MapSchema<PlayerState>,
+  delta: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
   npcs.forEach((npc) => {
     if (!isNpcAlive(npc)) {
       if (npc.respawnAt > 0 && now >= npc.respawnAt) {
         npc.health = npc.maxHealth;
+        npc.defeatedAt = 0;
+        npc.despawnAt = 0;
         npc.respawnAt = 0;
+        npc.aggroTargetId = "";
+        npc.attackReadyAt = 0;
         npc.x = npc.homeX;
         npc.y = 0;
         npc.z = npc.homeZ;
         npc.targetX = npc.homeX;
         npc.targetZ = npc.homeZ;
+      } else if (npc.despawnAt > 0 && now >= npc.despawnAt) {
+        npc.despawnAt = 0;
+        npc.y = -1000;
+        npc.animation = "idle";
+        return;
       } else {
         npc.animation = "idle";
         return;
       }
+    }
+
+    if (npc.role === "farmer") {
+      updateFarmerNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
+      return;
     }
 
     if (npc.role === "enemy") {
@@ -582,6 +683,94 @@ function updateNpcs(npcs: MapSchema<NpcState>, delta: number, now: number) {
     npc.yaw = Math.atan2(dx, dz);
     npc.animation = "walk";
   });
+}
+
+function updateFarmerNpc(
+  npc: NpcState,
+  players: MapSchema<PlayerState>,
+  delta: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  let target = npc.aggroTargetId ? players.get(npc.aggroTargetId) ?? null : null;
+  if (!target || target.health <= 0 || distanceToHome(npc, target) > getFarmerLeashRange(npc)) {
+    target = findNearestAggroPlayer(npc, players);
+    npc.aggroTargetId = target ? getPlayerSessionId(players, target) : "";
+  }
+
+  if (!target) {
+    npc.attackReadyAt = 0;
+    return moveNpcToward(npc, npc.homeX, npc.homeZ, delta, 1.8);
+  }
+
+  const dx = target.x - npc.x;
+  const dz = target.z - npc.z;
+  const distance = Math.hypot(dx, dz);
+  npc.yaw = Math.atan2(dx, dz);
+
+  const isCaster = npc.combatStyle === "caster";
+  const attackRange = isCaster ? FARMER_COMBAT.spellRange : FARMER_COMBAT.meleeRange;
+  if (distance > attackRange * 0.82) {
+    moveNpcToward(npc, target.x, target.z, delta, FARMER_COMBAT.moveSpeed);
+    return;
+  }
+
+  npc.animation = "idle";
+  if (now < npc.attackReadyAt) return;
+
+  const actionId: CombatActionId = isCaster ? "fireblast" : "attack";
+  const damage = isCaster ? FARMER_COMBAT.spellDamage : FARMER_COMBAT.meleeDamage;
+  npc.attackReadyAt = now + (isCaster ? FARMER_COMBAT.spellCooldownMs : FARMER_COMBAT.meleeCooldownMs);
+  applyFarmerDamage(npc, npc.aggroTargetId, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
+}
+
+function findNearestAggroPlayer(npc: NpcState, players: MapSchema<PlayerState>) {
+  let nearest: PlayerState | null = null;
+  let nearestDistance = Infinity;
+  players.forEach((player) => {
+    if (player.health <= 0) return;
+    const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
+    if (distance > FARMER_COMBAT.aggroRange || distanceToHome(npc, player) > FARMER_COMBAT.leashRange) return;
+    if (distance < nearestDistance) {
+      nearest = player;
+      nearestDistance = distance;
+    }
+  });
+  return nearest;
+}
+
+function getFarmerLeashRange(npc: NpcState) {
+  if (!npc.aggroTargetId) return FARMER_COMBAT.leashRange;
+  return Math.max(FARMER_COMBAT.leashRange, COMBAT.actions.fireblast.maxRange + 2);
+}
+
+function getPlayerSessionId(players: MapSchema<PlayerState>, target: PlayerState) {
+  let found = "";
+  players.forEach((player, sessionId) => {
+    if (player === target) found = sessionId;
+  });
+  return found;
+}
+
+function moveNpcToward(npc: NpcState, x: number, z: number, delta: number, speed: number) {
+  const dx = x - npc.x;
+  const dz = z - npc.z;
+  const distance = Math.hypot(dx, dz);
+  if (distance < 0.12) {
+    npc.animation = "idle";
+    return;
+  }
+
+  const step = Math.min(distance, speed * delta);
+  npc.x = clamp(npc.x + (dx / distance) * step, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
+  npc.z = clamp(npc.z + (dz / distance) * step, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+  npc.yaw = Math.atan2(dx, dz);
+  npc.animation = "run";
+}
+
+function distanceToHome(npc: NpcState, point: { x: number; z: number }) {
+  return Math.hypot(point.x - npc.homeX, point.z - npc.homeZ);
 }
 
 function getNpcWanderTarget(npc: NpcState) {
@@ -624,10 +813,13 @@ function isPlayerStationary(player: PlayerState, input: TrackedInput | undefined
 }
 
 function updatePlayerCast(
+  sessionId: string,
   player: PlayerState,
   activeInput: TrackedInput | null,
   npcs: MapSchema<NpcState>,
   now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
 ) {
   const actionId = normalizeCombatActionId(player.castingAction);
   if (!actionId) return;
@@ -643,7 +835,7 @@ function updatePlayerCast(
   setActionReadyAt(player, actionId, now + action.cooldownMs);
   const target = findCombatTarget(npcs, { kind: player.castTargetKind, id: player.castTargetId });
   if (target && isNpcAlive(target) && distanceToNpc(player, target) <= action.maxRange && distanceToNpc(player, target) >= action.minRange) {
-    applyNpcDamage(target, action.damage, now);
+    applyCombatDamage(sessionId, player, target, actionId, action.damage, now, emitCombatEvent, pendingCombatImpacts);
   }
   clearPlayerCast(player);
 }
@@ -669,19 +861,225 @@ function isNpcAlive(npc: NpcState) {
   return npc.isImmortal || npc.health > 0;
 }
 
-function applyNpcDamage(npc: NpcState, damage: number, now: number) {
-  if (npc.isImmortal) {
-    npc.health = npc.maxHealth;
+function applyCombatDamage(
+  sourceId: string,
+  player: PlayerState,
+  target: NpcState,
+  actionId: CombatActionId,
+  damage: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  if (actionId === "fireblast") {
+    const impactAt = now + getProjectileTravelMs(player.x, player.z, target.x, target.z);
+    pendingCombatImpacts.push({
+      target: { kind: "npc", id: target.id },
+      sourcePlayerId: sourceId,
+      damage,
+      impactAt,
+    });
+    emitCombatEvent(makeCombatEvent(sourceId, player, target, actionId, damage, now, false, impactAt));
     return;
   }
 
+  const defeated = applyNpcDamage(target, damage, now);
+  aggroNpcOnPlayerHit(target, sourceId, player);
+  emitCombatEvent(makeCombatEvent(sourceId, player, target, actionId, damage, now, defeated, now));
+}
+
+function applyFarmerDamage(
+  source: NpcState,
+  targetId: string,
+  player: PlayerState,
+  actionId: CombatActionId,
+  damage: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  if (actionId === "fireblast") {
+    const impactAt = now + getProjectileTravelMs(source.x, source.z, player.x, player.z);
+    pendingCombatImpacts.push({
+      target: { kind: "player", id: targetId },
+      damage,
+      impactAt,
+    });
+    emitCombatEvent(makePlayerCombatEvent(source, targetId, player, actionId, damage, now, false, impactAt));
+    return;
+  }
+
+  const defeated = applyPlayerDamage(player, damage, now);
+  emitCombatEvent(makePlayerCombatEvent(source, targetId, player, actionId, damage, now, defeated, now));
+}
+
+function applyNpcDamage(npc: NpcState, damage: number, now: number) {
+  if (npc.isImmortal) {
+    npc.health = npc.maxHealth;
+    return false;
+  }
+
+  const wasAlive = npc.health > 0;
   npc.health = clamp(npc.health - damage, 0, npc.maxHealth);
-  if (npc.health <= 0) {
-    npc.respawnAt = now + COMBAT.defeatedRespawnMs;
+  if (wasAlive && npc.health <= 0) {
+    npc.defeatedAt = now;
+    npc.despawnAt = now + COMBAT.defeatedDespawnMs;
+    npc.respawnAt = now + (npc.role === "farmer" ? FARMER_COMBAT.respawnMs : COMBAT.defeatedRespawnMs);
+    npc.y = 0;
     npc.targetX = npc.homeX;
     npc.targetZ = npc.homeZ;
     npc.animation = "idle";
+    return true;
   }
+  return false;
+}
+
+function processPendingCombatImpacts(
+  pendingCombatImpacts: PendingCombatImpact[],
+  players: MapSchema<PlayerState>,
+  npcs: MapSchema<NpcState>,
+  now: number,
+) {
+  for (let index = pendingCombatImpacts.length - 1; index >= 0; index -= 1) {
+    const impact = pendingCombatImpacts[index];
+    if (now < impact.impactAt) continue;
+
+    pendingCombatImpacts.splice(index, 1);
+    if (impact.target.kind === "npc") {
+      const npc = npcs.get(impact.target.id);
+      const sourcePlayer = impact.sourcePlayerId ? players.get(impact.sourcePlayerId) : undefined;
+      if (npc && isNpcAlive(npc)) {
+        applyNpcDamage(npc, impact.damage, now);
+        if (sourcePlayer && impact.sourcePlayerId) {
+          aggroNpcOnPlayerHit(npc, impact.sourcePlayerId, sourcePlayer);
+        }
+      }
+    } else {
+      const player = players.get(impact.target.id);
+      if (player) applyPlayerDamage(player, impact.damage, now);
+    }
+  }
+}
+
+function aggroNpcOnPlayerHit(npc: NpcState, sourcePlayerId: string, player: PlayerState) {
+  if (npc.role !== "farmer") return;
+  if (npc.health <= 0 || player.health <= 0) return;
+
+  npc.aggroTargetId = sourcePlayerId;
+  npc.nextDecisionAt = 0;
+}
+
+function applyPlayerDamage(player: PlayerState, damage: number, now: number) {
+  if (player.health <= 0) return false;
+
+  player.health = clamp(player.health - damage, 0, player.maxHealth);
+  if (damage > 0 && player.castingAction) pushbackPlayerCast(player, now);
+  if (player.health > 0) return false;
+
+  clearPlayerCast(player);
+  player.verticalVelocity = 0;
+  player.animation = "idle";
+  return true;
+}
+
+function pushbackPlayerCast(player: PlayerState, now: number) {
+  const actionId = normalizeCombatActionId(player.castingAction);
+  if (!actionId) return;
+
+  const castTimeMs = COMBAT.actions[actionId].castTimeMs;
+  if (castTimeMs <= 0) return;
+
+  const elapsedMs = clamp(now - player.castStartedAt, 0, castTimeMs);
+  const reducedElapsedMs = Math.max(0, elapsedMs - COMBAT.castPushbackMs);
+  player.castStartedAt = now - reducedElapsedMs;
+  player.castEndsAt = player.castStartedAt + castTimeMs;
+}
+
+function makeCombatEvent(
+  sourceId: string,
+  player: PlayerState,
+  target: NpcState,
+  actionId: CombatActionId,
+  damage: number,
+  now: number,
+  defeated: boolean,
+  impactAt: number,
+): CombatEvent {
+  const impactHeight = getNpcImpactHeight(target);
+  return {
+    id: `${now}:${sourceId}:${actionId}:${target.id}:${Math.random().toString(36).slice(2, 8)}`,
+    sourceId,
+    actionId,
+    target: { kind: "npc", id: target.id },
+    targetName: target.name,
+    amount: damage,
+    sourceX: player.x,
+    sourceY: player.y + 1.2,
+    sourceZ: player.z,
+    targetX: target.x,
+    targetY: target.y + impactHeight,
+    targetZ: target.z,
+    sentAt: now,
+    impactAt,
+    defeated,
+  };
+}
+
+function makePlayerCombatEvent(
+  source: NpcState,
+  targetId: string,
+  player: PlayerState,
+  actionId: CombatActionId,
+  damage: number,
+  now: number,
+  defeated: boolean,
+  impactAt: number,
+): CombatEvent {
+  return {
+    id: `${now}:${source.id}:${actionId}:${player.name}:${Math.random().toString(36).slice(2, 8)}`,
+    sourceId: source.id,
+    actionId,
+    target: { kind: "player", id: targetId },
+    targetName: player.name,
+    amount: damage,
+    sourceX: source.x,
+    sourceY: source.y + getNpcImpactHeight(source),
+    sourceZ: source.z,
+    targetX: player.x,
+    targetY: player.y + 1.45,
+    targetZ: player.z,
+    sentAt: now,
+    impactAt,
+    defeated,
+  };
+}
+
+function getProjectileTravelMs(sourceX: number, sourceZ: number, targetX: number, targetZ: number) {
+  const distance = Math.hypot(sourceX - targetX, sourceZ - targetZ);
+  return Math.round(clamp(
+    (distance / COMBAT.fireblastProjectileSpeed) * 1000,
+    COMBAT.fireblastMinTravelMs,
+    COMBAT.fireblastMaxTravelMs,
+  ));
+}
+
+function getNpcImpactHeight(npc: NpcState) {
+  if (npc.model === "rabbit") return 0.75;
+  if (npc.model === "hog") return 0.9;
+  if (npc.model === "deer") return 1.15;
+  return 1.45;
+}
+
+function respawnPlayerAtFountain(player: PlayerState) {
+  player.health = player.maxHealth;
+  player.mana = player.maxMana;
+  player.x = RESPAWN_POINT.x;
+  player.y = 0;
+  player.z = RESPAWN_POINT.z;
+  player.yaw = RESPAWN_POINT.yaw;
+  player.verticalVelocity = 0;
+  player.animation = "idle";
+  clearPlayerCast(player);
 }
 
 function findInteractNpc(player: PlayerState, npcs: MapSchema<NpcState>, requestedNpcId?: string) {

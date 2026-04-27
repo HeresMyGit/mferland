@@ -219,6 +219,7 @@ button {
 .minimap-panel,
 .hotbar,
 .menu-dock,
+.death-panel,
 .status-pill {
   position: absolute;
 }
@@ -265,7 +266,8 @@ button {
 
 .cast-bar {
   left: 50%;
-  bottom: 102px;
+  bottom: 128px;
+  z-index: 45;
   width: 270px;
   transform: translateX(-50%);
   pointer-events: none;
@@ -481,10 +483,32 @@ button {
   gap: 8px;
 }
 
-.minimap-panel h2 {
+.minimap-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.minimap-header h2 {
   margin: 0;
   font-size: 21px;
   text-shadow: 0 2px 0 #101010;
+}
+
+.minimap-header button {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  color: #fff4ba;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.minimap-header button:hover {
+  background: rgba(0, 0, 0, 0.62);
 }
 
 .minimap {
@@ -494,11 +518,45 @@ button {
   overflow: hidden;
   border: 6px solid #edd763;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(180, 156, 103, 0.75) 0 22%, transparent 23%),
-    radial-gradient(circle at 47% 52%, #bba176 0 5%, transparent 6%),
-    linear-gradient(45deg, #659b57, #93b86d 48%, #9c8d70 49% 56%, #76a461 57%);
+  background: #6a944f;
   box-shadow: 0 7px 24px rgba(0, 0, 0, 0.28);
+}
+
+.minimap-terrain {
+  position: absolute;
+  inset: -18%;
+  border-radius: 50%;
+  background:
+    repeating-radial-gradient(circle at 55% 45%, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 15px),
+    linear-gradient(135deg, #608e48, #82ac60 48%, #6b9b52 100%);
+  z-index: 0;
+}
+
+.minimap-road,
+.minimap-plaza {
+  position: absolute;
+  pointer-events: none;
+}
+
+.minimap-road {
+  border: 1px solid rgba(87, 70, 45, 0.38);
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12), transparent 28% 72%, rgba(92, 69, 38, 0.18)),
+    #b89d67;
+  box-shadow: inset 0 0 0 1px rgba(255, 242, 183, 0.18);
+  transform-origin: center;
+  z-index: 1;
+}
+
+.minimap-plaza {
+  border: 1px solid rgba(83, 69, 43, 0.38);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, #dac488 0 12%, #bba176 13% 62%, #9e8151 63% 100%);
+  box-shadow: inset 0 0 0 2px rgba(255, 241, 183, 0.2);
+  transform: translate(-50%, -50%);
+  z-index: 2;
 }
 
 .minimap-ring {
@@ -506,6 +564,21 @@ button {
   inset: 54px;
   border: 2px solid rgba(70, 64, 43, 0.3);
   border-radius: 50%;
+  z-index: 3;
+}
+
+.minimap-vision-cone {
+  position: absolute;
+  left: 50%;
+  top: 6%;
+  width: 74%;
+  height: 49%;
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  transform: translateX(-50%);
+  background: linear-gradient(0deg, rgba(243, 208, 78, 0.33), rgba(243, 208, 78, 0));
+  opacity: 0.84;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .map-dot {
@@ -515,11 +588,26 @@ button {
   border: 2px solid #101010;
   border-radius: 50%;
   transform: translate(-50%, -50%);
+  z-index: 5;
 }
 
 .map-dot.local {
   width: 13px;
   height: 13px;
+  z-index: 6;
+}
+
+.map-dot.local::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #101010;
+  border-left: 4px solid transparent;
+  transform: translateX(-50%);
 }
 
 .map-dot.npc {
@@ -656,6 +744,16 @@ button {
   opacity: 0.5;
 }
 
+.action-slot.unusable {
+  border-color: rgba(255, 82, 72, 0.58);
+  filter: grayscale(0.35);
+}
+
+.action-slot.unusable svg,
+.action-slot.unusable strong {
+  opacity: 0.48;
+}
+
 .action-slot.dragging {
   opacity: 0.44;
   transform: scale(0.96);
@@ -668,20 +766,50 @@ button {
 
 .cooldown-sweep {
   position: absolute;
-  inset: auto 0 0;
+  inset: 0;
   z-index: 1;
-  background: rgba(0, 0, 0, 0.62);
+  height: 100%;
+  background: rgba(0, 0, 0, 0.72);
+  transform: scaleY(var(--cooldown-fill, 1));
+  transform-origin: bottom;
   pointer-events: none;
 }
 
 .cooldown-label {
   position: absolute;
   z-index: 2;
+  top: 50%;
+  left: 50%;
+  min-width: 34px;
+  padding: 2px 5px;
+  border-radius: 4px;
   color: #fff7d4;
-  font-size: 15px;
+  background: rgba(0, 0, 0, 0.78);
+  font-size: 17px;
   font-style: normal;
   font-weight: 1000;
+  line-height: 1;
   text-shadow: 0 2px 0 #111;
+  transform: translate(-50%, -50%);
+}
+
+.range-label {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 18px;
+  max-width: 58px;
+  overflow: hidden;
+  color: #ffddd6;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 1000;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-shadow: 0 2px 0 #111;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .slot-key {
@@ -708,6 +836,155 @@ button {
   height: 72px;
   font-size: 11px;
   font-weight: 900;
+  text-transform: uppercase;
+}
+
+.world-map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 8, 6, 0.56);
+  pointer-events: auto;
+}
+
+.world-map-panel {
+  width: min(760px, calc(100vw - 48px));
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 14, 10, 0.88);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.world-map-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.world-map-header strong {
+  display: block;
+  color: #fff7d0;
+  font-size: 20px;
+  font-weight: 1000;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.world-map-header span {
+  color: rgba(255, 248, 222, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.world-map-header button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  color: #fff4ba;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.world-map {
+  position: relative;
+  aspect-ratio: 144 / 132;
+  overflow: hidden;
+  border: 4px solid #edd763;
+  border-radius: 8px;
+  background: #26321f;
+}
+
+.world-map-terrain {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-radial-gradient(circle at 58% 45%, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 22px),
+    linear-gradient(135deg, #4e6f3b, #628749 46%, #526f3b);
+  filter: saturate(0.7) brightness(0.55);
+}
+
+.world-map-uncovered {
+  position: absolute;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(136, 180, 91, 0.92) 0 50%, rgba(136, 180, 91, 0.62) 72%, rgba(136, 180, 91, 0) 100%);
+  filter: blur(1px);
+  transform: translate(-50%, -50%) scale(2.4);
+  z-index: 1;
+}
+
+.world-map-road,
+.world-map-plaza {
+  position: absolute;
+  pointer-events: none;
+}
+
+.world-map-road {
+  border-radius: 3px;
+  background: #b89d67;
+  box-shadow: inset 0 0 0 1px rgba(78, 59, 34, 0.3);
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.world-map-plaza {
+  border-radius: 50%;
+  background: #bba176;
+  box-shadow: inset 0 0 0 2px rgba(78, 59, 34, 0.24);
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.world-map .map-dot {
+  z-index: 4;
+}
+
+.death-panel {
+  top: 42%;
+  left: 50%;
+  z-index: 60;
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  min-width: 240px;
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: #fff8e0;
+  background: rgba(18, 12, 10, 0.84);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+
+.death-panel strong {
+  font-size: 24px;
+  font-weight: 1000;
+  text-shadow: 0 3px 0 #111;
+  text-transform: uppercase;
+}
+
+.death-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 130px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  color: #17110d;
+  background: #f3d04e;
+  font-size: 13px;
+  font-weight: 1000;
   text-transform: uppercase;
 }
 
@@ -738,7 +1015,7 @@ button {
     height: 128px;
   }
 
-  .minimap-panel h2,
+  .minimap-header h2,
   .online-row {
     font-size: 12px;
   }

@@ -20,9 +20,20 @@ export const PLAYER = {
   maxMana: 50,
 };
 
+export const RESPAWN_POINT = {
+  x: -2.4,
+  z: 4.2,
+  yaw: Math.PI * 0.88,
+};
+
 export const COMBAT = {
   manaRegenPer5: 12,
+  defeatedDespawnMs: 6500,
   defeatedRespawnMs: 12000,
+  castPushbackMs: 500,
+  fireblastProjectileSpeed: 24,
+  fireblastMinTravelMs: 320,
+  fireblastMaxTravelMs: 1100,
   stationaryInputThreshold: 0.05,
   actions: {
     attack: {
@@ -30,7 +41,7 @@ export const COMBAT = {
       damage: 6,
       cooldownMs: 1500,
       minRange: 0,
-      maxRange: 2.6,
+      maxRange: 5,
       manaCost: 0,
       castTimeMs: 0,
       requiresStationary: false,
@@ -40,7 +51,7 @@ export const COMBAT = {
       damage: 12,
       cooldownMs: 3000,
       minRange: 4.0,
-      maxRange: 14,
+      maxRange: 40,
       manaCost: 0,
       castTimeMs: 0,
       requiresStationary: true,
@@ -50,7 +61,7 @@ export const COMBAT = {
       damage: 32,
       cooldownMs: 8000,
       minRange: 0,
-      maxRange: 8,
+      maxRange: 30,
       manaCost: 15,
       castTimeMs: 2000,
       requiresStationary: true,
@@ -63,6 +74,19 @@ export const CHAT = {
   minIntervalMs: 1200,
 };
 
+export const FARMER_COMBAT = {
+  aggroRange: 11,
+  leashRange: 28,
+  moveSpeed: 3.6,
+  meleeRange: 3.8,
+  meleeDamage: 8,
+  meleeCooldownMs: 1700,
+  spellRange: 22,
+  spellDamage: 14,
+  spellCooldownMs: 3200,
+  respawnMs: 18000,
+};
+
 export const AGENT = {
   observationRadius: 14,
   decisionIntervalMs: 650,
@@ -71,7 +95,7 @@ export const AGENT = {
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
-export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast";
+export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast" | "farmer";
 export type NpcModel = "mfer" | "rabbit" | "deer" | "hog";
 export type TargetKind = "player" | "npc";
 export type CombatActionId = keyof typeof COMBAT.actions;
@@ -133,6 +157,8 @@ export type NpcSnapshot = {
   animation: AnimationState;
   dialogue: string;
   questId: string;
+  defeatedAt: number;
+  despawnAt: number;
 };
 
 export type TargetSelection = {
@@ -148,6 +174,24 @@ export type ChatMessage = {
   sentAt: number;
 };
 
+export type CombatEvent = {
+  id: string;
+  sourceId: string;
+  actionId: CombatActionId;
+  target: TargetSelection;
+  targetName: string;
+  amount: number;
+  sourceX: number;
+  sourceY: number;
+  sourceZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  sentAt: number;
+  impactAt: number;
+  defeated: boolean;
+};
+
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
   "sessionId" | "name" | "identityType" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
@@ -157,7 +201,7 @@ export type AgentVisiblePlayer = Pick<
 
 export type AgentVisibleNpc = Pick<
   NpcSnapshot,
-  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId"
+  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId" | "defeatedAt" | "despawnAt"
 > & {
   distance: number;
 };
@@ -170,6 +214,8 @@ export type ClientCombatAction = {
   actionId: CombatActionId;
   target?: TargetSelection | null;
 };
+
+export type ClientRespawn = Record<string, never>;
 
 export type AgentObservation = {
   self: PlayerSnapshot;
@@ -209,5 +255,5 @@ export function makeGuestName(seed: string): string {
 }
 
 export function isAttackableNpcRole(role: NpcRole): boolean {
-  return role === "enemy" || role === "critter" || role === "beast";
+  return role === "enemy" || role === "critter" || role === "beast" || role === "farmer";
 }

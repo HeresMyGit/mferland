@@ -8,13 +8,15 @@ import { TargetRing } from "./MferAvatar";
 type CreatureAvatarProps = {
   npc: NpcSnapshot;
   isTargeted?: boolean;
+  isDefeated?: boolean;
   onTarget?: () => void;
 };
 
 const targetPosition = new THREE.Vector3();
 
-export function CreatureAvatar({ npc, isTargeted = false, onTarget }: CreatureAvatarProps) {
+export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, onTarget }: CreatureAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
+  const poseRef = useRef<THREE.Group>(null);
   const accent = npc.model === "rabbit" ? "#f2eee0" : npc.model === "hog" ? "#5c3a2e" : "#b07a3d";
   const ringColor = "#ff453f";
   const label = npc.model === "rabbit" ? "Rabbit [Critter]" : npc.model === "hog" ? `${npc.name} [Beast]` : "Deer [Beast]";
@@ -29,29 +31,40 @@ export function CreatureAvatar({ npc, isTargeted = false, onTarget }: CreatureAv
     targetPosition.set(npc.x, npc.y, npc.z);
     group.position.lerp(targetPosition, 1 - Math.pow(0.82, delta * 60));
     group.rotation.y = lerpAngle(group.rotation.y, npc.yaw, 1 - Math.pow(0.82, delta * 60));
+
+    const pose = poseRef.current;
+    if (pose) {
+      const targetRoll = isDefeated ? -Math.PI / 2 : 0;
+      pose.rotation.z += (targetRoll - pose.rotation.z) * (1 - Math.pow(0.72, delta * 60));
+      pose.position.y += ((isDefeated ? 0.05 : 0) - pose.position.y) * (1 - Math.pow(0.72, delta * 60));
+    }
   });
 
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
+      {isTargeted && <TargetRing color={ringColor} />}
       <mesh position={[0, 0.55, 0]} onPointerDown={handleTarget}>
         <cylinderGeometry args={[hitRadius, hitRadius, hitHeight, 10]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      {isTargeted && <TargetRing color={ringColor} />}
-      {npc.model === "rabbit" ? <RabbitModel color={accent} /> : npc.model === "hog" ? <HogModel /> : <DeerModel />}
-      <Billboard position={[0, labelY, 0]}>
-        <Text
-          fontSize={npc.model === "rabbit" ? 0.16 : 0.2}
-          anchorX="center"
-          anchorY="middle"
-          color="#ff6258"
-          outlineColor="#16140f"
-          outlineWidth={0.022}
-          maxWidth={2.1}
-        >
-          {label}
-        </Text>
-      </Billboard>
+      <group ref={poseRef}>
+        {npc.model === "rabbit" ? <RabbitModel color={accent} /> : npc.model === "hog" ? <HogModel /> : <DeerModel />}
+        {!isDefeated && (
+          <Billboard position={[0, labelY, 0]}>
+            <Text
+              fontSize={npc.model === "rabbit" ? 0.16 : 0.2}
+              anchorX="center"
+              anchorY="middle"
+              color="#ff6258"
+              outlineColor="#16140f"
+              outlineWidth={0.022}
+              maxWidth={2.1}
+            >
+              {label}
+            </Text>
+          </Billboard>
+        )}
+      </group>
     </group>
   );
 

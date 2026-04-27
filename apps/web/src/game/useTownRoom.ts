@@ -6,6 +6,7 @@ import {
   type ClientCombatAction,
   type ClientInteract,
   type ClientInput,
+  type CombatEvent,
   type JoinOptions,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -20,6 +21,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [players, setPlayers] = useState<Map<string, PlayerSnapshot>>(new Map());
   const [npcs, setNpcs] = useState<Map<string, NpcSnapshot>>(new Map());
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
   const roomRef = useRef<Room | null>(null);
 
   const serverUrl = useMemo(() => {
@@ -93,6 +95,8 @@ export function useTownRoom(identity: JoinOptions) {
               animation: npc.animation,
               dialogue: npc.dialogue,
               questId: npc.questId,
+              defeatedAt: npc.defeatedAt,
+              despawnAt: npc.despawnAt,
             });
           });
           setNpcs(nextNpcs);
@@ -100,6 +104,20 @@ export function useTownRoom(identity: JoinOptions) {
 
         room.onMessage("chat", (message: ChatMessage) => {
           setChat((current) => [...current.slice(-30), message]);
+        });
+
+        room.onMessage("combatEvent", (message: CombatEvent) => {
+          const now = Date.now();
+          const travelMs = Math.max(0, (message.impactAt ?? message.sentAt) - message.sentAt);
+          const visualEvent = {
+            ...message,
+            sentAt: now,
+            impactAt: now + travelMs,
+          };
+          setCombatEvents((current) => [
+            ...current.filter((event) => now - (event.impactAt ?? event.sentAt) < 1800).slice(-40),
+            visualEvent,
+          ]);
         });
 
         room.onLeave(() => {
@@ -136,6 +154,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("combatAction", message);
   }, []);
 
+  const sendRespawn = useCallback(() => {
+    roomRef.current?.send("respawn", {});
+  }, []);
+
   return {
     status,
     error,
@@ -143,9 +165,11 @@ export function useTownRoom(identity: JoinOptions) {
     players,
     npcs,
     chat,
+    combatEvents,
     sendInput,
     sendChat,
     sendInteract,
     sendCombatAction,
+    sendRespawn,
   };
 }

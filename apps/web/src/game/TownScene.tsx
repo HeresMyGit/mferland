@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef } from "react";
-import { Text, useTexture } from "@react-three/drei";
+import { Billboard, Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
@@ -8,6 +8,8 @@ import {
   PLAZA_BOUNDS,
   isAttackableNpcRole,
   type ClientInput,
+  type CombatActionId,
+  type CombatEvent,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
@@ -20,6 +22,7 @@ type TownSceneProps = {
   npcs: Map<string, NpcSnapshot>;
   localSessionId: string | null;
   selectedTarget: TargetSelection | null;
+  combatEvents: CombatEvent[];
   onSelectTarget: (target: TargetSelection | null) => void;
   onInteractAction: () => void;
   sendInput: (input: ClientInput) => void;
@@ -34,6 +37,7 @@ export function TownScene({
   npcs,
   localSessionId,
   selectedTarget,
+  combatEvents,
   onSelectTarget,
   onInteractAction,
   sendInput,
@@ -176,6 +180,7 @@ export function TownScene({
   useFrame(({ camera }, delta) => {
     const keys = keyState.current;
     const pointer = pointerState.current;
+    const localIsDead = Boolean(localPlayer && localPlayer.health <= 0);
     const turnLeft = keys.has("a") || keys.has("arrowleft");
     const turnRight = keys.has("d") || keys.has("arrowright");
     const turnIntent = pointer.right ? 0 : (turnLeft ? 1 : 0) - (turnRight ? 1 : 0);
@@ -185,27 +190,27 @@ export function TownScene({
     }
     if (pointer.right) facingYaw.current = cameraYaw.current;
 
-    const mouseForward = pointer.left && pointer.right;
-    const forwardIntent = (keys.has("w") || keys.has("arrowup") || mouseForward ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
-    const strafeLeft = keys.has("q") || (pointer.right && turnLeft);
-    const strafeRight = keys.has("e") || (pointer.right && turnRight);
+    const mouseForward = !localIsDead && pointer.left && pointer.right;
+    const forwardIntent = localIsDead ? 0 : (keys.has("w") || keys.has("arrowup") || mouseForward ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+    const strafeLeft = !localIsDead && (keys.has("q") || (pointer.right && turnLeft));
+    const strafeRight = !localIsDead && (keys.has("e") || (pointer.right && turnRight));
     const rightIntent = (strafeLeft ? 1 : 0) - (strafeRight ? 1 : 0);
     const forward = new THREE.Vector3(Math.sin(facingYaw.current), 0, Math.cos(facingYaw.current));
     const right = new THREE.Vector3(Math.cos(facingYaw.current), 0, -Math.sin(facingYaw.current));
     const move = forward.multiplyScalar(forwardIntent).add(right.multiplyScalar(rightIntent));
     const moveLength = move.length();
     if (moveLength > 1) move.normalize();
-    const isSprinting = keys.has("shift");
-    const isJumping = keys.has(" ") || keys.has("space") || keys.has("spacebar");
+    const isSprinting = !localIsDead && keys.has("shift");
+    const isJumping = !localIsDead && (keys.has(" ") || keys.has("space") || keys.has("spacebar"));
 
     const interactPressed = keys.has("f") || keys.has("keyf");
-    if (interactPressed && !interactHeld.current && localPlayer) {
+    if (interactPressed && !interactHeld.current && localPlayer && !localIsDead) {
       onInteractAction();
     }
     interactHeld.current = interactPressed;
 
     const tabPressed = keys.has("tab");
-    if (tabPressed && !tabHeld.current && localPlayer) {
+    if (tabPressed && !tabHeld.current && localPlayer && !localIsDead) {
       const nextTarget = getNextEnemyTarget(localPlayer, npcs, selectedTarget, keys.has("shift"));
       if (nextTarget) onSelectTarget(nextTarget);
     }
@@ -274,6 +279,7 @@ export function TownScene({
               player={renderedPlayer}
               isLocal={isLocalPlayer}
               isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
+              isDefeated={player.health <= 0}
               onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
             />
           );
@@ -287,6 +293,7 @@ export function TownScene({
                 key={npc.id}
                 npc={npc}
                 isTargeted={isTargeted}
+                isDefeated={!npc.isImmortal && npc.health <= 0}
                 onTarget={onTarget}
               />
             );
@@ -298,13 +305,304 @@ export function TownScene({
               player={npc}
               isNpc
               isTargeted={isTargeted}
+              isDefeated={!npc.isImmortal && npc.health <= 0}
               onTarget={onTarget}
             />
           );
         })}
+        <CombatFeedbackLayer
+          combatEvents={combatEvents}
+          players={players}
+          npcs={npcs}
+        />
       </Suspense>
     </>
   );
+}
+
+type Vec3Tuple = [number, number, number];
+
+function CombatFeedbackLayer({
+  combatEvents,
+  players,
+  npcs,
+}: {
+  combatEvents: CombatEvent[];
+  players: Map<string, PlayerSnapshot>;
+  npcs: Map<string, NpcSnapshot>;
+}) {
+  return (
+    <group>
+      {combatEvents.slice(-32).map((event) => {
+        const source = players.get(event.sourceId) ?? npcs.get(event.sourceId);
+        const sourcePosition: Vec3Tuple = [
+          source?.x ?? event.sourceX,
+          source ? source.y + ("role" in source ? getNpcVisualHeight(source) : 1.18) : event.sourceY,
+          source?.z ?? event.sourceZ,
+        ];
+        const targetPosition: Vec3Tuple = [event.targetX, event.targetY, event.targetZ];
+        const yaw = source?.yaw ?? Math.atan2(event.targetX - event.sourceX, event.targetZ - event.sourceZ);
+        const impactAt = event.impactAt ?? event.sentAt;
+
+        return (
+          <group key={event.id}>
+            <CombatActionVisual
+              actionId={event.actionId}
+              sourcePosition={sourcePosition}
+              targetPosition={targetPosition}
+              yaw={yaw}
+              sentAt={event.sentAt}
+              impactAt={impactAt}
+            />
+            <FloatingDamageNumber
+              amount={event.amount}
+              position={targetPosition}
+              sentAt={event.sentAt}
+              impactAt={impactAt}
+              eventId={event.id}
+            />
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function CombatActionVisual({
+  actionId,
+  sourcePosition,
+  targetPosition,
+  yaw,
+  sentAt,
+  impactAt,
+}: {
+  actionId: CombatActionId;
+  sourcePosition: Vec3Tuple;
+  targetPosition: Vec3Tuple;
+  yaw: number;
+  sentAt: number;
+  impactAt: number;
+}) {
+  if (actionId === "attack") {
+    return <SwordFlash position={sourcePosition} yaw={yaw} sentAt={sentAt} />;
+  }
+  if (actionId === "shoot") {
+    return (
+      <>
+        <BowFlash position={sourcePosition} yaw={yaw} sentAt={sentAt} />
+        <LinearProjectile variant="arrow" start={sourcePosition} end={targetPosition} sentAt={sentAt} durationMs={520} />
+      </>
+    );
+  }
+  return (
+    <LinearProjectile
+      variant="fireblast"
+      start={sourcePosition}
+      end={targetPosition}
+      sentAt={sentAt}
+      durationMs={Math.max(180, impactAt - sentAt)}
+    />
+  );
+}
+
+function SwordFlash({ position, yaw, sentAt }: { position: Vec3Tuple; yaw: number; sentAt: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const age = Date.now() - sentAt;
+    const progress = clamp(age / 420, 0, 1);
+    group.visible = age >= 0 && progress < 1;
+    group.rotation.z = -0.9 + progress * 1.65;
+    group.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.18);
+  });
+
+  return (
+    <group ref={groupRef} position={position} rotation-y={yaw} rotation-z={-0.9}>
+      <group position={[0.42, -0.04, 0.18]} rotation-x={0.28} rotation-z={-0.48}>
+        <mesh position={[0, 0.42, 0]}>
+          <boxGeometry args={[0.08, 0.84, 0.035]} />
+          <meshBasicMaterial color="#dbe8ee" toneMapped={false} />
+        </mesh>
+        <mesh position={[0, -0.1, 0]}>
+          <boxGeometry args={[0.24, 0.07, 0.07]} />
+          <meshBasicMaterial color="#423526" />
+        </mesh>
+        <mesh position={[0, -0.32, 0]}>
+          <boxGeometry args={[0.07, 0.34, 0.07]} />
+          <meshBasicMaterial color="#7b5632" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function BowFlash({ position, yaw, sentAt }: { position: Vec3Tuple; yaw: number; sentAt: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const age = Date.now() - sentAt;
+    const progress = clamp(age / 430, 0, 1);
+    group.visible = age >= 0 && progress < 1;
+    group.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.1);
+  });
+
+  return (
+    <group ref={groupRef} position={position} rotation-y={yaw}>
+      <group position={[0.46, -0.02, 0.22]} rotation-z={Math.PI / 2}>
+        <mesh>
+          <torusGeometry args={[0.34, 0.018, 6, 22, Math.PI * 1.2]} />
+          <meshBasicMaterial color="#76522e" />
+        </mesh>
+        <mesh position={[0, 0.08, 0]}>
+          <boxGeometry args={[0.018, 0.68, 0.018]} />
+          <meshBasicMaterial color="#f2dfae" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function LinearProjectile({
+  variant,
+  start,
+  end,
+  sentAt,
+  durationMs,
+}: {
+  variant: "arrow" | "fireblast";
+  start: Vec3Tuple;
+  end: Vec3Tuple;
+  sentAt: number;
+  durationMs: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const startVector = useMemo(() => new THREE.Vector3(...start), [start]);
+  const endVector = useMemo(() => new THREE.Vector3(...end), [end]);
+  const direction = useMemo(() => endVector.clone().sub(startVector).normalize(), [endVector, startVector]);
+  const axis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const age = Date.now() - sentAt;
+    const progress = clamp(age / durationMs, 0, 1);
+    group.visible = age >= 0 && progress < 1;
+    group.position.lerpVectors(startVector, endVector, progress);
+    if (direction.lengthSq() > 0.0001) group.quaternion.setFromUnitVectors(axis, direction);
+  });
+
+  if (variant === "arrow") {
+    return (
+      <group ref={groupRef} position={start}>
+        <mesh>
+          <cylinderGeometry args={[0.025, 0.025, 0.78, 8]} />
+          <meshBasicMaterial color="#3c2c1c" />
+        </mesh>
+        <mesh position={[0, 0.45, 0]}>
+          <coneGeometry args={[0.07, 0.18, 8]} />
+          <meshBasicMaterial color="#d6dde2" toneMapped={false} />
+        </mesh>
+        <mesh position={[0, -0.38, 0]}>
+          <coneGeometry args={[0.08, 0.14, 4]} />
+          <meshBasicMaterial color="#f1e0bb" />
+        </mesh>
+      </group>
+    );
+  }
+
+  return (
+    <group ref={groupRef} position={start}>
+      <mesh renderOrder={36}>
+        <sphereGeometry args={[0.46, 18, 12]} />
+        <meshBasicMaterial color="#ff6a28" depthTest={false} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[0.72, 18, 12]} />
+        <meshBasicMaterial color="#ffb34d" depthWrite={false} opacity={0.26} toneMapped={false} transparent />
+      </mesh>
+      <mesh position={[0, -0.28, 0]}>
+        <sphereGeometry args={[0.22, 12, 8]} />
+        <meshBasicMaterial color="#ffd35b" depthTest={false} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, -0.48, 0]}>
+        <sphereGeometry args={[0.14, 10, 6]} />
+        <meshBasicMaterial color="#ff382e" depthTest={false} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, -0.76, 0]}>
+        <sphereGeometry args={[0.08, 10, 6]} />
+        <meshBasicMaterial color="#ff8d2a" depthTest={false} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function FloatingDamageNumber({
+  amount,
+  position,
+  sentAt,
+  impactAt,
+  eventId,
+}: {
+  amount: number;
+  position: Vec3Tuple;
+  sentAt: number;
+  impactAt: number;
+  eventId: string;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const offset = useMemo(() => getEventOffset(eventId), [eventId]);
+
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const age = Date.now() - impactAt;
+    const progress = clamp(age / 1250, 0, 1);
+    group.visible = age >= 0 && progress < 1;
+    group.position.set(
+      position[0] + offset[0],
+      position[1] + 0.38 + progress * 1.15,
+      position[2] + offset[1],
+    );
+    group.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.22);
+  });
+
+  return (
+    <group ref={groupRef} position={[position[0] + offset[0], position[1] + 0.38, position[2] + offset[1]]} visible={false}>
+      <Billboard>
+        <Text
+          fontSize={0.36}
+          anchorX="center"
+          anchorY="middle"
+          color="#ffd35b"
+          outlineColor="#15100c"
+          outlineWidth={0.045}
+        >
+          {Math.round(amount)}
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
+function getEventOffset(id: string): [number, number] {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = Math.imul(hash ^ id.charCodeAt(index), 16777619);
+  }
+  const x = ((hash >>> 0) % 1000) / 1000 - 0.5;
+  const z = (((hash >>> 8) % 1000) / 1000 - 0.5) * 0.6;
+  return [x * 0.38, z * 0.38];
+}
+
+function getNpcVisualHeight(npc: NpcSnapshot) {
+  if (npc.model === "rabbit") return 0.75;
+  if (npc.model === "hog") return 0.9;
+  if (npc.model === "deer") return 1.15;
+  return 1.35;
 }
 
 function TownWorld() {
@@ -2043,7 +2341,7 @@ function getNextEnemyTarget(
   reverse: boolean,
 ): TargetSelection | null {
   const enemies = Array.from(npcs.values())
-    .filter((npc) => isAttackableNpcRole(npc.role) && isVisibleNpc(npc))
+    .filter((npc) => isAttackableNpcRole(npc.role) && (npc.isImmortal || npc.health > 0))
     .map((npc) => ({
       npc,
       distance: Math.hypot(player.x - npc.x, player.z - npc.z),
@@ -2065,7 +2363,7 @@ function getNextEnemyTarget(
 }
 
 function isVisibleNpc(npc: NpcSnapshot) {
-  return npc.isImmortal || npc.health > 0;
+  return npc.isImmortal || npc.health > 0 || npc.despawnAt > 0;
 }
 
 function isTargetSelected(

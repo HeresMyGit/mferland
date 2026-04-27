@@ -67,6 +67,8 @@ type RuntimeNpc = {
   animation: PlayerSnapshot["animation"];
   dialogue: string;
   questId: string;
+  defeatedAt: number;
+  despawnAt: number;
 };
 
 const config = readConfig();
@@ -155,6 +157,8 @@ class AgentCharacter {
           animation: npc.animation,
           dialogue: npc.dialogue,
           questId: npc.questId,
+          defeatedAt: npc.defeatedAt,
+          despawnAt: npc.despawnAt,
         });
       });
       this.npcs = nextNpcs;

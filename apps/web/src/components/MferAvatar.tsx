@@ -14,6 +14,7 @@ type MferAvatarProps = {
   isLocal?: boolean;
   isNpc?: boolean;
   isTargeted?: boolean;
+  isDefeated?: boolean;
   onTarget?: () => void;
 };
 
@@ -23,6 +24,7 @@ type LoadedMferGltf = {
 };
 
 const MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
+const DEATH_ANIMATION_SECONDS = 0.82;
 const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number }> = {
   idle: { file: "Standing_Idle", loop: THREE.LoopRepeat, timeScale: 1 },
   walk: { file: "Walking_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1 },
@@ -37,15 +39,18 @@ const TARGET_RING_COLORS = {
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 
-export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted = false, onTarget }: MferAvatarProps) {
+export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted = false, isDefeated = false, onTarget }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
+  const poseRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
   const currentClipNameRef = useRef<string | null>(null);
+  const deathAgeRef = useRef(0);
+  const wasDefeatedRef = useRef(false);
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
-  const isEnemy = isNpc && "role" in player && player.role === "enemy";
+  const isEnemy = isNpc && "role" in player && isAttackableNpcRole(player.role);
   const isAgentPlayer = "identityType" in player && player.identityType === "agent";
   const label = isEnemy ? `${player.name} [Enemy]` : isNpc ? `${player.name} [NPC]` : isAgentPlayer ? `${player.name} [AI]` : player.name;
   const targetRingColor = TARGET_RING_COLORS[getTargetFaction(player, isNpc)];
@@ -111,43 +116,71 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
   }, [avatar, clips]);
 
   useEffect(() => {
+    if (isDefeated) return;
     playClip(player.animation);
-  }, [player.animation, clips]);
+  }, [isDefeated, player.animation, clips]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
     if (!group) return;
 
-    playClip(player.animation);
-    mixerRef.current?.update(delta);
+    if (isDefeated && !wasDefeatedRef.current) {
+      deathAgeRef.current = 0;
+      playClip("idle", { fadeDuration: 0, forceRestart: true });
+      currentActionRef.current?.setEffectiveTimeScale(0);
+    } else if (!isDefeated && wasDefeatedRef.current) {
+      deathAgeRef.current = 0;
+      playClip("idle", { fadeDuration: 0, forceRestart: true });
+    }
+    wasDefeatedRef.current = isDefeated;
+
+    if (isDefeated) {
+      deathAgeRef.current += delta;
+      updateDeathPose(poseRef.current, deathAgeRef.current);
+    } else {
+      playClip(player.animation);
+      mixerRef.current?.update(delta);
+    }
+
     targetPosition.set(player.x, player.y, player.z);
     const positionLerp = isLocal ? 0.68 : 0.18;
     const rotationDecay = isLocal ? 0.62 : 0.82;
     group.position.lerp(targetPosition, 1 - Math.pow(1 - positionLerp, delta * 60));
     group.rotation.y = lerpAngle(group.rotation.y, player.yaw, 1 - Math.pow(rotationDecay, delta * 60));
+
+    const pose = poseRef.current;
+    if (!isDefeated && pose) {
+      pose.rotation.z += (0 - pose.rotation.z) * (1 - Math.pow(0.72, delta * 60));
+      pose.rotation.x += (0 - pose.rotation.x) * (1 - Math.pow(0.68, delta * 60));
+      pose.position.y += (0 - pose.position.y) * (1 - Math.pow(0.72, delta * 60));
+    }
   });
 
   return (
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
+      {isTargeted && <TargetRing color={targetRingColor} />}
       <mesh position={[0, 1.35, 0]} onPointerDown={handleTarget}>
         <cylinderGeometry args={[0.72, 0.72, 2.7, 12]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      {isTargeted && <TargetRing color={targetRingColor} />}
-      <primitive object={avatar} />
-      <Billboard position={[0, 3.05, 0]}>
-        <Text
-          fontSize={0.24}
-          anchorX="center"
-          anchorY="middle"
-          color={isEnemy ? "#ff6258" : isNpc ? "#8eff75" : isLocal ? "#f3d04e" : accent}
-          outlineColor="#16140f"
-          outlineWidth={0.025}
-          maxWidth={2.4}
-        >
-          {label}
-        </Text>
-      </Billboard>
+      <group ref={poseRef}>
+        <primitive object={avatar} />
+        {!isDefeated && (
+          <Billboard position={[0, 3.05, 0]}>
+            <Text
+              fontSize={0.24}
+              anchorX="center"
+              anchorY="middle"
+              color={isEnemy ? "#ff6258" : isNpc ? "#8eff75" : isLocal ? "#f3d04e" : accent}
+              outlineColor="#16140f"
+              outlineWidth={0.025}
+              maxWidth={2.4}
+            >
+              {label}
+            </Text>
+          </Billboard>
+        )}
+      </group>
     </group>
   );
 
@@ -196,6 +229,27 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
     currentClipNameRef.current = clipName;
     mixer.update(0);
   }
+}
+
+function updateDeathPose(pose: THREE.Group | null, deathAge: number) {
+  if (!pose) return;
+
+  const progress = easeOutCubic(clamp(deathAge / DEATH_ANIMATION_SECONDS, 0, 1));
+  const collapse = easeOutCubic(clamp((deathAge - 0.16) / (DEATH_ANIMATION_SECONDS - 0.16), 0, 1));
+  const flinch = Math.sin(progress * Math.PI) * 0.18;
+
+  pose.rotation.x = -collapse * (Math.PI / 2 - 0.08);
+  pose.rotation.y = 0;
+  pose.rotation.z = -collapse * 0.1 - flinch;
+  pose.position.y = collapse * 0.06 + Math.sin(progress * Math.PI) * 0.08;
+}
+
+function easeOutCubic(value: number) {
+  return 1 - Math.pow(1 - value, 3);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 export function TargetRing({ color }: { color: string }) {

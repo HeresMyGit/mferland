@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { isAttackableNpcRole, type ActionId, type JoinOptions, type NpcSnapshot, type PlayerSnapshot, type TargetSelection } from "@mferland/shared";
+import {
+  COMBAT,
+  isAttackableNpcRole,
+  type ActionId,
+  type CombatActionId,
+  type JoinOptions,
+  type NpcSnapshot,
+  type PlayerSnapshot,
+  type TargetSelection,
+} from "@mferland/shared";
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
@@ -115,19 +124,20 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
     [room.npcs, room.players, selectedTarget],
   );
   const performInteract = useCallback(() => {
-    if (!localPlayer) return;
+    if (!localPlayer || localPlayer.health <= 0) return;
     const nearestNpc = findNearestNpc(localPlayer, room.npcs);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
   }, [localPlayer, room]);
   const performAction = useCallback((actionId: ActionId | null) => {
     if (actionId === "interact") performInteract();
     else if (actionId) {
+      if (!canUseCombatAction(actionId, localPlayer ?? null, selectedTarget, selectedTargetUnit)) return;
       room.sendCombatAction({
         actionId,
         target: selectedTarget,
       });
     }
-  }, [performInteract, room, selectedTarget]);
+  }, [localPlayer, performInteract, room, selectedTarget, selectedTargetUnit]);
   const moveActionSlot = useCallback((fromIndex: number, toIndex: number) => {
     setActionSlots((current) => {
       if (!current[fromIndex] || fromIndex === toIndex) return current;
@@ -163,6 +173,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
           npcs={room.npcs}
           localSessionId={room.sessionId}
           selectedTarget={selectedTarget}
+          combatEvents={room.combatEvents}
           onSelectTarget={setSelectedTarget}
           onInteractAction={performInteract}
           sendInput={room.sendInput}
@@ -185,6 +196,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         onAction={performAction}
         onMoveActionSlot={moveActionSlot}
         onSendChat={room.sendChat}
+        onRespawn={room.sendRespawn}
         onExit={onExit}
       />
     </main>
@@ -202,6 +214,36 @@ function getSelectedTargetUnit(
   const npc = npcs.get(selectedTarget.id);
   if (!npc || (!npc.isImmortal && npc.health <= 0)) return null;
   return npc;
+}
+
+function canUseCombatAction(
+  actionId: CombatActionId,
+  player: PlayerSnapshot | null,
+  selectedTarget: TargetSelection | null,
+  selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
+) {
+  if (!player || player.castingAction) return false;
+  const action = COMBAT.actions[actionId];
+  const now = Date.now();
+  const readyAt = actionId === "attack"
+    ? player.attackReadyAt
+    : actionId === "shoot"
+      ? player.shootReadyAt
+      : player.fireblastReadyAt;
+  if (readyAt > now || player.mana < action.manaCost) return false;
+
+  if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
+    return true;
+  }
+  if (!isAttackableNpcRole(selectedTargetUnit.role)) return true;
+  if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return false;
+
+  const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
+  return distance >= action.minRange && distance <= action.maxRange;
+}
+
+function isNpcSnapshot(unit: PlayerSnapshot | NpcSnapshot): unit is NpcSnapshot {
+  return "role" in unit;
 }
 
 function numberKeyToSlotIndex(event: KeyboardEvent) {
