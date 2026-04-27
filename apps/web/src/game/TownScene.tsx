@@ -354,6 +354,52 @@ type TreeInstance = {
   matrix: THREE.Matrix4;
   color?: THREE.Color;
 };
+type BuildingTextureKey = "stone" | "roof" | "wall" | "accent" | "solid";
+type BuildingModuleSpec =
+  | {
+    kind: "box";
+    id: string;
+    position: Vec3Tuple;
+    size: Vec3Tuple;
+    material: BuildingTextureKey;
+    color?: string;
+    rotation?: Vec3Tuple;
+  }
+  | {
+    kind: "gabled-roof";
+    id: string;
+  }
+  | {
+    kind: "trim";
+    id: string;
+  }
+  | {
+    kind: "window";
+    id: string;
+    position: Vec3Tuple;
+    rotation?: number;
+  }
+  | {
+    kind: "door";
+    id: string;
+  }
+  | {
+    kind: "sign";
+    id: string;
+  };
+type TownBuildingSpec = {
+  id: string;
+  position: Vec3Tuple;
+  rotation: number;
+  sign: string;
+  accent: string;
+  modules: BuildingModuleSpec[];
+};
+type BuildingTextures = {
+  stone: THREE.Texture;
+  roof: THREE.Texture;
+  wall: THREE.Texture;
+};
 
 const TREE_LEAF_COLORS = ["#3f7434", "#4e8a3b", "#5f9e45", "#77aa50"] as const;
 const TREE_ROOT_COLOR = new THREE.Color("#6b4227");
@@ -386,6 +432,34 @@ const BACKDROP_TREES: TreeSpec[] = [-82, -72, -62, -54, -47, -38, -31, -24, -17,
     position: [x, 0, -68 - (index % 2) * 5] as Vec3Tuple,
     scale: 0.95 + (index % 3) * 0.12,
   }));
+
+const SHOP_BUILDING_MODULES: BuildingModuleSpec[] = [
+  { kind: "box", id: "foundation", position: [0, 0.32, 0], size: [7.45, 0.64, 4.85], material: "stone", color: "#c7b69d" },
+  { kind: "box", id: "body", position: [0, 2.65, 0], size: [7.05, 4.55, 4.45], material: "wall" },
+  { kind: "gabled-roof", id: "roof" },
+  { kind: "trim", id: "front-trim" },
+  { kind: "window", id: "front-left-window", position: [-2.15, 2.45, 2.28] },
+  { kind: "window", id: "front-right-window", position: [2.15, 2.45, 2.28] },
+  { kind: "window", id: "back-left-window", position: [-2.65, 2.2, -2.28], rotation: Math.PI },
+  { kind: "window", id: "back-right-window", position: [2.65, 2.2, -2.28], rotation: Math.PI },
+  { kind: "door", id: "front-door" },
+  { kind: "sign", id: "front-sign" },
+  { kind: "box", id: "chimney-stack", position: [2.55, 5.78, -0.8], size: [0.62, 1.45, 0.62], material: "stone", color: "#b29b7e" },
+  { kind: "box", id: "chimney-cap", position: [2.55, 6.58, -0.8], size: [0.86, 0.28, 0.86], material: "solid", color: "#4b3325" },
+];
+
+const TOWN_BUILDINGS: TownBuildingSpec[] = [
+  { id: "mfers", position: [-18, 0, -8], rotation: 0.4, sign: "MFERS", accent: "#9b45ff", modules: SHOP_BUILDING_MODULES },
+  { id: "dao", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO", accent: "#52d64f", modules: SHOP_BUILDING_MODULES },
+  { id: "wearables", position: [-18, 0, 11], rotation: -0.2, sign: "WEARABLES", accent: "#e754d8", modules: SHOP_BUILDING_MODULES },
+  { id: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SHOP", accent: "#f5c344", modules: SHOP_BUILDING_MODULES },
+  { id: "barracks", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BARRACKS", accent: "#3ba464", modules: SHOP_BUILDING_MODULES },
+  { id: "keep", position: [25.5, 0, -33.8], rotation: -1.28, sign: "KEEP", accent: "#477fe7", modules: SHOP_BUILDING_MODULES },
+  { id: "gallery", position: [-36, 0, 17.5], rotation: 1.5, sign: "GALLERY", accent: "#ef7741", modules: SHOP_BUILDING_MODULES },
+  { id: "arcade", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: "#36b7c9", modules: SHOP_BUILDING_MODULES },
+  { id: "inn", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565", modules: SHOP_BUILDING_MODULES },
+  { id: "forge", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35", modules: SHOP_BUILDING_MODULES },
+];
 
 function CombatFeedbackLayer({
   combatEvents,
@@ -751,16 +825,15 @@ function TownWorld() {
 
       <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} />
       <CastleGate stoneTexture={stoneTexture} />
-      <TownBuilding position={[-18, 0, -8]} rotation={0.4} sign="MFERS" accent="#9b45ff" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[18, 0, -7.5]} rotation={-0.45} sign="DAO" accent="#52d64f" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[-18, 0, 11]} rotation={-0.2} sign="WEARABLES" accent="#e754d8" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[18, 0, 10.5]} rotation={0.25} sign="SHOP" accent="#f5c344" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[-25.5, 0, -33.8]} rotation={1.28} sign="BARRACKS" accent="#3ba464" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[25.5, 0, -33.8]} rotation={-1.28} sign="KEEP" accent="#477fe7" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[-36, 0, 17.5]} rotation={1.5} sign="GALLERY" accent="#ef7741" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[36, 0, 17.5]} rotation={-1.5} sign="ARCADE" accent="#36b7c9" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[-16, 0, 36.5]} rotation={2.82} sign="INN" accent="#d56565" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
-      <TownBuilding position={[16, 0, 36.5]} rotation={-2.82} sign="FORGE" accent="#e18b35" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
+      {TOWN_BUILDINGS.map((building) => (
+        <TownBuilding
+          key={building.id}
+          spec={building}
+          stoneTexture={stoneTexture}
+          roofTexture={roofTexture}
+          wallTexture={timberTexture}
+        />
+      ))}
       <MarketStall position={[-6.4, 0, 29.2]} rotation={Math.PI} color="#9b45ff" roofTexture={roofTexture} />
       <MarketStall position={[0, 0, 31.4]} rotation={Math.PI} color="#52d64f" roofTexture={roofTexture} />
       <MarketStall position={[6.4, 0, 29.2]} rotation={Math.PI} color="#e754d8" roofTexture={roofTexture} />
@@ -2117,39 +2190,74 @@ function CastleGate({ stoneTexture }: { stoneTexture: THREE.Texture }) {
 }
 
 function TownBuilding({
-  position,
-  rotation,
-  sign,
-  accent,
+  spec,
   stoneTexture,
   roofTexture,
   wallTexture,
 }: {
-  position: [number, number, number];
-  rotation: number;
-  sign: string;
-  accent: string;
+  spec: TownBuildingSpec;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
+  const textures = { stone: stoneTexture, roof: roofTexture, wall: wallTexture };
+
   return (
-    <group position={position} rotation-y={rotation}>
-      <mesh position={[0, 0.32, 0]}>
-        <boxGeometry args={[7.45, 0.64, 4.85]} />
-        <meshBasicMaterial map={stoneTexture} color="#c7b69d" />
-      </mesh>
-      <mesh position={[0, 2.65, 0]}>
-        <boxGeometry args={[7.05, 4.55, 4.45]} />
-        <meshBasicMaterial map={wallTexture} />
-      </mesh>
-      <GabledRoof roofTexture={roofTexture} />
-      <BuildingTrim />
-      <ShopWindow position={[-2.15, 2.45, 2.28]} />
-      <ShopWindow position={[2.15, 2.45, 2.28]} />
-      <ShopWindow position={[-2.65, 2.2, -2.28]} rotation={Math.PI} />
-      <ShopWindow position={[2.65, 2.2, -2.28]} rotation={Math.PI} />
-      <ShopDoor />
+    <group position={spec.position} rotation-y={spec.rotation}>
+      {spec.modules.map((module) => (
+        <BuildingModule key={module.id} module={module} spec={spec} textures={textures} />
+      ))}
+    </group>
+  );
+}
+
+function BuildingModule({
+  module,
+  spec,
+  textures,
+}: {
+  module: BuildingModuleSpec;
+  spec: TownBuildingSpec;
+  textures: BuildingTextures;
+}) {
+  if (module.kind === "box") return <BuildingBox module={module} spec={spec} textures={textures} />;
+  if (module.kind === "gabled-roof") return <GabledRoof roofTexture={textures.roof} />;
+  if (module.kind === "trim") return <BuildingTrim />;
+  if (module.kind === "window") return <ShopWindow position={module.position} rotation={module.rotation} />;
+  if (module.kind === "door") return <ShopDoor />;
+  return <ShopSign sign={spec.sign} accent={spec.accent} />;
+}
+
+function BuildingBox({
+  module,
+  spec,
+  textures,
+}: {
+  module: Extract<BuildingModuleSpec, { kind: "box" }>;
+  spec: TownBuildingSpec;
+  textures: BuildingTextures;
+}) {
+  const texture = getBuildingTexture(module.material, textures);
+  const color = module.material === "accent" ? spec.accent : module.color;
+
+  return (
+    <mesh position={module.position} rotation={module.rotation}>
+      <boxGeometry args={module.size} />
+      <meshBasicMaterial map={texture} color={color} />
+    </mesh>
+  );
+}
+
+function getBuildingTexture(material: BuildingTextureKey, textures: BuildingTextures) {
+  if (material === "stone") return textures.stone;
+  if (material === "roof") return textures.roof;
+  if (material === "wall") return textures.wall;
+  return undefined;
+}
+
+function ShopSign({ sign, accent }: { sign: string; accent: string }) {
+  return (
+    <group>
       <mesh position={[0, 1.62, 2.52]}>
         <boxGeometry args={[3.6, 0.44, 0.18]} />
         <meshBasicMaterial color={accent} />
@@ -2173,14 +2281,6 @@ function TownBuilding({
       >
         {sign}
       </Text>
-      <mesh position={[2.55, 5.78, -0.8]}>
-        <boxGeometry args={[0.62, 1.45, 0.62]} />
-        <meshBasicMaterial map={stoneTexture} color="#b29b7e" />
-      </mesh>
-      <mesh position={[2.55, 6.58, -0.8]}>
-        <boxGeometry args={[0.86, 0.28, 0.86]} />
-        <meshBasicMaterial color="#4b3325" />
-      </mesh>
     </group>
   );
 }
