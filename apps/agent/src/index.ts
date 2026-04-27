@@ -15,6 +15,7 @@ import {
   type NpcRole,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type QuestSnapshot,
 } from "@mferland/shared";
 
 type AgentConfig = {
@@ -50,6 +51,11 @@ type RuntimePlayer = {
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
+  quests?: RuntimeQuestCollection;
+};
+
+type RuntimeQuestCollection = {
+  forEach(callback: (quest: QuestSnapshot, id: string) => void): void;
 };
 
 type RuntimeNpc = {
@@ -69,6 +75,7 @@ type RuntimeNpc = {
   questId: string;
   defeatedAt: number;
   despawnAt: number;
+  aggroTargetId: string;
 };
 
 const config = readConfig();
@@ -135,6 +142,7 @@ class AgentCharacter {
           castingAction: player.castingAction,
           castStartedAt: player.castStartedAt,
           castEndsAt: player.castEndsAt,
+          quests: snapshotQuests(player.quests),
         });
       });
       this.players = next;
@@ -159,6 +167,7 @@ class AgentCharacter {
           questId: npc.questId,
           defeatedAt: npc.defeatedAt,
           despawnAt: npc.despawnAt,
+          aggroTargetId: npc.aggroTargetId,
         });
       });
       this.npcs = nextNpcs;
@@ -311,6 +320,20 @@ function readConfig(): AgentConfig {
     baseName: cleanName(process.env.AGENT_NAME ?? "mfer-agent"),
     chatEnabled: process.env.AGENT_CHAT !== "0",
   };
+}
+
+function snapshotQuests(quests: RuntimeQuestCollection | undefined): QuestSnapshot[] {
+  const next: QuestSnapshot[] = [];
+  quests?.forEach((quest, id) => {
+    next.push({
+      id: (quest.id || id) as QuestSnapshot["id"],
+      status: quest.status,
+      progress: quest.progress,
+      required: quest.required,
+      completedAt: quest.completedAt,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function readPositiveInt(value: string | undefined, fallback: number) {

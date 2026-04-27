@@ -2,8 +2,8 @@ import { useMemo, useRef } from "react";
 import { Billboard, Text } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { type NpcSnapshot } from "@mferland/shared";
-import { TargetRing } from "./MferAvatar";
+import { getNpcDisposition, type NpcDisposition, type NpcSnapshot } from "@mferland/shared";
+import { TargetRing, TARGET_LABEL_COLORS, TARGET_RING_COLORS } from "./MferAvatar";
 
 type CreatureAvatarProps = {
   npc: NpcSnapshot;
@@ -18,8 +18,9 @@ export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, on
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
   const accent = npc.model === "rabbit" ? "#f2eee0" : npc.model === "hog" ? "#5c3a2e" : "#b07a3d";
-  const ringColor = "#ff453f";
-  const label = npc.model === "rabbit" ? "Rabbit [Critter]" : npc.model === "hog" ? `${npc.name} [Beast]` : "Deer [Beast]";
+  const disposition = getNpcDisposition(npc);
+  const ringColor = TARGET_RING_COLORS[disposition];
+  const label = getCreatureLabel(npc, disposition);
   const hitRadius = npc.model === "rabbit" ? 0.55 : npc.model === "hog" ? 0.86 : 0.74;
   const hitHeight = npc.model === "rabbit" ? 1.0 : npc.model === "hog" ? 1.35 : 1.7;
   const labelY = npc.model === "rabbit" ? 1.22 : npc.model === "hog" ? 1.55 : 1.86;
@@ -55,7 +56,7 @@ export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, on
               fontSize={npc.model === "rabbit" ? 0.16 : 0.2}
               anchorX="center"
               anchorY="middle"
-              color="#ff6258"
+              color={TARGET_LABEL_COLORS[disposition]}
               outlineColor="#16140f"
               outlineWidth={0.022}
               maxWidth={2.1}
@@ -73,6 +74,13 @@ export function CreatureAvatar({ npc, isTargeted = false, isDefeated = false, on
     event.stopPropagation();
     onTarget();
   }
+}
+
+function getCreatureLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
+  if (disposition === "hostile") return `${npc.name} [Hostile]`;
+  if (npc.model === "rabbit") return "Rabbit [Critter]";
+  if (npc.model === "hog") return `${npc.name} [Beast]`;
+  return "Deer [Beast]";
 }
 
 function HogModel() {

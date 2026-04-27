@@ -235,7 +235,7 @@ function canUseCombatAction(
   if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
     return true;
   }
-  if (!isAttackableNpcRole(selectedTargetUnit.role)) return true;
+  if (!isAttackableNpcRole(selectedTargetUnit.role)) return false;
   if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return false;
 
   const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);

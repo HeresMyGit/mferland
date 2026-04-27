@@ -2316,6 +2316,7 @@ function updateLocalVisualPlayer(
   visual.castingAction = authoritative.castingAction;
   visual.castStartedAt = authoritative.castStartedAt;
   visual.castEndsAt = authoritative.castEndsAt;
+  visual.quests = authoritative.quests;
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);

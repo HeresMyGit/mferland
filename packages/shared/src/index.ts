@@ -107,14 +107,34 @@ export const COMBAT = {
     },
     fireblast: {
       label: "Fireblast",
-      damage: 32,
-      cooldownMs: 8000,
+      damage: 24,
+      cooldownMs: 4000,
       minRange: 0,
       maxRange: 30,
       manaCost: 15,
       castTimeMs: 2000,
       requiresStationary: true,
     },
+  },
+} as const;
+
+export const QUESTS = {
+  "feral-farmers": {
+    title: "Feral Farmers",
+    giverNpcId: "hogwatch-mfer",
+    description: "The busted farm is raising feral hogs that keep charging townspeople.",
+    objectiveLabel: "Defeat hostile farmers",
+    required: 3,
+    nextQuestId: "hog-livers",
+  },
+  "hog-livers": {
+    title: "Liver Remedy",
+    giverNpcId: "hogwatch-mfer",
+    description: "Hog livers can be brewed into a charm that keeps the worst hogs away from the plaza.",
+    objectiveLabel: "Collect hog livers",
+    required: 5,
+    requiredQuestId: "feral-farmers",
+    dropRate: 0.66,
   },
 } as const;
 
@@ -149,6 +169,17 @@ export type NpcModel = "mfer" | "rabbit" | "deer" | "hog";
 export type TargetKind = "player" | "npc";
 export type CombatActionId = keyof typeof COMBAT.actions;
 export type ActionId = "interact" | CombatActionId;
+export type NpcDisposition = "friendly" | "neutral" | "hostile";
+export type QuestId = keyof typeof QUESTS;
+export type QuestStatus = "active" | "ready" | "completed";
+
+export type QuestSnapshot = {
+  id: QuestId;
+  status: QuestStatus;
+  progress: number;
+  required: number;
+  completedAt: number;
+};
 
 export type JoinOptions = {
   name?: string;
@@ -188,6 +219,7 @@ export type PlayerSnapshot = {
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
+  quests: QuestSnapshot[];
 };
 
 export type NpcSnapshot = {
@@ -208,6 +240,7 @@ export type NpcSnapshot = {
   questId: string;
   defeatedAt: number;
   despawnAt: number;
+  aggroTargetId: string;
 };
 
 export type TargetSelection = {
@@ -378,4 +411,10 @@ export function makeGuestName(seed: string): string {
 
 export function isAttackableNpcRole(role: NpcRole): boolean {
   return role === "enemy" || role === "critter" || role === "beast" || role === "farmer";
+}
+
+export function getNpcDisposition(npc: Pick<NpcSnapshot, "role" | "model" | "aggroTargetId">): NpcDisposition {
+  if (!isAttackableNpcRole(npc.role)) return "friendly";
+  if (npc.role === "farmer" || npc.aggroTargetId) return "hostile";
+  return "neutral";
 }

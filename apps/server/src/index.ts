@@ -11,6 +11,7 @@ import {
   MAX_PLAYERS,
   PLAYER,
   PLAZA_BOUNDS,
+  QUESTS,
   RESPAWN_POINT,
   resolveWorldCollision,
   ROOM_NAME,
@@ -28,7 +29,17 @@ import {
   type JoinOptions,
   type NpcModel,
   type NpcRole,
+  type QuestId,
+  type QuestStatus,
 } from "@mferland/shared";
+
+class QuestState extends Schema {
+  @type("string") id: QuestId = "feral-farmers";
+  @type("string") status: QuestStatus = "active";
+  @type("number") progress = 0;
+  @type("number") required = 1;
+  @type("number") completedAt = 0;
+}
 
 class PlayerState extends Schema {
   @type("string") name = "";
@@ -54,6 +65,7 @@ class PlayerState extends Schema {
   @type("number") castEndsAt = 0;
   @type("string") castTargetKind = "";
   @type("string") castTargetId = "";
+  @type({ map: QuestState }) quests = new MapSchema<QuestState>();
 }
 
 class NpcState extends Schema {
@@ -100,6 +112,14 @@ type PendingCombatImpact = {
   sourcePlayerId?: string;
   damage: number;
   impactAt: number;
+};
+
+const HOG_COMBAT = {
+  leashRange: 24,
+  moveSpeed: 4.1,
+  meleeRange: 2.15,
+  meleeDamage: 5,
+  meleeCooldownMs: 1700,
 };
 
 class TownRoom extends Room<TownState> {
@@ -178,7 +198,7 @@ class TownRoom extends Room<TownState> {
         sessionId: npc.id,
         name: npc.name,
         identityType: "npc",
-        text: getNpcDialogue(npc, player),
+        text: getNpcDialogue(npc, player, now),
         sentAt: now,
       };
       this.broadcast("chat", payload);
@@ -463,6 +483,17 @@ function spawnNpcs(npcs: MapSchema<NpcState>) {
       dialogue: "Daily vibes quest: chill by the fountain for a minute.",
     },
     {
+      id: "hogwatch-mfer",
+      name: "Hogwatch mfer",
+      role: "quest_giver",
+      x: -29.5,
+      z: 42.5,
+      yaw: -0.65,
+      leashRadius: 1.3,
+      dialogue: "The busted farm is making the roads rough. I could use a hand.",
+      questId: "feral-farmers",
+    },
+    {
       id: "training-dummy-left",
       name: "Training dummy",
       role: "enemy",
@@ -653,6 +684,11 @@ function updateNpcs(
       return;
     }
 
+    if (npc.model === "hog" && npc.aggroTargetId) {
+      updateHogNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
+      return;
+    }
+
     if (npc.role === "enemy") {
       npc.animation = "idle";
       return;
@@ -749,7 +785,42 @@ function updateFarmerNpc(
   const actionId: CombatActionId = isCaster ? "fireblast" : "attack";
   const damage = isCaster ? FARMER_COMBAT.spellDamage : FARMER_COMBAT.meleeDamage;
   npc.attackReadyAt = now + (isCaster ? FARMER_COMBAT.spellCooldownMs : FARMER_COMBAT.meleeCooldownMs);
-  applyFarmerDamage(npc, npc.aggroTargetId, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
+  applyNpcCombatDamage(npc, npc.aggroTargetId, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
+}
+
+function updateHogNpc(
+  npc: NpcState,
+  players: MapSchema<PlayerState>,
+  delta: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  const target = players.get(npc.aggroTargetId);
+  if (!target || target.health <= 0 || distanceToHome(npc, target) > HOG_COMBAT.leashRange) {
+    npc.aggroTargetId = "";
+    npc.attackReadyAt = 0;
+    npc.targetX = npc.homeX;
+    npc.targetZ = npc.homeZ;
+    npc.nextDecisionAt = now + getNpcWanderDecisionMs(npc);
+    return moveNpcToward(npc, npc.homeX, npc.homeZ, delta, getNpcMoveSpeed(npc));
+  }
+
+  const dx = target.x - npc.x;
+  const dz = target.z - npc.z;
+  const distance = Math.hypot(dx, dz);
+  npc.yaw = Math.atan2(dx, dz);
+
+  if (distance > HOG_COMBAT.meleeRange * 0.85) {
+    moveNpcToward(npc, target.x, target.z, delta, HOG_COMBAT.moveSpeed);
+    return;
+  }
+
+  npc.animation = "idle";
+  if (now < npc.attackReadyAt) return;
+
+  npc.attackReadyAt = now + HOG_COMBAT.meleeCooldownMs;
+  applyNpcCombatDamage(npc, npc.aggroTargetId, target, "attack", HOG_COMBAT.meleeDamage, now, emitCombatEvent, pendingCombatImpacts);
 }
 
 function findNearestAggroPlayer(npc: NpcState, players: MapSchema<PlayerState>) {
@@ -972,11 +1043,14 @@ function applyCombatDamage(
   }
 
   const defeated = applyNpcDamage(target, damage, now);
+  if (defeated) {
+    progressDefeatQuests(player, target);
+  }
   aggroNpcOnPlayerHit(target, sourceId, player);
   emitCombatEvent(makeCombatEvent(sourceId, player, target, actionId, damage, now, defeated, now));
 }
 
-function applyFarmerDamage(
+function applyNpcCombatDamage(
   source: NpcState,
   targetId: string,
   player: PlayerState,
@@ -1013,6 +1087,8 @@ function applyNpcDamage(npc: NpcState, damage: number, now: number) {
     npc.defeatedAt = now;
     npc.despawnAt = now + COMBAT.defeatedDespawnMs;
     npc.respawnAt = now + (npc.role === "farmer" ? FARMER_COMBAT.respawnMs : COMBAT.defeatedRespawnMs);
+    npc.aggroTargetId = "";
+    npc.attackReadyAt = 0;
     npc.y = 0;
     npc.targetX = npc.homeX;
     npc.targetZ = npc.homeZ;
@@ -1037,8 +1113,11 @@ function processPendingCombatImpacts(
       const npc = npcs.get(impact.target.id);
       const sourcePlayer = impact.sourcePlayerId ? players.get(impact.sourcePlayerId) : undefined;
       if (npc && isNpcAlive(npc)) {
-        applyNpcDamage(npc, impact.damage, now);
+        const defeated = applyNpcDamage(npc, impact.damage, now);
         if (sourcePlayer && impact.sourcePlayerId) {
+          if (defeated) {
+            progressDefeatQuests(sourcePlayer, npc);
+          }
           aggroNpcOnPlayerHit(npc, impact.sourcePlayerId, sourcePlayer);
         }
       }
@@ -1050,11 +1129,15 @@ function processPendingCombatImpacts(
 }
 
 function aggroNpcOnPlayerHit(npc: NpcState, sourcePlayerId: string, player: PlayerState) {
-  if (npc.role !== "farmer") return;
+  if (!canNpcAggroOnPlayerHit(npc)) return;
   if (npc.health <= 0 || player.health <= 0) return;
 
   npc.aggroTargetId = sourcePlayerId;
   npc.nextDecisionAt = 0;
+}
+
+function canNpcAggroOnPlayerHit(npc: NpcState) {
+  return npc.role === "farmer" || npc.model === "hog";
 }
 
 function applyPlayerDamage(player: PlayerState, damage: number, now: number) {
@@ -1191,11 +1274,101 @@ function distanceToNpc(player: PlayerState, npc: NpcState) {
   return Math.hypot(player.x - npc.x, player.z - npc.z);
 }
 
-function getNpcDialogue(npc: NpcState, player: PlayerState) {
+function getNpcDialogue(npc: NpcState, player: PlayerState, now: number) {
+  const questDialogue = getQuestDialogue(npc, player, now);
+  if (questDialogue) return `${player.name}, ${questDialogue}`;
+
   if (npc.role === "quest_giver" && npc.questId) {
     return `${player.name}, ${npc.dialogue}`;
   }
   return npc.dialogue;
+}
+
+function getQuestDialogue(npc: NpcState, player: PlayerState, now: number) {
+  if (npc.id !== QUESTS["feral-farmers"].giverNpcId) return null;
+
+  const farmerQuest = player.quests.get("feral-farmers");
+  if (!farmerQuest) {
+    startQuest(player, "feral-farmers");
+    return `quest accepted: ${QUESTS["feral-farmers"].title}. ${QUESTS["feral-farmers"].description} Defeat the three farmers running that pen.`;
+  }
+
+  if (farmerQuest.status === "active") {
+    return `${QUESTS["feral-farmers"].title}: ${formatQuestProgress(farmerQuest)} farmers dealt with.`;
+  }
+
+  if (farmerQuest.status === "ready") {
+    completeQuest(player, "feral-farmers", now);
+    startQuest(player, "hog-livers");
+    return `good work. Quest complete: ${QUESTS["feral-farmers"].title}. Now I need hog livers for a ward brew. Quest accepted: ${QUESTS["hog-livers"].title}.`;
+  }
+
+  const liverQuest = player.quests.get("hog-livers");
+  if (!liverQuest) {
+    startQuest(player, "hog-livers");
+    return `quest accepted: ${QUESTS["hog-livers"].title}. Bring me five hog livers so we can brew something that keeps the worst hogs away from town.`;
+  }
+
+  if (liverQuest.status === "active") {
+    return `${QUESTS["hog-livers"].title}: ${formatQuestProgress(liverQuest)} hog livers collected. They do not always drop, so keep hunting.`;
+  }
+
+  if (liverQuest.status === "ready") {
+    completeQuest(player, "hog-livers", now);
+    return `quest complete: ${QUESTS["hog-livers"].title}. This brew smells awful, but it should keep the road clear.`;
+  }
+
+  return "the farm is quieter already. Town owes you one.";
+}
+
+function startQuest(player: PlayerState, questId: QuestId) {
+  if (player.quests.has(questId)) return;
+
+  const quest = new QuestState();
+  quest.id = questId;
+  quest.status = "active";
+  quest.progress = 0;
+  quest.required = QUESTS[questId].required;
+  quest.completedAt = 0;
+  player.quests.set(questId, quest);
+}
+
+function completeQuest(player: PlayerState, questId: QuestId, now: number) {
+  const quest = player.quests.get(questId);
+  if (!quest) return;
+
+  quest.status = "completed";
+  quest.progress = quest.required;
+  quest.completedAt = now;
+}
+
+function progressDefeatQuests(player: PlayerState, npc: NpcState) {
+  if (npc.role === "farmer") {
+    progressQuest(player, "feral-farmers", 1);
+    return;
+  }
+
+  if (npc.model === "hog" && hasActiveQuest(player, "hog-livers") && Math.random() < QUESTS["hog-livers"].dropRate) {
+    progressQuest(player, "hog-livers", 1);
+  }
+}
+
+function progressQuest(player: PlayerState, questId: QuestId, amount: number) {
+  const quest = player.quests.get(questId);
+  if (!quest || quest.status !== "active") return;
+
+  quest.progress = clamp(quest.progress + amount, 0, quest.required);
+  if (quest.progress >= quest.required) {
+    quest.status = "ready";
+  }
+}
+
+function hasActiveQuest(player: PlayerState, questId: QuestId) {
+  return player.quests.get(questId)?.status === "active";
+}
+
+function formatQuestProgress(quest: QuestState) {
+  return `${Math.min(quest.progress, quest.required)}/${quest.required}`;
 }
 
 function getSpawnPoint(index: number) {

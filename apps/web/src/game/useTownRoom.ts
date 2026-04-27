@@ -10,9 +10,16 @@ import {
   type JoinOptions,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type QuestSnapshot,
 } from "@mferland/shared";
 
 type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
+type RuntimeQuestCollection = {
+  forEach(callback: (quest: QuestSnapshot, id: string) => void): void;
+};
+type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests"> & {
+  quests?: RuntimeQuestCollection;
+};
 
 export function useTownRoom(identity: JoinOptions) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -50,7 +57,7 @@ export function useTownRoom(identity: JoinOptions) {
 
         room.onStateChange((state) => {
           const next = new Map<string, PlayerSnapshot>();
-          state.players.forEach((player: PlayerSnapshot, id: string) => {
+          state.players.forEach((player: RuntimePlayer, id: string) => {
             next.set(id, {
               sessionId: id,
               name: player.name,
@@ -73,6 +80,7 @@ export function useTownRoom(identity: JoinOptions) {
               castingAction: player.castingAction,
               castStartedAt: player.castStartedAt,
               castEndsAt: player.castEndsAt,
+              quests: snapshotQuests(player.quests),
             });
           });
           setPlayers(next);
@@ -97,6 +105,7 @@ export function useTownRoom(identity: JoinOptions) {
               questId: npc.questId,
               defeatedAt: npc.defeatedAt,
               despawnAt: npc.despawnAt,
+              aggroTargetId: npc.aggroTargetId,
             });
           });
           setNpcs(nextNpcs);
@@ -172,4 +181,18 @@ export function useTownRoom(identity: JoinOptions) {
     sendCombatAction,
     sendRespawn,
   };
+}
+
+function snapshotQuests(quests: RuntimeQuestCollection | undefined): QuestSnapshot[] {
+  const next: QuestSnapshot[] = [];
+  quests?.forEach((quest, id) => {
+    next.push({
+      id: (quest.id || id) as QuestSnapshot["id"],
+      status: quest.status,
+      progress: quest.progress,
+      required: quest.required,
+      completedAt: quest.completedAt,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
 }

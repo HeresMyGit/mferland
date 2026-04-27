@@ -5,7 +5,13 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
-import { isAttackableNpcRole, type AnimationState, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
+import {
+  getNpcDisposition,
+  type AnimationState,
+  type NpcDisposition,
+  type NpcSnapshot,
+  type PlayerSnapshot,
+} from "@mferland/shared";
 import { generateRandomMferTraits, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
 
@@ -31,11 +37,16 @@ const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.Animation
   run: { file: "Slow_Run_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1.08 },
   jump: { file: "Forward_Running_Jump", loop: THREE.LoopOnce, timeScale: 1 },
 };
-const TARGET_RING_COLORS = {
+export const TARGET_RING_COLORS: Record<NpcDisposition, string> = {
   friendly: "#46ff7b",
   neutral: "#ffd84f",
   hostile: "#ff453f",
-} as const;
+};
+export const TARGET_LABEL_COLORS: Record<NpcDisposition, string> = {
+  friendly: "#8eff75",
+  neutral: "#ffd84f",
+  hostile: "#ff6258",
+};
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 
@@ -50,10 +61,12 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
-  const isEnemy = isNpc && "role" in player && isAttackableNpcRole(player.role);
+  const npc = isNpc && "role" in player ? player : null;
+  const disposition = npc ? getNpcDisposition(npc) : "friendly";
   const isAgentPlayer = "identityType" in player && player.identityType === "agent";
-  const label = isEnemy ? `${player.name} [Enemy]` : isNpc ? `${player.name} [NPC]` : isAgentPlayer ? `${player.name} [AI]` : player.name;
-  const targetRingColor = TARGET_RING_COLORS[getTargetFaction(player, isNpc)];
+  const label = npc ? getNpcLabel(npc, disposition) : isAgentPlayer ? `${player.name} [AI]` : player.name;
+  const targetRingColor = TARGET_RING_COLORS[disposition];
+  const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? "#f3d04e" : accent;
 
   const clips = useMemo(() => {
     const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
@@ -171,7 +184,7 @@ export function MferAvatar({ player, isLocal = false, isNpc = false, isTargeted 
               fontSize={0.24}
               anchorX="center"
               anchorY="middle"
-              color={isEnemy ? "#ff6258" : isNpc ? "#8eff75" : isLocal ? "#f3d04e" : accent}
+              color={labelColor}
               outlineColor="#16140f"
               outlineWidth={0.025}
               maxWidth={2.4}
@@ -288,9 +301,10 @@ export function TargetRing({ color }: { color: string }) {
   );
 }
 
-function getTargetFaction(player: PlayerSnapshot | NpcSnapshot, isNpc: boolean) {
-  if (isNpc && "role" in player) return isAttackableNpcRole(player.role) ? "hostile" : "neutral";
-  return "friendly";
+function getNpcLabel(npc: NpcSnapshot, disposition: NpcDisposition) {
+  if (disposition === "hostile") return `${npc.name} [Hostile]`;
+  if (disposition === "neutral") return `${npc.name} [Attackable]`;
+  return `${npc.name} [NPC]`;
 }
 
 function lerpAngle(a: number, b: number, t: number) {

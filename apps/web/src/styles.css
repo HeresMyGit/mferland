@@ -314,11 +314,15 @@ button {
   height: 58px;
   padding: 5px;
   border-radius: 50%;
-  background: #d0b05a;
+  background: #43be5f;
   box-shadow: inset 0 0 0 4px #15110b, 0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
-.target-frame.enemy .target-portrait {
+.target-frame.neutral .target-portrait {
+  background: #d0b05a;
+}
+
+.target-frame.hostile .target-portrait {
   background: #d3483f;
 }
 
@@ -465,6 +469,18 @@ button {
   color: #6dff71;
   font-size: 14px;
   text-transform: uppercase;
+}
+
+.quest-row.ready strong {
+  color: #f3d04e;
+}
+
+.quest-row.completed {
+  opacity: 0.68;
+}
+
+.quest-row.completed strong {
+  color: #c8d0ba;
 }
 
 .quest-row span,
@@ -618,7 +634,12 @@ button {
   border-color: #173014;
 }
 
-.map-dot.npc.enemy {
+.map-dot.npc.neutral {
+  background: #ffd84f;
+  border-color: #3a2f0f;
+}
+
+.map-dot.npc.hostile {
   background: #e8453c;
   border-color: #260b08;
 }

@@ -4,12 +4,15 @@ import {
   CHAT,
   COMBAT,
   PLAZA_BOUNDS,
+  QUESTS,
+  getNpcDisposition,
   isAttackableNpcRole,
   type ActionId,
   type ChatMessage,
   type CombatActionId,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type QuestSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
@@ -90,6 +93,7 @@ export function Hud({
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
+  const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 100);
@@ -215,11 +219,14 @@ export function Hud({
         </section>
       )}
 
-      <section className="quest-panel">
-        <h2>Quests</h2>
-        <Quest title="Mfer beginnings" detail="Talk to OG mfer" progress="0/1" />
-        <Quest title="Daily vibes" detail="Chill in the plaza" progress="0/1" />
-      </section>
+      {questLog.length > 0 && (
+        <section className="quest-panel">
+          <h2>Quest Log</h2>
+          {questLog.map((quest) => (
+            <Quest key={quest.id} quest={quest} />
+          ))}
+        </section>
+      )}
 
       {selectedTarget && selectedTargetUnit && (
         <TargetFrame
@@ -260,7 +267,7 @@ export function Hud({
           {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
             <span
               key={npc.id}
-              className={`map-dot npc ${isAttackableNpcRole(npc.role) ? "enemy" : ""}`}
+              className={`map-dot npc ${getNpcDisposition(npc)}`}
               title={npc.name}
               style={{
                 ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
@@ -302,7 +309,7 @@ export function Hud({
               {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
                 <span
                   key={npc.id}
-                  className={`map-dot npc ${isAttackableNpcRole(npc.role) ? "enemy" : ""}`}
+                  className={`map-dot npc ${getNpcDisposition(npc)}`}
                   title={npc.name}
                   style={getWorldMapPointStyle(npc.x, npc.z)}
                 />
@@ -509,7 +516,8 @@ function getSlotIndexFromPoint(x: number, y: number) {
 function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {
   const isNpc = kind === "npc";
   const npc = isNpc ? (unit as NpcSnapshot) : null;
-  const isEnemy = npc ? isAttackableNpcRole(npc.role) : false;
+  const disposition = npc ? getNpcDisposition(npc) : "friendly";
+  const isHostile = disposition === "hostile";
   const maxHealth = npc?.maxHealth || 100;
   const health = npc?.health ?? 100;
   const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
@@ -517,9 +525,9 @@ function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: Play
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
 
   return (
-    <section className={`target-frame ${isEnemy ? "enemy" : ""}`}>
+    <section className={`target-frame ${disposition}`}>
       <div className="target-portrait">
-        <span>{isEnemy ? "!" : "mf"}</span>
+        <span>{isHostile ? "!" : "mf"}</span>
       </div>
       <div className="target-vitals">
         <strong>{unit.name}</strong>
@@ -533,12 +541,20 @@ function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: Play
   );
 }
 
-function Quest({ title, detail, progress }: { title: string; detail: string; progress: string }) {
+function Quest({ quest }: { quest: QuestSnapshot }) {
+  const definition = QUESTS[quest.id];
+  const statusText = quest.status === "completed"
+    ? "Complete"
+    : quest.status === "ready"
+      ? "Return to Hogwatch mfer"
+      : definition.objectiveLabel;
+  const progress = quest.status === "completed" ? "Done" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
+
   return (
-    <div className="quest-row">
+    <div className={`quest-row ${quest.status}`}>
       <div>
-        <strong>{title}</strong>
-        <span>{detail}</span>
+        <strong>{definition.title}</strong>
+        <span>{statusText}</span>
       </div>
       <em>{progress}</em>
     </div>
@@ -744,7 +760,7 @@ function getCombatUsability(
   if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
     return { usable: true, reason: "" };
   }
-  if (!isAttackableNpcRole(selectedTargetUnit.role)) return { usable: true, reason: "" };
+  if (!isAttackableNpcRole(selectedTargetUnit.role)) return { usable: false, reason: "Friendly" };
   if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return { usable: false, reason: "Dead" };
 
   const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
