@@ -15,6 +15,21 @@ Default local endpoints:
 - Web: `http://localhost:5173`
 - Server: `ws://localhost:2567`
 
+Current controls:
+
+- `W/S`: move forward/back.
+- `A/D`: turn, or strafe while right mouse is held.
+- `Q/E`: strafe.
+- `Space`: jump.
+- `F`: interact with the nearest NPC.
+- Right mouse drag controls camera and facing; mouse wheel zooms.
+
+NPCs:
+
+- NPCs are server-owned mfers and do not use player slots.
+- Wanderers and guards move around town.
+- Quest-giver and merchant NPCs answer `interact` with dialogue in chat.
+
 Agent environment:
 
 - `AGENT_SERVER_URL`: Colyseus server URL, default `ws://localhost:2567`.

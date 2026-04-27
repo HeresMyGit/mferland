@@ -1,17 +1,19 @@
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Text, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { INPUT_SEND_RATE, type ClientInput, type PlayerSnapshot } from "@mferland/shared";
+import { INPUT_SEND_RATE, type ClientInput, type ClientInteract, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
 import { MferAvatar } from "../components/MferAvatar";
 
 type TownSceneProps = {
   players: Map<string, PlayerSnapshot>;
+  npcs: Map<string, NpcSnapshot>;
   localSessionId: string | null;
   sendInput: (input: ClientInput) => void;
+  sendInteract: (input?: ClientInteract) => void;
 };
 
-export function TownScene({ players, localSessionId, sendInput }: TownSceneProps) {
+export function TownScene({ players, npcs, localSessionId, sendInput, sendInteract }: TownSceneProps) {
   const { gl } = useThree();
   const keyState = useRef(new Set<string>());
   const pointerState = useRef({
@@ -26,6 +28,7 @@ export function TownScene({ players, localSessionId, sendInput }: TownSceneProps
   const cameraPitch = useRef(0.4);
   const cameraDistance = useRef(8.2);
   const facingYaw = useRef(Math.PI);
+  const interactHeld = useRef(false);
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
 
   useEffect(() => {
@@ -160,6 +163,13 @@ export function TownScene({ players, localSessionId, sendInput }: TownSceneProps
     const moveLength = move.length();
     if (moveLength > 1) move.normalize();
 
+    const interactPressed = keys.has("f") || keys.has("keyf");
+    if (interactPressed && !interactHeld.current && localPlayer) {
+      const nearestNpc = findNearestNpc(localPlayer, npcs);
+      sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
+    }
+    interactHeld.current = interactPressed;
+
     inputTimer.current += delta;
     if (inputTimer.current >= 1 / INPUT_SEND_RATE) {
       inputTimer.current = 0;
@@ -189,10 +199,11 @@ export function TownScene({ players, localSessionId, sendInput }: TownSceneProps
 
   return (
     <>
-      <color attach="background" args={["#77b8ec"]} />
-      <fog attach="fog" args={["#77b8ec", 36, 110]} />
+      <fog attach="fog" args={["#b4d7e8", 38, 118]} />
       <ambientLight intensity={1.15} />
       <hemisphereLight args={["#f4fbff", "#8da16f", 0.9]} />
+      <directionalLight position={[-10, 18, 8]} intensity={1.55} color="#fff3d3" />
+      <Skybox />
 
       <Suspense fallback={null}>
         <TownWorld />
@@ -203,6 +214,13 @@ export function TownScene({ players, localSessionId, sendInput }: TownSceneProps
             key={sessionId}
             player={player}
             isLocal={sessionId === localSessionId}
+          />
+        ))}
+        {Array.from(npcs.values()).map((npc) => (
+          <MferAvatar
+            key={npc.id}
+            player={npc}
+            isNpc
           />
         ))}
       </Suspense>
@@ -218,6 +236,9 @@ function TownWorld() {
     "/textures/roof-tiles.webp",
     "/textures/timber-plaster.webp",
   ]) as THREE.Texture[];
+  const barkTexture = useMemo(() => createBarkTexture(), []);
+  const leafTexture = useMemo(() => createLeafTexture(), []);
+  const waterTexture = useMemo(() => createWaterTexture(), []);
 
   useEffect(() => {
     configureTile(grassTexture, 10, 9);
@@ -229,7 +250,7 @@ function TownWorld() {
 
   return (
     <group>
-      <WorldBackdrop />
+      <WorldBackdrop barkTexture={barkTexture} leafTexture={leafTexture} />
 
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.05, 0]}>
         <planeGeometry args={[90, 80, 1, 1]} />
@@ -256,7 +277,7 @@ function TownWorld() {
         <meshBasicMaterial color="#635f55" />
       </mesh>
 
-      <Fountain />
+      <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} />
       <CastleGate stoneTexture={stoneTexture} />
       <TownBuilding position={[-18, 0, -8]} rotation={0.4} sign="MFERS" accent="#9b45ff" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
       <TownBuilding position={[18, 0, -7.5]} rotation={-0.45} sign="DAO" accent="#52d64f" stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} />
@@ -266,9 +287,286 @@ function TownWorld() {
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
       <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
       <BannerPost position={[7.2, 0, -19.8]} color="#328346" />
-      <TreeCluster />
+      <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );
+}
+
+function Skybox() {
+  const skyTexture = useMemo(() => createSkyTexture(), []);
+  const cloudTexture = useMemo(() => createCloudTexture(), []);
+  const sunGlowTexture = useMemo(() => createSunGlowTexture(), []);
+  const cloudGroupRef = useRef<THREE.Group>(null);
+  const sunRef = useRef<THREE.Mesh>(null);
+  const { camera, scene } = useThree();
+
+  useEffect(() => {
+    const previousBackground = scene.background;
+    scene.background = skyTexture;
+    return () => {
+      if (scene.background === skyTexture) {
+        scene.background = previousBackground;
+      }
+    };
+  }, [scene, skyTexture]);
+
+  useFrame(({ clock }, delta) => {
+    skyTexture.offset.x = (skyTexture.offset.x + delta * 0.0008) % 1;
+    if (cloudGroupRef.current) {
+      cloudGroupRef.current.rotation.y = Math.sin(clock.elapsedTime * 0.025) * 0.018;
+      cloudGroupRef.current.children.forEach((child) => child.lookAt(camera.position));
+    }
+    if (sunRef.current) {
+      sunRef.current.lookAt(camera.position);
+    }
+  });
+
+  const clouds: Array<[number, number, number, number, number, number]> = [
+    [-66, 22, -74, 35, 8.5, -0.08],
+    [-30, 28, -88, 44, 11, 0.04],
+    [28, 25, -86, 39, 10, -0.02],
+    [70, 21, -58, 31, 8.5, 0.12],
+    [-88, 19, -38, 30, 8, -0.16],
+    [10, 38, -112, 38, 9, 0.02],
+    [-8, 17, -68, 52, 7.5, 0],
+  ];
+
+  return (
+    <group renderOrder={-100}>
+      <mesh ref={sunRef} position={[-50, 31, -76]} renderOrder={-90}>
+        <planeGeometry args={[24, 24]} />
+        <meshBasicMaterial
+          map={sunGlowTexture}
+          transparent
+          opacity={0.96}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </mesh>
+
+      <group ref={cloudGroupRef} renderOrder={-80}>
+        {clouds.map(([x, y, z, width, height, rotation], index) => (
+          <mesh key={index} position={[x, y, z]} rotation-z={rotation} renderOrder={-80 + index}>
+            <planeGeometry args={[width, height, 1, 1]} />
+            <meshBasicMaterial
+              map={cloudTexture}
+              color={index % 2 ? "#fff7e4" : "#f8fbff"}
+              transparent
+              opacity={0.58 + (index % 3) * 0.08}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+              fog={false}
+              toneMapped={false}
+            />
+          </mesh>
+        ))}
+      </group>
+    </group>
+  );
+}
+
+function createSkyTexture() {
+  const texture = createCanvasTexture(2048, 1024, (context, width, height) => {
+    const skyGradient = context.createLinearGradient(0, 0, 0, height);
+    skyGradient.addColorStop(0, "#2b79c8");
+    skyGradient.addColorStop(0.2, "#5aa8e3");
+    skyGradient.addColorStop(0.48, "#a7d6f2");
+    skyGradient.addColorStop(0.66, "#f0d7ab");
+    skyGradient.addColorStop(0.8, "#d4c79f");
+    skyGradient.addColorStop(1, "#8ca376");
+    context.fillStyle = skyGradient;
+    context.fillRect(0, 0, width, height);
+
+    const sunX = width * 0.27;
+    const sunY = height * 0.34;
+    const sunGlow = context.createRadialGradient(sunX, sunY, 12, sunX, sunY, width * 0.32);
+    sunGlow.addColorStop(0, "rgba(255, 252, 223, 0.92)");
+    sunGlow.addColorStop(0.08, "rgba(255, 229, 162, 0.58)");
+    sunGlow.addColorStop(0.33, "rgba(255, 202, 133, 0.18)");
+    sunGlow.addColorStop(1, "rgba(255, 202, 133, 0)");
+    context.fillStyle = sunGlow;
+    context.fillRect(0, 0, width, height);
+
+    const horizonGlow = context.createLinearGradient(0, height * 0.48, 0, height * 0.9);
+    horizonGlow.addColorStop(0, "rgba(255, 255, 255, 0)");
+    horizonGlow.addColorStop(0.45, "rgba(255, 247, 219, 0.34)");
+    horizonGlow.addColorStop(1, "rgba(162, 199, 179, 0.12)");
+    context.fillStyle = horizonGlow;
+    context.fillRect(0, height * 0.48, width, height * 0.46);
+
+    paintCumulusBand(context, width, height, 0.11, 0.18, 26);
+    paintCumulusBand(context, width, height, 0.22, 0.24, 34);
+    paintCumulusBand(context, width, height, 0.32, 0.34, 38);
+    paintCumulusBand(context, width, height, 0.48, 0.24, 52);
+    paintWisps(context, width, height, 52, 0.03, 0.28, 0.44);
+    paintWisps(context, width, height, 44, 0.1, 0.58, 0.32);
+    paintWisps(context, width, height, 36, 0.34, 0.72, 0.36);
+    paintHorizonClouds(context, width, height);
+
+    const vignette = context.createRadialGradient(width / 2, height * 0.45, height * 0.08, width / 2, height * 0.45, width * 0.72);
+    vignette.addColorStop(0, "rgba(255, 255, 255, 0)");
+    vignette.addColorStop(0.72, "rgba(53, 116, 163, 0)");
+    vignette.addColorStop(1, "rgba(42, 89, 122, 0.22)");
+    context.fillStyle = vignette;
+    context.fillRect(0, 0, width, height);
+  });
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createCloudTexture() {
+  const texture = createCanvasTexture(768, 256, (context, width, height) => {
+    for (let layer = 0; layer < 4; layer += 1) {
+      for (let i = 0; i < 80; i += 1) {
+        const seed = i + layer * 91.7;
+        const x = noise01(seed * 5.7) * width;
+        const y = height * (0.35 + noise01(seed * 2.3) * 0.25);
+        const radiusX = width * (0.03 + noise01(seed * 9.1) * 0.09);
+        const radiusY = height * (0.08 + noise01(seed * 4.4) * 0.2);
+        const alpha = 0.055 + noise01(seed * 8.8) * 0.14;
+        const gradient = context.createRadialGradient(x, y, 0, x, y, radiusX);
+        gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+        gradient.addColorStop(0.58, `rgba(255, 249, 232, ${alpha * 0.72})`);
+        gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.ellipse(x, y, radiusX, radiusY, noise01(seed) * Math.PI, 0, Math.PI * 2);
+        context.fill();
+      }
+    }
+
+    const shade = context.createLinearGradient(0, height * 0.48, 0, height);
+    shade.addColorStop(0, "rgba(255, 255, 255, 0)");
+    shade.addColorStop(1, "rgba(140, 176, 194, 0.24)");
+    context.globalCompositeOperation = "source-atop";
+    context.fillStyle = shade;
+    context.fillRect(0, 0, width, height);
+    context.globalCompositeOperation = "source-over";
+  });
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createSunGlowTexture() {
+  const texture = createCanvasTexture(512, 512, (context, width, height) => {
+    const center = width / 2;
+    const glow = context.createRadialGradient(center, center, 0, center, center, width / 2);
+    glow.addColorStop(0, "rgba(255, 255, 236, 1)");
+    glow.addColorStop(0.08, "rgba(255, 243, 191, 0.96)");
+    glow.addColorStop(0.2, "rgba(255, 220, 136, 0.38)");
+    glow.addColorStop(0.52, "rgba(255, 197, 117, 0.12)");
+    glow.addColorStop(1, "rgba(255, 197, 117, 0)");
+    context.fillStyle = glow;
+    context.fillRect(0, 0, width, height);
+
+    context.strokeStyle = "rgba(255, 249, 215, 0.22)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(center, center, width * 0.095, 0, Math.PI * 2);
+    context.stroke();
+  });
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function paintWisps(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  count: number,
+  minY: number,
+  maxY: number,
+  opacity: number,
+) {
+  context.save();
+  context.globalCompositeOperation = "screen";
+  for (let i = 0; i < count; i += 1) {
+    const x = noise01(i * 12.77 + minY * 300) * width;
+    const y = height * (minY + noise01(i * 4.21 + maxY * 80) * (maxY - minY));
+    const length = width * (0.06 + noise01(i * 8.43) * 0.2);
+    const thickness = height * (0.006 + noise01(i * 2.91) * 0.018);
+    const rotation = -0.08 + noise01(i * 6.17) * 0.2;
+    const gradient = context.createLinearGradient(x - length, y, x + length, y);
+    gradient.addColorStop(0, "rgba(255, 255, 255, 0)");
+    gradient.addColorStop(0.5, `rgba(255, 255, 255, ${opacity * (0.45 + noise01(i * 3.2) * 0.55)})`);
+    gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+    context.translate(x, y);
+    context.rotate(rotation);
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.ellipse(0, 0, length, thickness, 0, 0, Math.PI * 2);
+    context.fill();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  context.restore();
+}
+
+function paintCumulusBand(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  yRatio: number,
+  opacity: number,
+  count: number,
+) {
+  context.save();
+  context.globalCompositeOperation = "screen";
+  for (let i = 0; i < count; i += 1) {
+    const seed = i * 17.91 + yRatio * 1000;
+    const x = (i / count) * width + (noise01(seed * 1.7) - 0.5) * width * 0.08;
+    const y = height * (yRatio + (noise01(seed * 3.2) - 0.5) * 0.09);
+    const radiusX = width * (0.03 + noise01(seed * 4.6) * 0.07);
+    const radiusY = height * (0.012 + noise01(seed * 5.4) * 0.045);
+    const alpha = opacity * (0.45 + noise01(seed * 2.8) * 0.55);
+    const highlight = context.createRadialGradient(x, y - radiusY * 0.4, 0, x, y, radiusX);
+    highlight.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+    highlight.addColorStop(0.48, `rgba(255, 248, 226, ${alpha * 0.7})`);
+    highlight.addColorStop(1, "rgba(255, 255, 255, 0)");
+    context.fillStyle = highlight;
+    context.beginPath();
+    context.ellipse(x, y, radiusX, radiusY, noise01(seed) * 0.18 - 0.09, 0, Math.PI * 2);
+    context.fill();
+
+    const shade = context.createRadialGradient(x, y + radiusY * 0.45, 0, x, y + radiusY * 0.45, radiusX * 1.08);
+    shade.addColorStop(0, `rgba(135, 176, 202, ${alpha * 0.2})`);
+    shade.addColorStop(0.72, `rgba(135, 176, 202, ${alpha * 0.09})`);
+    shade.addColorStop(1, "rgba(135, 176, 202, 0)");
+    context.globalCompositeOperation = "source-over";
+    context.fillStyle = shade;
+    context.beginPath();
+    context.ellipse(x, y + radiusY * 0.35, radiusX * 0.92, radiusY * 0.72, 0, 0, Math.PI * 2);
+    context.fill();
+    context.globalCompositeOperation = "screen";
+  }
+  context.restore();
+}
+
+function paintHorizonClouds(context: CanvasRenderingContext2D, width: number, height: number) {
+  context.save();
+  for (let i = 0; i < 64; i += 1) {
+    const x = noise01(i * 18.13) * width;
+    const y = height * (0.56 + noise01(i * 4.31) * 0.17);
+    const radiusX = width * (0.025 + noise01(i * 8.9) * 0.09);
+    const radiusY = height * (0.012 + noise01(i * 3.8) * 0.04);
+    const gradient = context.createRadialGradient(x, y, 0, x, y, radiusX);
+    gradient.addColorStop(0, "rgba(255, 246, 219, 0.28)");
+    gradient.addColorStop(0.62, "rgba(237, 242, 234, 0.15)");
+    gradient.addColorStop(1, "rgba(237, 242, 234, 0)");
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.ellipse(x, y, radiusX, radiusY, 0, 0, Math.PI * 2);
+    context.fill();
+  }
+  context.restore();
 }
 
 function configureTile(texture: THREE.Texture, repeatX: number, repeatY: number) {
@@ -277,6 +575,136 @@ function configureTile(texture: THREE.Texture, repeatX: number, repeatY: number)
   texture.repeat.set(repeatX, repeatY);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
+}
+
+function createBarkTexture() {
+  return createCanvasTexture(128, 256, (context, width, height) => {
+    const gradient = context.createLinearGradient(0, 0, width, 0);
+    gradient.addColorStop(0, "#5a311c");
+    gradient.addColorStop(0.5, "#8b5938");
+    gradient.addColorStop(1, "#4b2a18");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 95; i += 1) {
+      const x = noise01(i * 13.17) * width;
+      const lineWidth = 1 + noise01(i * 7.81) * 3.5;
+      const light = 48 + Math.floor(noise01(i * 5.43) * 80);
+      context.strokeStyle = `rgba(${light + 28}, ${Math.max(24, light - 5)}, ${Math.max(14, light - 22)}, 0.42)`;
+      context.lineWidth = lineWidth;
+      context.beginPath();
+      context.moveTo(x, 0);
+      for (let y = 0; y <= height; y += 18) {
+        context.lineTo(x + Math.sin(y * 0.045 + i) * (2 + noise01(i) * 4), y);
+      }
+      context.stroke();
+    }
+
+    for (let i = 0; i < 34; i += 1) {
+      const y = noise01(i * 19.9) * height;
+      context.fillStyle = "rgba(32, 19, 12, 0.38)";
+      context.fillRect(0, y, width, 1 + noise01(i * 3.1) * 3);
+    }
+  }, 1.4, 2.6);
+}
+
+function createLeafTexture() {
+  return createCanvasTexture(128, 128, (context, width, height) => {
+    context.fillStyle = "#5a953e";
+    context.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 260; i += 1) {
+      const x = noise01(i * 4.17) * width;
+      const y = noise01(i * 9.41) * height;
+      const size = 1.2 + noise01(i * 2.07) * 4.5;
+      const bright = noise01(i * 6.19) > 0.52;
+      context.fillStyle = bright ? "rgba(166, 204, 99, 0.34)" : "rgba(31, 77, 35, 0.28)";
+      context.beginPath();
+      context.ellipse(x, y, size * 1.25, size, noise01(i) * Math.PI, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    for (let i = 0; i < 26; i += 1) {
+      const y = noise01(i * 8.29) * height;
+      context.strokeStyle = "rgba(238, 246, 179, 0.13)";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(width, y + Math.sin(i) * 12);
+      context.stroke();
+    }
+  }, 2.1, 2.1);
+}
+
+function createWaterTexture() {
+  return createCanvasTexture(256, 256, (context, width, height) => {
+    const gradient = context.createRadialGradient(width / 2, height / 2, 8, width / 2, height / 2, width / 2);
+    gradient.addColorStop(0, "#bdf8ff");
+    gradient.addColorStop(0.42, "#5bd4ed");
+    gradient.addColorStop(1, "#1f8eb1");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 42; i += 1) {
+      const y = noise01(i * 11.3) * height;
+      const amplitude = 3 + noise01(i * 2.1) * 12;
+      context.strokeStyle = i % 3 === 0 ? "rgba(255, 255, 255, 0.34)" : "rgba(103, 239, 255, 0.28)";
+      context.lineWidth = 1 + noise01(i * 5.7) * 2.5;
+      context.beginPath();
+      for (let x = -12; x <= width + 12; x += 12) {
+        const waveY = y + Math.sin(x * 0.045 + i * 1.7) * amplitude;
+        if (x === -12) context.moveTo(x, waveY);
+        else context.lineTo(x, waveY);
+      }
+      context.stroke();
+    }
+
+    for (let i = 0; i < 90; i += 1) {
+      const x = noise01(i * 8.83) * width;
+      const y = noise01(i * 3.61) * height;
+      const size = 1 + noise01(i * 12.7) * 2.6;
+      context.fillStyle = "rgba(255, 255, 255, 0.38)";
+      context.beginPath();
+      context.arc(x, y, size, 0, Math.PI * 2);
+      context.fill();
+    }
+  }, 1.5, 1.5);
+}
+
+function createCanvasTexture(
+  width: number,
+  height: number,
+  paint: (context: CanvasRenderingContext2D, width: number, height: number) => void,
+  repeatX = 1,
+  repeatY = 1,
+) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas textures require a 2D context.");
+  paint(context, width, height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.center.set(0.5, 0.5);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function treeVariant(x: number, z: number) {
+  return noise01(x * 12.9898 + z * 78.233);
+}
+
+function noise01(value: number) {
+  return fract(Math.sin(value) * 43758.5453123);
+}
+
+function fract(value: number) {
+  return value - Math.floor(value);
 }
 
 function RoadStrip({
@@ -296,7 +724,13 @@ function RoadStrip({
   );
 }
 
-function WorldBackdrop() {
+function WorldBackdrop({
+  barkTexture,
+  leafTexture,
+}: {
+  barkTexture: THREE.Texture;
+  leafTexture: THREE.Texture;
+}) {
   const treeline = [-38, -31, -24, -17, 18, 25, 32, 39];
 
   return (
@@ -314,7 +748,13 @@ function WorldBackdrop() {
         <meshBasicMaterial color="#888c78" />
       </mesh>
       {treeline.map((x, index) => (
-        <TownTree key={index} position={[x, 0, -42 - (index % 2) * 3]} scale={0.95 + (index % 3) * 0.12} />
+        <TownTree
+          key={index}
+          position={[x, 0, -42 - (index % 2) * 3]}
+          scale={0.95 + (index % 3) * 0.12}
+          barkTexture={barkTexture}
+          leafTexture={leafTexture}
+        />
       ))}
     </group>
   );
@@ -358,7 +798,13 @@ function BannerPost({
   );
 }
 
-function TreeCluster() {
+function TreeCluster({
+  barkTexture,
+  leafTexture,
+}: {
+  barkTexture: THREE.Texture;
+  leafTexture: THREE.Texture;
+}) {
   const trees: Array<[number, number, number, number]> = [
     [-31, 0, -18, 1.2],
     [-27, 0, -7, 0.9],
@@ -374,69 +820,211 @@ function TreeCluster() {
   return (
     <group>
       {trees.map(([x, y, z, scale], index) => (
-        <TownTree key={index} position={[x, y, z]} scale={scale} />
+        <TownTree
+          key={index}
+          position={[x, y, z]}
+          scale={scale}
+          barkTexture={barkTexture}
+          leafTexture={leafTexture}
+        />
       ))}
     </group>
   );
 }
 
-function TownTree({ position, scale = 1 }: { position: [number, number, number]; scale?: number }) {
+function TownTree({
+  position,
+  scale = 1,
+  barkTexture,
+  leafTexture,
+}: {
+  position: [number, number, number];
+  scale?: number;
+  barkTexture: THREE.Texture;
+  leafTexture: THREE.Texture;
+}) {
+  const variant = treeVariant(position[0], position[2]);
+  const leafColors = ["#3f7434", "#4e8a3b", "#5f9e45", "#77aa50"];
+  const barkColor = variant > 0.5 ? "#7b4c2f" : "#895737";
+  const bend = (variant - 0.5) * 0.16;
+  const canopyHeight = 2.45 + variant * 0.35;
+
   return (
     <group position={position} scale={scale}>
-      <mesh position={[0, 0.78, 0]}>
-        <cylinderGeometry args={[0.16, 0.26, 1.55, 7]} />
-        <meshBasicMaterial color="#6b3b1f" />
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.018, 0]}>
+        <circleGeometry args={[1.38, 28]} />
+        <meshBasicMaterial color="#1c2615" transparent opacity={0.22} depthWrite={false} />
       </mesh>
-      <mesh position={[0, 2.0, 0]}>
-        <coneGeometry args={[1.05, 1.9, 8]} />
-        <meshBasicMaterial color="#4f9a3f" />
+
+      <mesh position={[0, 0.9, 0]} rotation-z={bend}>
+        <cylinderGeometry args={[0.2, 0.34, 1.8, 12]} />
+        <meshStandardMaterial map={barkTexture} color={barkColor} roughness={0.96} />
       </mesh>
-      <mesh position={[0, 2.75, 0]}>
-        <coneGeometry args={[0.78, 1.55, 8]} />
-        <meshBasicMaterial color="#66ad46" />
-      </mesh>
+
+      {[
+        [-0.23, 0.18, 0.2, 0.62, 1.0],
+        [0.28, 0.2, -0.18, -0.58, 0.85],
+        [0.05, 0.13, -0.36, 0.2, 0.65],
+      ].map(([x, y, z, rot, length], index) => (
+        <mesh key={`root-${index}`} position={[x, y, z]} rotation-z={rot} rotation-y={index * 1.8}>
+          <cylinderGeometry args={[0.06, 0.12, length, 8]} />
+          <meshStandardMaterial map={barkTexture} color="#6b4227" roughness={1} />
+        </mesh>
+      ))}
+
+      {[
+        [-0.42, 1.45, 0.14, 0.7, 0.82, 0.1],
+        [0.44, 1.68, -0.08, -0.72, 0.92, 1.5],
+        [0.08, 1.86, -0.44, 0.54, 0.7, 2.85],
+      ].map(([x, y, z, rotZ, length, rotY], index) => (
+        <mesh key={`branch-${index}`} position={[x, y, z]} rotation-y={rotY} rotation-z={rotZ}>
+          <cylinderGeometry args={[0.05, 0.12, length, 8]} />
+          <meshStandardMaterial map={barkTexture} color={barkColor} roughness={0.96} />
+        </mesh>
+      ))}
+
+      {[
+        [0, canopyHeight, 0, 1.28, 0.98, 1.18, 0],
+        [-0.58, canopyHeight - 0.22, 0.12, 0.9, 0.72, 0.82, 1],
+        [0.55, canopyHeight - 0.08, -0.06, 0.92, 0.78, 0.86, 2],
+        [0.05, canopyHeight + 0.45, -0.05, 0.9, 0.75, 0.88, 3],
+        [0.08, canopyHeight - 0.36, 0.55, 0.78, 0.64, 0.72, 1],
+      ].map(([x, y, z, sx, sy, sz, colorIndex], index) => (
+        <mesh
+          key={`leaf-${index}`}
+          position={[x, y, z]}
+          scale={[sx, sy, sz]}
+          rotation-y={variant * Math.PI + index * 0.7}
+        >
+          <sphereGeometry args={[1, 18, 12]} />
+          <meshStandardMaterial
+            map={leafTexture}
+            color={leafColors[colorIndex]}
+            roughness={0.88}
+            metalness={0}
+            flatShading
+          />
+        </mesh>
+      ))}
+
+      {[
+        [-0.75, canopyHeight - 0.1, 0.45, 0.08],
+        [0.82, canopyHeight + 0.1, 0.2, -0.12],
+        [0.16, canopyHeight + 0.75, -0.48, 0.16],
+      ].map(([x, y, z, rot], index) => (
+        <mesh key={`leaf-tuft-${index}`} position={[x, y, z]} rotation-z={rot} rotation-y={index * 1.35}>
+          <coneGeometry args={[0.46, 0.82, 7]} />
+          <meshStandardMaterial
+            map={leafTexture}
+            color={leafColors[(index + 2) % leafColors.length]}
+            roughness={0.9}
+            flatShading
+          />
+        </mesh>
+      ))}
     </group>
   );
 }
 
-function Fountain() {
+function Fountain({
+  stoneTexture,
+  waterTexture,
+}: {
+  stoneTexture: THREE.Texture;
+  waterTexture: THREE.Texture;
+}) {
+  const surfaceRef = useRef<THREE.Mesh>(null);
+  const rippleRef = useRef<THREE.Mesh>(null);
+  const spillRef = useRef<THREE.Group>(null);
+
+  useFrame(({ clock }, delta) => {
+    const elapsed = clock.elapsedTime;
+    waterTexture.offset.x = (waterTexture.offset.x + delta * 0.018) % 1;
+    waterTexture.offset.y = (waterTexture.offset.y + delta * 0.026) % 1;
+    waterTexture.rotation = elapsed * 0.035;
+
+    if (surfaceRef.current) {
+      surfaceRef.current.rotation.z = elapsed * 0.045;
+    }
+    if (rippleRef.current) {
+      const pulse = 1 + Math.sin(elapsed * 1.9) * 0.018;
+      rippleRef.current.scale.set(pulse, pulse, pulse);
+      rippleRef.current.rotation.z = -elapsed * 0.08;
+    }
+    if (spillRef.current) {
+      const shimmer = 1 + Math.sin(elapsed * 6.2) * 0.025;
+      spillRef.current.scale.set(shimmer, 1, shimmer);
+    }
+  });
+
   return (
     <group position={[0, 0, 0]}>
       <mesh position={[0, 0.18, 0]}>
-        <cylinderGeometry args={[4.45, 4.9, 0.36, 72]} />
-        <meshBasicMaterial color="#6f6a60" />
+        <cylinderGeometry args={[4.45, 4.9, 0.36, 96]} />
+        <meshStandardMaterial map={stoneTexture} color="#8f887c" roughness={0.92} />
       </mesh>
       <mesh rotation-x={Math.PI / 2} position={[0, 0.5, 0]}>
-        <torusGeometry args={[4.08, 0.26, 8, 72]} />
-        <meshBasicMaterial color="#8a8578" />
+        <torusGeometry args={[4.08, 0.26, 12, 96]} />
+        <meshStandardMaterial map={stoneTexture} color="#aaa293" roughness={0.86} />
       </mesh>
-      <mesh position={[0, 0.61, 0]}>
-        <cylinderGeometry args={[3.62, 3.62, 0.12, 64]} />
-        <meshBasicMaterial color="#58cceb" transparent opacity={0.78} />
+      {Array.from({ length: 24 }, (_, index) => {
+        const angle = (index / 24) * Math.PI * 2;
+        return (
+          <mesh
+            key={`basin-stone-${index}`}
+            position={[Math.sin(angle) * 4.45, 0.58, Math.cos(angle) * 4.45]}
+            rotation-y={angle}
+          >
+            <boxGeometry args={[0.52, 0.18, 0.24]} />
+            <meshStandardMaterial map={stoneTexture} color={index % 2 ? "#8a8376" : "#9a9285"} roughness={0.95} />
+          </mesh>
+        );
+      })}
+      <mesh ref={surfaceRef} rotation-x={-Math.PI / 2} position={[0, 0.635, 0]}>
+        <circleGeometry args={[3.72, 128]} />
+        <meshPhysicalMaterial
+          map={waterTexture}
+          color="#6edfff"
+          roughness={0.06}
+          metalness={0}
+          transmission={0.22}
+          thickness={0.36}
+          transparent
+          opacity={0.64}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh ref={rippleRef} rotation-x={Math.PI / 2} position={[0, 0.665, 0]}>
+        <torusGeometry args={[2.35, 0.018, 8, 128]} />
+        <meshBasicMaterial color="#e8fbff" transparent opacity={0.36} depthWrite={false} />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.675, 0]}>
+        <torusGeometry args={[1.28, 0.014, 8, 96]} />
+        <meshBasicMaterial color="#b7f2ff" transparent opacity={0.3} depthWrite={false} />
       </mesh>
       <mesh position={[0, 1.08, 0]}>
-        <cylinderGeometry args={[0.56, 0.72, 1.15, 24]} />
-        <meshBasicMaterial color="#8b867d" />
+        <cylinderGeometry args={[0.56, 0.72, 1.15, 32]} />
+        <meshStandardMaterial map={stoneTexture} color="#958f85" roughness={0.9} />
       </mesh>
       <mesh position={[0, 1.77, 0]}>
-        <cylinderGeometry args={[1.05, 0.72, 0.38, 36]} />
-        <meshBasicMaterial color="#7d786f" />
+        <cylinderGeometry args={[1.05, 0.72, 0.38, 48]} />
+        <meshStandardMaterial map={stoneTexture} color="#8e877c" roughness={0.88} />
       </mesh>
       <mesh position={[0, 2.02, 0]}>
-        <sphereGeometry args={[0.38, 24, 16]} />
-        <meshBasicMaterial color="#f7f7ef" />
+        <sphereGeometry args={[0.38, 32, 18]} />
+        <meshStandardMaterial color="#f2efe4" roughness={0.52} metalness={0.02} />
       </mesh>
-      {[
-        [0.6, 1.62, 0],
-        [-0.6, 1.62, 0],
-        [0, 1.62, 0.6],
-        [0, 1.62, -0.6],
-      ].map(([x, y, z], index) => (
-        <mesh key={index} position={[x, y, z]} rotation-x={Math.PI / 2}>
-          <cylinderGeometry args={[0.035, 0.035, 1.15, 8]} />
-          <meshBasicMaterial color="#a8f1ff" transparent opacity={0.68} />
-        </mesh>
-      ))}
+
+      <group ref={spillRef}>
+        <WaterArc start={[0.2, 2.06, 0]} mid={[1.65, 2.45, 0]} end={[3.22, 0.78, 0]} radius={0.033} />
+        <WaterArc start={[-0.2, 2.06, 0]} mid={[-1.65, 2.42, 0]} end={[-3.22, 0.78, 0]} radius={0.033} />
+        <WaterArc start={[0, 2.06, 0.2]} mid={[0, 2.44, 1.65]} end={[0, 0.78, 3.22]} radius={0.033} />
+        <WaterArc start={[0, 2.06, -0.2]} mid={[0, 2.42, -1.65]} end={[0, 0.78, -3.22]} radius={0.033} />
+        <WaterArc start={[0, 2.18, 0]} mid={[0, 2.92, 0]} end={[0, 2.24, 0]} radius={0.045} opacity={0.52} />
+      </group>
+
+      <FountainDroplets />
       <Text
         position={[0, 0.92, 3.95]}
         rotation-x={-0.12}
@@ -448,6 +1036,80 @@ function Fountain() {
       >
         MFERS NEVER DIE
       </Text>
+    </group>
+  );
+}
+
+function WaterArc({
+  start,
+  mid,
+  end,
+  radius,
+  opacity = 0.44,
+}: {
+  start: [number, number, number];
+  mid: [number, number, number];
+  end: [number, number, number];
+  radius: number;
+  opacity?: number;
+}) {
+  const materialRef = useRef<THREE.MeshPhysicalMaterial>(null);
+  const curve = useMemo(
+    () => new THREE.CatmullRomCurve3([
+      new THREE.Vector3(...start),
+      new THREE.Vector3(...mid),
+      new THREE.Vector3(...end),
+    ]),
+    [end, mid, start],
+  );
+
+  useFrame(({ clock }) => {
+    if (!materialRef.current) return;
+    materialRef.current.opacity = opacity + Math.sin(clock.elapsedTime * 7 + start[0] * 3 + start[2]) * 0.06;
+  });
+
+  return (
+    <mesh>
+      <tubeGeometry args={[curve, 28, radius, 10, false]} />
+      <meshPhysicalMaterial
+        ref={materialRef}
+        color="#bff7ff"
+        roughness={0.02}
+        transmission={0.35}
+        thickness={0.24}
+        transparent
+        opacity={opacity}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
+function FountainDroplets() {
+  const groupRef = useRef<THREE.Group>(null);
+  const droplets = useMemo(() => Array.from({ length: 34 }, (_, index) => {
+    const angle = index * 2.399963;
+    const radius = 0.45 + (index % 8) * 0.12;
+    const height = 1.85 + ((index * 7) % 11) * 0.08;
+    const size = 0.026 + (index % 4) * 0.008;
+    return { angle, height, radius, size };
+  }), []);
+
+  useFrame(({ clock }) => {
+    if (groupRef.current) groupRef.current.rotation.y = clock.elapsedTime * 0.14;
+  });
+
+  return (
+    <group ref={groupRef}>
+      {droplets.map(({ angle, height, radius, size }, index) => (
+        <mesh
+          key={index}
+          position={[Math.sin(angle) * radius, height, Math.cos(angle) * radius]}
+        >
+          <sphereGeometry args={[size, 8, 6]} />
+          <meshBasicMaterial color="#e6fbff" transparent opacity={0.48} depthWrite={false} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -797,8 +1459,8 @@ function isTypingTarget(target: EventTarget | null) {
 function isGameKey(event: KeyboardEvent) {
   const key = event.key.toLowerCase();
   const code = event.code.toLowerCase();
-  return ["w", "a", "s", "d", "q", "e", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
-    || ["space", "spacebar"].includes(code);
+  return ["w", "a", "s", "d", "q", "e", "f", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
+    || ["space", "spacebar", "keyf"].includes(code);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -807,4 +1469,19 @@ function clamp(value: number, min: number, max: number) {
 
 function wrapAngle(value: number) {
   return Math.atan2(Math.sin(value), Math.cos(value));
+}
+
+function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>): NpcSnapshot | null {
+  let nearest: NpcSnapshot | null = null;
+  let nearestDistance = Infinity;
+  for (const npc of npcs.values()) {
+    const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
+    if (distance < nearestDistance) {
+      nearest = npc;
+      nearestDistance = distance;
+    }
+  }
+
+  if (nearest && nearestDistance <= 3.25) return nearest;
+  return null;
 }

@@ -388,6 +388,14 @@ button {
   height: 13px;
 }
 
+.map-dot.npc {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #8eff75;
+  border-color: #173014;
+}
+
 .online-row {
   display: flex;
   gap: 16px;

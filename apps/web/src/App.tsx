@@ -114,8 +114,10 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
       >
         <TownScene
           players={room.players}
+          npcs={room.npcs}
           localSessionId={room.sessionId}
           sendInput={room.sendInput}
+          sendInteract={room.sendInteract}
         />
       </Canvas>
 
@@ -126,6 +128,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         connectionError={room.error}
         chat={room.chat}
         players={room.players}
+        npcs={room.npcs}
         localSessionId={room.sessionId}
         onSendChat={room.sendChat}
         onExit={onExit}

@@ -29,7 +29,9 @@ export const AGENT = {
 };
 
 export type IdentityType = "guest" | "wallet" | "agent";
+export type SpeakerType = IdentityType | "npc";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
+export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard";
 
 export type JoinOptions = {
   name?: string;
@@ -61,10 +63,24 @@ export type PlayerSnapshot = {
   lastSeq: number;
 };
 
+export type NpcSnapshot = {
+  id: string;
+  name: string;
+  role: NpcRole;
+  avatarSeed: number;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  animation: AnimationState;
+  dialogue: string;
+  questId: string;
+};
+
 export type ChatMessage = {
   sessionId: string;
   name: string;
-  identityType: IdentityType;
+  identityType: SpeakerType;
   text: string;
   sentAt: number;
 };
@@ -76,12 +92,24 @@ export type AgentVisiblePlayer = Pick<
   distance: number;
 };
 
+export type AgentVisibleNpc = Pick<
+  NpcSnapshot,
+  "id" | "name" | "role" | "avatarSeed" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId"
+> & {
+  distance: number;
+};
+
+export type ClientInteract = {
+  npcId?: string;
+};
+
 export type AgentObservation = {
   self: PlayerSnapshot;
   nearbyPlayers: AgentVisiblePlayer[];
+  nearbyNpcs: AgentVisibleNpc[];
   recentChat: ChatMessage[];
   bounds: typeof PLAZA_BOUNDS;
-  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat">;
+  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat" | "interact">;
 };
 
 export function sanitizePlayerName(input: unknown, fallback = "mfer"): string {

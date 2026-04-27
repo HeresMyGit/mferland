@@ -10,6 +10,8 @@ import {
   type ChatMessage,
   type ClientInput,
   type IdentityType,
+  type NpcRole,
+  type NpcSnapshot,
   type PlayerSnapshot,
 } from "@mferland/shared";
 
@@ -38,6 +40,19 @@ type RuntimePlayer = {
   lastSeq: number;
 };
 
+type RuntimeNpc = {
+  name: string;
+  role: NpcRole;
+  avatarSeed: number;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  animation: PlayerSnapshot["animation"];
+  dialogue: string;
+  questId: string;
+};
+
 const config = readConfig();
 const agents: AgentCharacter[] = [];
 
@@ -48,6 +63,7 @@ class AgentCharacter {
   private readonly chatEnabled: boolean;
   private room: Room | null = null;
   private players = new Map<string, PlayerSnapshot>();
+  private npcs = new Map<string, NpcSnapshot>();
   private recentChat: ChatMessage[] = [];
   private target: Point | null = null;
   private yaw = Math.PI;
@@ -94,6 +110,24 @@ class AgentCharacter {
         });
       });
       this.players = next;
+
+      const nextNpcs = new Map<string, NpcSnapshot>();
+      state.npcs?.forEach((npc: RuntimeNpc, id: string) => {
+        nextNpcs.set(id, {
+          id,
+          name: npc.name,
+          role: npc.role,
+          avatarSeed: npc.avatarSeed,
+          x: npc.x,
+          y: npc.y,
+          z: npc.z,
+          yaw: npc.yaw,
+          animation: npc.animation,
+          dialogue: npc.dialogue,
+          questId: npc.questId,
+        });
+      });
+      this.npcs = nextNpcs;
     });
 
     room.onMessage("chat", (message: ChatMessage) => {
@@ -148,16 +182,34 @@ class AgentCharacter {
       .filter((player) => player.distance <= AGENT.observationRadius)
       .sort((a, b) => a.distance - b.distance);
 
+    const nearbyNpcs = Array.from(this.npcs.values())
+      .map((npc) => ({
+        ...npc,
+        distance: distance2d(self, npc),
+      }))
+      .filter((npc) => npc.distance <= AGENT.observationRadius)
+      .sort((a, b) => a.distance - b.distance);
+
     return {
       self,
       nearbyPlayers,
+      nearbyNpcs,
       recentChat: this.recentChat.slice(-8),
       bounds: PLAZA_BOUNDS,
-      availableActions: ["move", "look", "jump", "sprint", "chat"],
+      availableActions: ["move", "look", "jump", "sprint", "chat", "interact"],
     };
   }
 
   private decide(observation: AgentObservation, now: number) {
+    const nearestQuestNpc = observation.nearbyNpcs.find((npc) => npc.role === "quest_giver" && npc.distance < 3.2);
+    if (nearestQuestNpc && Math.random() < 0.18) {
+      this.target = null;
+      this.yaw = Math.atan2(nearestQuestNpc.x - observation.self.x, nearestQuestNpc.z - observation.self.z);
+      this.room?.send("interact", { npcId: nearestQuestNpc.id });
+      this.nextChatAt = Math.max(this.nextChatAt, now + 2500);
+      return;
+    }
+
     const nearest = observation.nearbyPlayers[0];
     if (nearest && nearest.distance < 4.4) {
       this.target = null;
@@ -210,6 +262,7 @@ class AgentCharacter {
       "nice roof upgrade",
       nearbyName ? `gm ${nearbyName}` : "patrolling town",
       observation.nearbyPlayers.length > 1 ? "busy town today" : "quiet vibes",
+      observation.nearbyNpcs.length > 0 ? `checking in with ${observation.nearbyNpcs[0].name}` : "looking for quests",
     ];
     const text = prompts[Math.floor(Math.random() * prompts.length)].slice(0, CHAT.maxLength);
     this.room.send("chat", { text });

@@ -3,8 +3,10 @@ import { Client, type Room } from "colyseus.js";
 import {
   ROOM_NAME,
   type ChatMessage,
+  type ClientInteract,
   type ClientInput,
   type JoinOptions,
+  type NpcSnapshot,
   type PlayerSnapshot,
 } from "@mferland/shared";
 
@@ -15,6 +17,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Map<string, PlayerSnapshot>>(new Map());
+  const [npcs, setNpcs] = useState<Map<string, NpcSnapshot>>(new Map());
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const roomRef = useRef<Room | null>(null);
 
@@ -60,6 +63,24 @@ export function useTownRoom(identity: JoinOptions) {
             });
           });
           setPlayers(next);
+
+          const nextNpcs = new Map<string, NpcSnapshot>();
+          state.npcs?.forEach((npc: NpcSnapshot, id: string) => {
+            nextNpcs.set(id, {
+              id,
+              name: npc.name,
+              role: npc.role,
+              avatarSeed: npc.avatarSeed,
+              x: npc.x,
+              y: npc.y,
+              z: npc.z,
+              yaw: npc.yaw,
+              animation: npc.animation,
+              dialogue: npc.dialogue,
+              questId: npc.questId,
+            });
+          });
+          setNpcs(nextNpcs);
         });
 
         room.onMessage("chat", (message: ChatMessage) => {
@@ -92,13 +113,19 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("chat", { text });
   }, []);
 
+  const sendInteract = useCallback((message: ClientInteract = {}) => {
+    roomRef.current?.send("interact", message);
+  }, []);
+
   return {
     status,
     error,
     sessionId,
     players,
+    npcs,
     chat,
     sendInput,
     sendChat,
+    sendInteract,
   };
 }

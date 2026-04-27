@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useMemo, useState } from "react";
 import { LogOut, type LucideIcon } from "lucide-react";
-import { CHAT, PLAZA_BOUNDS, type ChatMessage, type PlayerSnapshot } from "@mferland/shared";
+import { CHAT, PLAZA_BOUNDS, type ChatMessage, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
 
 type HudProps = {
@@ -13,6 +13,7 @@ type HudProps = {
   connectionError: string | null;
   chat: ChatMessage[];
   players: Map<string, PlayerSnapshot>;
+  npcs: Map<string, NpcSnapshot>;
   localSessionId: string | null;
   quickSlots: Array<{ icon: LucideIcon; label: string }>;
   menuButtons: Array<{ icon: LucideIcon; label: string }>;
@@ -27,6 +28,7 @@ export function Hud({
   connectionError,
   chat,
   players,
+  npcs,
   localSessionId,
   quickSlots,
   menuButtons,
@@ -78,6 +80,17 @@ export function Hud({
               }}
             />
           ))}
+          {Array.from(npcs.values()).map((npc) => (
+            <span
+              key={npc.id}
+              className="map-dot npc"
+              title={npc.name}
+              style={{
+                left: `${normalize(npc.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+                top: `${normalize(npc.z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+              }}
+            />
+          ))}
         </div>
         <div className="online-row">
           <span>Online: {playerCount}</span>
@@ -93,6 +106,7 @@ export function Hud({
             <p key={`${message.sentAt}-${index}`}>
               <strong>{message.name}: </strong>
               {message.identityType === "agent" && <em>agent </em>}
+              {message.identityType === "npc" && <em>npc </em>}
               {message.text}
             </p>
           ))}

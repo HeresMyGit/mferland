@@ -5,13 +5,14 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
-import { type AnimationState, type PlayerSnapshot } from "@mferland/shared";
+import { type AnimationState, type NpcSnapshot, type PlayerSnapshot } from "@mferland/shared";
 import { generateRandomMferTraits, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
 
 type MferAvatarProps = {
-  player: PlayerSnapshot;
+  player: PlayerSnapshot | NpcSnapshot;
   isLocal?: boolean;
+  isNpc?: boolean;
 };
 
 type LoadedMferGltf = {
@@ -29,7 +30,7 @@ const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.Animation
 const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 
-export function MferAvatar({ player, isLocal = false }: MferAvatarProps) {
+export function MferAvatar({ player, isLocal = false, isNpc = false }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
@@ -37,7 +38,8 @@ export function MferAvatar({ player, isLocal = false }: MferAvatarProps) {
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
-  const label = player.identityType === "agent" ? `${player.name} [AI]` : player.name;
+  const isAgentPlayer = "identityType" in player && player.identityType === "agent";
+  const label = isNpc ? `${player.name} [NPC]` : isAgentPlayer ? `${player.name} [AI]` : player.name;
 
   const clips = useMemo(() => {
     const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
@@ -122,7 +124,7 @@ export function MferAvatar({ player, isLocal = false }: MferAvatarProps) {
           fontSize={0.24}
           anchorX="center"
           anchorY="middle"
-          color={isLocal ? "#f3d04e" : accent}
+          color={isNpc ? "#8eff75" : isLocal ? "#f3d04e" : accent}
           outlineColor="#16140f"
           outlineWidth={0.025}
           maxWidth={2.4}
