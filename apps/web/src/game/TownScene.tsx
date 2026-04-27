@@ -851,25 +851,24 @@ function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
 }
 
 function TownWorld() {
-  const [grassTexture, cobbleTexture, stoneTexture, roofTexture, timberTexture] = useTexture([
-    "/textures/grass-town.webp",
-    "/textures/cobblestone-plaza.webp",
+  const [stoneTexture, roofTexture, timberTexture] = useTexture([
     "/textures/castle-stone.webp",
     "/textures/roof-tiles.webp",
     "/textures/timber-plaster.webp",
   ]) as THREE.Texture[];
+  const grassTexture = useMemo(() => createGrassGroundTexture(), []);
+  const roadTexture = useMemo(() => createRoadStoneTexture(), []);
+  const plazaTexture = useMemo(() => createPlazaCobbleTexture(), []);
   const barkTexture = useMemo(() => createBarkTexture(), []);
   const leafTexture = useMemo(() => createLeafTexture(), []);
   const waterTexture = useMemo(() => createWaterTexture(), []);
   const grassTuftTexture = useMemo(() => createGrassTuftTexture(), []);
 
   useEffect(() => {
-    configureTile(grassTexture, 22, 20);
-    configureTile(cobbleTexture, 12, 12);
     configureTile(stoneTexture, 2.2, 2.2);
     configureTile(roofTexture, 1.6, 1.6);
     configureTile(timberTexture, 1.25, 1.25);
-  }, [cobbleTexture, grassTexture, roofTexture, stoneTexture, timberTexture]);
+  }, [roofTexture, stoneTexture, timberTexture]);
 
   return (
     <group>
@@ -880,15 +879,15 @@ function TownWorld() {
         <meshBasicMaterial map={grassTexture} />
       </mesh>
 
-      <RoadStrip position={[0, 0.012, -34]} size={[8.5, 44]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.013, 35]} size={[8.5, 42]} texture={cobbleTexture} />
-      <RoadStrip position={[-35, 0.014, 0]} size={[34, 7.5]} texture={cobbleTexture} />
-      <RoadStrip position={[35, 0.014, 0]} size={[34, 7.5]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.011, -34]} size={[52, 6.2]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.011, 29]} size={[52, 6.2]} texture={cobbleTexture} />
-      <RoadStrip position={[-32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
-      <RoadStrip position={[32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.011, 56]} size={[8.5, 42]} texture={cobbleTexture} />
+      <RoadStrip position={[0, 0.012, -34]} size={[8.5, 44]} texture={roadTexture} />
+      <RoadStrip position={[0, 0.013, 35]} size={[8.5, 42]} texture={roadTexture} />
+      <RoadStrip position={[-35, 0.014, 0]} size={[34, 7.5]} texture={roadTexture} />
+      <RoadStrip position={[35, 0.014, 0]} size={[34, 7.5]} texture={roadTexture} />
+      <RoadStrip position={[0, 0.011, -34]} size={[52, 6.2]} texture={roadTexture} />
+      <RoadStrip position={[0, 0.011, 29]} size={[52, 6.2]} texture={roadTexture} />
+      <RoadStrip position={[-32, 0.01, 22]} size={[7, 28]} texture={roadTexture} />
+      <RoadStrip position={[32, 0.01, 22]} size={[7, 28]} texture={roadTexture} />
+      <RoadStrip position={[0, 0.011, 56]} size={[8.5, 42]} texture={roadTexture} />
       <DirtPath position={[-29, 0.015, 59]} size={[54, 5.8]} />
       <DirtPath position={[-52, 0.016, 61]} size={[22, 14]} />
 
@@ -899,7 +898,7 @@ function TownWorld() {
 
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.092, 0]}>
         <circleGeometry args={[21, 128]} />
-        <meshBasicMaterial map={cobbleTexture} />
+        <meshBasicMaterial map={plazaTexture} />
       </mesh>
 
       <mesh rotation-x={Math.PI / 2} position={[0, 0.22, 0]}>
@@ -1230,7 +1229,259 @@ function configureTile(texture: THREE.Texture, repeatX: number, repeatY: number)
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
   texture.needsUpdate = true;
+}
+
+function createGrassGroundTexture() {
+  return createCanvasTexture(2048, 2048, (context, width, height) => {
+    context.fillStyle = "#6fa14d";
+    context.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 150; i += 1) {
+      const seed = i * 31.37;
+      const x = noise01(seed * 1.7) * width;
+      const y = noise01(seed * 2.9) * height;
+      const radiusX = width * (0.025 + noise01(seed * 4.2) * 0.075);
+      const radiusY = height * (0.018 + noise01(seed * 8.1) * 0.06);
+      const alpha = 0.045 + noise01(seed * 6.3) * 0.12;
+      const warm = noise01(seed * 5.9) > 0.56;
+      context.fillStyle = warm
+        ? `rgba(167, 173, 83, ${alpha})`
+        : `rgba(37, 82, 39, ${alpha})`;
+      context.beginPath();
+      context.ellipse(x, y, radiusX, radiusY, noise01(seed * 3.3) * Math.PI, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    for (let i = 0; i < 1800; i += 1) {
+      const seed = i * 9.71;
+      const x = noise01(seed * 1.3) * width;
+      const y = noise01(seed * 4.7) * height;
+      const length = 5 + noise01(seed * 3.1) * 17;
+      const angle = -0.65 + noise01(seed * 2.1) * 1.3;
+      context.strokeStyle = noise01(seed * 5.3) > 0.58
+        ? "rgba(206, 213, 119, 0.16)"
+        : "rgba(31, 78, 36, 0.16)";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+      context.stroke();
+    }
+
+    for (let i = 0; i < 36; i += 1) {
+      const seed = i * 23.87;
+      const x = noise01(seed * 2.5) * width;
+      const y = noise01(seed * 7.1) * height;
+      const radius = width * (0.045 + noise01(seed * 4.1) * 0.11);
+      const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+      gradient.addColorStop(0, noise01(seed * 5.3) > 0.5 ? "rgba(206, 199, 112, 0.1)" : "rgba(34, 77, 39, 0.12)");
+      gradient.addColorStop(1, "rgba(34, 77, 39, 0)");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, width, height);
+    }
+  });
+}
+
+function createPlazaCobbleTexture() {
+  return createCanvasTexture(1024, 1024, (context, width, height) => {
+    paintCobbleBase(context, width, height, {
+      columns: 13,
+      rows: 13,
+      base: "#9b8c67",
+      light: "#c2b58b",
+      dark: "#675f4c",
+      mortar: "#5f5748",
+      jitter: 0.28,
+    });
+  }, 2.8, 2.8);
+}
+
+function createRoadStoneTexture() {
+  return createCanvasTexture(1024, 1024, (context, width, height) => {
+    const base = context.createLinearGradient(0, 0, width, height);
+    base.addColorStop(0, "#8d805c");
+    base.addColorStop(0.5, "#736848");
+    base.addColorStop(1, "#62583f");
+    context.fillStyle = base;
+    context.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 72; i += 1) {
+      const seed = i * 13.19;
+      const warm = noise01(seed * 5.7) > 0.46;
+      context.fillStyle = warm ? "rgba(178, 160, 96, 0.08)" : "rgba(53, 45, 31, 0.12)";
+      context.beginPath();
+      context.ellipse(
+        noise01(seed * 2.1) * width,
+        noise01(seed * 4.8) * height,
+        42 + noise01(seed * 7.3) * 150,
+        18 + noise01(seed * 3.8) * 74,
+        noise01(seed * 6.2) * Math.PI,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+    }
+
+    for (let i = 0; i < 28; i += 1) {
+      const seed = i * 41.7;
+      const stoneWidth = 42 + noise01(seed * 2.8) * 92;
+      const stoneHeight = 24 + noise01(seed * 5.2) * 48;
+      const color = mixRgb(
+        parseHexColor("#625a45"),
+        parseHexColor("#a99c75"),
+        0.35 + noise01(seed * 3.9) * 0.34,
+      );
+      context.save();
+      context.translate(noise01(seed * 6.1) * width, noise01(seed * 9.4) * height);
+      context.rotate(noise01(seed * 7.3) * Math.PI);
+      context.fillStyle = rgbString(color);
+      context.strokeStyle = "rgba(38, 33, 24, 0.14)";
+      context.lineWidth = 3;
+      drawIrregularStone(context, stoneWidth, stoneHeight, seed);
+      context.fill();
+      context.stroke();
+      context.restore();
+    }
+
+    for (let i = 0; i < 220; i += 1) {
+      const seed = i * 17.23;
+      context.fillStyle = noise01(seed * 2.2) > 0.48 ? "rgba(207, 190, 126, 0.08)" : "rgba(46, 39, 27, 0.11)";
+      context.beginPath();
+      context.ellipse(
+        noise01(seed * 3.1) * width,
+        noise01(seed * 5.7) * height,
+        1.5 + noise01(seed * 7.2) * 5,
+        1 + noise01(seed * 8.4) * 4,
+        noise01(seed) * Math.PI,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+    }
+  });
+}
+
+function paintCobbleBase(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  options: {
+    columns: number;
+    rows: number;
+    base: string;
+    light: string;
+    dark: string;
+    mortar: string;
+    jitter: number;
+  },
+) {
+  const gradient = context.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, options.light);
+  gradient.addColorStop(0.46, options.base);
+  gradient.addColorStop(1, options.dark);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
+
+  context.fillStyle = options.mortar;
+  context.fillRect(0, 0, width, height);
+
+  const cellWidth = width / options.columns;
+  const cellHeight = height / options.rows;
+  const baseColor = parseHexColor(options.base);
+  const lightColor = parseHexColor(options.light);
+  const darkColor = parseHexColor(options.dark);
+  for (let row = -1; row <= options.rows; row += 1) {
+    for (let column = -1; column <= options.columns; column += 1) {
+      const seed = row * 97.1 + column * 31.7;
+      const offsetX = (noise01(seed * 1.7) - 0.5) * cellWidth * options.jitter;
+      const offsetY = (noise01(seed * 2.9) - 0.5) * cellHeight * options.jitter;
+      const x = column * cellWidth + offsetX;
+      const y = row * cellHeight + offsetY;
+      const w = cellWidth * (0.72 + noise01(seed * 4.3) * 0.18);
+      const h = cellHeight * (0.68 + noise01(seed * 5.1) * 0.24);
+      const color = mixRgb(
+        mixRgb(darkColor, baseColor, 0.55 + noise01(seed * 8.4) * 0.28),
+        lightColor,
+        noise01(seed * 6.7) * 0.28,
+      );
+
+      context.save();
+      context.translate(x + w / 2, y + h / 2);
+      context.rotate((noise01(seed * 7.3) - 0.5) * 0.5);
+      context.fillStyle = rgbString(color);
+      context.strokeStyle = "rgba(37, 33, 25, 0.16)";
+      context.lineWidth = 3;
+      drawIrregularStone(context, w, h, seed);
+      context.fill();
+      context.stroke();
+
+      context.strokeStyle = "rgba(255, 246, 191, 0.16)";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(-w * 0.23, -h * 0.16);
+      context.quadraticCurveTo(0, -h * 0.24, w * 0.27, -h * 0.11);
+      context.stroke();
+      context.restore();
+    }
+  }
+
+  for (let i = 0; i < 120; i += 1) {
+    const seed = i * 17.23;
+    const x = noise01(seed * 3.1) * width;
+    const y = noise01(seed * 5.7) * height;
+    context.fillStyle = noise01(seed * 2.2) > 0.5 ? "rgba(255, 244, 190, 0.08)" : "rgba(51, 44, 34, 0.12)";
+    context.beginPath();
+    context.ellipse(x, y, 2 + noise01(seed * 7.2) * 6, 1 + noise01(seed * 8.4) * 5, noise01(seed) * Math.PI, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function drawIrregularStone(context: CanvasRenderingContext2D, width: number, height: number, seed: number) {
+  const points: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < 10; i += 1) {
+    const angle = (i / 10) * Math.PI * 2;
+    const radius = 0.78 + noise01(seed * (i + 2.17)) * 0.24;
+    points.push({
+      x: Math.cos(angle) * width * 0.5 * radius,
+      y: Math.sin(angle) * height * 0.5 * radius,
+    });
+  }
+
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  for (let i = 0; i < points.length; i += 1) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    context.quadraticCurveTo(current.x, current.y, (current.x + next.x) / 2, (current.y + next.y) / 2);
+  }
+  context.closePath();
+}
+
+function parseHexColor(hex: string) {
+  const value = Number.parseInt(hex.replace("#", ""), 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
+function mixRgb(
+  from: { r: number; g: number; b: number },
+  to: { r: number; g: number; b: number },
+  amount: number,
+) {
+  return {
+    r: Math.round(from.r + (to.r - from.r) * amount),
+    g: Math.round(from.g + (to.g - from.g) * amount),
+    b: Math.round(from.b + (to.b - from.b) * amount),
+  };
+}
+
+function rgbString(color: { r: number; g: number; b: number }) {
+  return `rgb(${color.r}, ${color.g}, ${color.b})`;
 }
 
 function createBarkTexture() {
@@ -1380,6 +1631,7 @@ function createCanvasTexture(
   texture.repeat.set(repeatX, repeatY);
   texture.center.set(0.5, 0.5);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
   texture.needsUpdate = true;
   return texture;
 }
@@ -1474,10 +1726,16 @@ function RoadStrip({
   size: [number, number];
   texture: THREE.Texture;
 }) {
+  const roadTexture = useMemo(() => {
+    const map = texture.clone();
+    configureTile(map, Math.max(0.7, size[0] / 20), Math.max(0.7, size[1] / 20));
+    return map;
+  }, [size[0], size[1], texture]);
+
   return (
     <mesh rotation-x={-Math.PI / 2} position={position}>
       <planeGeometry args={size} />
-      <meshBasicMaterial map={texture} />
+      <meshBasicMaterial map={roadTexture} />
     </mesh>
   );
 }
