@@ -211,6 +211,8 @@ export function MferAvatar({
               badge={nameplate.badge}
               color={labelColor}
               badgeColor={badgeColor}
+              health={npc?.isImmortal ? undefined : player.health}
+              maxHealth={npc?.isImmortal ? undefined : player.maxHealth}
               fontSize={0.22}
               maxWidth={3.2}
             />
@@ -442,6 +444,8 @@ export function ActorNameplate({
   badge,
   color,
   badgeColor,
+  health,
+  maxHealth,
   fontSize = 0.22,
   maxWidth = 2.55,
 }: {
@@ -449,12 +453,19 @@ export function ActorNameplate({
   badge?: string;
   color: string;
   badgeColor: string;
+  health?: number;
+  maxHealth?: number;
   fontSize?: number;
   maxWidth?: number;
 }) {
   const normalizedTitle = title.trim() || "mfer";
   const width = Math.min(maxWidth, Math.max(1.0, normalizedTitle.length * fontSize * 0.58 + (badge ? badge.length * 0.065 : 0) + 0.54));
-  const height = badge ? 0.4 : 0.3;
+  const hasHealthBar = typeof health === "number" && typeof maxHealth === "number" && maxHealth > 0;
+  const height = (badge ? 0.4 : 0.3) + (hasHealthBar ? 0.13 : 0);
+  const titleY = hasHealthBar ? (badge ? 0.14 : 0.075) : (badge ? 0.085 : 0.02);
+  const badgeY = hasHealthBar ? -0.035 : -0.13;
+  const accentY = hasHealthBar ? -height / 2 + 0.135 : -height / 2 + 0.026;
+  const healthPercent = hasHealthBar ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
 
   return (
     <group>
@@ -462,12 +473,12 @@ export function ActorNameplate({
         <planeGeometry args={[width, height]} />
         <meshBasicMaterial color="#16120d" depthTest={false} depthWrite={false} opacity={0.48} transparent />
       </mesh>
-      <mesh position={[0, -height / 2 + 0.026, -0.028]} renderOrder={51}>
+      <mesh position={[0, accentY, -0.028]} renderOrder={51}>
         <planeGeometry args={[width * 0.82, 0.04]} />
         <meshBasicMaterial color={badgeColor} depthTest={false} depthWrite={false} opacity={0.72} transparent toneMapped={false} />
       </mesh>
       <Text
-        position={[0, badge ? 0.085 : 0.02, 0]}
+        position={[0, titleY, 0]}
         renderOrder={54}
         fontSize={fontSize}
         anchorX="center"
@@ -480,7 +491,7 @@ export function ActorNameplate({
       </Text>
       {badge && (
         <Text
-          position={[0, -0.13, 0]}
+          position={[0, badgeY, 0]}
           renderOrder={55}
           fontSize={fontSize * 0.52}
           anchorX="center"
@@ -492,6 +503,20 @@ export function ActorNameplate({
         >
           {badge}
         </Text>
+      )}
+      {hasHealthBar && (
+        <group position={[0, -height / 2 + 0.055, 0.005]}>
+          <mesh renderOrder={56}>
+            <planeGeometry args={[width * 0.74, 0.055]} />
+            <meshBasicMaterial color="#2b100d" depthTest={false} depthWrite={false} opacity={0.92} transparent />
+          </mesh>
+          {healthPercent > 0 && (
+            <mesh position={[-(width * 0.74 * (1 - healthPercent)) / 2, 0, 0.004]} renderOrder={57}>
+              <planeGeometry args={[width * 0.74 * healthPercent, 0.055]} />
+              <meshBasicMaterial color="#d9453d" depthTest={false} depthWrite={false} toneMapped={false} />
+            </mesh>
+          )}
+        </group>
       )}
     </group>
   );

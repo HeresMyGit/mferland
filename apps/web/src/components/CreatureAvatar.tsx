@@ -149,6 +149,8 @@ export function CreatureAvatar({
               badge={nameplate.badge}
               color={TARGET_LABEL_COLORS[disposition]}
               badgeColor={ringColor}
+              health={npc.isImmortal ? undefined : npc.health}
+              maxHealth={npc.isImmortal ? undefined : npc.maxHealth}
               fontSize={npc.model === "rabbit" ? 0.16 : 0.19}
               maxWidth={2.8}
             />

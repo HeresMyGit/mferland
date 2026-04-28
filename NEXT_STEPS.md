@@ -79,8 +79,8 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 4. Combat Feel
 
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
-- Status bar pass: health should be red and visibly decrease when hit, mana should be blue, and XP should be purple.
-- Show a health bar on the character name tag, with a future settings toggle to hide/show it.
+- Done 2026-04-28: Status bar pass: health is red, mana is blue, and XP is purple.
+- Done 2026-04-28: Show a health bar on the character name tag; future settings toggle to hide/show it remains deferred.
 - Done 2026-04-28: Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
 - Add a small number of differentiated enemy behaviors before adding many more enemies.
 - Plan and implement party aggro/threat management: define how much threat each ability generates, track per-player threat on mobs, and allow mobs to switch targets based on threat like an MMO tank/DPS/healer loop.
@@ -231,6 +231,11 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Added per-player XP award events sent only to the credited client after mob defeat.
 - Rendered purple floating `{amount} XP` text from the awarded amount, so different players can see different numbers if XP is capped, split, or modified per player.
 - Kept XP feedback out of the replicated room schema to avoid increasing baseline sync payload size.
+
+### 2026-04-28 10:42 PDT - Combat Readability Pass
+
+- Changed the HUD XP bar from yellow to purple so health, mana, and XP have distinct red/blue/purple reads.
+- Added compact red health strips to actor nameplates for players, attackable mfer NPCs, mferGPT variants that are not immortal, and creature NPCs.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

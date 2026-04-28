@@ -148,7 +148,16 @@ export function MferGptAvatar({
         <primitive object={avatar} dispose={null} />
         {showNameplate && (
           <Billboard position={[0, 3.15, 0]}>
-            <ActorNameplate title={npc.name} badge="AGENT" color={labelColor} badgeColor={badgeColor} fontSize={0.22} maxWidth={3.2} />
+            <ActorNameplate
+              title={npc.name}
+              badge="AGENT"
+              color={labelColor}
+              badgeColor={badgeColor}
+              health={npc.isImmortal ? undefined : npc.health}
+              maxHealth={npc.isImmortal ? undefined : npc.maxHealth}
+              fontSize={0.22}
+              maxWidth={3.2}
+            />
           </Billboard>
         )}
       </group>

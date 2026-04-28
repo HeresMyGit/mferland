@@ -9,6 +9,7 @@
   --hud-accent: #f3d04e;
   --hud-danger: #d9453d;
   --hud-mana: #3697d8;
+  --hud-xp: #9b45ff;
   --hud-good: #5fe777;
   pointer-events: none;
 }
@@ -257,13 +258,13 @@
 
 .bar.xp {
   height: 15px;
-  color: #fff7c9;
+  color: #f8edff;
   font-size: 11px;
   line-height: 13px;
 }
 
 .bar.xp span {
-  background: linear-gradient(90deg, #d9962e, var(--hud-accent));
+  background: linear-gradient(90deg, #6d36d8, var(--hud-xp));
 }
 
 .quest-panel {
