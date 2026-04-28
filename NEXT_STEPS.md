@@ -61,7 +61,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 2. Level 8-10 Capstone World Expansion
 
 - Add the next hub and quest chain in the upper-right corner of the world so it balances the current lower-left hub.
-- Quality pass the upper-right quest hub layout: enemies are currently mixed in with friendly NPCs, which creates a bad questgiver interaction experience. Split it into multiple sections, add safer NPC pockets, or otherwise ensure players are not getting killed while talking to questgivers.
+- Done 2026-04-28: Quality pass the upper-right quest hub layout by moving Signal Ridge friendlies into a safe pocket and pushing raiders/bosses into a separate eastern static field.
 - Re-center Mfer Town in the map composition and expand the grass/terrain several sections so the lower-left hub no longer spills off the playable-looking grass.
 - Reposition the farm so it sits more between main town and the bottom-left hub; it is currently too close to the bottom-left hub.
 - Move the Hogwatcher questgiver closer to the farm after the farm repositioning, since the current placement leaves them too far from the relevant quest area.
@@ -96,6 +96,15 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 6. Consumables
 
 - Add food/potions after combat pressure and gear rewards are more meaningful.
+
+### 7. Later Redesign
+
+Do this after the engine/system work is stable.
+
+- Redesign the Character screen (`C`) with a better equipment UI.
+- Break talent trees out into their own dedicated UI instead of keeping them inside the character screen.
+- Separate inventory from character/equipment management so each screen has a clearer job.
+- Add a spellbook/abilities menu so users can view and change their active abilities.
 
 ## Hourly Agent Backlog
 
@@ -188,6 +197,13 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Collapsed the no-active-quest HUD tracker into a compact `Quests` panel with the quest log button still available.
 - Added server-side mob damage tags so players who recently damage a mob can receive quest/XP credit at death even when ranged attacks leave them outside the nearby-credit radius.
 - Verified with `npm run typecheck`, `npm run build`, `npm run build:agent`, a direct server-side ranged-credit simulation, and an in-app browser HUD smoke test.
+
+### 2026-04-28 10:04 PDT - Signal Ridge Safety Pass
+
+- Split Signal Ridge into a safer north-side NPC pocket and a separate eastern Static Field combat pocket.
+- Moved Ridge Guide, Beacon Keeper, Ridge merchant, and ridge stalls away from hostile aggro routes.
+- Moved Raider Vex, Raider Pax, Static mage Ori, roaming raiders, Static Baron Nox, and the daily Huge mfer ogre spawn into the Static Field/relay combat area.
+- Added Static Field to shared world roads/map data and added red boundary banners at the transition from safe hub to hostile field.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

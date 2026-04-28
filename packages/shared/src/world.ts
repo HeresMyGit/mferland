@@ -46,6 +46,7 @@ export const WORLD_ROADS: WorldRoad[] = [
   { id: "ridge-lane", x: 120, z: -62, width: 6, depth: 84, surface: "dirt" },
   { id: "signal-ridge-yard", x: 124, z: -104, width: 42, depth: 26, surface: "dirt" },
   { id: "relay-crown", x: 136, z: -121, width: 28, depth: 18, surface: "dirt" },
+  { id: "static-field", x: 150, z: -104, width: 24, depth: 54, surface: "dirt" },
 ];
 
 export const WORLD_HUBS: WorldHub[] = [
@@ -53,6 +54,7 @@ export const WORLD_HUBS: WorldHub[] = [
   { id: "busted-farm", name: "Busted Farm", x: -104, z: 92, diameter: 32, kind: "farm" },
   { id: "field-camp", name: "Field Camp", x: -118, z: 136, diameter: 28, kind: "hub" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
+  { id: "static-field", name: "Static Field", x: 150, z: -104, diameter: 22, kind: "farm" },
 ];
 
 export type SolidObstacle =

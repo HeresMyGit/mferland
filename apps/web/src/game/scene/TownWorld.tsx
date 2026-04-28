@@ -123,6 +123,8 @@ export function TownWorld() {
       <BannerPost position={[-112, 0, 126]} color="#52d64f" rotation={Math.PI} />
       <BannerPost position={[94, 0, -22]} color="#36b7c9" rotation={-Math.PI / 2} />
       <BannerPost position={[123, 0, -91]} color="#9b45ff" />
+      <BannerPost position={[137.5, 0, -91]} color="#d9453d" />
+      <BannerPost position={[137.5, 0, -116.5]} color="#d9453d" rotation={Math.PI} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );

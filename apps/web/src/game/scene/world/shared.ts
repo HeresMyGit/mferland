@@ -186,8 +186,8 @@ export const MARKET_STALLS: MarketStallSpec[] = [
 export const OUTPOST_MARKET_STALLS: MarketStallSpec[] = [
   { id: "field-camp-left-stall", position: [-123, 0, 129.8], rotation: 0.18, color: "#52d64f" },
   { id: "field-camp-right-stall", position: [-114, 0, 132.2], rotation: -0.26, color: "#e18b35" },
-  { id: "ridge-left-stall", position: [118.2, 0, -109.6], rotation: -0.18, color: "#36b7c9" },
-  { id: "ridge-right-stall", position: [128.8, 0, -110.8], rotation: 0.32, color: "#9b45ff" },
+  { id: "ridge-left-stall", position: [111.4, 0, -93.4], rotation: -0.18, color: "#36b7c9" },
+  { id: "ridge-right-stall", position: [121.8, 0, -91.8], rotation: 0.32, color: "#9b45ff" },
 ];
 export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },
@@ -218,6 +218,8 @@ export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [123.8, 0.026, -62], size: [0.78, 80], color: "#6e5539" },
   { position: [124, 0.026, -117.6], size: [36, 0.78], color: "#6e5539" },
   { position: [124, 0.026, -90.4], size: [36, 0.78], color: "#6e5539" },
+  { position: [137.6, 0.026, -104], size: [0.78, 50], color: "#6e5539" },
+  { position: [162.4, 0.026, -104], size: [0.78, 50], color: "#6e5539" },
 ];
 export const PLAZA_CRACK_DECALS: GroundRectDecalSpec[] = [
   { position: [-9.2, 0.128, -3.8], size: [4.8, 0.07], rotation: 0.28, color: "#3f3a31" },
@@ -248,8 +250,8 @@ export const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
   { position: [6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
   { position: [-123, 0.03, 129.8], size: [3.5, 1.9], rotation: 0.18, color: "#21170d" },
   { position: [-114, 0.03, 132.2], size: [3.5, 1.9], rotation: -0.26, color: "#21170d" },
-  { position: [118.2, 0.03, -109.6], size: [3.5, 1.9], rotation: -0.18, color: "#21170d" },
-  { position: [128.8, 0.03, -110.8], size: [3.5, 1.9], rotation: 0.32, color: "#21170d" },
+  { position: [111.4, 0.03, -93.4], size: [3.5, 1.9], rotation: -0.18, color: "#21170d" },
+  { position: [121.8, 0.03, -91.8], size: [3.5, 1.9], rotation: 0.32, color: "#21170d" },
 ];
 export const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: 0.08, color: "#765b3b" },
@@ -259,6 +261,7 @@ export const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-118, 0.034, 136], size: [31, 16], rotation: 0.04, color: "#604832" },
   { position: [124, 0.034, -104], size: [32, 15], rotation: -0.03, color: "#5c5140" },
   { position: [136, 0.034, -121], size: [22, 11], rotation: 0.12, color: "#4d4650" },
+  { position: [150, 0.034, -104], size: [18, 35], rotation: -0.04, color: "#4d4650" },
   { position: [-18, 0.031, 38.6], size: [5.5, 1.7], rotation: 2.82, color: "#69503a" },
   { position: [18, 0.031, 38.6], size: [5.5, 1.7], rotation: -2.82, color: "#69503a" },
 ];
