@@ -22,6 +22,7 @@ export type PendingCombatImpact = {
 };
 
 export type NpcDefeatCreditHandler = (sourceId: string, npc: NpcState, now: number) => void;
+export type NpcDamageTagHandler = (sourceId: string, npc: NpcState, now: number) => void;
 
 export function normalizeCombatActionId(actionId: unknown): CombatActionId | null {
   return typeof actionId === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, actionId)
@@ -58,6 +59,7 @@ export function updatePlayerCast(
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
   creditNpcDefeat: NpcDefeatCreditHandler,
+  tagNpcForCredit?: NpcDamageTagHandler,
 ) {
   const actionId = normalizeCombatActionId(player.castingAction);
   if (!actionId) return;
@@ -80,7 +82,7 @@ export function updatePlayerCast(
       const damage = getPlayerActionDamage(player, actionId);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       setActionReadyAt(player, actionId, now + action.cooldownMs);
-      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts, creditNpcDefeat);
+      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts, creditNpcDefeat, tagNpcForCredit);
   }
   clearPlayerCast(player);
 }
@@ -128,6 +130,7 @@ export function applyCombatDamage(
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
   creditNpcDefeat: NpcDefeatCreditHandler,
+  tagNpcForCredit?: NpcDamageTagHandler,
 ) {
   if (actionId === "fireblast") {
     const impactAt = now + getProjectileTravelMs(player.x, player.z, target.x, target.z);
@@ -141,6 +144,7 @@ export function applyCombatDamage(
     return;
   }
 
+  tagNpcForCredit?.(sourceId, target, now);
   const defeated = applyNpcDamage(target, damage, now);
   if (actionId === "frostNova" && !defeated) {
     applyNpcFreeze(target, now + COMBAT.actions.frostNova.freezeMs);
@@ -160,6 +164,7 @@ export function applyFrostNova(
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
   creditNpcDefeat: NpcDefeatCreditHandler,
+  tagNpcForCredit?: NpcDamageTagHandler,
 ) {
   emitCombatEvent(makeFrostNovaCastEvent(sourceId, player, now));
   const action = getPlayerActionConfig(player, "frostNova");
@@ -178,6 +183,7 @@ export function applyFrostNova(
       emitCombatEvent,
       pendingCombatImpacts,
       creditNpcDefeat,
+      tagNpcForCredit,
     );
   });
 }
@@ -264,6 +270,7 @@ export function processPendingCombatImpacts(
   npcs: MapSchema<NpcState>,
   now: number,
   creditNpcDefeat: NpcDefeatCreditHandler,
+  tagNpcForCredit?: NpcDamageTagHandler,
 ) {
   for (let index = pendingCombatImpacts.length - 1; index >= 0; index -= 1) {
     const impact = pendingCombatImpacts[index];
@@ -274,6 +281,9 @@ export function processPendingCombatImpacts(
       const npc = npcs.get(impact.target.id);
       const sourcePlayer = impact.sourcePlayerId ? players.get(impact.sourcePlayerId) : undefined;
       if (npc && isNpcAlive(npc)) {
+        if (sourcePlayer && impact.sourcePlayerId) {
+          tagNpcForCredit?.(impact.sourcePlayerId, npc, now);
+        }
         const defeated = applyNpcDamage(npc, impact.damage, now);
         if (sourcePlayer && impact.sourcePlayerId) {
           if (defeated) {

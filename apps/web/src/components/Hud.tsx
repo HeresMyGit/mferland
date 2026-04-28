@@ -147,6 +147,7 @@ export function Hud({
     () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
     [questLog],
   );
+  const hasTrackedQuests = trackedQuests.length > 0;
   const equippableInventory = localPlayer?.inventory.filter((item) => getItemEquipment(item.id)) ?? [];
 
   useEffect(() => {
@@ -298,17 +299,17 @@ export function Hud({
         </section>
       )}
 
-      <section className="quest-panel">
+      <section className={hasTrackedQuests ? "quest-panel" : "quest-panel compact"}>
         <div className="quest-panel-header">
-          <h2>Quest Tracker</h2>
+          <h2>{hasTrackedQuests ? "Quest Tracker" : "Quests"}</h2>
           <button type="button" title="Quest log" aria-label="Open quest log" onClick={() => setIsQuestLogOpen(true)}>
             <BookOpen size={17} />
           </button>
         </div>
-        {trackedQuests.length > 0 ? trackedQuests.map((quest) => (
+        {hasTrackedQuests ? trackedQuests.map((quest) => (
           <Quest key={quest.id} quest={quest} />
         )) : (
-          <p className="quest-empty">No tracked quests</p>
+          <p className="quest-empty">No active quests</p>
         )}
       </section>
 

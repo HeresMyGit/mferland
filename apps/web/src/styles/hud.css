@@ -278,11 +278,22 @@
   backdrop-filter: blur(4px);
 }
 
+.quest-panel.compact {
+  width: 178px;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: rgba(19, 22, 16, 0.36);
+}
+
 .quest-panel-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.quest-panel.compact .quest-panel-header {
+  align-items: center;
 }
 
 .quest-panel-header button {
@@ -309,6 +320,11 @@
   letter-spacing: 0;
 }
 
+.quest-panel.compact h2 {
+  margin: 0;
+  font-size: 12px;
+}
+
 .quest-panel h2::after {
   content: "";
   display: block;
@@ -316,6 +332,10 @@
   height: 2px;
   margin-top: 5px;
   background: #72e7c1;
+}
+
+.quest-panel.compact h2::after {
+  display: none;
 }
 
 .quest-row {
@@ -406,6 +426,11 @@
   color: var(--hud-muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.quest-panel.compact .quest-empty {
+  margin-top: 4px;
+  font-size: 11px;
 }
 
 .quest-dialogue-panel {

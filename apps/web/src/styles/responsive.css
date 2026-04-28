@@ -16,6 +16,11 @@
     padding: 10px;
   }
 
+  .quest-panel.compact {
+    width: 152px;
+    padding: 7px 8px;
+  }
+
   .quest-panel h2 {
     font-size: 12px;
   }

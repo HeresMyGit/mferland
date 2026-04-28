@@ -51,8 +51,9 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 1. Stabilize Current Milestone
 
 - Fix the Colyseus schema buffer warning before committing. The warning means the encoded room-state patch can exceed Colyseus' default schema encoder buffer after the expanded player/NPC/quest/inventory state, which risks failed or incomplete state syncs as the room grows.
-- Reduce the quest log HUD footprint: shrink/collapse it when inactive or when there are no active quests, keep the HUD version less overbearing, and let users open the full quest log for details.
-- Quick-fix ranged quest/XP credit: kills from shoot/fireblast can miss quest credit when the target is too far away at death. Relax the credit requirements so players who tag a mob share kill quest credit and XP for now, since parties are not implemented yet. Revisit the rules later when party/group contribution logic exists.
+- Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
+- Fix right-side HUD button alignment: icon and label content is visibly off-center/clipped on Character, Inventory, Quests, and Leave buttons, especially on narrow/mobile viewports.
+- Done 2026-04-28: Quick-fix ranged quest/XP credit by tracking recent player damage tags on mobs, so tagged players share kill quest credit and XP even if they are outside the old death-radius check.
 - Re-run `npm run typecheck`, `npm run build`, and `npm run build:agent`.
 - Restart the local dev server and confirm the buffer warning no longer appears during normal play.
 - Re-test wallet persistence after a fresh restart before applying the Neon migration to main.
@@ -78,7 +79,14 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 4. Combat Feel
 
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
+- Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
 - Add a small number of differentiated enemy behaviors before adding many more enemies.
+- Plan and implement party aggro/threat management: define how much threat each ability generates, track per-player threat on mobs, and allow mobs to switch targets based on threat like an MMO tank/DPS/healer loop.
+- Plan newer role skills around the threat system:
+  - Add a heal spell.
+  - Add a taunt spell that forces the enemy to attack the taunter for about 3 seconds.
+  - Consider a weaker attack that generates more aggro than the normal attack for tank-style play.
+- Before implementing the new skills, write a small ability/threat plan so spell damage, healing threat, taunt behavior, cooldowns, and mob target switching rules fit together.
 
 ### 5. mferGPT Codex Auth
 
@@ -174,6 +182,12 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Reworked starter quests into a short town-intro chain instead of same-NPC instant turn-ins: OG -> DAO -> Fountain -> OG, then Sealed Note opens.
 - Verified with `npm run typecheck`, `npm run build`, `npm run build:agent`, a quest-chain ID/reward sanity script, and a browser smoke test.
 - Needs manual playtest: route readability to Signal Ridge, boss health/damage tuning for actual player counts, and the daily raid spawn loop after completing the finale.
+
+### 2026-04-28 09:55 PDT - Stabilization Follow-Up
+
+- Collapsed the no-active-quest HUD tracker into a compact `Quests` panel with the quest log button still available.
+- Added server-side mob damage tags so players who recently damage a mob can receive quest/XP credit at death even when ranged attacks leave them outside the nearby-credit radius.
+- Verified with `npm run typecheck`, `npm run build`, `npm run build:agent`, a direct server-side ranged-credit simulation, and an in-app browser HUD smoke test.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

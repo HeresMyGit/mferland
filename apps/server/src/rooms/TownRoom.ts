@@ -96,6 +96,8 @@ import {
   sanitizeChatText,
 } from "../systems/utils.js";
 
+const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
+
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
 
@@ -107,6 +109,7 @@ export class TownRoom extends Room<TownState> {
   private readonly persistentCharacterIds = new Map<string, string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
   private readonly temporaryNpcExpiresAt = new Map<string, number>();
+  private readonly npcDamageTags = new Map<string, Map<string, number>>();
 
   onCreate() {
     this.setState(new TownState());
@@ -364,6 +367,7 @@ export class TownRoom extends Room<TownState> {
         (event) => this.broadcast("combatEvent", event),
         this.pendingCombatImpacts,
         (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+        (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
       );
       return;
     }
@@ -401,6 +405,7 @@ export class TownRoom extends Room<TownState> {
       (event) => this.broadcast("combatEvent", event),
       this.pendingCombatImpacts,
       (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+      (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
     );
   }
 
@@ -565,6 +570,7 @@ export class TownRoom extends Room<TownState> {
     const delta = Math.min(dt, 0.1);
     const now = Date.now();
     this.removeExpiredTemporaryNpcs(now);
+    this.pruneNpcDamageTags(now);
     updateNpcs(
       this.state.npcs,
       this.state.players,
@@ -579,6 +585,7 @@ export class TownRoom extends Room<TownState> {
       this.state.npcs,
       now,
       (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+      (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
     );
 
     this.state.players.forEach((player, sessionId) => {
@@ -600,6 +607,7 @@ export class TownRoom extends Room<TownState> {
         (event) => this.broadcast("combatEvent", event),
         this.pendingCombatImpacts,
         (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+        (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
       );
       let grounded = player.y <= 0.001;
 
@@ -647,18 +655,49 @@ export class TownRoom extends Room<TownState> {
     });
   }
 
-  private creditNearbyPlayersForNpcDefeat(sourceId: string, npc: NpcState, _now: number) {
+  private creditNearbyPlayersForNpcDefeat(sourceId: string, npc: NpcState, now: number) {
     const mobXp = getNpcDefeatXp(npc);
-    this.state.players.forEach((player, sessionId) => {
-      if (!isEligibleForDefeatCredit(player, npc)) return;
+    const creditedSessionIds = new Set<string>();
+    const taggedPlayers = this.npcDamageTags.get(npc.id);
 
+    this.state.players.forEach((player, sessionId) => {
+      if (isEligibleForDefeatCredit(player, npc)) creditedSessionIds.add(sessionId);
+    });
+    if (sourceId) creditedSessionIds.add(sourceId);
+    taggedPlayers?.forEach((taggedAt, sessionId) => {
+      if (now - taggedAt <= NPC_DAMAGE_TAG_TTL_MS) creditedSessionIds.add(sessionId);
+    });
+
+    for (const sessionId of creditedSessionIds) {
+      const player = this.state.players.get(sessionId);
+      if (!player || player.health <= 0) continue;
       const questProgressed = progressDefeatQuests(player, npc);
       const award = awardExperience(player, mobXp);
       if (questProgressed || award.xpGained > 0 || award.levelsGained > 0) {
         this.persistPlayerProgress(sessionId, player);
       }
-    });
-    void sourceId;
+    }
+
+    this.npcDamageTags.delete(npc.id);
+  }
+
+  private tagNpcForCredit(sourceId: string, npc: NpcState, now: number) {
+    if (!sourceId || npc.isImmortal || npc.health <= 0) return;
+
+    const taggedPlayers = this.npcDamageTags.get(npc.id) ?? new Map<string, number>();
+    taggedPlayers.set(sourceId, now);
+    this.npcDamageTags.set(npc.id, taggedPlayers);
+  }
+
+  private pruneNpcDamageTags(now: number) {
+    for (const [npcId, taggedPlayers] of this.npcDamageTags) {
+      for (const [sessionId, taggedAt] of taggedPlayers) {
+        if (now - taggedAt > NPC_DAMAGE_TAG_TTL_MS) taggedPlayers.delete(sessionId);
+      }
+      if (taggedPlayers.size === 0 || !this.state.npcs.has(npcId)) {
+        this.npcDamageTags.delete(npcId);
+      }
+    }
   }
 
   private removeExpiredTemporaryNpcs(now: number) {
