@@ -278,15 +278,15 @@ export function Hud({
           </div>
           <div className="bar hp">
             <span style={{ width: `${percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100)}%` }} />
-            {Math.ceil(localPlayer?.health ?? 100)}/{Math.ceil(localPlayer?.maxHealth ?? 100)}
+            <em>{Math.ceil(localPlayer?.health ?? 100)}/{Math.ceil(localPlayer?.maxHealth ?? 100)}</em>
           </div>
           <div className="bar mp">
             <span style={{ width: `${percent(localPlayer?.mana ?? 50, localPlayer?.maxMana ?? 50)}%` }} />
-            {Math.floor(localPlayer?.mana ?? 50)}/{Math.ceil(localPlayer?.maxMana ?? 50)}
+            <em>{Math.floor(localPlayer?.mana ?? 50)}/{Math.ceil(localPlayer?.maxMana ?? 50)}</em>
           </div>
           <div className="bar xp">
             <span style={{ width: `${levelProgress.isMaxLevel ? 100 : percent(levelProgress.current, levelProgress.required)}%` }} />
-            {levelProgress.isMaxLevel ? "Level cap" : `${levelProgress.current}/${levelProgress.required} XP`}
+            <em>{levelProgress.isMaxLevel ? "Level cap" : `${levelProgress.current}/${levelProgress.required} XP`}</em>
           </div>
         </div>
       </section>

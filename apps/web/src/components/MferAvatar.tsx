@@ -461,22 +461,25 @@ export function ActorNameplate({
   const normalizedTitle = title.trim() || "mfer";
   const width = Math.min(maxWidth, Math.max(1.0, normalizedTitle.length * fontSize * 0.58 + (badge ? badge.length * 0.065 : 0) + 0.54));
   const hasHealthBar = typeof health === "number" && typeof maxHealth === "number" && maxHealth > 0;
-  const height = (badge ? 0.4 : 0.3) + (hasHealthBar ? 0.13 : 0);
-  const titleY = hasHealthBar ? (badge ? 0.14 : 0.075) : (badge ? 0.085 : 0.02);
-  const badgeY = hasHealthBar ? -0.035 : -0.13;
-  const accentY = hasHealthBar ? -height / 2 + 0.135 : -height / 2 + 0.026;
+  const height = (badge ? 0.4 : 0.3) + (hasHealthBar ? 0.22 : 0);
+  const titleY = hasHealthBar ? (badge ? 0.18 : 0.115) : (badge ? 0.085 : 0.02);
+  const badgeY = hasHealthBar ? 0.0 : -0.13;
+  const accentY = -height / 2 + 0.026;
+  const healthWidth = width * 0.86;
   const healthPercent = hasHealthBar ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
 
   return (
     <group>
       <mesh position={[0, 0, -0.035]} renderOrder={50}>
         <planeGeometry args={[width, height]} />
-        <meshBasicMaterial color="#16120d" depthTest={false} depthWrite={false} opacity={0.48} transparent />
+        <meshBasicMaterial color="#16120d" depthTest={false} depthWrite={false} opacity={hasHealthBar ? 0.64 : 0.48} transparent />
       </mesh>
-      <mesh position={[0, accentY, -0.028]} renderOrder={51}>
-        <planeGeometry args={[width * 0.82, 0.04]} />
-        <meshBasicMaterial color={badgeColor} depthTest={false} depthWrite={false} opacity={0.72} transparent toneMapped={false} />
-      </mesh>
+      {!hasHealthBar && (
+        <mesh position={[0, accentY, -0.028]} renderOrder={51}>
+          <planeGeometry args={[width * 0.82, 0.04]} />
+          <meshBasicMaterial color={badgeColor} depthTest={false} depthWrite={false} opacity={0.72} transparent toneMapped={false} />
+        </mesh>
+      )}
       <Text
         position={[0, titleY, 0]}
         renderOrder={54}
@@ -505,15 +508,19 @@ export function ActorNameplate({
         </Text>
       )}
       {hasHealthBar && (
-        <group position={[0, -height / 2 + 0.055, 0.005]}>
+        <group position={[0, -height / 2 + 0.085, 0.006]}>
           <mesh renderOrder={56}>
-            <planeGeometry args={[width * 0.74, 0.055]} />
-            <meshBasicMaterial color="#2b100d" depthTest={false} depthWrite={false} opacity={0.92} transparent />
+            <planeGeometry args={[healthWidth + 0.12, 0.15]} />
+            <meshBasicMaterial color="#0b0706" depthTest={false} depthWrite={false} opacity={0.9} transparent />
+          </mesh>
+          <mesh position={[0, 0, 0.004]} renderOrder={57}>
+            <planeGeometry args={[healthWidth, 0.105]} />
+            <meshBasicMaterial color="#32110e" depthTest={false} depthWrite={false} opacity={1} transparent toneMapped={false} />
           </mesh>
           {healthPercent > 0 && (
-            <mesh position={[-(width * 0.74 * (1 - healthPercent)) / 2, 0, 0.004]} renderOrder={57}>
-              <planeGeometry args={[width * 0.74 * healthPercent, 0.055]} />
-              <meshBasicMaterial color="#d9453d" depthTest={false} depthWrite={false} toneMapped={false} />
+            <mesh position={[-(healthWidth * (1 - healthPercent)) / 2, 0, 0.008]} renderOrder={58}>
+              <planeGeometry args={[healthWidth * healthPercent, 0.105]} />
+              <meshBasicMaterial color="#d9453d" depthTest={false} depthWrite={false} opacity={1} transparent toneMapped={false} />
             </mesh>
           )}
         </group>

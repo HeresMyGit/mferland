@@ -227,6 +227,9 @@
 
 .bar {
   position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
   height: 19px;
   margin-top: 5px;
   overflow: hidden;
@@ -245,7 +248,15 @@
 .bar span {
   position: absolute;
   inset: 0 auto 0 0;
-  z-index: -1;
+  z-index: 0;
+  min-width: 0;
+  opacity: 0.98;
+}
+
+.bar em {
+  position: relative;
+  z-index: 1;
+  font-style: normal;
 }
 
 .bar.hp span {
