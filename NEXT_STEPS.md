@@ -62,9 +62,9 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 
 - Add the next hub and quest chain in the upper-right corner of the world so it balances the current lower-left hub.
 - Done 2026-04-28: Quality pass the upper-right quest hub layout by moving Signal Ridge friendlies into a safe pocket and pushing raiders/bosses into a separate eastern static field.
-- Re-center Mfer Town in the map composition and expand the grass/terrain several sections so the lower-left hub no longer spills off the playable-looking grass.
-- Reposition the farm so it sits more between main town and the bottom-left hub; it is currently too close to the bottom-left hub.
-- Move the Hogwatcher questgiver closer to the farm after the farm repositioning, since the current placement leaves them too far from the relevant quest area.
+- Done 2026-04-28: Re-center the town-to-field composition by shifting the Busted Farm east toward town, keeping Field Camp as the later hub, and expanding the ground margin around the playable area.
+- Done 2026-04-28: Reposition the farm so it sits more between main town and the bottom-left hub instead of almost on top of Field Camp.
+- Done 2026-04-28: Move the Hogwatcher questgiver closer to the repositioned farm approach.
 - Add a clear route from town to the upper-right hub, with enough landmarks and minimap support to make the path legible.
 - Include a large named mfer boss for the questline finale that should take at least 3 players.
 - After players complete the finale, unlock a daily raid-spawn quest that calls a huge mfer ogre raid boss intended for 10+ players.
@@ -79,6 +79,8 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 4. Combat Feel
 
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
+- Status bar pass: health should be red and visibly decrease when hit, mana should be blue, and XP should be purple.
+- Show a health bar on the character name tag, with a future settings toggle to hide/show it.
 - Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
 - Add a small number of differentiated enemy behaviors before adding many more enemies.
 - Plan and implement party aggro/threat management: define how much threat each ability generates, track per-player threat on mobs, and allow mobs to switch targets based on threat like an MMO tank/DPS/healer loop.
@@ -209,6 +211,13 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 
 - Centered the right-side dock button icon/label stack with explicit grid rows and tighter label sizing.
 - Increased narrow/mobile dock button width enough to avoid clipping `Character` and `Inventory`.
+
+### 2026-04-28 10:12 PDT - Farm Composition Pass
+
+- Shifted Busted Farm east toward town while keeping Field Camp in the lower-left as the later hub, and expanded the ground plane margin around the full playable area.
+- Moved hogs and farmhand enemies with the farm so combat remains centered on the farmyard.
+- Moved Hogwatcher to the new farm approach, closer to the relevant quest area.
+- Updated shared road/hub/map data, farm collision solids, farm visuals, road edge decals, and ground smudges for the new farm position.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 
