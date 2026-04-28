@@ -66,7 +66,7 @@ import {
 import { findInteractNpc } from "../systems/interactions.js";
 import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../systems/loot.js";
 import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
-import { spawnNpcs, updateNpcs } from "../systems/npcs.js";
+import { spawnNpcFromSpec, spawnNpcs, updateNpcs } from "../systems/npcs.js";
 import {
   completeQuest,
   getNpcDialogue,
@@ -438,6 +438,9 @@ export class TownRoom extends Room<TownState> {
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
 
     startQuest(player, questId);
+    if (questId === "ogre-raid-daily") {
+      this.ensureDailyRaidBoss();
+    }
     this.persistPlayerProgress(client.sessionId, player);
   }
 
@@ -496,9 +499,38 @@ export class TownRoom extends Room<TownState> {
 
     npc.hasLoot = false;
     npc.despawnAt = Date.now() + LOOT.lootedDespawnMs;
-    npc.respawnAt = Math.max(npc.respawnAt, npc.despawnAt + 250);
+    npc.respawnAt = npc.id === "raid-ogre-mfer" ? 0 : Math.max(npc.respawnAt, npc.despawnAt + 250);
     client.send("closeLootWindow", { npcId: npc.id });
     this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private ensureDailyRaidBoss() {
+    const existing = this.state.npcs.get("raid-ogre-mfer");
+    if (existing && isNpcAlive(existing)) return;
+    if (existing) this.state.npcs.delete(existing.id);
+
+    spawnNpcFromSpec(this.state.npcs, {
+      id: "raid-ogre-mfer",
+      name: "Huge mfer ogre",
+      role: "farmer",
+      model: "mfer",
+      x: 136.5,
+      z: -122.8,
+      yaw: 2.7,
+      leashRadius: 22,
+      health: 5200,
+      maxHealth: 5200,
+      combatStyle: "melee",
+      dialogue: "The huge mfer ogre shakes the relay hard enough for the whole ridge to hear.",
+    });
+
+    this.broadcast("chat", {
+      sessionId: "raid-ogre-mfer",
+      name: "Huge mfer ogre",
+      identityType: "npc",
+      text: "A huge mfer ogre has been called to Signal Ridge.",
+      sentAt: Date.now(),
+    } satisfies ChatMessage);
   }
 
   private handleSelectTalent(client: Client, message: Partial<ClientSelectTalent>) {
@@ -676,9 +708,10 @@ function makeMferGptChatMessage(text: string, sentAt: number): ChatMessage {
   };
 }
 
-function isEligibleForDefeatCredit(player: PlayerState, npc: { x: number; z: number }) {
+function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
   if (player.health <= 0) return false;
-  return Math.hypot(player.x - npc.x, player.z - npc.z) <= PROGRESSION.nearbyCreditRadius;
+  const radius = npc.id === "raid-ogre-mfer" ? 38 : PROGRESSION.nearbyCreditRadius;
+  return Math.hypot(player.x - npc.x, player.z - npc.z) <= radius;
 }
 
 async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number) {

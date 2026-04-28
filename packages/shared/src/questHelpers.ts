@@ -32,6 +32,11 @@ export function getQuestRequiredItemId(questId: QuestId): ItemId | null {
   return "requiredItemId" in quest ? quest.requiredItemId as ItemId : null;
 }
 
+export function getQuestRewardItemIds(questId: QuestId): ItemId[] {
+  const quest = QUESTS[questId];
+  return "rewardItemIds" in quest ? [...quest.rewardItemIds] as ItemId[] : [];
+}
+
 export function shouldConsumeQuestItem(questId: QuestId): boolean {
   const quest = QUESTS[questId];
   return "consumeItem" in quest && quest.consumeItem;

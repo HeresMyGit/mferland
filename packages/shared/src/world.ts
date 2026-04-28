@@ -1,10 +1,10 @@
 import { clamp } from "./utils.js";
 
 export const PLAZA_BOUNDS = {
-  minX: -145,
-  maxX: 82,
-  minZ: -70,
-  maxZ: 154,
+  minX: -164,
+  maxX: 164,
+  minZ: -132,
+  maxZ: 172,
 };
 
 export type WorldRoadSurface = "stone" | "dirt";
@@ -42,12 +42,17 @@ export const WORLD_ROADS: WorldRoad[] = [
   { id: "farmyard", x: -104, z: 92, width: 34, depth: 20, surface: "dirt" },
   { id: "field-road", x: -112, z: 116, width: 6, depth: 42, surface: "dirt" },
   { id: "field-camp-yard", x: -118, z: 136, width: 38, depth: 24, surface: "dirt" },
+  { id: "ridge-fork", x: 75, z: -22, width: 88, depth: 5.8, surface: "dirt" },
+  { id: "ridge-lane", x: 120, z: -62, width: 6, depth: 84, surface: "dirt" },
+  { id: "signal-ridge-yard", x: 124, z: -104, width: 42, depth: 26, surface: "dirt" },
+  { id: "relay-crown", x: 136, z: -121, width: 28, depth: 18, surface: "dirt" },
 ];
 
 export const WORLD_HUBS: WorldHub[] = [
   { id: "starter-plaza", name: "Starter Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
   { id: "busted-farm", name: "Busted Farm", x: -104, z: 92, diameter: 32, kind: "farm" },
   { id: "field-camp", name: "Field Camp", x: -118, z: 136, diameter: 28, kind: "hub" },
+  { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
 ];
 
 export type SolidObstacle =
@@ -82,6 +87,10 @@ const TOWN_BUILDING_SOLIDS: SolidObstacle[] = [
   { kind: "rect", x: -111.5, z: 142.5, halfX: 4.1, halfZ: 2.85, rotation: -2.75 },
   { kind: "rect", x: -116.5, z: 126.5, halfX: 4.1, halfZ: 2.85, rotation: 0.18 },
   { kind: "circle", x: -121.5, z: 135.5, radius: 1.7 },
+  { kind: "rect", x: 112, z: -101.5, halfX: 4.1, halfZ: 2.85, rotation: -1.2 },
+  { kind: "rect", x: 128.5, z: -97.5, halfX: 4.1, halfZ: 2.85, rotation: 2.68 },
+  { kind: "rect", x: 123, z: -116.5, halfX: 4.1, halfZ: 2.85, rotation: -0.08 },
+  { kind: "circle", x: 134.2, z: -108.6, radius: 1.7 },
 ];
 
 const TREE_SOLIDS: SolidObstacle[] = [
@@ -98,6 +107,9 @@ const TREE_SOLIDS: SolidObstacle[] = [
   [-17, -68, 0.95], [18, -73, 0.78], [25, -68, 0.86], [32, -73, 0.95],
   [39, -68, 0.78], [47, -73, 0.86], [54, -68, 0.95], [64, -73, 0.78],
   [74, -68, 0.86], [84, -73, 0.95],
+  [78, -32, 0.8], [91, -25, 0.86], [104, -37, 0.94], [112, -51, 0.78],
+  [132, -61, 0.9], [108, -78, 0.82], [141, -88, 0.88], [102, -111, 0.86],
+  [147, -118, 0.98], [125, -128, 0.82], [153, -102, 0.78],
 ].map(([x, z, radius]) => ({ kind: "circle", x, z, radius }) as SolidObstacle);
 
 export const WORLD_SOLIDS: SolidObstacle[] = [

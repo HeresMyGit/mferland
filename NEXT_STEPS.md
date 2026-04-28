@@ -51,6 +51,8 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 1. Stabilize Current Milestone
 
 - Fix the Colyseus schema buffer warning before committing. The warning means the encoded room-state patch can exceed Colyseus' default schema encoder buffer after the expanded player/NPC/quest/inventory state, which risks failed or incomplete state syncs as the room grows.
+- Reduce the quest log HUD footprint: shrink/collapse it when inactive or when there are no active quests, keep the HUD version less overbearing, and let users open the full quest log for details.
+- Quick-fix ranged quest/XP credit: kills from shoot/fireblast can miss quest credit when the target is too far away at death. Relax the credit requirements so players who tag a mob share kill quest credit and XP for now, since parties are not implemented yet. Revisit the rules later when party/group contribution logic exists.
 - Re-run `npm run typecheck`, `npm run build`, and `npm run build:agent`.
 - Restart the local dev server and confirm the buffer warning no longer appears during normal play.
 - Re-test wallet persistence after a fresh restart before applying the Neon migration to main.
@@ -58,9 +60,13 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 2. Level 8-10 Capstone World Expansion
 
 - Add the next hub and quest chain in the upper-right corner of the world so it balances the current lower-left hub.
+- Quality pass the upper-right quest hub layout: enemies are currently mixed in with friendly NPCs, which creates a bad questgiver interaction experience. Split it into multiple sections, add safer NPC pockets, or otherwise ensure players are not getting killed while talking to questgivers.
 - Re-center Mfer Town in the map composition and expand the grass/terrain several sections so the lower-left hub no longer spills off the playable-looking grass.
+- Reposition the farm so it sits more between main town and the bottom-left hub; it is currently too close to the bottom-left hub.
+- Move the Hogwatcher questgiver closer to the farm after the farm repositioning, since the current placement leaves them too far from the relevant quest area.
 - Add a clear route from town to the upper-right hub, with enough landmarks and minimap support to make the path legible.
-- Include a named enemy or small capstone encounter that carries players toward level 10.
+- Include a large named mfer boss for the questline finale that should take at least 3 players.
+- After players complete the finale, unlock a daily raid-spawn quest that calls a huge mfer ogre raid boss intended for 10+ players.
 
 ### 3. Quest And Drop Based Gear
 
@@ -157,6 +163,17 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Rare/onchain item behavior is later; only add schema support now.
 
 ## Automation Verification Notes
+
+### 2026-04-28 09:32 PDT - Upper-Right Expansion Pass
+
+- Added Signal Ridge as the upper-right hub with new terrain bounds, roads, minimap/world-map support, buildings, stalls, trees, banners, and a relay landmark.
+- Added the level 8-10 quest continuation: Field Camp dispatch -> Signal Ridge scraps -> raider crew -> Static Baron Nox.
+- Made Static Baron Nox a large mfer boss intended for 3+ players, with higher health, larger rendered scale, and adjusted attack/collision ranges.
+- Added post-finale daily raid quest support: completing Static Baron Nox unlocks a repeatable daily that spawns Huge mfer ogre, a much larger mfer boss intended for 10+ players.
+- Added quest reward gear and rare drop gear without level-gating: Field-Patched Hoodie, Ridge Runner Beanie, Baron Breaker Board, and Static Loop Ring.
+- Reworked starter quests into a short town-intro chain instead of same-NPC instant turn-ins: OG -> DAO -> Fountain -> OG, then Sealed Note opens.
+- Verified with `npm run typecheck`, `npm run build`, `npm run build:agent`, a quest-chain ID/reward sanity script, and a browser smoke test.
+- Needs manual playtest: route readability to Signal Ridge, boss health/damage tuning for actual player counts, and the daily raid spawn loop after completing the finale.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

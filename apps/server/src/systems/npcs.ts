@@ -170,6 +170,38 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       dialogue: "Field Camp supplies are basic, but the route is open.",
     },
     {
+      id: "ridge-guide-mfer",
+      name: "Ridge Guide mfer",
+      role: "quest_giver",
+      x: 116.2,
+      z: -101.6,
+      yaw: 2.35,
+      leashRadius: 1.4,
+      dialogue: "Signal Ridge is catching strange static from the relay crown.",
+      questId: "signal-scraps",
+    },
+    {
+      id: "beacon-keeper-mfer",
+      name: "Beacon Keeper mfer",
+      role: "quest_giver",
+      x: 130.4,
+      z: -107.8,
+      yaw: -2.1,
+      leashRadius: 1.4,
+      dialogue: "The relay can call trouble down from miles away if you know the pattern.",
+      questId: "cut-the-static",
+    },
+    {
+      id: "ridge-merchant",
+      name: "Ridge merchant",
+      role: "merchant",
+      x: 122.4,
+      z: -97.6,
+      yaw: -2.8,
+      leashRadius: 1.3,
+      dialogue: "No level gates here. Good gear comes from hard jobs and lucky drops.",
+    },
+    {
       id: "training-dummy-left",
       name: "Training dummy",
       role: "enemy",
@@ -201,6 +233,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
     ...makeDeerSpecs(),
     ...makeWildHogSpecs(),
     ...makeFarmerSpecs(),
+    ...makeRidgeRaiderSpecs(),
   ];
 
   for (const spec of specs) {
@@ -330,6 +363,34 @@ function makeFarmerSpecs() {
     maxHealth: farmer.style === "caster" ? 70 : 90,
     combatStyle: farmer.style as "melee" | "caster",
     dialogue: farmer.style === "caster" ? "The field mage guards the busted farm." : "This farmer grips a pitchfork and watches the pen.",
+  }));
+}
+
+function makeRidgeRaiderSpecs() {
+  return [
+    { id: "ridge-raider-vex", name: "Raider Vex", x: 118.5, z: -84.2, yaw: -2.4, style: "melee", health: 150 },
+    { id: "ridge-raider-pax", name: "Raider Pax", x: 132.8, z: -89.8, yaw: 2.5, style: "melee", health: 150 },
+    { id: "static-mage-ori", name: "Static mage Ori", x: 126.2, z: -118.8, yaw: -0.2, style: "caster", health: 135 },
+    { id: "ridge-raider-loop", name: "Ridge raider", x: 109.5, z: -70.2, yaw: 1.1, style: "melee", health: 125 },
+    { id: "ridge-raider-spark", name: "Ridge raider", x: 137.6, z: -104.8, yaw: -2.2, style: "caster", health: 125 },
+    { id: "static-baron-nox", name: "Static Baron Nox", x: 138.5, z: -122.5, yaw: 2.85, style: "melee", health: 920 },
+  ].map((raider) => ({
+    id: raider.id,
+    name: raider.name,
+    role: "farmer" as NpcRole,
+    model: "mfer" as NpcModel,
+    x: raider.x,
+    z: raider.z,
+    yaw: raider.yaw,
+    leashRadius: raider.id === "static-baron-nox" ? 16 : 10.5,
+    health: raider.health,
+    maxHealth: raider.health,
+    combatStyle: raider.style as "melee" | "caster",
+    dialogue: raider.id === "static-baron-nox"
+      ? "The oversized mfer boss grips the relay mast and dares the ridge to rush him."
+      : raider.style === "caster"
+        ? "Static pops around this ridge mage's hands."
+        : "This ridge raider is wired on relay static.",
   }));
 }
 
@@ -473,7 +534,7 @@ function updateFarmerNpc(
   npc.yaw = Math.atan2(dx, dz);
 
   const isCaster = npc.combatStyle === "caster";
-  const attackRange = isCaster ? FARMER_COMBAT.spellRange : FARMER_COMBAT.meleeRange;
+  const attackRange = getFarmerAttackRange(npc, isCaster);
   if (distance > attackRange * 0.82) {
     moveNpcToward(npc, target.x, target.z, delta, FARMER_COMBAT.moveSpeed);
     return;
@@ -483,9 +544,27 @@ function updateFarmerNpc(
   if (now < npc.attackReadyAt) return;
 
   const actionId: CombatActionId = isCaster ? "fireblast" : "attack";
-  const damage = isCaster ? FARMER_COMBAT.spellDamage : FARMER_COMBAT.meleeDamage;
-  npc.attackReadyAt = now + (isCaster ? FARMER_COMBAT.spellCooldownMs : FARMER_COMBAT.meleeCooldownMs);
+  const damage = getFarmerAttackDamage(npc, isCaster);
+  npc.attackReadyAt = now + getFarmerAttackCooldownMs(npc, isCaster);
   applyNpcCombatDamage(npc, npc.aggroTargetId, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
+}
+
+function getFarmerAttackRange(npc: NpcState, isCaster: boolean) {
+  if (npc.id === "raid-ogre-mfer") return 7.2;
+  if (npc.id === "static-baron-nox") return 5.6;
+  return isCaster ? FARMER_COMBAT.spellRange : FARMER_COMBAT.meleeRange;
+}
+
+function getFarmerAttackDamage(npc: NpcState, isCaster: boolean) {
+  if (npc.id === "raid-ogre-mfer") return 38;
+  if (npc.id === "static-baron-nox") return 24;
+  return isCaster ? FARMER_COMBAT.spellDamage : FARMER_COMBAT.meleeDamage;
+}
+
+function getFarmerAttackCooldownMs(npc: NpcState, isCaster: boolean) {
+  if (npc.id === "raid-ogre-mfer") return 1400;
+  if (npc.id === "static-baron-nox") return 1500;
+  return isCaster ? FARMER_COMBAT.spellCooldownMs : FARMER_COMBAT.meleeCooldownMs;
 }
 
 function updateHogNpc(
@@ -539,6 +618,8 @@ function findNearestAggroPlayer(npc: NpcState, players: MapSchema<PlayerState>) 
 }
 
 function getFarmerLeashRange(npc: NpcState) {
+  if (npc.id === "raid-ogre-mfer") return 82;
+  if (npc.id === "static-baron-nox") return 56;
   if (!npc.aggroTargetId) return FARMER_COMBAT.leashRange;
   return Math.max(FARMER_COMBAT.leashRange, COMBAT.actions.fireblast.maxRange + 2);
 }
@@ -599,6 +680,8 @@ function getNpcMoveSpeed(npc: NpcState) {
 }
 
 function getNpcCollisionRadius(npc: NpcState) {
+  if (npc.id === "raid-ogre-mfer") return 1.8;
+  if (npc.id === "static-baron-nox") return 1.05;
   if (npc.model === "rabbit") return 0.36;
   if (npc.model === "hog") return 0.74;
   if (npc.model === "deer") return 0.62;

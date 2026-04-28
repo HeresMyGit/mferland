@@ -345,6 +345,7 @@ export function TownScene({
               isNpc
               questMarker={questMarker}
               hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
+              actorScale={getNpcActorScale(npc)}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
               viewerPosition={viewerPosition}
@@ -361,4 +362,10 @@ export function TownScene({
       </Suspense>
     </>
   );
+}
+
+function getNpcActorScale(npc: NpcSnapshot) {
+  if (npc.id === "raid-ogre-mfer") return 3.1;
+  if (npc.id === "static-baron-nox") return 1.75;
+  return 1;
 }

@@ -7,12 +7,14 @@ import {
   getQuestObjectives,
   getQuestRepeatLabel,
   getQuestRequiredItemId,
+  getQuestRewardItemIds,
   getQuestRequirement,
   getQuestStartItemId,
   getQuestTurnInNpcId,
   isQuestAutoReady,
   isQuestReadyToRepeat,
   isStackableItem,
+  ITEMS,
   normalizeChainTokenId,
   shouldConsumeQuestItem,
   type ItemId,
@@ -88,7 +90,7 @@ export function getNpcQuestInteraction(npc: NpcState, player: PlayerState): NpcQ
 }
 
 function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
-  if (questId === "feral-farmers") {
+  if (getQuestObjectives(questId).length > 0) {
     return `${QUESTS[questId].title}: ${formatNamedQuestProgress(quest)}.`;
   }
 
@@ -102,6 +104,10 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
 
   if (questId === "hog-loop") {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild hogs cleared from the loop.`;
+  }
+
+  if (questId === "signal-scraps") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} signal scraps collected. The raiders do not always drop clean parts.`;
   }
 
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
@@ -124,7 +130,7 @@ export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): 
 
 function getQuestCompletionResponse(questId: QuestId) {
   if (questId === "mfer-beginnings") {
-    return "You are checked in. The plaza is yours.";
+    return "DAO mfer logs your name and points you toward the fountain route.";
   }
 
   if (questId === "sealed-note") {
@@ -136,11 +142,11 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "dao-tour") {
-    return "You found the DAO hall. Proposals can wait until the town is ready.";
+    return "Fountain mfer marks the plaza route complete and sends the vibe back to OG.";
   }
 
   if (questId === "fountain-vibes") {
-    return "The fountain is doing its job.";
+    return "OG mfer sees you made the loop. Now the real errand starts.";
   }
 
   if (questId === "feral-farmers") {
@@ -163,17 +169,39 @@ function getQuestCompletionResponse(questId: QuestId) {
     return "That pass through the hog loop bought the camp more quiet.";
   }
 
+  if (questId === "ridge-dispatch") {
+    return "Ridge Guide mfer pins the dispatch to the signal board and points at the static uptrail.";
+  }
+
+  if (questId === "signal-scraps") {
+    return "These scraps still buzz. Enough to tune the ridge relay.";
+  }
+
+  if (questId === "cut-the-static") {
+    return "The scout crew is down. Only the named relay boss is still holding the signal.";
+  }
+
+  if (questId === "baron-of-static") {
+    return "Static Baron Nox is off the relay. The ridge can now overcharge the signal for bigger daily raids.";
+  }
+
+  if (questId === "ogre-raid-daily") {
+    return "The huge mfer ogre is down. Beacon Keeper mfer cuts the relay before it calls anything worse.";
+  }
+
   return "Quest complete.";
 }
 
 function getFinishedQuestDialogue(npcId: string) {
-  if (npcId === "og-mfer") return "you are checked in. Roam around and see who needs help.";
+  if (npcId === "og-mfer") return "you made the town loop. The farm road is where the next trouble starts.";
   if (npcId === "wearables-mfer") return "the red-eye scraps are enough for a few road flags.";
-  if (npcId === "dao-mfer") return "the DAO hall is on the map now. Come back when proposals are live.";
-  if (npcId === "fountain-mfer") return "fountain vibes are handled for today.";
+  if (npcId === "dao-mfer") return "the DAO hall is on the map now. Fountain mfer keeps the town route moving.";
+  if (npcId === "fountain-mfer") return "fountain vibes are handled. OG has the next thing.";
   if (npcId === "hogwatch-mfer") return "the farm is quieter already. Town owes you one.";
   if (npcId === "field-guide-mfer") return "the road is marked. Daily patrols will stay posted.";
   if (npcId === "pen-keeper-mfer") return "the hog loop always needs another sweep.";
+  if (npcId === "ridge-guide-mfer") return "Signal Ridge is marked. Keep an ear out for static.";
+  if (npcId === "beacon-keeper-mfer") return "the ridge relay is quiet for now.";
   return "nothing else for now.";
 }
 
@@ -185,6 +213,8 @@ function getNpcDisplayName(npcId: string) {
   if (npcId === "hogwatch-mfer") return "Hogwatch mfer";
   if (npcId === "field-guide-mfer") return "Field Guide mfer";
   if (npcId === "pen-keeper-mfer") return "Pen Keeper mfer";
+  if (npcId === "ridge-guide-mfer") return "Ridge Guide mfer";
+  if (npcId === "beacon-keeper-mfer") return "Beacon Keeper mfer";
   return "the right mfer";
 }
 
@@ -257,6 +287,9 @@ function getQuestTurnInLabel(questId: QuestId) {
 function getQuestRewardPreview(questId: QuestId) {
   const quest = QUESTS[questId];
   const rewards = [`${quest.xpReward} XP`, "Town standing"];
+  for (const itemId of getQuestRewardItemIds(questId)) {
+    rewards.push(ITEMS[itemId].name);
+  }
   const repeatLabel = getQuestRepeatLabel(questId);
   if (repeatLabel) rewards.push(repeatLabel);
   const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
@@ -329,16 +362,21 @@ export function completeQuest(player: PlayerState, questId: QuestId, now: number
   quest.status = "completed";
   quest.progress = quest.required;
   quest.completedAt = now;
+
+  for (const itemId of getQuestRewardItemIds(questId)) {
+    addInventoryItem(player, itemId, 1);
+  }
+
   return true;
 }
 
 export function progressDefeatQuests(player: PlayerState, npc: NpcState) {
   let progressed = false;
-  if (npc.role === "farmer") {
-    progressed = progressNamedQuestObjective(player, "feral-farmers", npc.id);
-  }
 
   for (const questId of QUEST_IDS) {
+    if (getQuestObjectiveIds(questId).includes(npc.id)) {
+      progressed = progressNamedQuestObjective(player, questId, npc.id) || progressed;
+    }
     if (isDefeatQuestTarget(questId, npc)) {
       progressed = progressQuest(player, questId, 1) || progressed;
     }
@@ -409,7 +447,7 @@ function formatQuestProgress(quest: QuestState) {
 
 function formatNamedQuestProgress(quest: QuestState) {
   const completed = getQuestFlags(quest);
-  const labels = QUESTS["feral-farmers"].objectives.map((objective) => (
+  const labels = getQuestObjectives(quest.id).map((objective) => (
     `${objective.label.replace("Defeat ", "")}: ${completed.has(objective.id) ? "done" : "needed"}`
   ));
   return labels.join(", ");

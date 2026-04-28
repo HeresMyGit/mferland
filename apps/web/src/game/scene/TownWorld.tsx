@@ -12,7 +12,7 @@ import { MARKET_STALLS, OUTPOST_BUILDINGS, OUTPOST_MARKET_STALLS, TOWN_BUILDINGS
 import { configureTile, createBarkTexture, createGrassTuftTexture, createLeafTexture, createWaterTexture } from "./world/textures";
 export { Skybox } from "./world/Skybox";
 
-const GROUND_MARGIN = 36;
+const GROUND_MARGIN = 60;
 const TOWN_GROUND_WIDTH = PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX + GROUND_MARGIN;
 const TOWN_GROUND_DEPTH = PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ + GROUND_MARGIN;
 
@@ -108,7 +108,9 @@ export function TownWorld() {
       <InstancedMarketProps stalls={[...MARKET_STALLS, ...OUTPOST_MARKET_STALLS]} />
       <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <WatchTower position={[134.2, 0, -108.6]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <RundownFarm position={[-104, 0, 92]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
+      <SignalRelay position={[136, 0, -121]} />
       <SpawnRing position={[5.6, 0.12, 5.6]} />
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
       <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
@@ -119,7 +121,34 @@ export function TownWorld() {
       <BannerPost position={[7.2, 0, 39]} color="#e18b35" rotation={Math.PI} />
       <BannerPost position={[-83.8, 0, 59.6]} color="#9b45ff" rotation={Math.PI / 2} />
       <BannerPost position={[-112, 0, 126]} color="#52d64f" rotation={Math.PI} />
+      <BannerPost position={[94, 0, -22]} color="#36b7c9" rotation={-Math.PI / 2} />
+      <BannerPost position={[123, 0, -91]} color="#9b45ff" />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
+    </group>
+  );
+}
+
+function SignalRelay({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      <mesh position={[0, 0.08, 0]} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[2.4, 2.65, 64]} />
+        <meshBasicMaterial color="#7ddcff" transparent opacity={0.52} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position={[0, 2.8, 0]}>
+        <cylinderGeometry args={[0.12, 0.18, 5.6, 10]} />
+        <meshBasicMaterial color="#3b3544" />
+      </mesh>
+      <mesh position={[0, 5.75, 0]}>
+        <octahedronGeometry args={[0.72, 0]} />
+        <meshBasicMaterial color="#7ddcff" transparent opacity={0.9} />
+      </mesh>
+      {[0, 1, 2].map((index) => (
+        <mesh key={index} position={[0, 4.25 - index * 0.78, 0]} rotation-y={(index * Math.PI) / 3}>
+          <torusGeometry args={[0.82 + index * 0.26, 0.035, 8, 40]} />
+          <meshBasicMaterial color={index % 2 === 0 ? "#7ddcff" : "#b38cff"} transparent opacity={0.72} />
+        </mesh>
+      ))}
     </group>
   );
 }

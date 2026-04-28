@@ -52,7 +52,9 @@ export function awardExperience(player: PlayerState, amount: number): Experience
   };
 }
 
-export function getNpcDefeatXp(npc: Pick<NpcState, "role" | "model">) {
+export function getNpcDefeatXp(npc: Pick<NpcState, "id" | "role" | "model">) {
+  if (npc.id === "raid-ogre-mfer") return 180;
+  if (npc.id === "static-baron-nox") return 90;
   if (npc.role === "farmer") return PROGRESSION.mobXpRewards.farmer;
   if (npc.role === "enemy") return PROGRESSION.mobXpRewards.enemy;
   if (npc.role === "critter") return getModelXpReward(npc.model, PROGRESSION.mobXpRewards.critter);

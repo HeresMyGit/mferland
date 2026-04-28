@@ -118,6 +118,17 @@ export const TOWN_TREES: TreeSpec[] = [
   [-96, 0, 118, 1.02],
   [-136, 0, 146, 1.14],
   [-101, 0, 149, 0.98],
+  [78, 0, -32, 0.96],
+  [91, 0, -25, 1.02],
+  [104, 0, -37, 1.12],
+  [112, 0, -51, 0.94],
+  [132, 0, -61, 1.08],
+  [108, 0, -78, 0.98],
+  [141, 0, -88, 1.04],
+  [102, 0, -111, 1.02],
+  [147, 0, -118, 1.16],
+  [125, 0, -128, 0.98],
+  [153, 0, -102, 0.94],
 ].map(([x, y, z, scale]) => ({ position: [x, y, z], scale }));
 export const BACKDROP_TREES: TreeSpec[] = [-82, -72, -62, -54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54, 64, 74, 84]
   .map((x, index) => ({
@@ -163,6 +174,9 @@ export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = [
   { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "FIELD", accent: "#52d64f" },
   { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "TRAIL", accent: "#f5c344" },
   { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "WATCH", accent: "#477fe7" },
+  { id: "ridge-post", blueprint: "shop", position: [112, 0, -101.5], rotation: -1.2, sign: "RIDGE", accent: "#36b7c9" },
+  { id: "signal-shed", blueprint: "shop", position: [128.5, 0, -97.5], rotation: 2.68, sign: "SIGNAL", accent: "#9b45ff" },
+  { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "RELAY", accent: "#e18b35" },
 ];
 export const MARKET_STALLS: MarketStallSpec[] = [
   { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: "#9b45ff" },
@@ -172,6 +186,8 @@ export const MARKET_STALLS: MarketStallSpec[] = [
 export const OUTPOST_MARKET_STALLS: MarketStallSpec[] = [
   { id: "field-camp-left-stall", position: [-123, 0, 129.8], rotation: 0.18, color: "#52d64f" },
   { id: "field-camp-right-stall", position: [-114, 0, 132.2], rotation: -0.26, color: "#e18b35" },
+  { id: "ridge-left-stall", position: [118.2, 0, -109.6], rotation: -0.18, color: "#36b7c9" },
+  { id: "ridge-right-stall", position: [128.8, 0, -110.8], rotation: 0.32, color: "#9b45ff" },
 ];
 export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },
@@ -196,6 +212,12 @@ export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-80.6, 0.026, 78], size: [0.78, 40], color: "#6e5539" },
   { position: [-116, 0.026, 116], size: [0.78, 40], color: "#6e5539" },
   { position: [-108, 0.026, 116], size: [0.78, 40], color: "#6e5539" },
+  { position: [75, 0.026, -25.2], size: [84, 0.78], color: "#6e5539" },
+  { position: [75, 0.026, -18.8], size: [84, 0.78], color: "#6e5539" },
+  { position: [116.2, 0.026, -62], size: [0.78, 80], color: "#6e5539" },
+  { position: [123.8, 0.026, -62], size: [0.78, 80], color: "#6e5539" },
+  { position: [124, 0.026, -117.6], size: [36, 0.78], color: "#6e5539" },
+  { position: [124, 0.026, -90.4], size: [36, 0.78], color: "#6e5539" },
 ];
 export const PLAZA_CRACK_DECALS: GroundRectDecalSpec[] = [
   { position: [-9.2, 0.128, -3.8], size: [4.8, 0.07], rotation: 0.28, color: "#3f3a31" },
@@ -226,6 +248,8 @@ export const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
   { position: [6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
   { position: [-123, 0.03, 129.8], size: [3.5, 1.9], rotation: 0.18, color: "#21170d" },
   { position: [-114, 0.03, 132.2], size: [3.5, 1.9], rotation: -0.26, color: "#21170d" },
+  { position: [118.2, 0.03, -109.6], size: [3.5, 1.9], rotation: -0.18, color: "#21170d" },
+  { position: [128.8, 0.03, -110.8], size: [3.5, 1.9], rotation: 0.32, color: "#21170d" },
 ];
 export const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: 0.08, color: "#765b3b" },
@@ -233,6 +257,8 @@ export const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: -0.12, color: "#765b3b" },
   { position: [-104, 0.034, 92], size: [24, 11], rotation: -0.18, color: "#563f2b" },
   { position: [-118, 0.034, 136], size: [31, 16], rotation: 0.04, color: "#604832" },
+  { position: [124, 0.034, -104], size: [32, 15], rotation: -0.03, color: "#5c5140" },
+  { position: [136, 0.034, -121], size: [22, 11], rotation: 0.12, color: "#4d4650" },
   { position: [-18, 0.031, 38.6], size: [5.5, 1.7], rotation: 2.82, color: "#69503a" },
   { position: [18, 0.031, 38.6], size: [5.5, 1.7], rotation: -2.82, color: "#69503a" },
 ];
@@ -262,6 +288,9 @@ function buildGrassTufts(): GrassTuftSpec[] {
     { center: [-90, 82], size: [28, 34], count: 18 },
     { center: [-121, 115], size: [34, 42], count: 20 },
     { center: [-124, 145], size: [32, 18], count: 12 },
+    { center: [82, -22], size: [34, 22], count: 16 },
+    { center: [119, -68], size: [32, 42], count: 18 },
+    { center: [132, -112], size: [36, 32], count: 18 },
   ] as const;
 
   return zones.flatMap((zone, zoneIndex) => (

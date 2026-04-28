@@ -24,6 +24,7 @@ type MferAvatarProps = {
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
   hasLoot?: boolean;
+  actorScale?: number;
   viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
@@ -85,6 +86,7 @@ export function MferAvatar({
   isDefeated = false,
   questMarker = null,
   hasLoot = false,
+  actorScale = 1,
   viewerPosition = null,
   onTarget,
 }: MferAvatarProps) {
@@ -183,7 +185,7 @@ export function MferAvatar({
   });
 
   return (
-    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} onPointerDown={handleTarget}>
+    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} scale={actorScale} onPointerDown={handleTarget}>
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}

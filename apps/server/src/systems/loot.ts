@@ -33,11 +33,38 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       addLootItem(npc, "worn-antler", 1);
     }
   } else if (npc.role === "farmer") {
-    const bandanaDropRate = canDropQuestItem(player, "farmhand-bandanas") && "dropRate" in QUESTS["farmhand-bandanas"]
+    if (npc.id === "raid-ogre-mfer") {
+      npc.respawnAt = 0;
+      if (Math.random() < 0.18) {
+        addLootItem(npc, "static-loop-ring", 1);
+      }
+      if (Math.random() < 0.12) {
+        addLootItem(npc, "baron-breaker-board", 1);
+      }
+      npc.hasLoot = npcHasLoot(npc);
+      if (!npc.hasLoot) return;
+
+      npc.despawnAt = now + LOOT.corpseDespawnMs;
+      return;
+    }
+
+    if (isRidgeRaider(npc)) {
+      if (canDropQuestItem(player, "signal-scraps") && Math.random() < QUESTS["signal-scraps"].dropRate) {
+        addLootItem(npc, "signal-scrap", 1);
+      }
+      if (Math.random() < 0.08) {
+        addLootItem(npc, "static-loop-ring", 1);
+      }
+    }
+
+    const bandanaDropRate = !isRidgeRaider(npc) && canDropQuestItem(player, "farmhand-bandanas") && "dropRate" in QUESTS["farmhand-bandanas"]
       ? QUESTS["farmhand-bandanas"].dropRate
-      : 0.35;
-    if (Math.random() < bandanaDropRate) {
+      : !isRidgeRaider(npc) ? 0.35 : 0;
+    if (bandanaDropRate > 0 && Math.random() < bandanaDropRate) {
       addLootItem(npc, "farmhand-bandana", 1);
+    }
+    if (!isRidgeRaider(npc) && Math.random() < 0.05) {
+      addLootItem(npc, "field-patched-hoodie", 1);
     }
   } else if (npc.role === "enemy" && Math.random() < 0.22) {
     addLootItem(npc, "dummy-splinter", 1);
@@ -101,4 +128,8 @@ export function makeLootWindow(npc: NpcState): LootWindow {
 
 export function normalizeItemId(input: unknown): ItemId | null {
   return typeof input === "string" && Object.prototype.hasOwnProperty.call(ITEMS, input) ? input as ItemId : null;
+}
+
+function isRidgeRaider(npc: NpcState) {
+  return npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-");
 }
