@@ -27,6 +27,15 @@ export type WorldHub = {
   kind: "plaza" | "farm" | "hub";
 };
 
+export type WorldLandmark = {
+  id: string;
+  name: string;
+  label: string;
+  x: number;
+  z: number;
+  kind: "route" | "relay";
+};
+
 export const WORLD_ROADS: WorldRoad[] = [
   { id: "south-gate", x: 0, z: -34, width: 8.5, depth: 44, surface: "stone" },
   { id: "north-gate", x: 0, z: 35, width: 8.5, depth: 42, surface: "stone" },
@@ -42,6 +51,7 @@ export const WORLD_ROADS: WorldRoad[] = [
   { id: "farmyard", x: -82, z: 92, width: 38, depth: 22, surface: "dirt" },
   { id: "field-road", x: -101, z: 116, width: 6, depth: 42, surface: "dirt" },
   { id: "field-camp-yard", x: -118, z: 136, width: 38, depth: 24, surface: "dirt" },
+  { id: "ridge-gate", x: 53, z: -11.5, width: 6.2, depth: 28, surface: "dirt" },
   { id: "ridge-fork", x: 75, z: -22, width: 88, depth: 5.8, surface: "dirt" },
   { id: "ridge-lane", x: 120, z: -62, width: 6, depth: 84, surface: "dirt" },
   { id: "signal-ridge-yard", x: 124, z: -104, width: 42, depth: 26, surface: "dirt" },
@@ -55,6 +65,13 @@ export const WORLD_HUBS: WorldHub[] = [
   { id: "field-camp", name: "Field Camp", x: -118, z: 136, diameter: 28, kind: "hub" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
   { id: "static-field", name: "Static Field", x: 150, z: -104, diameter: 22, kind: "farm" },
+];
+
+export const WORLD_LANDMARKS: WorldLandmark[] = [
+  { id: "ridge-gate-marker", name: "Ridge Gate", label: "RIDGE", x: 55.5, z: -5.5, kind: "route" },
+  { id: "relay-milepost-marker", name: "Relay Milepost", label: "MILE", x: 92, z: -18.2, kind: "route" },
+  { id: "switchback-lantern-marker", name: "Switchback Lantern", label: "TURN", x: 124.4, z: -58, kind: "route" },
+  { id: "signal-approach-marker", name: "Signal Approach", label: "SIGNAL", x: 116.6, z: -90, kind: "relay" },
 ];
 
 export type SolidObstacle =

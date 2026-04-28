@@ -1,5 +1,5 @@
 import { type CSSProperties } from "react";
-import { PLAZA_BOUNDS, WORLD_HUBS, WORLD_ROADS, type PlayerSnapshot } from "@mferland/shared";
+import { PLAZA_BOUNDS, WORLD_HUBS, WORLD_LANDMARKS, WORLD_ROADS, type PlayerSnapshot } from "@mferland/shared";
 
 const MINIMAP_RANGE_YARDS = 48;
 const MINIMAP_EDGE_PERCENT = 42;
@@ -7,6 +7,7 @@ const EXPLORE_CELL_SIZE = 8;
 const EXPLORE_RADIUS_CELLS = 2;
 export const MINIMAP_ROADS = WORLD_ROADS;
 export const MINIMAP_HUBS = WORLD_HUBS;
+export const MINIMAP_LANDMARKS = WORLD_LANDMARKS;
 
 function normalize(value: number, min: number, max: number) {
   return Math.max(7, Math.min(93, ((value - min) / (max - min)) * 100));

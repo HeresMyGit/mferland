@@ -170,6 +170,21 @@
   border-color: #260b08;
 }
 
+.map-dot.landmark {
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: #7ddcff;
+  border-color: #123942;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  z-index: 4;
+}
+
+.map-dot.landmark.relay {
+  background: #b38cff;
+  border-color: #2f1d55;
+}
+
 .online-row {
   display: flex;
   gap: 12px;
@@ -1082,7 +1097,51 @@ button.inventory-slot:hover {
 }
 
 .world-map .map-dot {
+  z-index: 5;
+}
+
+.world-map-landmark {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
   z-index: 4;
+}
+
+.world-map-landmark i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: #7ddcff;
+  box-shadow: 0 0 0 2px rgba(18, 57, 66, 0.72), 0 0 8px rgba(125, 220, 255, 0.54);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.world-map-landmark.relay i {
+  background: #b38cff;
+  box-shadow: 0 0 0 2px rgba(47, 29, 85, 0.72), 0 0 9px rgba(179, 140, 255, 0.55);
+}
+
+.world-map-landmark em {
+  position: absolute;
+  left: 50%;
+  top: -20px;
+  width: max-content;
+  max-width: 58px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transform: translateX(-50%);
+  background: rgba(18, 25, 18, 0.68);
+  color: #e9fbff;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 1000;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 .death-panel {

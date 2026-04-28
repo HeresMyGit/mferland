@@ -212,6 +212,8 @@ export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-72.6, 0.026, 78], size: [0.78, 40], color: "#6e5539" },
   { position: [-105, 0.026, 116], size: [0.78, 40], color: "#6e5539" },
   { position: [-97, 0.026, 116], size: [0.78, 40], color: "#6e5539" },
+  { position: [49.5, 0.026, -11.5], size: [0.78, 26], color: "#6e5539" },
+  { position: [56.5, 0.026, -11.5], size: [0.78, 26], color: "#6e5539" },
   { position: [75, 0.026, -25.2], size: [84, 0.78], color: "#6e5539" },
   { position: [75, 0.026, -18.8], size: [84, 0.78], color: "#6e5539" },
   { position: [116.2, 0.026, -62], size: [0.78, 80], color: "#6e5539" },

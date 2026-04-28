@@ -47,6 +47,7 @@ import { TargetFrame } from "./hud/TargetFrame";
 import type { ActionSlot, DragState } from "./hud/types";
 import {
   MINIMAP_HUBS,
+  MINIMAP_LANDMARKS,
   MINIMAP_ROADS,
   getExploredCellKeys,
   getExploredCellStyle,
@@ -394,6 +395,14 @@ export function Hud({
               style={getMinimapRoadStyle(localPlayer, road)}
             />
           ))}
+          {MINIMAP_LANDMARKS.map((landmark) => (
+            <span
+              key={landmark.id}
+              className={`map-dot landmark ${landmark.kind}`}
+              title={landmark.name}
+              style={getMinimapPointStyle(localPlayer, landmark.x, landmark.z)}
+            />
+          ))}
           <div className="minimap-ring" />
           <div className="minimap-vision-cone" />
           {Array.from(players.entries()).map(([id, player]) => (
@@ -456,6 +465,17 @@ export function Hud({
                   className={`world-map-road ${road.surface}`}
                   style={getWorldMapRoadStyle(road)}
                 />
+              ))}
+              {MINIMAP_LANDMARKS.map((landmark) => (
+                <span
+                  key={landmark.id}
+                  className={`world-map-landmark ${landmark.kind}`}
+                  title={landmark.name}
+                  style={getWorldMapPointStyle(landmark.x, landmark.z)}
+                >
+                  <i />
+                  <em>{landmark.label}</em>
+                </span>
               ))}
               {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
                 <span

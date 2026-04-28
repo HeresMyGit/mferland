@@ -65,7 +65,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Done 2026-04-28: Re-center the town-to-field composition by shifting the Busted Farm east toward town, keeping Field Camp as the later hub, and expanding the ground margin around the playable area.
 - Done 2026-04-28: Reposition the farm so it sits more between main town and the bottom-left hub instead of almost on top of Field Camp.
 - Done 2026-04-28: Move the Hogwatcher questgiver closer to the repositioned farm approach.
-- Add a clear route from town to the upper-right hub, with enough landmarks and minimap support to make the path legible.
+- Done 2026-04-28: Add a clear route from town to the upper-right hub, with enough landmarks and minimap support to make the path legible.
 - Include a large named mfer boss for the questline finale that should take at least 3 players.
 - After players complete the finale, unlock a daily raid-spawn quest that calls a huge mfer ogre raid boss intended for 10+ players.
 
@@ -218,6 +218,13 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Moved hogs and farmhand enemies with the farm so combat remains centered on the farmyard.
 - Moved Hogwatcher to the new farm approach, closer to the relevant quest area.
 - Updated shared road/hub/map data, farm collision solids, farm visuals, road edge decals, and ground smudges for the new farm position.
+
+### 2026-04-28 10:23 PDT - Signal Ridge Route Pass
+
+- Added an east-side dirt connector from town to the existing Ridge Fork path.
+- Added shared ridge route landmarks so both the minimap and world map show the route breadcrumbs.
+- Added visible 3D RIDGE/MILE/TURN/SIGNAL marker posts along the road to Signal Ridge.
+- Updated the Signal Ridge dispatch quest copy and mferGPT hint text to point players toward the cyan ridge markers.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

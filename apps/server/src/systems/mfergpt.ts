@@ -269,6 +269,10 @@ function getActiveQuestHint(
     return `Follow the dirt route past the farm to Field Camp, then talk to ${turnInNpcName}.`;
   }
 
+  if (questId === "ridge-dispatch") {
+    return `Take the east road out of town, follow the cyan RIDGE markers north, then talk to ${turnInNpcName}.`;
+  }
+
   if (questId === "route-patrol-daily") {
     return `For ${quest.title}, clear hogs or hostile farmers along the farm road. Progress is ${progress}/${required}.`;
   }

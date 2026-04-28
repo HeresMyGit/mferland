@@ -141,7 +141,7 @@ export const QUESTS = {
     title: "Signal Ridge Dispatch",
     giverNpcId: "field-guide-mfer",
     turnInNpcId: "ridge-guide-mfer",
-    description: "Field Guide mfer has heard signal static from the upper ridge. Carry the route note to Ridge Guide mfer.",
+    description: "Field Guide mfer has heard signal static from the upper ridge. Take the east road and follow the ridge markers to Ridge Guide mfer.",
     objectiveLabel: "Carry the field dispatch to Signal Ridge",
     turnInLabel: "Reach Ridge Guide mfer at Signal Ridge",
     required: 1,

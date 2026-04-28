@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
-import { useTexture } from "@react-three/drei";
+import { Text, useTexture } from "@react-three/drei";
 import * as THREE from "three";
-import { PLAZA_BOUNDS, WORLD_ROADS } from "@mferland/shared";
+import { PLAZA_BOUNDS, WORLD_LANDMARKS, WORLD_ROADS, type WorldLandmark } from "@mferland/shared";
 import { CastleGate, InstancedBuildingDetails, TownBuilding } from "./world/Buildings";
 import { RundownFarm } from "./world/Farm";
 import { Fountain } from "./world/Fountain";
@@ -111,6 +111,9 @@ export function TownWorld() {
       <WatchTower position={[134.2, 0, -108.6]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <RundownFarm position={[-82, 0, 92]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
       <SignalRelay position={[136, 0, -121]} />
+      {WORLD_LANDMARKS.map((landmark) => (
+        <SignalRouteMarker key={landmark.id} landmark={landmark} />
+      ))}
       <SpawnRing position={[5.6, 0.12, 5.6]} />
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
       <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
@@ -126,6 +129,44 @@ export function TownWorld() {
       <BannerPost position={[137.5, 0, -91]} color="#d9453d" />
       <BannerPost position={[137.5, 0, -116.5]} color="#d9453d" rotation={Math.PI} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
+    </group>
+  );
+}
+
+function SignalRouteMarker({ landmark }: { landmark: WorldLandmark }) {
+  const accent = landmark.kind === "relay" ? "#b38cff" : "#7ddcff";
+  const trim = landmark.kind === "relay" ? "#5c3aa8" : "#16798a";
+  const labelSize = landmark.label.length > 4 ? 0.24 : 0.3;
+
+  return (
+    <group position={[landmark.x, 0, landmark.z]} rotation-y={-Math.PI / 2}>
+      <mesh position={[0, 1.22, 0]}>
+        <cylinderGeometry args={[0.07, 0.09, 2.44, 8]} />
+        <meshBasicMaterial color="#4b2d18" />
+      </mesh>
+      <mesh position={[0, 2.24, 0.05]}>
+        <boxGeometry args={[1.38, 0.58, 0.08]} />
+        <meshBasicMaterial color={trim} />
+      </mesh>
+      <mesh position={[0, 2.24, 0.1]}>
+        <boxGeometry args={[1.15, 0.38, 0.05]} />
+        <meshBasicMaterial color={accent} />
+      </mesh>
+      <Text
+        position={[0, 2.25, 0.14]}
+        fontSize={labelSize}
+        color="#fff8df"
+        outlineColor="#17110b"
+        outlineWidth={0.018}
+        anchorX="center"
+        anchorY="middle"
+      >
+        {landmark.label}
+      </Text>
+      <mesh position={[0, 0.05, 0]} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.48, 0.54, 44]} />
+        <meshBasicMaterial color={accent} transparent opacity={0.44} side={THREE.DoubleSide} />
+      </mesh>
     </group>
   );
 }
