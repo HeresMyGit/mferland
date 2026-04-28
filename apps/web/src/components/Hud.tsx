@@ -202,11 +202,14 @@ export function Hud({
   return (
     <div className="hud">
       <section className="player-card">
-          <div className="portrait" style={{ "--accent": accent } as CSSProperties}>
-            <span>mf</span>
+        <div className="portrait" style={{ "--accent": accent } as CSSProperties}>
+          <span>mf</span>
+        </div>
+        <div className="player-vitals">
+          <div className="player-name-row">
+            <strong>{localPlayer?.name ?? identity.name}</strong>
+            <span>Lv {localPlayer?.level ?? 1}</span>
           </div>
-          <div className="player-vitals">
-            <strong>{identity.name}</strong>
           <div className="bar hp">
             <span style={{ width: `${percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100)}%` }} />
             {Math.ceil(localPlayer?.health ?? 100)}/{Math.ceil(localPlayer?.maxHealth ?? 100)}

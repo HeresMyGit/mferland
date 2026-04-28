@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
+import { closeDatabase } from "./db/client.js";
 import { TownRoom } from "./rooms/TownRoom.js";
 
 const port = Number(process.env.PORT ?? 2567);
@@ -20,4 +21,17 @@ gameServer.define(ROOM_NAME, TownRoom);
 
 server.listen(port, () => {
   console.log(`mferland server listening on ws://localhost:${port}`);
+});
+
+async function shutdown() {
+  await closeDatabase();
+  server.close(() => process.exit(0));
+}
+
+process.on("SIGINT", () => {
+  void shutdown();
+});
+
+process.on("SIGTERM", () => {
+  void shutdown();
 });

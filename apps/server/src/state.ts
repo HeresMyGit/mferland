@@ -35,6 +35,9 @@ export class PlayerState extends Schema {
   @type("string") identityType: IdentityType = "guest";
   @type("string") walletAddress = "";
   @type("number") avatarSeed = 0;
+  @type("number") level = 1;
+  @type("number") xp = 0;
+  @type("number") talentPoints = 0;
   @type("number") health = PLAYER.maxHealth;
   @type("number") maxHealth = PLAYER.maxHealth;
   @type("number") healthRegenPer5 = PLAYER.healthRegenPer5;

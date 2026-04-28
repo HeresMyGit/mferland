@@ -42,6 +42,9 @@ export function updateLocalVisualPlayer(
   visual.identityType = authoritative.identityType;
   visual.walletAddress = authoritative.walletAddress;
   visual.avatarSeed = authoritative.avatarSeed;
+  visual.level = authoritative.level;
+  visual.xp = authoritative.xp;
+  visual.talentPoints = authoritative.talentPoints;
   visual.health = authoritative.health;
   visual.maxHealth = authoritative.maxHealth;
   visual.healthRegenPer5 = authoritative.healthRegenPer5;

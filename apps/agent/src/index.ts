@@ -36,6 +36,9 @@ type RuntimePlayer = {
   identityType: IdentityType;
   walletAddress: string;
   avatarSeed: number;
+  level: number;
+  xp: number;
+  talentPoints: number;
   health: number;
   maxHealth: number;
   healthRegenPer5: number;
@@ -139,6 +142,9 @@ class AgentCharacter {
           identityType: player.identityType,
           walletAddress: player.walletAddress,
           avatarSeed: player.avatarSeed,
+          level: player.level,
+          xp: player.xp,
+          talentPoints: player.talentPoints,
           health: player.health,
           maxHealth: player.maxHealth,
           healthRegenPer5: player.healthRegenPer5,

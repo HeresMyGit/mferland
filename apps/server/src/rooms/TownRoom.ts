@@ -20,9 +20,16 @@ import {
   type IdentityType,
   type ItemId,
   type JoinOptions,
+  type QuestId,
 } from "@mferland/shared";
-import { PlayerState, TownState } from "../state.js";
+import { InventoryItemState, PlayerState, QuestState, TownState } from "../state.js";
 import type { TrackedInput } from "../types.js";
+import {
+  loadOrCreateWalletCharacter,
+  saveCharacterProgress,
+  type PersistableCharacterState,
+  type PersistedCharacter,
+} from "../persistence.js";
 import {
   aggroNeutralNpcOnPlayerAttackStart,
   applyCombatDamage,
@@ -66,6 +73,7 @@ export class TownRoom extends Room<TownState> {
   private readonly jumpHeld = new Map<string, boolean>();
   private readonly lastChatAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
+  private readonly persistentCharacterIds = new Map<string, string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
 
   onCreate() {
@@ -154,39 +162,55 @@ export class TownRoom extends Room<TownState> {
         sentAt: now,
       };
       this.broadcast("chat", payload);
+      this.persistPlayerProgress(client.sessionId, player);
     });
   }
 
-  onJoin(client: Client, options?: JoinOptions) {
+  async onJoin(client: Client, options?: JoinOptions) {
     const player = new PlayerState();
     const spawn = getSpawnPoint(this.state.players.size);
     const walletAddress =
       typeof options?.walletAddress === "string" ? options.walletAddress.toLowerCase().slice(0, 64) : "";
     const identityType = getIdentityType(options, walletAddress);
     const defaultName = getDefaultName(identityType, walletAddress, client.sessionId);
+    const name = sanitizePlayerName(options?.name, defaultName);
+    const avatarSeed = Number.isFinite(options?.avatarSeed)
+      ? Number(options?.avatarSeed)
+      : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
+    const persistedCharacter = identityType === "wallet" && walletAddress
+      ? await loadPersistedCharacter(walletAddress, name, avatarSeed)
+      : null;
 
-    player.name = sanitizePlayerName(options?.name, defaultName);
+    player.name = persistedCharacter?.name ?? name;
     player.identityType = identityType;
     player.walletAddress = walletAddress;
-    player.avatarSeed = Number.isFinite(options?.avatarSeed)
-      ? Number(options?.avatarSeed)
-      : stableHash(`${client.sessionId}:${player.name}:${walletAddress}`);
+    player.avatarSeed = persistedCharacter?.avatarSeed ?? avatarSeed;
+    player.level = persistedCharacter?.level ?? 1;
+    player.xp = persistedCharacter?.xp ?? 0;
+    player.talentPoints = persistedCharacter?.talentPoints ?? 0;
     player.health = player.maxHealth;
     player.mana = player.maxMana;
     player.x = spawn.x;
     player.y = 0;
     player.z = spawn.z;
     player.yaw = spawn.yaw;
+    if (persistedCharacter) {
+      applyPersistedCharacter(player, persistedCharacter);
+      this.persistentCharacterIds.set(client.sessionId, persistedCharacter.characterId);
+    }
 
     this.state.players.set(client.sessionId, player);
   }
 
-  onLeave(client: Client) {
+  async onLeave(client: Client) {
+    const player = this.state.players.get(client.sessionId);
+    if (player) await this.persistPlayerProgressNow(client.sessionId, player);
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
     this.jumpHeld.delete(client.sessionId);
     this.lastChatAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
+    this.persistentCharacterIds.delete(client.sessionId);
   }
 
   private handleCombatAction(client: Client, message: Partial<ClientCombatAction>) {
@@ -266,6 +290,7 @@ export class TownRoom extends Room<TownState> {
 
     const now = Date.now();
     startQuest(player, questId);
+    this.persistPlayerProgress(client.sessionId, player);
     this.broadcast("chat", {
       sessionId: npc.id,
       name: npc.name,
@@ -308,6 +333,23 @@ export class TownRoom extends Room<TownState> {
     npc.despawnAt = Date.now() + LOOT.lootedDespawnMs;
     npc.respawnAt = Math.max(npc.respawnAt, npc.despawnAt + 250);
     client.send("closeLootWindow", { npcId: npc.id });
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private persistPlayerProgress(sessionId: string, player: PlayerState) {
+    if (!this.persistentCharacterIds.has(sessionId)) return;
+    void this.persistPlayerProgressNow(sessionId, player);
+  }
+
+  private async persistPlayerProgressNow(sessionId: string, player: PlayerState) {
+    const characterId = this.persistentCharacterIds.get(sessionId);
+    if (!characterId) return;
+
+    try {
+      await saveCharacterProgress(makePersistableCharacterState(characterId, player));
+    } catch (error) {
+      console.error(`Failed to persist character ${characterId}`, error);
+    }
   }
 
   private update(dt: number) {
@@ -387,4 +429,68 @@ export class TownRoom extends Room<TownState> {
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
     });
   }
+}
+
+async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number) {
+  try {
+    return await loadOrCreateWalletCharacter({ walletAddress, displayName: name, avatarSeed });
+  } catch (error) {
+    console.error(`Failed to load persisted character for ${walletAddress}`, error);
+    return null;
+  }
+}
+
+function applyPersistedCharacter(player: PlayerState, character: PersistedCharacter) {
+  player.quests.clear();
+  for (const savedQuest of character.quests) {
+    const quest = new QuestState();
+    quest.id = savedQuest.id;
+    quest.status = savedQuest.status;
+    quest.progress = savedQuest.progress;
+    quest.required = savedQuest.required;
+    quest.flags = savedQuest.flags;
+    quest.completedAt = savedQuest.completedAt;
+    player.quests.set(savedQuest.id, quest);
+  }
+
+  player.inventory.clear();
+  for (const savedItem of character.inventory) {
+    const item = new InventoryItemState();
+    item.id = savedItem.id;
+    item.count = savedItem.count;
+    player.inventory.set(savedItem.id, item);
+  }
+}
+
+function makePersistableCharacterState(characterId: string, player: PlayerState): PersistableCharacterState {
+  const quests: PersistableCharacterState["quests"] = [];
+  player.quests.forEach((quest, id) => {
+    quests.push({
+      id: (quest.id || id) as QuestId,
+      status: quest.status,
+      progress: quest.progress,
+      required: quest.required,
+      flags: quest.flags,
+      completedAt: quest.completedAt,
+    });
+  });
+
+  const inventory: PersistableCharacterState["inventory"] = [];
+  player.inventory.forEach((item, id) => {
+    inventory.push({
+      id: (item.id || id) as ItemId,
+      count: item.count,
+    });
+  });
+
+  return {
+    characterId,
+    name: player.name,
+    avatarSeed: player.avatarSeed,
+    level: player.level,
+    xp: player.xp,
+    talentPoints: player.talentPoints,
+    quests,
+    inventory,
+  };
 }

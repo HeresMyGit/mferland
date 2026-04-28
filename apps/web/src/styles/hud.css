@@ -40,6 +40,21 @@
   align-items: center;
 }
 
+.player-name-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.player-name-row span {
+  color: var(--hud-accent);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-shadow: 0 2px 0 #000;
+  white-space: nowrap;
+}
+
 .portrait {
   width: 70px;
   height: 70px;

@@ -73,6 +73,9 @@ export type PlayerSnapshot = {
   identityType: IdentityType;
   walletAddress: string;
   avatarSeed: number;
+  level: number;
+  xp: number;
+  talentPoints: number;
   health: number;
   maxHealth: number;
   healthRegenPer5: number;

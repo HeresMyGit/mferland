@@ -270,6 +270,9 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     identityType: player.identityType,
     walletAddress: player.walletAddress,
     avatarSeed: player.avatarSeed,
+    level: player.level,
+    xp: player.xp,
+    talentPoints: player.talentPoints,
     health: player.health,
     maxHealth: player.maxHealth,
     healthRegenPer5: player.healthRegenPer5,
@@ -302,6 +305,9 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.identityType = player.identityType;
   target.walletAddress = player.walletAddress;
   target.avatarSeed = player.avatarSeed;
+  target.level = player.level;
+  target.xp = player.xp;
+  target.talentPoints = player.talentPoints;
   target.health = player.health;
   target.maxHealth = player.maxHealth;
   target.healthRegenPer5 = player.healthRegenPer5;
