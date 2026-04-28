@@ -60,6 +60,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [snapshotRevision, setSnapshotRevision] = useState(0);
+  const [sceneRevision, setSceneRevision] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
   const [experienceEvents, setExperienceEvents] = useState<ExperienceEvent[]>([]);
@@ -72,8 +73,11 @@ export function useTownRoom(identity: JoinOptions) {
   const npcsRef = useRef(new Map<string, NpcSnapshot>());
   const lastSnapshotRenderAtRef = useRef(0);
   const pendingSnapshotRenderRef = useRef<number | null>(null);
+  const pendingSceneRenderRef = useRef(false);
 
-  const requestSnapshotRender = useCallback((force = false) => {
+  const requestSnapshotRender = useCallback((force = false, includeScene = true) => {
+    if (includeScene) pendingSceneRenderRef.current = true;
+
     const pending = pendingSnapshotRenderRef.current;
     if (force && pending !== null) {
       window.clearTimeout(pending);
@@ -83,16 +87,22 @@ export function useTownRoom(identity: JoinOptions) {
     const now = performance.now();
     const elapsed = now - lastSnapshotRenderAtRef.current;
     if (force || elapsed >= SNAPSHOT_RENDER_INTERVAL_MS) {
+      const shouldRenderScene = pendingSceneRenderRef.current;
+      pendingSceneRenderRef.current = false;
       lastSnapshotRenderAtRef.current = now;
       setSnapshotRevision((revision) => revision + 1);
+      if (shouldRenderScene) setSceneRevision((revision) => revision + 1);
       return;
     }
 
     if (pending !== null) return;
     pendingSnapshotRenderRef.current = window.setTimeout(() => {
       pendingSnapshotRenderRef.current = null;
+      const shouldRenderScene = pendingSceneRenderRef.current;
+      pendingSceneRenderRef.current = false;
       lastSnapshotRenderAtRef.current = performance.now();
       setSnapshotRevision((revision) => revision + 1);
+      if (shouldRenderScene) setSceneRevision((revision) => revision + 1);
     }, SNAPSHOT_RENDER_INTERVAL_MS - elapsed);
   }, []);
 
@@ -107,6 +117,7 @@ export function useTownRoom(identity: JoinOptions) {
       window.clearTimeout(pendingSnapshotRenderRef.current);
       pendingSnapshotRenderRef.current = null;
     }
+    pendingSceneRenderRef.current = false;
   }, []);
 
   useEffect(() => {
@@ -135,7 +146,7 @@ export function useTownRoom(identity: JoinOptions) {
         room.onStateChange((state) => {
           const playersChanged = syncPlayerSnapshots(playersRef.current, state.players);
           const npcsChanged = syncNpcSnapshots(npcsRef.current, state.npcs);
-          requestSnapshotRender(playersChanged || npcsChanged);
+          if (playersChanged || npcsChanged) requestSnapshotRender();
         });
 
         room.onMessage("chat", (message: ChatMessage) => {
@@ -317,6 +328,7 @@ export function useTownRoom(identity: JoinOptions) {
     players: playersRef.current,
     npcs: npcsRef.current,
     snapshotRevision,
+    sceneRevision,
     chat,
     combatEvents,
     experienceEvents,
@@ -344,21 +356,21 @@ export function useTownRoom(identity: JoinOptions) {
 
 function syncPlayerSnapshots(target: Map<string, PlayerSnapshot>, source: RuntimePlayerCollection) {
   const seen = new Set<string>();
-  let membershipChanged = false;
+  let changed = false;
 
   source.forEach((player, id) => {
     seen.add(id);
     const existing = target.get(id);
     if (existing) {
-      updatePlayerSnapshot(existing, player, id);
+      changed = updatePlayerSnapshot(existing, player, id) || changed;
       return;
     }
 
     target.set(id, createPlayerSnapshot(player, id));
-    membershipChanged = true;
+    changed = true;
   });
 
-  return deleteMissingSnapshots(target, seen) || membershipChanged;
+  return deleteMissingSnapshots(target, seen) || changed;
 }
 
 function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot {
@@ -411,6 +423,42 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
 }
 
 function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id: string) {
+  let changed = false;
+  changed = target.sessionId !== id || changed;
+  changed = target.name !== player.name || changed;
+  changed = target.identityType !== player.identityType || changed;
+  changed = target.walletAddress !== player.walletAddress || changed;
+  changed = target.avatarSeed !== player.avatarSeed || changed;
+  changed = target.level !== player.level || changed;
+  changed = target.xp !== player.xp || changed;
+  changed = target.talentPoints !== player.talentPoints || changed;
+  changed = target.health !== player.health || changed;
+  changed = target.maxHealth !== player.maxHealth || changed;
+  changed = target.healthRegenPer5 !== player.healthRegenPer5 || changed;
+  changed = target.mana !== player.mana || changed;
+  changed = target.maxMana !== player.maxMana || changed;
+  changed = target.manaRegenPer5 !== player.manaRegenPer5 || changed;
+  changed = target.walkSpeed !== player.walkSpeed || changed;
+  changed = target.runSpeed !== player.runSpeed || changed;
+  changed = target.strength !== player.strength || changed;
+  changed = target.dexterity !== player.dexterity || changed;
+  changed = target.magic !== player.magic || changed;
+  changed = target.attackReadyAt !== player.attackReadyAt || changed;
+  changed = target.shootReadyAt !== player.shootReadyAt || changed;
+  changed = target.signalShotReadyAt !== player.signalShotReadyAt || changed;
+  changed = target.fireblastReadyAt !== player.fireblastReadyAt || changed;
+  changed = target.frostNovaReadyAt !== player.frostNovaReadyAt || changed;
+  changed = target.healReadyAt !== player.healReadyAt || changed;
+  changed = target.tauntReadyAt !== player.tauntReadyAt || changed;
+  changed = target.whirlwindReadyAt !== player.whirlwindReadyAt || changed;
+  changed = target.multishotReadyAt !== player.multishotReadyAt || changed;
+  changed = target.iceBlastReadyAt !== player.iceBlastReadyAt || changed;
+  changed = target.castingAction !== player.castingAction || changed;
+  changed = target.castStartedAt !== player.castStartedAt || changed;
+  changed = target.castEndsAt !== player.castEndsAt || changed;
+  changed = target.lastCastAt !== player.lastCastAt || changed;
+  changed = target.lastDamagedAt !== player.lastDamagedAt || changed;
+
   target.sessionId = id;
   target.name = player.name;
   target.identityType = player.identityType;
@@ -451,10 +499,27 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.castEndsAt = player.castEndsAt;
   target.lastCastAt = player.lastCastAt;
   target.lastDamagedAt = player.lastDamagedAt;
-  target.quests = snapshotQuests(player.quests);
-  target.inventory = snapshotInventory(player.inventory);
-  target.equipment = snapshotEquipment(player.equipment);
-  target.talents = snapshotTalents(player.talents);
+  const nextQuests = snapshotQuests(player.quests);
+  const nextInventory = snapshotInventory(player.inventory);
+  const nextEquipment = snapshotEquipment(player.equipment);
+  const nextTalents = snapshotTalents(player.talents);
+  if (!questSnapshotsEqual(target.quests, nextQuests)) {
+    target.quests = nextQuests;
+    changed = true;
+  }
+  if (!inventorySnapshotsEqual(target.inventory, nextInventory)) {
+    target.inventory = nextInventory;
+    changed = true;
+  }
+  if (!equipmentSnapshotsEqual(target.equipment, nextEquipment)) {
+    target.equipment = nextEquipment;
+    changed = true;
+  }
+  if (!talentSnapshotsEqual(target.talents, nextTalents)) {
+    target.talents = nextTalents;
+    changed = true;
+  }
+  return changed;
 }
 
 function syncNpcSnapshots(target: Map<string, NpcSnapshot>, source: RuntimeNpcCollection | undefined) {
@@ -465,21 +530,21 @@ function syncNpcSnapshots(target: Map<string, NpcSnapshot>, source: RuntimeNpcCo
   }
 
   const seen = new Set<string>();
-  let membershipChanged = false;
+  let changed = false;
 
   source.forEach((npc, id) => {
     seen.add(id);
     const existing = target.get(id);
     if (existing) {
-      updateNpcSnapshot(existing, npc, id);
+      changed = updateNpcSnapshot(existing, npc, id) || changed;
       return;
     }
 
     target.set(id, createNpcSnapshot(npc, id));
-    membershipChanged = true;
+    changed = true;
   });
 
-  return deleteMissingSnapshots(target, seen) || membershipChanged;
+  return deleteMissingSnapshots(target, seen) || changed;
 }
 
 function createNpcSnapshot(npc: NpcSnapshot, id: string): NpcSnapshot {
@@ -509,6 +574,24 @@ function createNpcSnapshot(npc: NpcSnapshot, id: string): NpcSnapshot {
 }
 
 function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
+  let changed = false;
+  changed = target.id !== id || changed;
+  changed = target.name !== npc.name || changed;
+  changed = target.role !== npc.role || changed;
+  changed = target.model !== npc.model || changed;
+  changed = target.avatarSeed !== npc.avatarSeed || changed;
+  changed = target.health !== npc.health || changed;
+  changed = target.maxHealth !== npc.maxHealth || changed;
+  changed = target.isImmortal !== npc.isImmortal || changed;
+  changed = target.dialogue !== npc.dialogue || changed;
+  changed = target.questId !== npc.questId || changed;
+  changed = target.defeatedAt !== npc.defeatedAt || changed;
+  changed = target.despawnAt !== npc.despawnAt || changed;
+  changed = target.frozenUntil !== npc.frozenUntil || changed;
+  changed = target.slowedUntil !== npc.slowedUntil || changed;
+  changed = target.aggroTargetId !== npc.aggroTargetId || changed;
+  changed = target.hasLoot !== npc.hasLoot || changed;
+
   target.id = id;
   target.name = npc.name;
   target.role = npc.role;
@@ -530,6 +613,7 @@ function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
   target.slowedUntil = npc.slowedUntil;
   target.aggroTargetId = npc.aggroTargetId;
   target.hasLoot = npc.hasLoot;
+  return changed;
 }
 
 function deleteMissingSnapshots<T>(target: Map<string, T>, seen: Set<string>) {
@@ -592,4 +676,48 @@ function snapshotTalents(talents: RuntimeTalentCollection | undefined): TalentRa
     });
   });
   return next.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function questSnapshotsEqual(left: QuestSnapshot[], right: QuestSnapshot[]) {
+  if (left.length !== right.length) return false;
+  return left.every((quest, index) => {
+    const other = right[index];
+    return quest.id === other.id
+      && quest.status === other.status
+      && quest.progress === other.progress
+      && quest.required === other.required
+      && quest.flags === other.flags
+      && quest.completedAt === other.completedAt;
+  });
+}
+
+function inventorySnapshotsEqual(left: InventoryItemSnapshot[], right: InventoryItemSnapshot[]) {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => {
+    const other = right[index];
+    return item.id === other.id
+      && item.chainTokenId === other.chainTokenId
+      && item.count === other.count;
+  });
+}
+
+function equipmentSnapshotsEqual(left: EquipmentSlotSnapshot[], right: EquipmentSlotSnapshot[]) {
+  if (left.length !== right.length) return false;
+  return left.every((slot, index) => {
+    const other = right[index];
+    return slot.slot === other.slot
+      && slot.itemId === other.itemId
+      && slot.chainTokenId === other.chainTokenId;
+  });
+}
+
+function talentSnapshotsEqual(left: TalentRankSnapshot[], right: TalentRankSnapshot[]) {
+  if (left.length !== right.length) return false;
+  return left.every((talent, index) => {
+    const other = right[index];
+    return talent.id === other.id
+      && talent.tree === other.tree
+      && talent.nodeId === other.nodeId
+      && talent.rank === other.rank;
+  });
 }

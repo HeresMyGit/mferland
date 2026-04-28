@@ -53,6 +53,15 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Refactor pass for large/mixed-responsibility files before adding much more feature work. Combat-related files appear to be accumulating many abilities/moves and may need ability definitions or handlers split into their own modules. Also check the town square/world layout file and any other large files that mix unrelated data types or systems. The game will expand quickly, so prefer modular files with clear ownership boundaries.
 - Fix the Colyseus schema buffer warning before committing. The warning means the encoded room-state patch can exceed Colyseus' default schema encoder buffer after the expanded player/NPC/quest/inventory state, which risks failed or incomplete state syncs as the room grows.
 - Investigate the recurring ~1 second gameplay hitch: while walking forward, the game appears to lag briefly and the camera can nudge for a split second. Check for server tick/sync, autosave, polling, state patch, or render loop work running on a 1s interval.
+- Done 2026-04-28: Split combat event construction/projectile timing into `combatEvents.ts` so combat state rules are separated from network visual-event payloads.
+- Done 2026-04-28: Increased the Colyseus schema encoder buffer to 512 KB and confirmed normal guest entry no longer logs the buffer warning after a fresh dev-server restart.
+- Done 2026-04-28: Reduced first-click/first-target stalls by limiting actor raycasting to invisible hit cylinders, precomputing their bounds, clearing chat focus on canvas pointer down, and resetting movement input when the browser loses focus.
+- Candidate fix 2026-04-28: Reduced the remaining movement-time hitch by moving map exploration/fog state updates off the normal running path unless the world map is open, and by lowering HUD cooldown/clock tick churn.
+- Reverted 2026-04-28: Do not pin Mixamo hips/root Y motion globally; it made jump feel too low and did not solve the recurring hitch.
+- Candidate fix 2026-04-28: Reduced idle HUD timer churn by making the HUD timer sleep until the next clock minute unless a cast/cooldown is active.
+- Candidate fix 2026-04-28: Stopped room position/yaw-only patches from forcing React renders; actors now consume movement/animation changes in-frame, while UI renders still occur for health, quests, inventory, cooldowns, membership, and coarse local minimap movement.
+- Candidate fix 2026-04-28: Added a deadzone to local player prediction reconciliation so tiny server/client drift while actively moving no longer creates constant camera/player rubber-banding; large drift still snaps and idle drift still corrects normally.
+- Fix fountain-area rendering order: cobblestone near the fountain appears over character shadows.
 - Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
 - Done 2026-04-28: Fix right-side HUD button alignment so icon and label content stays centered and unclipped on Character, Inventory, Quests, and Leave buttons, including narrow/mobile viewports.
 - Done 2026-04-28: Quick-fix ranged quest/XP credit by tracking recent player damage tags on mobs, so tagged players share kill quest credit and XP even if they are outside the old death-radius check.
@@ -81,6 +90,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 4. Combat Feel
 
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
+- Fix the cast bar animation/progress so it feels silky smooth.
 - Done 2026-04-28: Status bar pass: health is red, mana is blue, and XP is purple.
 - Done 2026-04-28: Show a health bar on the character name tag; future settings toggle to hide/show it remains deferred.
 - Done 2026-04-28: Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
@@ -300,6 +310,16 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Added a hog charge movement burst when an aggroed hog has enough distance to rush the player.
 - Added caster retreat behavior so caster farmers and static mages backpedal when players get too close instead of standing still.
 - Kept this pass schema-free and limited to existing NPC movement/combat logic.
+
+### 2026-04-28 13:45 PDT - Movement Stutter Follow-Up
+
+- Decoupled local movement/minimap snapshot updates from 3D scene renders so running no longer forces the full Three scene through React just to move HUD dots.
+- Memoized the town scene behind an explicit scene revision; NPC/player stat, target, combat, and scene-relevant changes still render normally.
+- Removed the remaining coarse local movement/yaw snapshot render path entirely while debugging the movement-only hitch.
+- Capped client-side control/camera delta at 30 FPS so an occasional late frame does not create a visible camera catch-up pop while moving or turning.
+- Restored minimap/world-map dot motion with direct DOM style updates from mutable room snapshots, avoiding React scene/HUD renders during normal movement.
+- Removed the temporary guest level-10 debug start so new guests start at normal level 1 progression again.
+- Kept the local prediction deadzone candidate in place for tiny authoritative drift while moving, with large drift and idle correction still handled.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

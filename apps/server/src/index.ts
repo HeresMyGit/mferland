@@ -5,7 +5,9 @@ import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { closeDatabase } from "./db/client.js";
 import { TownRoom } from "./rooms/TownRoom.js";
 
-Encoder.BUFFER_SIZE = 64 * 1024;
+const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
+
+Encoder.BUFFER_SIZE = ROOM_STATE_ENCODER_BUFFER_BYTES;
 
 const port = Number(process.env.PORT ?? 2567);
 const server = createServer((req, res) => {

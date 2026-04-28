@@ -44,7 +44,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
-import { ActionSlotButton, getActionMeta } from "./hud/ActionSlotButton";
+import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
 import { ItemIcon } from "./hud/ItemIcon";
 import { Quest } from "./hud/Quest";
 import { TargetFrame } from "./hud/TargetFrame";
@@ -63,6 +63,9 @@ import {
   getWorldMapRoadStyle,
 } from "./hud/mapUtils";
 import { getCastPercent, getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
+
+const HUD_TICK_MS = 200;
+const IDLE_HUD_TICK_MIN_MS = 1000;
 
 type HudProps = {
   identity: {
@@ -152,6 +155,14 @@ export function Hud({
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
+  const exploredCellKeyRef = useRef("");
+  const minimapHubRefs = useRef(new Map<string, HTMLElement>());
+  const minimapRoadRefs = useRef(new Map<string, HTMLElement>());
+  const minimapLandmarkRefs = useRef(new Map<string, HTMLElement>());
+  const minimapPlayerRefs = useRef(new Map<string, HTMLElement>());
+  const minimapNpcRefs = useRef(new Map<string, HTMLElement>());
+  const worldMapLocalRef = useRef<HTMLElement | null>(null);
+  const worldMapNpcRefs = useRef(new Map<string, HTMLElement>());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
@@ -161,15 +172,76 @@ export function Hud({
   );
   const hasTrackedQuests = trackedQuests.length > 0;
   const equippableInventory = localPlayer?.inventory.filter((item) => getItemEquipment(item.id)) ?? [];
+  const clockMinute = Math.floor(now / 60000);
+  const clockLabel = useMemo(
+    () => new Date(clockMinute * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    [clockMinute],
+  );
+  const hudTickDelay = getHudTickDelay(localPlayer, actionSlots, now);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 100);
-    return () => window.clearInterval(interval);
-  }, []);
+    const timeout = window.setTimeout(() => setNow(Date.now()), hudTickDelay);
+    return () => window.clearTimeout(timeout);
+  }, [hudTickDelay, now]);
 
   useEffect(() => {
-    if (!localPlayer) return;
-    const newlyExplored = getExploredCellKeys(localPlayer.x, localPlayer.z);
+    if (!localPlayer || !isMapOpen) return;
+    revealExploredCells(localPlayer);
+  }, [isMapOpen, localPlayer?.x, localPlayer?.z]);
+
+  useEffect(() => {
+    let frameId = 0;
+
+    const updateMinimap = () => {
+      const local = localPlayer;
+
+      for (const hub of MINIMAP_HUBS) {
+        applyHudPositionStyle(minimapHubRefs.current.get(hub.id), getMinimapCircleStyle(local, hub.x, hub.z, hub.diameter));
+      }
+
+      for (const road of MINIMAP_ROADS) {
+        applyHudPositionStyle(minimapRoadRefs.current.get(road.id), getMinimapRoadStyle(local, road));
+      }
+
+      for (const landmark of MINIMAP_LANDMARKS) {
+        applyHudPositionStyle(minimapLandmarkRefs.current.get(landmark.id), getMinimapPointStyle(local, landmark.x, landmark.z));
+      }
+
+      for (const [id, element] of minimapPlayerRefs.current) {
+        const player = players.get(id);
+        if (!player) continue;
+        applyHudPositionStyle(element, getMinimapPointStyle(local, player.x, player.z));
+      }
+
+      for (const [id, element] of minimapNpcRefs.current) {
+        const npc = npcs.get(id);
+        if (!npc) continue;
+        applyHudPositionStyle(element, getMinimapPointStyle(local, npc.x, npc.z));
+      }
+
+      if (isMapOpen && local) {
+        revealExploredCells(local);
+        applyHudPositionStyle(worldMapLocalRef.current, getWorldMapPointStyle(local.x, local.z));
+        for (const [id, element] of worldMapNpcRefs.current) {
+          const npc = npcs.get(id);
+          if (!npc) continue;
+          applyHudPositionStyle(element, getWorldMapPointStyle(npc.x, npc.z));
+        }
+      }
+
+      frameId = window.requestAnimationFrame(updateMinimap);
+    };
+
+    frameId = window.requestAnimationFrame(updateMinimap);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isMapOpen, localPlayer, npcs, players]);
+
+  function revealExploredCells(player: PlayerSnapshot) {
+    const newlyExplored = getExploredCellKeys(player.x, player.z);
+    const exploredCellKey = newlyExplored.join("|");
+    if (exploredCellKey === exploredCellKeyRef.current) return;
+    exploredCellKeyRef.current = exploredCellKey;
+
     setExploredCells((current) => {
       let changed = false;
       const next = new Set(current);
@@ -180,7 +252,7 @@ export function Hud({
       }
       return changed ? next : current;
     });
-  }, [localPlayer?.x, localPlayer?.z]);
+  }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -401,6 +473,7 @@ export function Hud({
           {MINIMAP_HUBS.map((hub) => (
             <span
               key={hub.id}
+              ref={(element) => setHudElementRef(minimapHubRefs, hub.id, element)}
               className={`minimap-hub ${hub.kind}`}
               title={hub.name}
               style={getMinimapCircleStyle(localPlayer, hub.x, hub.z, hub.diameter)}
@@ -409,6 +482,7 @@ export function Hud({
           {MINIMAP_ROADS.map((road) => (
             <span
               key={road.id}
+              ref={(element) => setHudElementRef(minimapRoadRefs, road.id, element)}
               className={`minimap-road ${road.surface}`}
               style={getMinimapRoadStyle(localPlayer, road)}
             />
@@ -416,6 +490,7 @@ export function Hud({
           {MINIMAP_LANDMARKS.map((landmark) => (
             <span
               key={landmark.id}
+              ref={(element) => setHudElementRef(minimapLandmarkRefs, landmark.id, element)}
               className={`map-dot landmark ${landmark.kind}`}
               title={landmark.name}
               style={getMinimapPointStyle(localPlayer, landmark.x, landmark.z)}
@@ -426,6 +501,7 @@ export function Hud({
           {Array.from(players.entries()).map(([id, player]) => (
             <span
               key={id}
+              ref={(element) => setHudElementRef(minimapPlayerRefs, id, element)}
               className={id === localSessionId ? "map-dot local" : "map-dot"}
               style={{
                 ...getMinimapPointStyle(localPlayer, player.x, player.z),
@@ -436,6 +512,7 @@ export function Hud({
           {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
             <span
               key={npc.id}
+              ref={(element) => setHudElementRef(minimapNpcRefs, npc.id, element)}
               className={`map-dot npc ${getNpcDisposition(npc)}`}
               title={npc.name}
               style={{
@@ -446,7 +523,7 @@ export function Hud({
         </div>
         <div className="online-row">
           <span>Online: {playerCount}</span>
-          <span>{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          <span>{clockLabel}</span>
         </div>
       </section>
 
@@ -498,6 +575,7 @@ export function Hud({
               {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
                 <span
                   key={npc.id}
+                  ref={(element) => setHudElementRef(worldMapNpcRefs, npc.id, element)}
                   className={`map-dot npc ${getNpcDisposition(npc)}`}
                   title={npc.name}
                   style={getWorldMapPointStyle(npc.x, npc.z)}
@@ -505,6 +583,9 @@ export function Hud({
               ))}
               {localPlayer && (
                 <span
+                  ref={(element) => {
+                    worldMapLocalRef.current = element;
+                  }}
                   className="map-dot local"
                   style={getWorldMapPointStyle(localPlayer.x, localPlayer.z)}
                 />
@@ -791,6 +872,45 @@ export function Hud({
 function isChatShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return true;
   return !target.closest("button,a,select,[role='button']");
+}
+
+function setHudElementRef(
+  ref: { current: Map<string, HTMLElement> },
+  id: string,
+  element: HTMLElement | null,
+) {
+  if (element) ref.current.set(id, element);
+  else ref.current.delete(id);
+}
+
+function applyHudPositionStyle(element: HTMLElement | null | undefined, style: CSSProperties) {
+  if (!element) return;
+  setCssProperty(element, "left", style.left);
+  setCssProperty(element, "top", style.top);
+  setCssProperty(element, "width", style.width);
+  setCssProperty(element, "height", style.height);
+  setCssProperty(element, "transform", style.transform);
+}
+
+function setCssProperty(element: HTMLElement, property: string, value: CSSProperties[keyof CSSProperties]) {
+  if (value === undefined || value === null) return;
+  const next = String(value);
+  if (element.style.getPropertyValue(property) !== next) {
+    element.style.setProperty(property, next);
+  }
+}
+
+function getHudTickDelay(player: PlayerSnapshot | null, actionSlots: ActionSlot[], now: number) {
+  if (player && player.castEndsAt > now) return HUD_TICK_MS;
+  if (player && actionSlots.some((actionId) => isCoolingDown(player, actionId, now))) return HUD_TICK_MS;
+
+  const msToNextMinute = 60000 - (now % 60000);
+  return Math.max(IDLE_HUD_TICK_MIN_MS, msToNextMinute + 50);
+}
+
+function isCoolingDown(player: PlayerSnapshot, actionId: ActionSlot, now: number) {
+  if (!actionId || actionId === "interact") return false;
+  return getActionReadyAt(player, actionId as CombatActionId) > now;
 }
 
 function QuestOfferPanel({

@@ -80,6 +80,9 @@ const NAMEPLATE_RENDER_DISTANCE_SQ = 34 * 34;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
 
+avatarHitGeometry.computeBoundingBox();
+avatarHitGeometry.computeBoundingSphere();
+
 export function MferAvatar({
   player,
   isLocal = false,
@@ -97,6 +100,7 @@ export function MferAvatar({
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
   const currentClipNameRef = useRef<string | null>(null);
+  const currentAnimationStateRef = useRef<AnimationState | null>(null);
   const deathAgeRef = useRef(0);
   const wasDefeatedRef = useRef(false);
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
@@ -136,6 +140,7 @@ export function MferAvatar({
     mixerRef.current = null;
     currentActionRef.current = null;
     currentClipNameRef.current = null;
+    currentAnimationStateRef.current = null;
 
     const mixer = new THREE.AnimationMixer(avatar);
     mixerRef.current = mixer;
@@ -146,6 +151,7 @@ export function MferAvatar({
       mixerRef.current = null;
       currentActionRef.current = null;
       currentClipNameRef.current = null;
+      currentAnimationStateRef.current = null;
     };
   }, [avatar, clips]);
 
@@ -172,6 +178,9 @@ export function MferAvatar({
       deathAgeRef.current += delta;
       updateMferDeathPose(poseRef.current, deathAgeRef.current);
     } else {
+      if (currentAnimationStateRef.current !== player.animation) {
+        playClip(player.animation);
+      }
       mixerRef.current?.update(delta);
     }
 
@@ -190,7 +199,7 @@ export function MferAvatar({
   });
 
   return (
-    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} scale={actorScale} onPointerDown={handleTarget}>
+    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} scale={actorScale}>
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
@@ -271,6 +280,7 @@ export function MferAvatar({
 
     currentActionRef.current = nextAction;
     currentClipNameRef.current = clipName;
+    currentAnimationStateRef.current = state;
     mixer.update(0);
   }
 }

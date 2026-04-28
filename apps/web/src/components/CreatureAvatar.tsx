@@ -38,6 +38,11 @@ const creatureHitGeometries = {
   deer: new THREE.CylinderGeometry(0.74, 0.74, 1.7, 10),
 } as const;
 
+Object.values(creatureHitGeometries).forEach((geometry) => {
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+});
+
 const creatureMaterials = {
   hogHide: new THREE.MeshBasicMaterial({ color: "#5c3a2e" }),
   hogDark: new THREE.MeshBasicMaterial({ color: "#2f201a" }),
@@ -128,7 +133,7 @@ export function CreatureAvatar({
   });
 
   return (
-    <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
+    <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
       <ActorBlobShadow scale={shadowScale} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={markerRadius} />}
       {isTargeted && <TargetRing color={ringColor} disposition={disposition} radius={markerRadius + 0.16} />}

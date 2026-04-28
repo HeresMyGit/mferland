@@ -8,6 +8,9 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 
+const LOCAL_MOVING_DRIFT_DEADZONE = 0.85;
+const LOCAL_MOVING_DRIFT_SNAP = 2.4;
+
 export function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
@@ -79,12 +82,12 @@ export function updateLocalVisualPlayer(
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);
-  if (drift > 3.5 || heightDrift > 2.5) {
+  if (drift > LOCAL_MOVING_DRIFT_SNAP || heightDrift > 2.5) {
     visual.x = authoritative.x;
     visual.y = authoritative.y;
     visual.z = authoritative.z;
   } else {
-    const positionCorrection = 1 - Math.pow(moveLength > 0.01 ? 0.94 : 0.64, delta * 60);
+    const positionCorrection = getLocalPositionCorrection(drift, moveLength, delta);
     const heightCorrection = 1 - Math.pow(0.48, delta * 60);
     visual.x += (authoritative.x - visual.x) * positionCorrection;
     visual.z += (authoritative.z - visual.z) * positionCorrection;
@@ -104,6 +107,12 @@ export function updateLocalVisualPlayer(
 
   const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
   visual.animation = airborne ? "jump" : moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
+}
+
+function getLocalPositionCorrection(drift: number, moveLength: number, delta: number) {
+  if (moveLength <= 0.01) return 1 - Math.pow(0.64, delta * 60);
+  if (drift < LOCAL_MOVING_DRIFT_DEADZONE) return 0;
+  return 1 - Math.pow(0.985, delta * 60);
 }
 
 export function getNextEnemyTarget(

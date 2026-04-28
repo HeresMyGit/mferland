@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { memo, Suspense, useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
@@ -30,6 +30,7 @@ import {
 type TownSceneProps = {
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
+  sceneRevision: number;
   localSessionId: string | null;
   selectedTarget: TargetSelection | null;
   combatEvents: CombatEvent[];
@@ -39,9 +40,12 @@ type TownSceneProps = {
   sendInput: (input: ClientInput) => void;
 };
 
-export function TownScene({
+const CONTROL_DELTA_CAP = 1 / 30;
+
+function TownSceneComponent({
   players,
   npcs,
+  sceneRevision: _sceneRevision,
   localSessionId,
   selectedTarget,
   combatEvents,
@@ -108,6 +112,33 @@ export function TownScene({
   }, []);
 
   useEffect(() => {
+    const resetControls = () => {
+      keyState.current.clear();
+      pointerState.current.left = false;
+      pointerState.current.right = false;
+      inputTimer.current = 0;
+      sendInput({
+        seq: ++seqRef.current,
+        x: 0,
+        z: 0,
+        yaw: facingYaw.current,
+        sprint: false,
+        jump: false,
+      });
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) resetControls();
+    };
+
+    window.addEventListener("blur", resetControls);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetControls);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [sendInput]);
+
+  useEffect(() => {
     const canvas = gl.domElement;
     const state = pointerState.current;
 
@@ -119,6 +150,7 @@ export function TownScene({
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 2) return;
       event.preventDefault();
+      blurActiveTextField();
       syncMouseButtons(event);
       state.lastX = event.clientX;
       state.lastY = event.clientY;
@@ -197,6 +229,7 @@ export function TownScene({
   }, [gl]);
 
   useFrame(({ camera }, delta) => {
+    const controlDelta = Math.min(delta, CONTROL_DELTA_CAP);
     const keys = keyState.current;
     const pointer = pointerState.current;
     const localIsDead = Boolean(localPlayer && localPlayer.health <= 0);
@@ -204,7 +237,7 @@ export function TownScene({
     const turnRight = keys.has("d") || keys.has("arrowright");
     const turnIntent = pointer.right ? 0 : (turnLeft ? 1 : 0) - (turnRight ? 1 : 0);
     if (turnIntent) {
-      facingYaw.current = wrapAngle(facingYaw.current + turnIntent * delta * 2.8);
+      facingYaw.current = wrapAngle(facingYaw.current + turnIntent * controlDelta * 2.8);
       cameraYaw.current = facingYaw.current;
     }
     if (pointer.right) facingYaw.current = cameraYaw.current;
@@ -258,7 +291,7 @@ export function TownScene({
     }
 
     if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
-      updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, delta);
+      updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, controlDelta);
     }
 
     const cameraPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
@@ -273,7 +306,7 @@ export function TownScene({
         .copy(cameraLookAt)
         .addScaledVector(cameraForward, -horizontalDistance);
       cameraDesired.y += verticalDistance;
-      camera.position.lerp(cameraDesired, 1 - Math.pow(0.05, delta));
+      camera.position.lerp(cameraDesired, 1 - Math.pow(0.05, controlDelta));
       camera.lookAt(cameraLookAt);
     }
   });
@@ -368,8 +401,36 @@ export function TownScene({
   );
 }
 
+export const TownScene = memo(TownSceneComponent, areTownScenePropsEqual);
+
+function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) {
+  return previous.players === next.players
+    && previous.npcs === next.npcs
+    && previous.sceneRevision === next.sceneRevision
+    && previous.localSessionId === next.localSessionId
+    && targetsEqual(previous.selectedTarget, next.selectedTarget)
+    && previous.combatEvents === next.combatEvents
+    && previous.experienceEvents === next.experienceEvents
+    && previous.onSelectTarget === next.onSelectTarget
+    && previous.onInteractAction === next.onInteractAction
+    && previous.sendInput === next.sendInput;
+}
+
+function targetsEqual(previous: TargetSelection | null, next: TargetSelection | null) {
+  if (previous === next) return true;
+  if (!previous || !next) return false;
+  return previous.kind === next.kind && previous.id === next.id;
+}
+
 function getNpcActorScale(npc: NpcSnapshot) {
   if (npc.id === "raid-ogre-mfer") return 3.1;
   if (npc.id === "static-baron-nox") return 1.75;
   return 1;
+}
+
+function blurActiveTextField() {
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement && isTypingTarget(activeElement)) {
+    activeElement.blur();
+  }
 }

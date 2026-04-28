@@ -12,7 +12,6 @@ import {
   clamp,
   getNpcDisposition,
   getInventoryItemKey,
-  getXpForLevel,
   getQuestTurnInNpcId,
   normalizeChainTokenId,
   resolveWorldCollision,
@@ -57,7 +56,6 @@ import {
   getPlayerHealingAmount,
   isNpcAlive,
   isPlayerStationary,
-  makeNpcUtilityEvent,
   normalizeCombatActionId,
   processPendingCombatImpacts,
   respawnPlayerAtFountain,
@@ -66,6 +64,7 @@ import {
   updatePlayerRegen,
   type PendingCombatImpact,
 } from "../systems/combat.js";
+import { makeNpcUtilityEvent } from "../systems/combatEvents.js";
 import {
   equipInventoryItem,
   initializeCharacterEquipment,
@@ -108,7 +107,6 @@ import {
 } from "../systems/utils.js";
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
-const DEBUG_GUEST_LEVEL = 10;
 
 type HealTarget =
   | { kind: "player"; id: string; unit: PlayerState }
@@ -260,12 +258,6 @@ export class TownRoom extends Room<TownState> {
     player.level = persistedCharacter?.level ?? 1;
     player.xp = persistedCharacter?.xp ?? 0;
     player.talentPoints = persistedCharacter?.talentPoints ?? 0;
-    if (identityType === "guest" && !persistedCharacter) {
-      const debugLevel = Math.min(DEBUG_GUEST_LEVEL, PROGRESSION.levelCap);
-      player.level = debugLevel;
-      player.xp = getXpForLevel(debugLevel);
-      player.talentPoints = debugLevel - 1;
-    }
     normalizePlayerProgression(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;

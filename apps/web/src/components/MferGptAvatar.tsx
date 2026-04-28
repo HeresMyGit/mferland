@@ -45,6 +45,9 @@ const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0,
 const labelColor = "#d8caff";
 const badgeColor = "#b38cff";
 
+hitGeometry.computeBoundingBox();
+hitGeometry.computeBoundingSphere();
+
 export function MferGptAvatar({
   npc,
   isTargeted = false,
@@ -59,6 +62,7 @@ export function MferGptAvatar({
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
   const currentClipNameRef = useRef<string | null>(null);
+  const currentAnimationStateRef = useRef<AnimationState | null>(null);
   const deathAgeRef = useRef(0);
   const wasDefeatedRef = useRef(false);
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGptGltf;
@@ -79,6 +83,7 @@ export function MferGptAvatar({
     mixerRef.current = null;
     currentActionRef.current = null;
     currentClipNameRef.current = null;
+    currentAnimationStateRef.current = null;
 
     const mixer = new THREE.AnimationMixer(avatar);
     mixerRef.current = mixer;
@@ -89,6 +94,7 @@ export function MferGptAvatar({
       mixerRef.current = null;
       currentActionRef.current = null;
       currentClipNameRef.current = null;
+      currentAnimationStateRef.current = null;
     };
   }, [avatar, clips]);
 
@@ -115,6 +121,9 @@ export function MferGptAvatar({
       deathAgeRef.current += delta;
       updateMferDeathPose(poseRef.current, deathAgeRef.current);
     } else {
+      if (currentAnimationStateRef.current !== npc.animation) {
+        playClip(npc.animation);
+      }
       mixerRef.current?.update(delta);
     }
 
@@ -132,7 +141,7 @@ export function MferGptAvatar({
   });
 
   return (
-    <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw} onPointerDown={handleTarget}>
+    <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.52, 1] : [0.82, 0.5, 1]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.94} />}
       {isTargeted && <TargetRing color={badgeColor} disposition={disposition} radius={1.04} />}
@@ -210,6 +219,7 @@ export function MferGptAvatar({
 
     currentActionRef.current = nextAction;
     currentClipNameRef.current = clipName;
+    currentAnimationStateRef.current = state;
     mixer.update(0);
   }
 }

@@ -131,7 +131,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
     if (!localPlayer || localPlayer.health <= 0) return;
     const nearestNpc = findNearestNpc(localPlayer, room.npcs);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [localPlayer, room]);
+  }, [localPlayer, room.npcs, room.sendInteract]);
   const performAction = useCallback((actionId: ActionId | null) => {
     if (actionId === "interact") performInteract();
     else if (actionId) {
@@ -141,7 +141,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         target: selectedTarget,
       });
     }
-  }, [localPlayer, performInteract, room, selectedTarget, selectedTargetUnit]);
+  }, [localPlayer, performInteract, room.sendCombatAction, selectedTarget, selectedTargetUnit]);
   const assignActionSlot = useCallback((actionId: ActionId, slotIndex: number) => {
     setActionSlots((current) => {
       if (slotIndex < 0 || slotIndex >= ACTION_SLOT_COUNT) return current;
@@ -206,6 +206,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         <TownScene
           players={room.players}
           npcs={room.npcs}
+          sceneRevision={room.sceneRevision}
           localSessionId={room.sessionId}
           selectedTarget={selectedTarget}
           combatEvents={room.combatEvents}
