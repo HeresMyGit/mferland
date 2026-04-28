@@ -107,6 +107,7 @@ import {
 } from "../systems/utils.js";
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
+const PLAYER_ATTACK_THREAT_BONUS = 24;
 
 type HealTarget =
   | { kind: "player"; id: string; unit: PlayerState }
@@ -581,7 +582,7 @@ export class TownRoom extends Room<TownState> {
   }
 
   private getThreatValue(actionId: CombatActionId, amount: number) {
-    if (actionId === "attack") return amount + 18;
+    if (actionId === "attack") return amount + PLAYER_ATTACK_THREAT_BONUS;
     if (actionId === "whirlwind") return amount + COMBAT.actions.whirlwind.threatBonus;
     if (actionId === "taunt") return COMBAT.actions.taunt.threat;
     return Math.max(0, amount);
