@@ -91,6 +91,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 4. Combat Feel
 
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
+- Deferred: hold non-mfer 3D model animation until the Blender MCP workflow is available, then do this as a higher-quality asset/rig pass instead of cheap placeholder limb motion.
 - Done 2026-04-28: Fix the cast bar animation/progress so it feels silky smooth by moving fill progress to a transform-based `requestAnimationFrame` update instead of the coarse HUD timer.
 - Done 2026-04-28: Status bar pass: health is red, mana is blue, and XP is purple.
 - Done 2026-04-28: Show a health bar on the character name tag; future settings toggle to hide/show it remains deferred.
@@ -157,6 +158,7 @@ Implementation order:
 
 - Wire mferGPT LLM calls through local Codex auth on the machine running the instance, using the logged-in Codex subscription instead of an API key.
 - Keep the existing allowlist, cooldowns, logging, and safe-state restrictions around mferGPT tools.
+- Done 2026-04-28: Added a Codex CLI LLM provider for mferGPT that uses the machine's logged-in Codex/ChatGPT auth, runs in an isolated temp workdir, strips app secrets from the subprocess environment, and keeps the old HTTP endpoint provider available as an override.
 
 ### 6. Consumables
 

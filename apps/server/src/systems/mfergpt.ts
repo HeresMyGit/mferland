@@ -9,6 +9,7 @@ import {
   type QuestId,
 } from "@mferland/shared";
 import { type NpcState, type PlayerState } from "../state.js";
+import { requestCodexCliLlm } from "./codexCliLlm.js";
 import { spawnNpcFromSpec } from "./npcs.js";
 import { isQuestAvailable } from "./quests.js";
 
@@ -348,6 +349,10 @@ async function requestCodexLlm(input: {
   safeState: string;
   toolSummary: string;
 }) {
+  const provider = getCodexLlmProvider();
+  if (provider === "off") return null;
+  if (provider === "codex-cli") return requestCodexCliLlm(input, MFERGPT.llmTimeoutMs);
+
   const endpoint = process.env.CODEX_LLM_ENDPOINT?.trim();
   if (!endpoint) return null;
 
@@ -401,6 +406,14 @@ async function requestCodexLlm(input: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function getCodexLlmProvider() {
+  const configured = process.env.CODEX_LLM_PROVIDER?.trim().toLowerCase();
+  if (configured === "off" || configured === "none" || configured === "disabled") return "off";
+  if (configured === "http" || configured === "endpoint") return "http";
+  if (configured === "codex-cli" || configured === "codex" || configured === "cli") return "codex-cli";
+  return process.env.CODEX_LLM_ENDPOINT?.trim() ? "http" : "codex-cli";
 }
 
 function getCodexAuthHeaders(): Record<string, string> {
