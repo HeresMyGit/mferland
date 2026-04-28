@@ -394,13 +394,30 @@
 .menu-dock button {
   position: relative;
   display: grid;
-  place-items: center;
-  gap: 4px;
+  grid-template-rows: 26px 12px;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
   width: 76px;
   height: 58px;
+  padding: 6px 5px;
   font-size: 10px;
   font-weight: 900;
+  line-height: 1;
   text-transform: uppercase;
+}
+
+.menu-dock button svg {
+  display: block;
+}
+
+.menu-dock button span {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .dock-badge {

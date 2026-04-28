@@ -52,7 +52,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 
 - Fix the Colyseus schema buffer warning before committing. The warning means the encoded room-state patch can exceed Colyseus' default schema encoder buffer after the expanded player/NPC/quest/inventory state, which risks failed or incomplete state syncs as the room grows.
 - Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
-- Fix right-side HUD button alignment: icon and label content is visibly off-center/clipped on Character, Inventory, Quests, and Leave buttons, especially on narrow/mobile viewports.
+- Done 2026-04-28: Fix right-side HUD button alignment so icon and label content stays centered and unclipped on Character, Inventory, Quests, and Leave buttons, including narrow/mobile viewports.
 - Done 2026-04-28: Quick-fix ranged quest/XP credit by tracking recent player damage tags on mobs, so tagged players share kill quest credit and XP even if they are outside the old death-radius check.
 - Re-run `npm run typecheck`, `npm run build`, and `npm run build:agent`.
 - Restart the local dev server and confirm the buffer warning no longer appears during normal play.
@@ -204,6 +204,11 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Moved Ridge Guide, Beacon Keeper, Ridge merchant, and ridge stalls away from hostile aggro routes.
 - Moved Raider Vex, Raider Pax, Static mage Ori, roaming raiders, Static Baron Nox, and the daily Huge mfer ogre spawn into the Static Field/relay combat area.
 - Added Static Field to shared world roads/map data and added red boundary banners at the transition from safe hub to hostile field.
+
+### 2026-04-28 10:06 PDT - HUD Dock Alignment
+
+- Centered the right-side dock button icon/label stack with explicit grid rows and tighter label sizing.
+- Increased narrow/mobile dock button width enough to avoid clipping `Character` and `Inventory`.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

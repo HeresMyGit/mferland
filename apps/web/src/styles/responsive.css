@@ -54,12 +54,15 @@
   }
 
   .menu-dock button {
-    width: 54px;
-    height: 50px;
+    grid-template-rows: 23px 10px;
+    gap: 3px;
+    width: 68px;
+    height: 52px;
+    padding: 5px 4px;
   }
 
   .menu-dock button span {
-    font-size: 9px;
+    font-size: 7px;
   }
 
   .hotbar {
