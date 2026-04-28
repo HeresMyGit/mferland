@@ -3,8 +3,10 @@ import { Billboard } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getNpcDisposition, type NpcDisposition, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
+import { type ChatBubble } from "../game/chatBubbles";
 import {
   ActorBlobShadow,
+  ActorChatBubble,
   ActorNameplate,
   ColdStatusEffect,
   DispositionBaseMarker,
@@ -22,12 +24,14 @@ type CreatureAvatarProps = {
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
   hasLoot?: boolean;
+  chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
 
 const targetPosition = new THREE.Vector3();
 const NAMEPLATE_RENDER_DISTANCE_SQ = 30 * 30;
+const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 38 * 38;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 42 * 42;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 28 * 28;
 
@@ -96,6 +100,7 @@ export function CreatureAvatar({
   isDefeated = false,
   questMarker = null,
   hasLoot = false,
+  chatBubble = null,
   viewerPosition = null,
   onTarget,
 }: CreatureAvatarProps) {
@@ -110,6 +115,7 @@ export function CreatureAvatar({
   const markerRadius = npc.model === "rabbit" ? 0.48 : npc.model === "hog" ? 0.76 : 0.66;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = !isDefeated && (Boolean(questMarker) || isTargeted);
@@ -162,6 +168,11 @@ export function CreatureAvatar({
               fontSize={npc.model === "rabbit" ? 0.16 : 0.19}
               maxWidth={2.8}
             />
+          </Billboard>
+        )}
+        {showChatBubble && chatBubble && (
+          <Billboard position={[0, showQuestMarker ? labelY + 1.52 : labelY + 0.68, 0]}>
+            <ActorChatBubble bubble={chatBubble} />
           </Billboard>
         )}
       </group>

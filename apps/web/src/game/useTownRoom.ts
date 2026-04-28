@@ -26,6 +26,7 @@ import {
   type QuestTurnIn,
   type TalentRankSnapshot,
 } from "@mferland/shared";
+import { CHAT_BUBBLE_TTL_MS, type ChatBubble } from "./chatBubbles";
 
 type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
 type RuntimeQuestCollection = {
@@ -62,6 +63,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [snapshotRevision, setSnapshotRevision] = useState(0);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [chatBubbles, setChatBubbles] = useState<ChatBubble[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
   const [experienceEvents, setExperienceEvents] = useState<ExperienceEvent[]>([]);
   const [questOffer, setQuestOffer] = useState<QuestOffer | null>(null);
@@ -74,6 +76,7 @@ export function useTownRoom(identity: JoinOptions) {
   const lastSnapshotRenderAtRef = useRef(0);
   const pendingSnapshotRenderRef = useRef<number | null>(null);
   const pendingSceneRenderRef = useRef(false);
+  const bubbleTimeoutsRef = useRef<number[]>([]);
 
   const requestSnapshotRender = useCallback((force = false, includeScene = true) => {
     if (includeScene) pendingSceneRenderRef.current = true;
@@ -117,6 +120,10 @@ export function useTownRoom(identity: JoinOptions) {
       window.clearTimeout(pendingSnapshotRenderRef.current);
       pendingSnapshotRenderRef.current = null;
     }
+    for (const timeout of bubbleTimeoutsRef.current) {
+      window.clearTimeout(timeout);
+    }
+    bubbleTimeoutsRef.current = [];
     pendingSceneRenderRef.current = false;
   }, []);
 
@@ -127,6 +134,7 @@ export function useTownRoom(identity: JoinOptions) {
     playersRef.current.clear();
     npcsRef.current.clear();
     requestSnapshotRender(true);
+    setChatBubbles([]);
     setCombatEvents([]);
     setExperienceEvents([]);
     setStatus("connecting");
@@ -150,7 +158,22 @@ export function useTownRoom(identity: JoinOptions) {
         });
 
         room.onMessage("chat", (message: ChatMessage) => {
+          const receivedAt = Date.now();
+          const bubble = {
+            ...message,
+            receivedAt,
+            expiresAt: receivedAt + CHAT_BUBBLE_TTL_MS,
+          };
           setChat((current) => [...current.slice(-30), message]);
+          setChatBubbles((current) => [
+            ...current.filter((entry) => entry.sessionId !== bubble.sessionId && entry.expiresAt > receivedAt),
+            bubble,
+          ].slice(-24));
+          const timeout = window.setTimeout(() => {
+            const now = Date.now();
+            setChatBubbles((current) => current.filter((entry) => entry.expiresAt > now));
+          }, CHAT_BUBBLE_TTL_MS + 80);
+          bubbleTimeoutsRef.current.push(timeout);
         });
 
         room.onMessage("combatEvent", (message: CombatEvent) => {
@@ -205,6 +228,7 @@ export function useTownRoom(identity: JoinOptions) {
           if (!disposed) {
             playersRef.current.clear();
             npcsRef.current.clear();
+            setChatBubbles([]);
             requestSnapshotRender(true);
             setStatus("closed");
           }
@@ -330,6 +354,7 @@ export function useTownRoom(identity: JoinOptions) {
     snapshotRevision,
     sceneRevision,
     chat,
+    chatBubbles,
     combatEvents,
     experienceEvents,
     questOffer,

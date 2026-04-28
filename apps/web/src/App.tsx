@@ -211,6 +211,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
           selectedTarget={selectedTarget}
           combatEvents={room.combatEvents}
           experienceEvents={room.experienceEvents}
+          chatBubbles={room.chatBubbles}
           onSelectTarget={setSelectedTarget}
           onInteractAction={performInteract}
           sendInput={room.sendInput}

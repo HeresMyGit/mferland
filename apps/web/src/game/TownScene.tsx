@@ -14,6 +14,7 @@ import {
 import { CreatureAvatar } from "../components/CreatureAvatar";
 import { MferAvatar } from "../components/MferAvatar";
 import { MferGptAvatar } from "../components/MferGptAvatar";
+import { type ChatBubble } from "./chatBubbles";
 import { CombatFeedbackLayer } from "./scene/CombatFeedbackLayer";
 import { Skybox, TownWorld } from "./scene/TownWorld";
 import {
@@ -35,6 +36,7 @@ type TownSceneProps = {
   selectedTarget: TargetSelection | null;
   combatEvents: CombatEvent[];
   experienceEvents: ExperienceEvent[];
+  chatBubbles: ChatBubble[];
   onSelectTarget: (target: TargetSelection | null) => void;
   onInteractAction: () => void;
   sendInput: (input: ClientInput) => void;
@@ -50,6 +52,7 @@ function TownSceneComponent({
   selectedTarget,
   combatEvents,
   experienceEvents,
+  chatBubbles,
   onSelectTarget,
   onInteractAction,
   sendInput,
@@ -80,6 +83,7 @@ function TownSceneComponent({
   const cameraDesired = useMemo(() => new THREE.Vector3(), []);
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
   const localQuestState = localPlayer?.quests ?? [];
+  const chatBubbleBySessionId = useMemo(() => new Map(chatBubbles.map((bubble) => [bubble.sessionId, bubble])), [chatBubbles]);
 
   if (!localPlayer) {
     localVisualPlayer.current = null;
@@ -335,6 +339,7 @@ function TownSceneComponent({
               isLocal={isLocalPlayer}
               isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
               isDefeated={player.health <= 0}
+              chatBubble={chatBubbleBySessionId.get(sessionId)}
               viewerPosition={viewerPosition}
               onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
             />
@@ -353,6 +358,7 @@ function TownSceneComponent({
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
                 isDefeated={!npc.isImmortal && npc.health <= 0}
+                chatBubble={chatBubbleBySessionId.get(npc.id)}
                 viewerPosition={viewerPosition}
                 onTarget={onTarget}
               />
@@ -368,6 +374,7 @@ function TownSceneComponent({
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
                 isDefeated={!npc.isImmortal && npc.health <= 0}
+                chatBubble={chatBubbleBySessionId.get(npc.id)}
                 viewerPosition={viewerPosition}
                 onTarget={onTarget}
               />
@@ -384,6 +391,7 @@ function TownSceneComponent({
               actorScale={getNpcActorScale(npc)}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
+              chatBubble={chatBubbleBySessionId.get(npc.id)}
               viewerPosition={viewerPosition}
               onTarget={onTarget}
             />
@@ -411,6 +419,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && targetsEqual(previous.selectedTarget, next.selectedTarget)
     && previous.combatEvents === next.combatEvents
     && previous.experienceEvents === next.experienceEvents
+    && previous.chatBubbles === next.chatBubbles
     && previous.onSelectTarget === next.onSelectTarget
     && previous.onInteractAction === next.onInteractAction
     && previous.sendInput === next.sendInput;

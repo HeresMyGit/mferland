@@ -14,6 +14,7 @@ import {
   type PlayerSnapshot,
   type QuestMarkerType,
 } from "@mferland/shared";
+import { type ChatBubble } from "../game/chatBubbles";
 import { generateMferTraitsForActor, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
 
@@ -26,6 +27,7 @@ type MferAvatarProps = {
   questMarker?: QuestMarkerType | null;
   hasLoot?: boolean;
   actorScale?: number;
+  chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
@@ -77,6 +79,7 @@ const actorShadowMaterial = new THREE.MeshBasicMaterial({
   depthWrite: false,
 });
 const NAMEPLATE_RENDER_DISTANCE_SQ = 34 * 34;
+const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 40 * 40;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
 
@@ -92,6 +95,7 @@ export function MferAvatar({
   questMarker = null,
   hasLoot = false,
   actorScale = 1,
+  chatBubble = null,
   viewerPosition = null,
   onTarget,
 }: MferAvatarProps) {
@@ -119,6 +123,7 @@ export function MferAvatar({
     : isLocal ? TARGET_BADGE_COLORS.local : isAgentPlayer ? TARGET_BADGE_COLORS.agent : TARGET_BADGE_COLORS.player;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, player.x, player.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
@@ -231,6 +236,11 @@ export function MferAvatar({
               fontSize={0.22}
               maxWidth={3.2}
             />
+          </Billboard>
+        )}
+        {showChatBubble && chatBubble && (
+          <Billboard position={[0, showQuestMarker ? 4.72 : isLocal ? 3.9 : 3.76, 0]}>
+            <ActorChatBubble bubble={chatBubble} />
           </Billboard>
         )}
       </group>
@@ -545,6 +555,64 @@ export function ActorNameplate({
   );
 }
 
+export function ActorChatBubble({ bubble }: { bubble: ChatBubble }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const text = formatBubbleText(bubble.text);
+  const width = Math.min(3.35, Math.max(
+    1.45,
+    Math.min(34, text.length) * 0.058 + 0.62,
+    longestBubbleWord(text) * 0.09 + 0.42,
+  ));
+  const textWidth = width - 0.28;
+  const lineCount = estimateBubbleLines(text, textWidth);
+  const height = Math.min(1.1, 0.28 + lineCount * 0.23);
+
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const now = Date.now();
+    const age = now - bubble.receivedAt;
+    const remaining = bubble.expiresAt - now;
+    const intro = Math.min(1, Math.max(0, age / 170));
+    const outro = Math.min(1, Math.max(0, remaining / 360));
+    const scale = 0.9 + 0.1 * Math.min(intro, outro);
+    group.visible = remaining > 0;
+    group.scale.setScalar(scale);
+    group.position.y = Math.sin(age * 0.004) * 0.025;
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh position={[0, 0, -0.04]} renderOrder={70}>
+        <planeGeometry args={[width + 0.1, height + 0.08]} />
+        <meshBasicMaterial color="#080705" depthTest={false} depthWrite={false} opacity={0.78} transparent />
+      </mesh>
+      <mesh position={[0, 0, -0.03]} renderOrder={71}>
+        <planeGeometry args={[width, height]} />
+        <meshBasicMaterial color="#fff8df" depthTest={false} depthWrite={false} opacity={0.94} transparent toneMapped={false} />
+      </mesh>
+      <mesh position={[0, -height / 2 - 0.055, -0.035]} rotation-z={Math.PI / 4} renderOrder={72}>
+        <planeGeometry args={[0.18, 0.18]} />
+        <meshBasicMaterial color="#fff8df" depthTest={false} depthWrite={false} opacity={0.94} transparent toneMapped={false} />
+      </mesh>
+      <Text
+        position={[0, 0.01, 0]}
+        renderOrder={73}
+        fontSize={0.145}
+        maxWidth={textWidth}
+        textAlign="center"
+        anchorX="center"
+        anchorY="middle"
+        color="#1b1710"
+        outlineColor="#fff8df"
+        outlineWidth={0.006}
+      >
+        {text}
+      </Text>
+    </group>
+  );
+}
+
 export function LootSparkles({ y }: { y: number }) {
   const points = useMemo(() => [
     [-0.42, 0.06, -0.18],
@@ -778,6 +846,20 @@ function getNpcNameplate(npc: NpcSnapshot, disposition: NpcDisposition) {
   if (disposition === "hostile") return { title: npc.name, badge: "HOSTILE" };
   if (disposition === "neutral") return { title: npc.name, badge: "ATTACKABLE" };
   return { title: npc.name, badge: "NPC" };
+}
+
+function formatBubbleText(text: string) {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  return cleaned.length > 96 ? `${cleaned.slice(0, 93).trim()}...` : cleaned;
+}
+
+function estimateBubbleLines(text: string, textWidth: number) {
+  const maxCharsPerLine = Math.max(12, Math.floor(textWidth / 0.075));
+  return Math.max(1, Math.ceil(text.length / maxCharsPerLine));
+}
+
+function longestBubbleWord(text: string) {
+  return text.split(/\s+/).reduce((longest, word) => Math.max(longest, word.length), 0);
 }
 
 function lerpAngle(a: number, b: number, t: number) {

@@ -6,8 +6,10 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getNpcDisposition, type AnimationState, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
+import { type ChatBubble } from "../game/chatBubbles";
 import {
   ActorBlobShadow,
+  ActorChatBubble,
   ActorNameplate,
   ColdStatusEffect,
   DispositionBaseMarker,
@@ -27,6 +29,7 @@ type MferGptAvatarProps = {
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
   hasLoot?: boolean;
+  chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   onTarget?: () => void;
 };
@@ -37,6 +40,7 @@ type LoadedMferGptGltf = {
 
 const MODEL_URL = "/models/mferGPT.glb";
 const NAMEPLATE_RENDER_DISTANCE_SQ = 36 * 36;
+const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 42 * 42;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
 const targetPosition = new THREE.Vector3();
@@ -54,6 +58,7 @@ export function MferGptAvatar({
   isDefeated = false,
   questMarker = null,
   hasLoot = false,
+  chatBubble = null,
   viewerPosition = null,
   onTarget,
 }: MferGptAvatarProps) {
@@ -72,6 +77,7 @@ export function MferGptAvatar({
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
   const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = !isDefeated && (Boolean(questMarker) || isTargeted);
@@ -170,6 +176,11 @@ export function MferGptAvatar({
               fontSize={0.22}
               maxWidth={3.2}
             />
+          </Billboard>
+        )}
+        {showChatBubble && chatBubble && (
+          <Billboard position={[0, showQuestMarker ? 4.82 : 3.86, 0]}>
+            <ActorChatBubble bubble={chatBubble} />
           </Billboard>
         )}
       </group>
