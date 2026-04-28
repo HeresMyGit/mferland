@@ -51,6 +51,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 1. Stabilize Current Milestone
 
 - Fix the Colyseus schema buffer warning before committing. The warning means the encoded room-state patch can exceed Colyseus' default schema encoder buffer after the expanded player/NPC/quest/inventory state, which risks failed or incomplete state syncs as the room grows.
+- Investigate the recurring ~1 second gameplay hitch: while walking forward, the game appears to lag briefly and the camera can nudge for a split second. Check for server tick/sync, autosave, polling, state patch, or render loop work running on a 1s interval.
 - Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
 - Done 2026-04-28: Fix right-side HUD button alignment so icon and label content stays centered and unclipped on Character, Inventory, Quests, and Leave buttons, including narrow/mobile viewports.
 - Done 2026-04-28: Quick-fix ranged quest/XP credit by tracking recent player damage tags on mobs, so tagged players share kill quest credit and XP even if they are outside the old death-radius check.
@@ -71,10 +72,10 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 
 ### 3. Quest And Drop Based Gear
 
-- Do not grant gear solely based on player level.
-- Give meaningful gear through quest rewards.
-- Add rare mob drop chances for normal gear so combat loops have a chase reward.
-- Keep future rare/onchain item behavior separate from normal quest/drop gear.
+- Done 2026-04-28: Do not grant gear solely based on player level.
+- Done 2026-04-28: Give meaningful gear through quest rewards.
+- Done 2026-04-28: Add rare mob drop chances for normal gear so combat loops have a chase reward.
+- Done 2026-04-28: Keep future rare/onchain item behavior separate from normal quest/drop gear.
 
 ### 4. Combat Feel
 
@@ -236,6 +237,12 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 
 - Changed the HUD XP bar from yellow to purple so health, mana, and XP have distinct red/blue/purple reads.
 - Added compact red health strips to actor nameplates for players, attackable mfer NPCs, mferGPT variants that are not immortal, and creature NPCs.
+
+### 2026-04-28 10:50 PDT - Rare Normal Gear Drops
+
+- Added rare normal gear drops for early combat loops: Boar Bristle Cap from wild hogs, Antler Charm from deer, and Farmhand Spade from non-ridge farmhands.
+- Kept quest reward gear intact and separate from mob-drop chase gear.
+- Continued keeping all current regular gear as database items, not onchain/rare token behavior.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 
