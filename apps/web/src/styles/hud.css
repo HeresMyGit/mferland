@@ -126,8 +126,12 @@
 
 .cast-bar span {
   display: block;
+  width: 100%;
   height: 100%;
   background: linear-gradient(90deg, #ff6a36, #ffd35b);
+  transform: scaleX(0);
+  transform-origin: left center;
+  will-change: transform;
 }
 
 .target-frame {

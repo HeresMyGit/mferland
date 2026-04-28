@@ -62,7 +62,7 @@ import {
   getWorldMapPointStyle,
   getWorldMapRoadStyle,
 } from "./hud/mapUtils";
-import { getCastPercent, getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
+import { getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
 
 const HUD_TICK_MS = 200;
 const IDLE_HUD_TICK_MIN_MS = 1000;
@@ -382,12 +382,11 @@ export function Hud({
       </section>
 
       {localPlayer?.castingAction && (
-        <section className="cast-bar">
-          <strong>{getActionMeta(localPlayer.castingAction)?.label}</strong>
-          <div>
-            <span style={{ width: `${getCastPercent(localPlayer, now)}%` }} />
-          </div>
-        </section>
+        <CastBar
+          actionId={localPlayer.castingAction}
+          startedAt={localPlayer.castStartedAt}
+          endsAt={localPlayer.castEndsAt}
+        />
       )}
 
       <section className={hasTrackedQuests ? "quest-panel" : "quest-panel compact"}>
@@ -869,6 +868,47 @@ export function Hud({
   );
 }
 
+function CastBar({
+  actionId,
+  startedAt,
+  endsAt,
+}: {
+  actionId: CombatActionId;
+  startedAt: number;
+  endsAt: number;
+}) {
+  const fillRef = useRef<HTMLSpanElement>(null);
+  const duration = Math.max(1, endsAt - startedAt);
+
+  useEffect(() => {
+    let frameId = 0;
+    let lastProgress = -1;
+
+    const update = () => {
+      const progress = Math.max(0, Math.min(1, (Date.now() - startedAt) / duration));
+      if (fillRef.current && Math.abs(progress - lastProgress) > 0.001) {
+        fillRef.current.style.transform = `scaleX(${progress})`;
+        lastProgress = progress;
+      }
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(update);
+      }
+    };
+
+    update();
+    return () => window.cancelAnimationFrame(frameId);
+  }, [duration, endsAt, startedAt]);
+
+  return (
+    <section className="cast-bar" aria-label={`${getActionMeta(actionId)?.label ?? "Cast"} casting`}>
+      <strong>{getActionMeta(actionId)?.label}</strong>
+      <div>
+        <span ref={fillRef} />
+      </div>
+    </section>
+  );
+}
+
 function isChatShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return true;
   return !target.closest("button,a,select,[role='button']");
@@ -901,7 +941,6 @@ function setCssProperty(element: HTMLElement, property: string, value: CSSProper
 }
 
 function getHudTickDelay(player: PlayerSnapshot | null, actionSlots: ActionSlot[], now: number) {
-  if (player && player.castEndsAt > now) return HUD_TICK_MS;
   if (player && actionSlots.some((actionId) => isCoolingDown(player, actionId, now))) return HUD_TICK_MS;
 
   const msToNextMinute = 60000 - (now % 60000);

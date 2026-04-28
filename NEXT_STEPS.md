@@ -90,7 +90,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 ### 4. Combat Feel
 
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
-- Fix the cast bar animation/progress so it feels silky smooth.
+- Done 2026-04-28: Fix the cast bar animation/progress so it feels silky smooth by moving fill progress to a transform-based `requestAnimationFrame` update instead of the coarse HUD timer.
 - Done 2026-04-28: Status bar pass: health is red, mana is blue, and XP is purple.
 - Done 2026-04-28: Show a health bar on the character name tag; future settings toggle to hide/show it remains deferred.
 - Done 2026-04-28: Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
