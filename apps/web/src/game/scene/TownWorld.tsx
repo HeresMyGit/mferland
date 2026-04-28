@@ -9,12 +9,13 @@ import { DirtPath, GroundDetailLayer, RoadStrip } from "./world/Ground";
 import { WorldBackdrop, TreeCluster } from "./world/Trees";
 import { BannerPost, InstancedMarketProps, MarketStall, SpawnRing, WatchTower } from "./world/TownProps";
 import { MARKET_STALLS, OUTPOST_BUILDINGS, OUTPOST_MARKET_STALLS, TOWN_BUILDINGS } from "./world/shared";
-import { configureTile, createBarkTexture, createGrassTuftTexture, createLeafTexture, createWaterTexture } from "./world/textures";
+import { configureTile, createBarkTexture, createDirtPathTexture, createGrassTuftTexture, createLeafTexture, createWaterTexture } from "./world/textures";
 export { Skybox } from "./world/Skybox";
 
 const GROUND_MARGIN = 110;
 const TOWN_GROUND_WIDTH = PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX + GROUND_MARGIN;
 const TOWN_GROUND_DEPTH = PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ + GROUND_MARGIN;
+const PLAZA_SURFACE_Y = 0.016;
 
 export function TownWorld() {
   const [grassTexture, cobbleTexture, stoneTexture, roofTexture, timberTexture] = useTexture([
@@ -28,6 +29,7 @@ export function TownWorld() {
   const leafTexture = useMemo(() => createLeafTexture(), []);
   const waterTexture = useMemo(() => createWaterTexture(), []);
   const grassTuftTexture = useMemo(() => createGrassTuftTexture(), []);
+  const dirtPathTexture = useMemo(() => createDirtPathTexture(), []);
 
   useEffect(() => {
     configureTile(grassTexture, 5.5, 5.5);
@@ -59,21 +61,22 @@ export function TownWorld() {
           key={road.id}
           position={[road.x, 0.015 + index * 0.0005, road.z]}
           size={[road.width, road.depth]}
+          texture={dirtPathTexture}
         />
       ))}
 
-      <mesh position={[0, 0, 0]}>
-        <cylinderGeometry args={[21, 21, 0.16, 96]} />
+      <mesh position={[0, -0.035, 0]}>
+        <cylinderGeometry args={[21, 21, 0.09, 96]} />
         <meshBasicMaterial color="#756d62" />
       </mesh>
 
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.092, 0]}>
+      <mesh rotation-x={-Math.PI / 2} position={[0, PLAZA_SURFACE_Y, 0]}>
         <circleGeometry args={[21, 128]} />
         <meshBasicMaterial map={cobbleTexture} />
       </mesh>
 
-      <mesh rotation-x={Math.PI / 2} position={[0, 0.22, 0]}>
-        <torusGeometry args={[21, 0.22, 8, 128]} />
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.13, 0]}>
+        <torusGeometry args={[21, 0.13, 8, 128]} />
         <meshBasicMaterial color="#635f55" />
       </mesh>
 

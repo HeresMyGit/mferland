@@ -306,6 +306,56 @@ export function createGrassTuftTexture() {
   });
 }
 
+export function createDirtPathTexture() {
+  return createCanvasTexture(512, 512, (context, width, height) => {
+    const base = context.createLinearGradient(0, 0, width, height);
+    base.addColorStop(0, "#6f5334");
+    base.addColorStop(0.42, "#8a6840");
+    base.addColorStop(0.68, "#735638");
+    base.addColorStop(1, "#5f452d");
+    context.fillStyle = base;
+    context.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < 950; i += 1) {
+      const seed = i * 7.31;
+      const x = noise01(seed) * width;
+      const y = noise01(seed * 2.7) * height;
+      const radius = 0.6 + noise01(seed * 5.2) * 2.4;
+      const alpha = 0.08 + noise01(seed * 4.4) * 0.18;
+      const light = noise01(seed * 9.1) > 0.55;
+      context.fillStyle = light
+        ? `rgba(183, 145, 91, ${alpha})`
+        : `rgba(56, 38, 23, ${alpha})`;
+      context.beginPath();
+      context.ellipse(x, y, radius * (1.2 + noise01(seed * 3.8)), radius, noise01(seed * 6.4) * Math.PI, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    context.globalAlpha = 0.3;
+    for (let i = 0; i < 18; i += 1) {
+      const y = noise01(i * 11.7) * height;
+      const wobble = 12 + noise01(i * 3.9) * 28;
+      context.strokeStyle = i % 3 === 0 ? "#3f2b1a" : "#a9824f";
+      context.lineWidth = 1.4 + noise01(i * 8.6) * 4.2;
+      context.beginPath();
+      for (let x = -16; x <= width + 16; x += 18) {
+        const nextY = y + Math.sin(x * 0.024 + i * 1.37) * wobble;
+        if (x === -16) context.moveTo(x, nextY);
+        else context.lineTo(x, nextY);
+      }
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+
+    const vignette = context.createRadialGradient(width / 2, height / 2, width * 0.12, width / 2, height / 2, width * 0.68);
+    vignette.addColorStop(0, "rgba(255, 229, 160, 0.1)");
+    vignette.addColorStop(0.62, "rgba(82, 54, 31, 0)");
+    vignette.addColorStop(1, "rgba(46, 31, 19, 0.26)");
+    context.fillStyle = vignette;
+    context.fillRect(0, 0, width, height);
+  }, 2, 2);
+}
+
 export function createWaterTexture() {
   return createCanvasTexture(256, 256, (context, width, height) => {
     const gradient = context.createRadialGradient(width / 2, height / 2, 8, width / 2, height / 2, width / 2);

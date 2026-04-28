@@ -38,14 +38,22 @@ export function RoadStrip({
 export function DirtPath({
   position,
   size,
+  texture,
 }: {
   position: [number, number, number];
   size: [number, number];
+  texture: THREE.Texture;
 }) {
+  const pathTexture = useMemo(() => {
+    const map = texture.clone();
+    configureTile(map, Math.max(0.75, size[0] / 9), Math.max(0.75, size[1] / 9));
+    return map;
+  }, [size[0], size[1], texture]);
+
   return (
     <mesh rotation-x={-Math.PI / 2} position={position}>
       <planeGeometry args={size} />
-      <meshBasicMaterial color="#8a7350" transparent opacity={0.48} />
+      <meshBasicMaterial map={pathTexture} color="#9c8051" />
     </mesh>
   );
 }
@@ -53,10 +61,10 @@ export function DirtPath({
 export function GroundDetailLayer({ grassTuftTexture }: { grassTuftTexture: THREE.Texture }) {
   return (
     <group>
-      <GroundCircleDecals decals={STATIC_CONTACT_SHADOWS} opacity={0.2} renderOrder={3} />
-      <GroundCircleDecals decals={GROUND_SMUDGE_DECALS} opacity={0.16} renderOrder={4} />
-      <GroundRectDecals decals={ROAD_EDGE_DECALS} opacity={0.16} renderOrder={5} />
-      <GroundRectDecals decals={PLAZA_CRACK_DECALS} opacity={0.28} renderOrder={7} />
+      <GroundCircleDecals decals={GROUND_SMUDGE_DECALS} opacity={0.16} renderOrder={3} />
+      <GroundRectDecals decals={ROAD_EDGE_DECALS} opacity={0.22} renderOrder={4} />
+      <GroundRectDecals decals={PLAZA_CRACK_DECALS} opacity={0.24} renderOrder={5} />
+      <GroundCircleDecals decals={STATIC_CONTACT_SHADOWS} opacity={0.2} renderOrder={6} />
       <InstancedGrassTufts texture={grassTuftTexture} />
     </group>
   );

@@ -61,7 +61,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Candidate fix 2026-04-28: Reduced idle HUD timer churn by making the HUD timer sleep until the next clock minute unless a cast/cooldown is active.
 - Candidate fix 2026-04-28: Stopped room position/yaw-only patches from forcing React renders; actors now consume movement/animation changes in-frame, while UI renders still occur for health, quests, inventory, cooldowns, membership, and coarse local minimap movement.
 - Candidate fix 2026-04-28: Added a deadzone to local player prediction reconciliation so tiny server/client drift while actively moving no longer creates constant camera/player rubber-banding; large drift still snaps and idle drift still corrects normally.
-- Fix fountain-area rendering order: cobblestone near the fountain appears over character shadows.
+- Done 2026-04-28: Fix fountain-area rendering order so cobblestone near the fountain sits below character shadows, and improve dirt paths with a darker textured surface instead of the pale translucent overlay.
 - Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
 - Done 2026-04-28: Fix right-side HUD button alignment so icon and label content stays centered and unclipped on Character, Inventory, Quests, and Leave buttons, including narrow/mobile viewports.
 - Done 2026-04-28: Quick-fix ranged quest/XP credit by tracking recent player damage tags on mobs, so tagged players share kill quest credit and XP even if they are outside the old death-radius check.
