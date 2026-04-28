@@ -76,8 +76,14 @@ export class PlayerState extends Schema {
   @type("number") lastSeq = 0;
   @type("number") attackReadyAt = 0;
   @type("number") shootReadyAt = 0;
+  @type("number") signalShotReadyAt = 0;
   @type("number") fireblastReadyAt = 0;
   @type("number") frostNovaReadyAt = 0;
+  @type("number") healReadyAt = 0;
+  @type("number") tauntReadyAt = 0;
+  @type("number") whirlwindReadyAt = 0;
+  @type("number") multishotReadyAt = 0;
+  @type("number") iceBlastReadyAt = 0;
   @type("string") castingAction: CombatActionId | "" = "";
   @type("number") castStartedAt = 0;
   @type("number") castEndsAt = 0;
@@ -117,6 +123,7 @@ export class NpcState extends Schema {
   @type("number") despawnAt = 0;
   @type("number") respawnAt = 0;
   @type("number") frozenUntil = 0;
+  @type("number") slowedUntil = 0;
   @type("string") aggroTargetId = "";
   @type("number") attackReadyAt = 0;
   @type("string") combatStyle = "";

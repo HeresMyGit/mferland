@@ -390,8 +390,14 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     lastSeq: player.lastSeq,
     attackReadyAt: player.attackReadyAt,
     shootReadyAt: player.shootReadyAt,
+    signalShotReadyAt: player.signalShotReadyAt,
     fireblastReadyAt: player.fireblastReadyAt,
     frostNovaReadyAt: player.frostNovaReadyAt,
+    healReadyAt: player.healReadyAt,
+    tauntReadyAt: player.tauntReadyAt,
+    whirlwindReadyAt: player.whirlwindReadyAt,
+    multishotReadyAt: player.multishotReadyAt,
+    iceBlastReadyAt: player.iceBlastReadyAt,
     castingAction: player.castingAction,
     castStartedAt: player.castStartedAt,
     castEndsAt: player.castEndsAt,
@@ -432,8 +438,14 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.lastSeq = player.lastSeq;
   target.attackReadyAt = player.attackReadyAt;
   target.shootReadyAt = player.shootReadyAt;
+  target.signalShotReadyAt = player.signalShotReadyAt;
   target.fireblastReadyAt = player.fireblastReadyAt;
   target.frostNovaReadyAt = player.frostNovaReadyAt;
+  target.healReadyAt = player.healReadyAt;
+  target.tauntReadyAt = player.tauntReadyAt;
+  target.whirlwindReadyAt = player.whirlwindReadyAt;
+  target.multishotReadyAt = player.multishotReadyAt;
+  target.iceBlastReadyAt = player.iceBlastReadyAt;
   target.castingAction = player.castingAction;
   target.castStartedAt = player.castStartedAt;
   target.castEndsAt = player.castEndsAt;
@@ -490,6 +502,7 @@ function createNpcSnapshot(npc: NpcSnapshot, id: string): NpcSnapshot {
     defeatedAt: npc.defeatedAt,
     despawnAt: npc.despawnAt,
     frozenUntil: npc.frozenUntil,
+    slowedUntil: npc.slowedUntil,
     aggroTargetId: npc.aggroTargetId,
     hasLoot: npc.hasLoot,
   };
@@ -514,6 +527,7 @@ function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
   target.defeatedAt = npc.defeatedAt;
   target.despawnAt = npc.despawnAt;
   target.frozenUntil = npc.frozenUntil;
+  target.slowedUntil = npc.slowedUntil;
   target.aggroTargetId = npc.aggroTargetId;
   target.hasLoot = npc.hasLoot;
 }

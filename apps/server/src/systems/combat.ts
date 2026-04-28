@@ -16,6 +16,7 @@ import { getPlayerActionConfig } from "./talents.js";
 
 export type PendingCombatImpact = {
   target: CombatEvent["target"];
+  actionId: CombatActionId;
   sourcePlayerId?: string;
   damage: number;
   impactAt: number;
@@ -23,6 +24,7 @@ export type PendingCombatImpact = {
 
 export type NpcDefeatCreditHandler = (sourceId: string, npc: NpcState, now: number) => void;
 export type NpcDamageTagHandler = (sourceId: string, npc: NpcState, now: number) => void;
+export type NpcThreatHandler = (sourceId: string, npc: NpcState, actionId: CombatActionId, amount: number, now: number) => void;
 
 export function normalizeCombatActionId(actionId: unknown): CombatActionId | null {
   return typeof actionId === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, actionId)
@@ -33,15 +35,27 @@ export function normalizeCombatActionId(actionId: unknown): CombatActionId | nul
 export function getActionReadyAt(player: PlayerState, actionId: CombatActionId) {
   if (actionId === "attack") return player.attackReadyAt;
   if (actionId === "shoot") return player.shootReadyAt;
+  if (actionId === "signalShot") return player.signalShotReadyAt;
   if (actionId === "fireblast") return player.fireblastReadyAt;
-  return player.frostNovaReadyAt;
+  if (actionId === "frostNova") return player.frostNovaReadyAt;
+  if (actionId === "heal") return player.healReadyAt;
+  if (actionId === "taunt") return player.tauntReadyAt;
+  if (actionId === "whirlwind") return player.whirlwindReadyAt;
+  if (actionId === "multishot") return player.multishotReadyAt;
+  return player.iceBlastReadyAt;
 }
 
 export function setActionReadyAt(player: PlayerState, actionId: CombatActionId, readyAt: number) {
   if (actionId === "attack") player.attackReadyAt = readyAt;
   else if (actionId === "shoot") player.shootReadyAt = readyAt;
+  else if (actionId === "signalShot") player.signalShotReadyAt = readyAt;
   else if (actionId === "fireblast") player.fireblastReadyAt = readyAt;
-  else player.frostNovaReadyAt = readyAt;
+  else if (actionId === "frostNova") player.frostNovaReadyAt = readyAt;
+  else if (actionId === "heal") player.healReadyAt = readyAt;
+  else if (actionId === "taunt") player.tauntReadyAt = readyAt;
+  else if (actionId === "whirlwind") player.whirlwindReadyAt = readyAt;
+  else if (actionId === "multishot") player.multishotReadyAt = readyAt;
+  else player.iceBlastReadyAt = readyAt;
 }
 
 export function isPlayerStationary(player: PlayerState, input: TrackedInput | undefined, now: number) {
@@ -60,6 +74,7 @@ export function updatePlayerCast(
   pendingCombatImpacts: PendingCombatImpact[],
   creditNpcDefeat: NpcDefeatCreditHandler,
   tagNpcForCredit?: NpcDamageTagHandler,
+  recordNpcThreat?: NpcThreatHandler,
 ) {
   const actionId = normalizeCombatActionId(player.castingAction);
   if (!actionId) return;
@@ -82,7 +97,7 @@ export function updatePlayerCast(
       const damage = getPlayerActionDamage(player, actionId);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       setActionReadyAt(player, actionId, now + action.cooldownMs);
-      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts, creditNpcDefeat, tagNpcForCredit);
+      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts, creditNpcDefeat, tagNpcForCredit, recordNpcThreat);
   }
   clearPlayerCast(player);
 }
@@ -131,11 +146,14 @@ export function applyCombatDamage(
   pendingCombatImpacts: PendingCombatImpact[],
   creditNpcDefeat: NpcDefeatCreditHandler,
   tagNpcForCredit?: NpcDamageTagHandler,
+  recordNpcThreat?: NpcThreatHandler,
 ) {
-  if (actionId === "fireblast") {
+  if (actionId === "fireblast" || actionId === "iceBlast") {
     const impactAt = now + getProjectileTravelMs(player.x, player.z, target.x, target.z);
+    recordNpcThreat?.(sourceId, target, actionId, damage, now);
     pendingCombatImpacts.push({
       target: { kind: "npc", id: target.id },
+      actionId,
       sourcePlayerId: sourceId,
       damage,
       impactAt,
@@ -145,6 +163,7 @@ export function applyCombatDamage(
   }
 
   tagNpcForCredit?.(sourceId, target, now);
+  recordNpcThreat?.(sourceId, target, actionId, damage, now);
   const defeated = applyNpcDamage(target, damage, now);
   if (actionId === "frostNova" && !defeated) {
     applyNpcFreeze(target, now + COMBAT.actions.frostNova.freezeMs);
@@ -165,6 +184,7 @@ export function applyFrostNova(
   pendingCombatImpacts: PendingCombatImpact[],
   creditNpcDefeat: NpcDefeatCreditHandler,
   tagNpcForCredit?: NpcDamageTagHandler,
+  recordNpcThreat?: NpcThreatHandler,
 ) {
   emitCombatEvent(makeFrostNovaCastEvent(sourceId, player, now));
   const action = getPlayerActionConfig(player, "frostNova");
@@ -184,16 +204,126 @@ export function applyFrostNova(
       pendingCombatImpacts,
       creditNpcDefeat,
       tagNpcForCredit,
+      recordNpcThreat,
     );
   });
+}
+
+export function applyWhirlwind(
+  sourceId: string,
+  player: PlayerState,
+  npcs: MapSchema<NpcState>,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+  creditNpcDefeat: NpcDefeatCreditHandler,
+  tagNpcForCredit?: NpcDamageTagHandler,
+  recordNpcThreat?: NpcThreatHandler,
+) {
+  const action = getPlayerActionConfig(player, "whirlwind");
+  npcs.forEach((npc) => {
+    if (!isNpcAlive(npc) || !isAttackableNpcRole(npc.role)) return;
+    if (distanceToNpc(player, npc) > action.maxRange) return;
+
+    applyCombatDamage(
+      sourceId,
+      player,
+      npc,
+      "whirlwind",
+      getPlayerActionDamage(player, "whirlwind"),
+      now,
+      emitCombatEvent,
+      pendingCombatImpacts,
+      creditNpcDefeat,
+      tagNpcForCredit,
+      recordNpcThreat,
+    );
+  });
+}
+
+export function applyMultishot(
+  sourceId: string,
+  player: PlayerState,
+  primaryTarget: NpcState,
+  npcs: MapSchema<NpcState>,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+  creditNpcDefeat: NpcDefeatCreditHandler,
+  tagNpcForCredit?: NpcDamageTagHandler,
+  recordNpcThreat?: NpcThreatHandler,
+) {
+  const action = getPlayerActionConfig(player, "multishot");
+  const targets: NpcState[] = [primaryTarget];
+  const candidates: Array<{ npc: NpcState; distance: number }> = [];
+
+  npcs.forEach((npc) => {
+    if (npc.id === primaryTarget.id || !isNpcAlive(npc) || !isAttackableNpcRole(npc.role)) return;
+    const playerDistance = distanceToNpc(player, npc);
+    if (playerDistance < action.minRange || playerDistance > action.maxRange) return;
+    const splitDistance = Math.hypot(npc.x - primaryTarget.x, npc.z - primaryTarget.z);
+    if (splitDistance > COMBAT.actions.multishot.splashRadius) return;
+    candidates.push({ npc, distance: splitDistance });
+  });
+
+  candidates.sort((left, right) => left.distance - right.distance);
+  for (const candidate of candidates.slice(0, COMBAT.actions.multishot.maxTargets - 1)) {
+    targets.push(candidate.npc);
+  }
+
+  for (const npc of targets) {
+    applyCombatDamage(
+      sourceId,
+      player,
+      npc,
+      "multishot",
+      getPlayerActionDamage(player, "multishot"),
+      now,
+      emitCombatEvent,
+      pendingCombatImpacts,
+      creditNpcDefeat,
+      tagNpcForCredit,
+      recordNpcThreat,
+    );
+  }
+}
+
+export function applyUnitHealing(
+  sourceId: string,
+  healer: PlayerState,
+  targetKind: CombatEvent["target"]["kind"],
+  targetId: string,
+  target: PlayerState | NpcState,
+  actionId: CombatActionId,
+  amount: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+) {
+  if (target.health <= 0 && !("isImmortal" in target && target.isImmortal)) return 0;
+
+  const before = target.health;
+  target.health = clamp(target.health + amount, 0, target.maxHealth);
+  const effectiveHealing = target.health - before;
+
+  emitCombatEvent(makeUnitHealEvent(sourceId, healer, targetKind, targetId, target, actionId, effectiveHealing, now));
+  return effectiveHealing;
 }
 
 export function getPlayerActionDamage(player: PlayerState, actionId: CombatActionId) {
   const baseDamage = getPlayerActionConfig(player, actionId).damage;
   if (actionId === "attack") return baseDamage + Math.floor(player.strength * 0.7);
-  if (actionId === "shoot") return baseDamage + Math.floor(player.dexterity * 0.75);
+  if (actionId === "shoot" || actionId === "multishot") return baseDamage + Math.floor(player.dexterity * 0.75);
+  if (actionId === "signalShot") return baseDamage + Math.floor(player.dexterity * 0.45) + Math.floor(player.magic * 0.45);
+  if (actionId === "whirlwind") return baseDamage + Math.floor(player.strength * 0.55);
   if (actionId === "fireblast") return baseDamage + Math.floor(player.magic * 1.1);
+  if (actionId === "iceBlast") return baseDamage + Math.floor(player.magic * 0.78);
+  if (actionId === "heal" || actionId === "taunt") return 0;
   return baseDamage + Math.floor(player.magic * 0.35);
+}
+
+export function getPlayerHealingAmount(player: PlayerState, actionId: CombatActionId) {
+  if (actionId !== "heal") return 0;
+  return COMBAT.actions.heal.healing + Math.floor(player.magic * 0.85);
 }
 
 function applyNpcFreeze(npc: NpcState, frozenUntil: number) {
@@ -202,6 +332,10 @@ function applyNpcFreeze(npc: NpcState, frozenUntil: number) {
   npc.targetX = npc.x;
   npc.targetZ = npc.z;
   npc.animation = "idle";
+}
+
+function applyNpcSlow(npc: NpcState, slowedUntil: number) {
+  npc.slowedUntil = Math.max(npc.slowedUntil, slowedUntil);
 }
 
 export function applyNpcCombatDamage(
@@ -218,6 +352,7 @@ export function applyNpcCombatDamage(
     const impactAt = now + getProjectileTravelMs(source.x, source.z, player.x, player.z);
     pendingCombatImpacts.push({
       target: { kind: "player", id: targetId },
+      actionId,
       damage,
       impactAt,
     });
@@ -244,6 +379,7 @@ function applyNpcDamage(npc: NpcState, damage: number, now: number) {
     npc.aggroTargetId = "";
     npc.attackReadyAt = 0;
     npc.frozenUntil = 0;
+    npc.slowedUntil = 0;
     npc.y = 0;
     npc.targetX = npc.homeX;
     npc.targetZ = npc.homeZ;
@@ -285,6 +421,9 @@ export function processPendingCombatImpacts(
           tagNpcForCredit?.(impact.sourcePlayerId, npc, now);
         }
         const defeated = applyNpcDamage(npc, impact.damage, now);
+        if (impact.actionId === "iceBlast" && !defeated) {
+          applyNpcSlow(npc, now + COMBAT.actions.iceBlast.slowMs);
+        }
         if (sourcePlayer && impact.sourcePlayerId) {
           if (defeated) {
             handleNpcDefeated(impact.sourcePlayerId, sourcePlayer, npc, now, creditNpcDefeat);
@@ -422,6 +561,46 @@ function makePlayerCombatEvent(
     impactAt,
     defeated,
   };
+}
+
+function makeUnitHealEvent(
+  sourceId: string,
+  healer: PlayerState,
+  targetKind: CombatEvent["target"]["kind"],
+  targetId: string,
+  target: PlayerState | NpcState,
+  actionId: CombatActionId,
+  amount: number,
+  now: number,
+): CombatEvent {
+  const targetHeight = targetKind === "npc" && "model" in target ? getNpcImpactHeight(target) : 1.45;
+  return {
+    id: `${now}:${sourceId}:${actionId}:${targetId}:${Math.random().toString(36).slice(2, 8)}`,
+    sourceId,
+    actionId,
+    target: { kind: targetKind, id: targetId },
+    targetName: target.name,
+    amount,
+    sourceX: healer.x,
+    sourceY: healer.y + 1.2,
+    sourceZ: healer.z,
+    targetX: target.x,
+    targetY: target.y + targetHeight,
+    targetZ: target.z,
+    sentAt: now,
+    impactAt: now,
+    defeated: false,
+  };
+}
+
+export function makeNpcUtilityEvent(
+  sourceId: string,
+  player: PlayerState,
+  target: NpcState,
+  actionId: CombatActionId,
+  now: number,
+): CombatEvent {
+  return makeCombatEvent(sourceId, player, target, actionId, 0, now, false, now);
 }
 
 function getProjectileTravelMs(sourceX: number, sourceZ: number, targetX: number, targetZ: number) {

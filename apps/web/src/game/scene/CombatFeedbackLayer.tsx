@@ -80,8 +80,10 @@ function CombatEventVisual({
   eventId: string;
 }) {
   const swordRef = useRef<THREE.Group>(null);
+  const whirlwindRef = useRef<THREE.Group>(null);
   const bowRef = useRef<THREE.Group>(null);
   const projectileRef = useRef<THREE.Group>(null);
+  const tauntSourceRef = useRef<THREE.Group>(null);
   const impactRef = useRef<THREE.Group>(null);
   const damageRef = useRef<THREE.Group>(null);
   const clockEpochOffsetRef = useRef<number | null>(null);
@@ -91,7 +93,9 @@ function CombatEventVisual({
   const projectileAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const damageOffset = useMemo(() => getEventOffset(eventId), [eventId]);
   const isFrostNovaCast = actionId === "frostNova" && amount <= 0;
-  const projectileDurationMs = actionId === "shoot" ? 520 : isFrostNovaCast ? 720 : Math.max(180, impactAt - sentAt);
+  const projectileDurationMs = actionId === "shoot" || actionId === "multishot" || actionId === "signalShot"
+    ? 520
+    : isFrostNovaCast ? 720 : Math.max(180, impactAt - sentAt);
 
   useFrame(({ clock }) => {
     if (clockEpochOffsetRef.current === null) {
@@ -105,6 +109,14 @@ function CombatEventVisual({
       swordRef.current.visible = age >= 0 && progress < 1;
       swordRef.current.rotation.z = -0.9 + progress * 1.65;
       swordRef.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.18);
+    }
+
+    if (whirlwindRef.current) {
+      const age = now - sentAt;
+      const progress = clamp(age / 760, 0, 1);
+      whirlwindRef.current.visible = age >= 0 && progress < 1;
+      whirlwindRef.current.rotation.y = progress * Math.PI * 4.8;
+      whirlwindRef.current.scale.setScalar(0.82 + Math.sin(progress * Math.PI) * 0.24);
     }
 
     if (bowRef.current) {
@@ -126,6 +138,14 @@ function CombatEventVisual({
         projectileRef.current.position.lerpVectors(startVector, endVector, progress);
         if (direction.lengthSq() > 0.0001) projectileRef.current.quaternion.setFromUnitVectors(projectileAxis, direction);
       }
+    }
+
+    if (tauntSourceRef.current) {
+      const age = now - sentAt;
+      const progress = clamp(age / 820, 0, 1);
+      tauntSourceRef.current.visible = age >= 0 && progress < 1;
+      tauntSourceRef.current.position.set(sourcePosition[0], sourcePosition[1] + 0.76 + Math.sin(progress * Math.PI) * 0.22, sourcePosition[2]);
+      tauntSourceRef.current.scale.setScalar(0.74 + Math.sin(progress * Math.PI) * 0.2);
     }
 
     if (impactRef.current) {
@@ -153,18 +173,31 @@ function CombatEventVisual({
   return (
     <group>
       {actionId === "attack" && <SwordFlash refGroup={swordRef} position={sourcePosition} yaw={yaw} />}
-      {actionId === "shoot" && (
+      {actionId === "whirlwind" && <WhirlwindBurst refGroup={whirlwindRef} position={sourcePosition} />}
+      {(actionId === "shoot" || actionId === "multishot" || actionId === "signalShot") && (
         <>
           <BowFlash refGroup={bowRef} position={sourcePosition} yaw={yaw} />
-          <LinearProjectile refGroup={projectileRef} variant="arrow" start={sourcePosition} />
+          {actionId === "signalShot"
+            ? <LinearProjectile refGroup={projectileRef} variant="signal" start={sourcePosition} />
+            : <LinearProjectile refGroup={projectileRef} variant="arrow" start={sourcePosition} />}
         </>
       )}
       {actionId === "fireblast" && (
         <LinearProjectile refGroup={projectileRef} variant="fireblast" start={sourcePosition} />
       )}
+      {actionId === "iceBlast" && (
+        <LinearProjectile refGroup={projectileRef} variant="iceblast" start={sourcePosition} />
+      )}
       {isFrostNovaCast && <FrostNovaBurst refGroup={projectileRef} position={targetPosition} />}
-      {actionId === "fireblast" && <SpellImpactBurst refGroup={impactRef} position={targetPosition} />}
-      {amount > 0 && (
+      {actionId === "taunt" && (
+        <>
+          <TauntSourceMark refGroup={tauntSourceRef} position={sourcePosition} />
+          <TauntPulse refGroup={impactRef} position={targetPosition} />
+        </>
+      )}
+      {actionId === "heal" && <HealBloom refGroup={impactRef} position={targetPosition} />}
+      {(actionId === "fireblast" || actionId === "iceBlast" || actionId === "signalShot") && <SpellImpactBurst refGroup={impactRef} position={targetPosition} variant={actionId === "iceBlast" ? "ice" : actionId === "signalShot" ? "signal" : "fire"} />}
+      {(amount > 0 || actionId === "heal") && (
         <FloatingDamageNumber
           refGroup={damageRef}
           actionId={actionId}
@@ -205,6 +238,123 @@ function FrostNovaBurst({ refGroup, position }: { refGroup: RefObject<THREE.Grou
           <meshBasicMaterial color="#e6fbff" depthWrite={false} opacity={0.74} toneMapped={false} transparent />
         </mesh>
       ))}
+    </group>
+  );
+}
+
+function WhirlwindBurst({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  const swordAngles = useMemo(() => Array.from({ length: 8 }, (_, index) => (index / 8) * Math.PI * 2), []);
+
+  return (
+    <group ref={refGroup} position={[position[0], position[1] - 0.46, position[2]]} visible={false}>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[1.02, 0.026, 8, 80]} />
+        <meshBasicMaterial color="#fff08a" depthWrite={false} opacity={0.45} toneMapped={false} transparent />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} rotation-z={0.7}>
+        <ringGeometry args={[0.72, 1.3, 72]} />
+        <meshBasicMaterial color="#f3d04e" depthWrite={false} opacity={0.18} toneMapped={false} transparent />
+      </mesh>
+      {swordAngles.map((angle) => (
+        <group
+          key={angle}
+          position={[Math.sin(angle) * 0.9, 0.74, Math.cos(angle) * 0.9]}
+          rotation-y={angle}
+        >
+          <mesh position={[0, 0, 0.28]}>
+            <boxGeometry args={[0.08, 0.04, 0.76]} />
+            <meshBasicMaterial color="#eaf4f8" toneMapped={false} />
+          </mesh>
+          <mesh position={[0, 0, 0.73]} rotation-x={Math.PI / 2}>
+            <coneGeometry args={[0.08, 0.18, 8]} />
+            <meshBasicMaterial color="#ffffff" toneMapped={false} />
+          </mesh>
+          <mesh position={[0, 0, -0.16]}>
+            <boxGeometry args={[0.3, 0.07, 0.08]} />
+            <meshBasicMaterial color="#4e3824" />
+          </mesh>
+          <mesh position={[0, 0, -0.34]}>
+            <boxGeometry args={[0.08, 0.08, 0.26]} />
+            <meshBasicMaterial color="#8b6137" />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+function TauntSourceMark({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  return (
+    <group ref={refGroup} position={[position[0], position[1] + 0.76, position[2]]} visible={false}>
+      <Billboard>
+        <Text
+          fontSize={0.72}
+          anchorX="center"
+          anchorY="middle"
+          color="#ffdd55"
+          outlineColor="#330806"
+          outlineWidth={0.085}
+          renderOrder={78}
+        >
+          !
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
+function TauntPulse({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  return (
+    <group ref={refGroup} position={position} visible={false}>
+      <mesh rotation-x={Math.PI / 2}>
+        <ringGeometry args={[0.42, 0.76, 36]} />
+        <meshBasicMaterial color="#ff4f42" depthWrite={false} opacity={0.45} toneMapped={false} transparent />
+      </mesh>
+      <mesh position={[0, 0.28, 0]}>
+        <sphereGeometry args={[0.2, 12, 8]} />
+        <meshBasicMaterial color="#ff4f42" depthWrite={false} opacity={0.36} toneMapped={false} transparent />
+      </mesh>
+      <Billboard position={[0, 0.72, 0]}>
+        <Text
+          fontSize={0.58}
+          anchorX="center"
+          anchorY="middle"
+          color="#ff4f42"
+          outlineColor="#260403"
+          outlineWidth={0.07}
+          renderOrder={78}
+        >
+          !
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
+function HealBloom({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+  return (
+    <group ref={refGroup} position={position} visible={false}>
+      <mesh rotation-x={Math.PI / 2}>
+        <ringGeometry args={[0.34, 0.74, 36]} />
+        <meshBasicMaterial color="#5fe777" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} rotation-z={Math.PI / 4}>
+        <torusGeometry args={[0.42, 0.022, 8, 36]} />
+        <meshBasicMaterial color="#b9ffc4" depthWrite={false} opacity={0.78} toneMapped={false} transparent />
+      </mesh>
+      <Billboard position={[0, 0.34, 0]}>
+        <Text
+          fontSize={0.38}
+          anchorX="center"
+          anchorY="middle"
+          color="#8dff9c"
+          outlineColor="#09230f"
+          outlineWidth={0.052}
+          renderOrder={78}
+        >
+          +
+        </Text>
+      </Billboard>
     </group>
   );
 }
@@ -253,7 +403,7 @@ function LinearProjectile({
   start,
 }: {
   refGroup: RefObject<THREE.Group | null>;
-  variant: "arrow" | "fireblast";
+  variant: "arrow" | "fireblast" | "signal" | "iceblast";
   start: Vec3Tuple;
 }) {
   if (variant === "arrow") {
@@ -275,46 +425,64 @@ function LinearProjectile({
     );
   }
 
+  if (variant === "signal") {
+    return (
+      <group ref={refGroup} position={start} visible={false}>
+        <mesh>
+          <sphereGeometry args={[0.22, 14, 10]} />
+          <meshBasicMaterial color="#d67bff" depthTest={false} toneMapped={false} />
+        </mesh>
+        <mesh rotation-x={Math.PI / 2}>
+          <torusGeometry args={[0.3, 0.018, 8, 24]} />
+          <meshBasicMaterial color="#f3d04e" depthWrite={false} opacity={0.76} toneMapped={false} transparent />
+        </mesh>
+      </group>
+    );
+  }
+
+  const isIce = variant === "iceblast";
   return (
     <group ref={refGroup} position={start} visible={false}>
       <mesh position={[0, 0.16, 0]} renderOrder={36}>
         <sphereGeometry args={[0.34, 18, 12]} />
-        <meshBasicMaterial color="#fff08a" depthTest={false} toneMapped={false} />
+        <meshBasicMaterial color={isIce ? "#ecfdff" : "#fff08a"} depthTest={false} toneMapped={false} />
       </mesh>
       <mesh>
         <sphereGeometry args={[0.58, 18, 12]} />
-        <meshBasicMaterial color="#ff6a28" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#7ee7ff" : "#ff6a28"} depthWrite={false} opacity={0.34} toneMapped={false} transparent />
       </mesh>
       <mesh rotation-x={Math.PI / 2}>
         <torusGeometry args={[0.46, 0.025, 8, 28]} />
-        <meshBasicMaterial color="#ffd35b" depthWrite={false} opacity={0.72} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#b7f4ff" : "#ffd35b"} depthWrite={false} opacity={0.72} toneMapped={false} transparent />
       </mesh>
       <mesh position={[0, -0.34, 0]} rotation-x={Math.PI}>
         <coneGeometry args={[0.32, 0.72, 8]} />
-        <meshBasicMaterial color="#ff7a2c" depthWrite={false} opacity={0.78} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#9eefff" : "#ff7a2c"} depthWrite={false} opacity={0.78} toneMapped={false} transparent />
       </mesh>
       <mesh position={[0, -0.7, 0]} rotation-x={Math.PI}>
         <coneGeometry args={[0.2, 0.52, 7]} />
-        <meshBasicMaterial color="#ff382e" depthWrite={false} opacity={0.55} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#dffbff" : "#ff382e"} depthWrite={false} opacity={0.55} toneMapped={false} transparent />
       </mesh>
     </group>
   );
 }
 
-function SpellImpactBurst({ refGroup, position }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple }) {
+function SpellImpactBurst({ refGroup, position, variant = "fire" }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple; variant?: "fire" | "signal" | "ice" }) {
+  const color = variant === "ice" ? "#b7f4ff" : variant === "signal" ? "#d67bff" : "#ffb34d";
+  const glow = variant === "ice" ? "#ecfdff" : variant === "signal" ? "#f3d04e" : "#fff08a";
   return (
     <group ref={refGroup} position={position} visible={false}>
       <mesh rotation-x={Math.PI / 2}>
         <ringGeometry args={[0.3, 0.7, 28]} />
-        <meshBasicMaterial color="#ffb34d" depthWrite={false} opacity={0.45} toneMapped={false} transparent />
+        <meshBasicMaterial color={color} depthWrite={false} opacity={0.45} toneMapped={false} transparent />
       </mesh>
       <mesh>
         <sphereGeometry args={[0.36, 14, 10]} />
-        <meshBasicMaterial color="#ff6a28" depthWrite={false} opacity={0.38} toneMapped={false} transparent />
+        <meshBasicMaterial color={color} depthWrite={false} opacity={0.38} toneMapped={false} transparent />
       </mesh>
       <mesh rotation-y={0.7}>
         <torusGeometry args={[0.54, 0.026, 8, 28]} />
-        <meshBasicMaterial color="#fff08a" depthWrite={false} opacity={0.86} toneMapped={false} transparent />
+        <meshBasicMaterial color={glow} depthWrite={false} opacity={0.86} toneMapped={false} transparent />
       </mesh>
     </group>
   );
@@ -346,7 +514,7 @@ function FloatingDamageNumber({
           outlineColor={style.outlineColor}
           outlineWidth={0.045}
         >
-          {Math.round(amount)}
+          {actionId === "heal" ? `+${Math.round(amount)}` : Math.round(amount)}
         </Text>
       </Billboard>
     </group>
@@ -395,8 +563,10 @@ function ExperienceEventVisual({ event }: { event: ExperienceEvent }) {
 }
 
 function getDamageNumberStyle(actionId: CombatActionId) {
+  if (actionId === "heal") return { color: "#5fe777", outlineColor: "#0d2c16" };
   if (actionId === "fireblast") return { color: "#ffb34d", outlineColor: "#2a0d05" };
-  if (actionId === "frostNova") return { color: "#c8f7ff", outlineColor: "#052331" };
+  if (actionId === "frostNova" || actionId === "iceBlast") return { color: "#c8f7ff", outlineColor: "#052331" };
+  if (actionId === "signalShot") return { color: "#d7a7ff", outlineColor: "#25103b" };
   return { color: "#ffd35b", outlineColor: "#15100c" };
 }
 

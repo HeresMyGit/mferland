@@ -101,6 +101,10 @@
     grid-template-columns: 1fr 1fr;
   }
 
+  .abilities-layout {
+    grid-template-columns: 1fr;
+  }
+
   .character-summary {
     grid-column: 1 / -1;
     grid-template-columns: 120px 1fr;
@@ -162,6 +166,11 @@
     max-height: calc(100vh - 24px);
   }
 
+  .abilities-panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
   .character-layout,
   .character-summary {
     grid-template-columns: 1fr;
@@ -184,5 +193,27 @@
   .gear-list {
     max-height: none;
     overflow: visible;
+  }
+
+  .hotbar {
+    gap: 4px;
+  }
+
+  .action-slot {
+    width: 42px;
+    height: 48px;
+  }
+
+  .ability-book-row {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .ability-state,
+  .ability-assign-grid {
+    grid-column: 2;
+  }
+
+  .ability-state {
+    text-align: left;
   }
 }

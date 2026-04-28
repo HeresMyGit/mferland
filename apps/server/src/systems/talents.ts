@@ -7,6 +7,7 @@ import {
   getTalentId,
   getTalentQuestXpReward,
   getTalentRankStatus,
+  isCombatActionUnlocked,
   isTalentId,
   isTalentUnlocked,
   type CombatActionId,
@@ -110,6 +111,10 @@ export function getPlayerActionConfig(player: PlayerState, actionId: CombatActio
     damage: getTalentActionBaseDamage(actionId, getPlayerTalentRanks(player)),
     cooldownMs: getTalentActionCooldownMs(actionId, getPlayerTalentRanks(player)),
   };
+}
+
+export function isPlayerActionUnlocked(player: PlayerState, actionId: CombatActionId) {
+  return isCombatActionUnlocked(actionId, getPlayerTalentRanks(player));
 }
 
 export function getPlayerQuestXpReward(player: PlayerState, baseXp: number) {

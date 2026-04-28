@@ -1,9 +1,11 @@
 import { type CSSProperties, type PointerEvent } from "react";
-import { Crosshair, Flame, Hand, Snowflake, Sword } from "lucide-react";
+import { Crosshair, Flame, Hand, HeartPulse, ShieldAlert, Snowflake, Sparkles, Sword, Tornado, Wind, Zap } from "lucide-react";
 import {
   COMBAT,
+  getNpcDisposition,
   getTalentActionCooldownMs,
   isAttackableNpcRole,
+  isCombatActionUnlocked,
   type ActionId,
   type CombatActionId,
   type NpcSnapshot,
@@ -120,6 +122,13 @@ export function getActionMeta(actionId: ActionId) {
       icon: Crosshair,
     };
   }
+  if (actionId === "signalShot") {
+    return {
+      id: actionId,
+      label: "Signal Shot",
+      icon: Sparkles,
+    };
+  }
   if (actionId === "fireblast") {
     return {
       id: actionId,
@@ -134,14 +143,55 @@ export function getActionMeta(actionId: ActionId) {
       icon: Snowflake,
     };
   }
+  if (actionId === "heal") {
+    return {
+      id: actionId,
+      label: "Heal",
+      icon: HeartPulse,
+    };
+  }
+  if (actionId === "taunt") {
+    return {
+      id: actionId,
+      label: "Taunt",
+      icon: ShieldAlert,
+    };
+  }
+  if (actionId === "whirlwind") {
+    return {
+      id: actionId,
+      label: "Whirlwind",
+      icon: Tornado,
+    };
+  }
+  if (actionId === "multishot") {
+    return {
+      id: actionId,
+      label: "Multishot",
+      icon: Wind,
+    };
+  }
+  if (actionId === "iceBlast") {
+    return {
+      id: actionId,
+      label: "Ice Blast",
+      icon: Zap,
+    };
+  }
 }
 
-function getActionReadyAt(player: PlayerSnapshot | null, actionId: CombatActionId) {
+export function getActionReadyAt(player: PlayerSnapshot | null, actionId: CombatActionId) {
   if (!player) return 0;
   if (actionId === "attack") return player.attackReadyAt;
   if (actionId === "shoot") return player.shootReadyAt;
+  if (actionId === "signalShot") return player.signalShotReadyAt;
   if (actionId === "fireblast") return player.fireblastReadyAt;
-  return player.frostNovaReadyAt;
+  if (actionId === "frostNova") return player.frostNovaReadyAt;
+  if (actionId === "heal") return player.healReadyAt;
+  if (actionId === "taunt") return player.tauntReadyAt;
+  if (actionId === "whirlwind") return player.whirlwindReadyAt;
+  if (actionId === "multishot") return player.multishotReadyAt;
+  return player.iceBlastReadyAt;
 }
 
 function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number) {
@@ -162,15 +212,27 @@ function getCombatUsability(
 ) {
   if (!player) return { usable: false, reason: "" };
   if (player.castingAction) return { usable: false, reason: "Casting" };
+  if (!isCombatActionUnlocked(actionId, player.talents)) return { usable: false, reason: "Locked" };
 
   const action = COMBAT.actions[actionId];
   if (getActionReadyAt(player, actionId) > now) return { usable: false, reason: "" };
   if (player.mana < action.manaCost) return { usable: false, reason: "Mana" };
-  if (actionId === "frostNova") return { usable: true, reason: "" };
+  if (actionId === "frostNova" || actionId === "whirlwind") return { usable: true, reason: "" };
+  if (actionId === "heal") {
+    if (!selectedTarget) return { usable: true, reason: "" };
+    if (!selectedTargetUnit) return { usable: false, reason: "Target" };
+    if (selectedTargetUnit.health <= 0) return { usable: false, reason: "Dead" };
+    if (isNpcSnapshot(selectedTargetUnit) && getNpcDisposition(selectedTargetUnit) === "hostile") {
+      return { usable: false, reason: "Hostile" };
+    }
+    const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
+    return distance <= action.maxRange ? { usable: true, reason: "" } : { usable: false, reason: "Range" };
+  }
 
-  if (!selectedTarget || selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) {
+  if (!selectedTarget) {
     return { usable: true, reason: "" };
   }
+  if (selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) return { usable: false, reason: "Enemy" };
   if (!isAttackableNpcRole(selectedTargetUnit.role)) return { usable: false, reason: "Friendly" };
   if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return { usable: false, reason: "Dead" };
 

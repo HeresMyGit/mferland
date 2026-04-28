@@ -59,8 +59,14 @@ export function updateLocalVisualPlayer(
   visual.lastSeq = authoritative.lastSeq;
   visual.attackReadyAt = authoritative.attackReadyAt;
   visual.shootReadyAt = authoritative.shootReadyAt;
+  visual.signalShotReadyAt = authoritative.signalShotReadyAt;
   visual.fireblastReadyAt = authoritative.fireblastReadyAt;
   visual.frostNovaReadyAt = authoritative.frostNovaReadyAt;
+  visual.healReadyAt = authoritative.healReadyAt;
+  visual.tauntReadyAt = authoritative.tauntReadyAt;
+  visual.whirlwindReadyAt = authoritative.whirlwindReadyAt;
+  visual.multishotReadyAt = authoritative.multishotReadyAt;
+  visual.iceBlastReadyAt = authoritative.iceBlastReadyAt;
   visual.castingAction = authoritative.castingAction;
   visual.castStartedAt = authoritative.castStartedAt;
   visual.castEndsAt = authoritative.castEndsAt;

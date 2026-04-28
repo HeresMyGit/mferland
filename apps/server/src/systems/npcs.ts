@@ -417,6 +417,7 @@ export function updateNpcs(
         npc.aggroTargetId = "";
         npc.attackReadyAt = 0;
         npc.frozenUntil = 0;
+        npc.slowedUntil = 0;
         npc.hasLoot = false;
         npc.loot.clear();
         npc.x = npc.homeX;
@@ -444,6 +445,7 @@ export function updateNpcs(
       }
       npc.frozenUntil = 0;
     }
+    if (npc.slowedUntil > 0 && now >= npc.slowedUntil) npc.slowedUntil = 0;
 
     if (npc.role === "farmer") {
       updateFarmerNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
@@ -654,7 +656,7 @@ function moveNpcToward(npc: NpcState, x: number, z: number, delta: number, speed
     return;
   }
 
-  const step = Math.min(distance, speed * delta);
+  const step = Math.min(distance, getEffectiveNpcMoveSpeed(npc, speed) * delta);
   const previousX = npc.x;
   const previousZ = npc.z;
   const nextPosition = resolveWorldCollision(
@@ -677,7 +679,7 @@ function moveNpcAwayFrom(npc: NpcState, x: number, z: number, delta: number, spe
     return;
   }
 
-  const step = speed * delta;
+  const step = getEffectiveNpcMoveSpeed(npc, speed) * delta;
   const previousX = npc.x;
   const previousZ = npc.z;
   const nextPosition = resolveWorldCollision(
@@ -713,6 +715,10 @@ function getNpcMoveSpeed(npc: NpcState) {
   if (npc.model === "hog") return 2.0;
   if (npc.role === "beast") return 2.2;
   return 1.85;
+}
+
+function getEffectiveNpcMoveSpeed(npc: NpcState, speed: number) {
+  return Date.now() < npc.slowedUntil ? speed * COMBAT.actions.iceBlast.slowMultiplier : speed;
 }
 
 function getNpcCollisionRadius(npc: NpcState) {

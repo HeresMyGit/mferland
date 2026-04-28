@@ -8,10 +8,11 @@ import {
 export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {
   const isNpc = kind === "npc";
   const npc = isNpc ? (unit as NpcSnapshot) : null;
+  const player = isNpc ? null : (unit as PlayerSnapshot);
   const disposition = npc ? getNpcDisposition(npc) : "friendly";
   const isHostile = disposition === "hostile";
-  const maxHealth = npc?.maxHealth || 100;
-  const health = npc?.health ?? 100;
+  const maxHealth = npc?.maxHealth ?? player?.maxHealth ?? 100;
+  const health = npc?.health ?? player?.health ?? 100;
   const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
   const label = npc ? roleLabel(npc.role) : playerLabel(unit as PlayerSnapshot);
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;

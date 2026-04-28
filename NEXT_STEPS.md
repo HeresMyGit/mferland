@@ -50,6 +50,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 
 ### 1. Stabilize Current Milestone
 
+- Refactor pass for large/mixed-responsibility files before adding much more feature work. Combat-related files appear to be accumulating many abilities/moves and may need ability definitions or handlers split into their own modules. Also check the town square/world layout file and any other large files that mix unrelated data types or systems. The game will expand quickly, so prefer modular files with clear ownership boundaries.
 - Fix the Colyseus schema buffer warning before committing. The warning means the encoded room-state patch can exceed Colyseus' default schema encoder buffer after the expanded player/NPC/quest/inventory state, which risks failed or incomplete state syncs as the room grows.
 - Investigate the recurring ~1 second gameplay hitch: while walking forward, the game appears to lag briefly and the camera can nudge for a split second. Check for server tick/sync, autosave, polling, state patch, or render loop work running on a 1s interval.
 - Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
@@ -84,12 +85,62 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Done 2026-04-28: Show a health bar on the character name tag; future settings toggle to hide/show it remains deferred.
 - Done 2026-04-28: Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
 - Done 2026-04-28: Add a small number of differentiated enemy behaviors before adding many more enemies.
-- Plan and implement party aggro/threat management: define how much threat each ability generates, track per-player threat on mobs, and allow mobs to switch targets based on threat like an MMO tank/DPS/healer loop.
-- Plan newer role skills around the threat system:
-  - Add a heal spell.
-  - Add a taunt spell that forces the enemy to attack the taunter for about 3 seconds.
-  - Consider a weaker attack that generates more aggro than the normal attack for tank-style play.
-- Before implementing the new skills, write a small ability/threat plan so spell damage, healing threat, taunt behavior, cooldowns, and mob target switching rules fit together.
+- Done 2026-04-28: Implement party aggro/threat management with server-side per-mob threat tables, taunt force windows, damage/healing threat, and threshold-based target switching.
+- Follow-up: playtest and tune combat numbers for the eight-slot baseline abilities plus the new talent actives.
+- Done 2026-04-28: Ability/threat plan drafted below.
+
+#### Ability And Threat Plan
+
+Keep this as a first-pass MMO combat layer, not a full class system. Every player gets the same eight-slot hotbar for now; "tank/ranger/caster/healer" are just usage patterns.
+
+Default hotbar order:
+
+1. `interact`
+2. `attack`
+3. `shoot`
+4. `signalShot`
+5. `fireblast`
+6. `frostNova`
+7. `heal`
+8. `taunt`
+
+Ability plan:
+
+- `attack`: keep the current melee damage/range/cooldown, but make it the threat builder. Threat should be actual damage plus a flat bonus, enough that repeated melee attacks can hold a mob against normal ranged/magic damage without adding a separate tank attack.
+- `taunt`: short-range instant action, no damage, about 10-12s cooldown. Forces the targeted mob to attack the taunter for 3s and adds enough snap threat that the mob usually remains on the taunter briefly after the forced window ends.
+- `shoot`: keep as the baseline physical ranged attack: instant, no mana, existing cooldown/range/stationary rules.
+- `signalShot`: new cooler "magic shot" ranged action. Instant fire, no cast time, mana cost, moderate cooldown, and lower total damage than a completed `fireblast`. This gives the ranged/magic style a reactive button without replacing the big cast.
+- `fireblast`: keep as the high-damage casted spell. Damage threat equals damage; cast pushback still matters.
+- `frostNova`: keep as instant AoE damage/freeze. It remains useful for both caster and healer/support patterns.
+- `heal`: targeted friendly/self heal. Count only effective healing, not overheal, for threat. First pass should be single-target with a modest cooldown and mana cost rather than an AoE heal.
+
+Talent-tree active ability plan:
+
+- Brawler tree: `whirlwind`, an instant short-radius AoE around the character. It should generate normal damage threat on every enemy hit, plus enough melee-style bonus threat to make it useful when tanking multiple mobs.
+- Utility/ranged tree: `multishot`, an instant ranged attack that can hit up to 3 eligible enemies near the selected target. It should prefer the selected target first, then nearby hostile targets in range.
+- Caster tree: `iceBlast`, a lower-damage spell than `fireblast` that applies a slow instead of a hard freeze. Use this for kiting and boss-safe control where `frostNova` freeze would be too binary.
+- Done 2026-04-28: Added a spellbook/abilities panel so players can clear and assign hotbar slots as talent actives unlock.
+
+Threat model:
+
+- Store threat server-side in `TownRoom`, keyed by `npcId -> sessionId -> threat`, so it does not increase replicated room-state size.
+- Keep taunt force state server-side too, keyed by `npcId -> { sessionId, until }`; continue using replicated `npc.aggroTargetId` as the visible/current target.
+- Damage threat defaults to actual damage dealt.
+- `attack` threat = actual damage plus a flat tanking bonus.
+- `taunt` threat = snap threat and forced targeting for 3s.
+- `heal` threat = a fraction of effective healing applied to hostile NPCs that are already engaged with, targeting, or near the healed player. Do not add healing threat to unrelated idle mobs across the map.
+- Target switching should avoid jitter: outside the taunt window, switch to the highest-threat eligible living player only when they beat the current target by a small threshold.
+- Clear threat when the NPC dies, despawns, fully leashes/resets, or when a player leaves/death-cleans enough state to prevent stale targets.
+
+Implementation order:
+
+1. Expand shared combat action definitions and player ready-at state for `signalShot`, `heal`, and `taunt`.
+2. Increase the bottom hotbar to eight slots with keys `1`-`8`, icons, cooldown text, mana/range checks, and default slot order above.
+3. Add server-only threat and taunt maps, then route all existing player damage through threat generation.
+4. Add `taunt` targeting behavior before adding `heal`, because it gives the threat system a simple forced-target test.
+5. Add `heal` friendly targeting/self fallback and healing-threat generation.
+6. Add `signalShot` combat event visuals, damage rules, cooldown/mana tuning, and UI label/icon.
+7. Verify with `npm run typecheck`, `npm run build`, `npm run build:agent`, a focused server-side threat simulation, and a browser combat smoke test.
 
 ### 5. mferGPT Codex Auth
 

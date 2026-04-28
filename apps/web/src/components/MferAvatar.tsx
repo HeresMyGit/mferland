@@ -8,6 +8,7 @@ import * as THREE from "three";
 import {
   getNpcDisposition,
   type AnimationState,
+  type CombatActionId,
   type NpcDisposition,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -29,6 +30,7 @@ type MferAvatarProps = {
   onTarget?: () => void;
 };
 type ShadowScale = [number, number, number];
+type CastOrbVariant = "fire" | "ice" | "heal";
 
 type LoadedMferGltf = {
   scene: THREE.Group;
@@ -117,7 +119,10 @@ export function MferAvatar({
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
   const isFrozen = Boolean(npc && npc.frozenUntil > Date.now());
-  const isCastingFireblast = "castingAction" in player && player.castingAction === "fireblast" && player.castEndsAt > Date.now();
+  const isCold = Boolean(npc && !isFrozen && npc.slowedUntil > Date.now());
+  const castingOrbVariant = "castingAction" in player && player.castEndsAt > Date.now()
+    ? getCastOrbVariant(player.castingAction)
+    : null;
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
@@ -190,8 +195,9 @@ export function MferAvatar({
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
       {npc && isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.95} y={1.35} />}
-      {isCastingFireblast && "castStartedAt" in player && (
-        <FireblastCastEffect startedAt={player.castStartedAt} endsAt={player.castEndsAt} />
+      {npc && isCold && <ColdStatusEffect slowedUntil={npc.slowedUntil} radius={0.95} y={1.35} />}
+      {castingOrbVariant && "castStartedAt" in player && (
+        <ElementalCastEffect startedAt={player.castStartedAt} endsAt={player.castEndsAt} variant={castingOrbVariant} />
       )}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={3.95} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
@@ -604,7 +610,63 @@ export function FrozenStatusEffect({
   );
 }
 
-function FireblastCastEffect({ startedAt, endsAt }: { startedAt: number; endsAt: number }) {
+export function ColdStatusEffect({
+  slowedUntil,
+  radius = 0.72,
+  y = 0.9,
+}: {
+  slowedUntil: number;
+  radius?: number;
+  y?: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const clockEpochOffsetRef = useRef<number | null>(null);
+
+  useFrame(({ clock }) => {
+    if (clockEpochOffsetRef.current === null) {
+      clockEpochOffsetRef.current = Date.now() - clock.elapsedTime * 1000;
+    }
+    const now = clockEpochOffsetRef.current + clock.elapsedTime * 1000;
+    const group = groupRef.current;
+    if (!group) return;
+
+    group.visible = now < slowedUntil;
+    group.rotation.y += 0.025;
+    group.scale.setScalar(1 + Math.sin(clock.elapsedTime * 6.5) * 0.025);
+  });
+
+  return (
+    <group ref={groupRef} position={[0, y, 0]}>
+      <mesh scale={[radius * 1.05, radius * 1.42, radius * 1.05]}>
+        <sphereGeometry args={[1, 20, 12]} />
+        <meshBasicMaterial color="#7ee7ff" depthWrite={false} opacity={0.16} toneMapped={false} transparent />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, -radius * 0.82, 0]}>
+        <torusGeometry args={[radius * 0.9, 0.026, 8, 42]} />
+        <meshBasicMaterial color="#b7f4ff" depthWrite={false} opacity={0.76} toneMapped={false} transparent />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, radius * 0.16, 0]}>
+        <torusGeometry args={[radius * 0.72, 0.018, 8, 36]} />
+        <meshBasicMaterial color="#dffbff" depthWrite={false} opacity={0.48} toneMapped={false} transparent />
+      </mesh>
+      <Billboard position={[0, radius * 0.82, 0]}>
+        <Text
+          fontSize={radius * 0.38}
+          anchorX="center"
+          anchorY="middle"
+          color="#dffbff"
+          outlineColor="#052331"
+          outlineWidth={0.045}
+          renderOrder={72}
+        >
+          *
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
+function ElementalCastEffect({ startedAt, endsAt, variant }: { startedAt: number; endsAt: number; variant: CastOrbVariant }) {
   const groupRef = useRef<THREE.Group>(null);
   const coreRef = useRef<THREE.Group>(null);
   const clockEpochOffsetRef = useRef<number | null>(null);
@@ -613,6 +675,7 @@ function FireblastCastEffect({ startedAt, endsAt }: { startedAt: number; endsAt:
     radius: 0.22 + (index % 3) * 0.05,
     y: (index % 2) * 0.12 - 0.04,
   })), []);
+  const colors = getCastOrbColors(variant);
 
   useFrame(({ clock }) => {
     if (clockEpochOffsetRef.current === null) {
@@ -635,16 +698,16 @@ function FireblastCastEffect({ startedAt, endsAt }: { startedAt: number; endsAt:
       <group ref={coreRef}>
         <mesh>
           <sphereGeometry args={[0.24, 16, 10]} />
-          <meshBasicMaterial color="#fff08a" depthTest={false} toneMapped={false} />
+          <meshBasicMaterial color={colors.core} depthTest={false} toneMapped={false} />
         </mesh>
         <mesh>
           <sphereGeometry args={[0.42, 16, 10]} />
-          <meshBasicMaterial color="#ff6a28" depthWrite={false} opacity={0.3} toneMapped={false} transparent />
+          <meshBasicMaterial color={colors.glow} depthWrite={false} opacity={0.3} toneMapped={false} transparent />
         </mesh>
       </group>
       <mesh rotation-x={Math.PI / 2}>
         <torusGeometry args={[0.42, 0.018, 8, 32]} />
-        <meshBasicMaterial color="#ffb34d" depthWrite={false} opacity={0.85} toneMapped={false} transparent />
+        <meshBasicMaterial color={colors.ring} depthWrite={false} opacity={0.85} toneMapped={false} transparent />
       </mesh>
       {embers.map((ember, index) => (
         <mesh
@@ -652,11 +715,46 @@ function FireblastCastEffect({ startedAt, endsAt }: { startedAt: number; endsAt:
           position={[Math.sin(ember.angle) * ember.radius, ember.y, Math.cos(ember.angle) * ember.radius]}
         >
           <sphereGeometry args={[0.045, 8, 6]} />
-          <meshBasicMaterial color={index % 2 === 0 ? "#ffd35b" : "#ff382e"} depthTest={false} toneMapped={false} />
+          <meshBasicMaterial color={index % 2 === 0 ? colors.sparkA : colors.sparkB} depthTest={false} toneMapped={false} />
         </mesh>
       ))}
     </group>
   );
+}
+
+function getCastOrbVariant(actionId: CombatActionId | ""): CastOrbVariant | null {
+  if (actionId === "fireblast") return "fire";
+  if (actionId === "iceBlast") return "ice";
+  if (actionId === "heal") return "heal";
+  return null;
+}
+
+function getCastOrbColors(variant: CastOrbVariant) {
+  if (variant === "ice") {
+    return {
+      core: "#ecfdff",
+      glow: "#7ee7ff",
+      ring: "#b7f4ff",
+      sparkA: "#dffbff",
+      sparkB: "#5fdcff",
+    };
+  }
+  if (variant === "heal") {
+    return {
+      core: "#eaffd9",
+      glow: "#5fe777",
+      ring: "#9cff9f",
+      sparkA: "#d8ff7a",
+      sparkB: "#48d96a",
+    };
+  }
+  return {
+    core: "#fff08a",
+    glow: "#ff6a28",
+    ring: "#ffb34d",
+    sparkA: "#ffd35b",
+    sparkB: "#ff382e",
+  };
 }
 
 function getPlayerNameplate(name: string, isLocal: boolean, isAgentPlayer: boolean) {

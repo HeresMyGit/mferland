@@ -1,7 +1,8 @@
 import { type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BadgePlus, BookOpen, Brain, Check, Dumbbell, Footprints, Gift, ListChecks, LogOut, Map as MapIcon, Package, UserRound, X } from "lucide-react";
+import { BadgePlus, BookOpen, Brain, Check, Dumbbell, Footprints, Gift, ListChecks, LogOut, Map as MapIcon, Package, Sparkles, UserRound, X } from "lucide-react";
 import {
   CHAT,
+  COMBAT,
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
@@ -12,14 +13,17 @@ import {
   TALENT_TREES,
   TALENT_TREE_IDS,
   getLevelProgress,
+  getCombatActionUnlockTalent,
   getInventoryItemKey,
   getItemEquipment,
   getNpcDisposition,
   getTalentPointsSpent,
   getTalentRank,
   getTalentRankStatus,
+  isCombatActionUnlocked,
   type ActionId,
   type ChatMessage,
+  type CombatActionId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
   type ClientEquipItem,
@@ -81,6 +85,8 @@ type HudProps = {
   lootWindow: LootWindow | null;
   actionSlots: ActionSlot[];
   onAction: (actionId: ActionId) => void;
+  onAssignActionSlot: (actionId: ActionId, slotIndex: number) => void;
+  onClearActionSlot: (slotIndex: number) => void;
   onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onCompleteQuest: (message: ClientCompleteQuest) => void;
@@ -94,6 +100,7 @@ type HudProps = {
   onCloseLootWindow: () => void;
   onSendChat: (text: string) => void;
   onRespawn: () => void;
+  onSelectSelfTarget: () => void;
   onExit: () => void;
 };
 
@@ -115,6 +122,8 @@ export function Hud({
   lootWindow,
   actionSlots,
   onAction,
+  onAssignActionSlot,
+  onClearActionSlot,
   onMoveActionSlot,
   onAcceptQuest,
   onCompleteQuest,
@@ -128,6 +137,7 @@ export function Hud({
   onCloseLootWindow,
   onSendChat,
   onRespawn,
+  onSelectSelfTarget,
   onExit,
 }: HudProps) {
   const [draft, setDraft] = useState("");
@@ -140,6 +150,7 @@ export function Hud({
   const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
+  const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
@@ -268,9 +279,16 @@ export function Hud({
   return (
     <div className="hud">
       <section className="player-card">
-        <div className="portrait" style={{ "--accent": accent } as CSSProperties}>
+        <button
+          className="portrait"
+          type="button"
+          title="Target yourself"
+          aria-label="Target yourself"
+          onClick={onSelectSelfTarget}
+          style={{ "--accent": accent } as CSSProperties}
+        >
           <span>mf</span>
-        </div>
+        </button>
         <div className="player-vitals">
           <div className="player-name-row">
             <strong>{localPlayer?.name ?? identity.name}</strong>
@@ -611,6 +629,28 @@ export function Hud({
         </section>
       )}
 
+      {isAbilitiesOpen && (
+        <section className="world-map-overlay" role="dialog" aria-label="Abilities">
+          <div className="abilities-panel">
+            <div className="world-map-header">
+              <div>
+                <strong>Abilities</strong>
+                <span>Assign active slots 1-8</span>
+              </div>
+              <button type="button" title="Close abilities" aria-label="Close abilities" onClick={() => setIsAbilitiesOpen(false)}>
+                <X size={22} />
+              </button>
+            </div>
+            <AbilitiesPanel
+              player={localPlayer}
+              actionSlots={actionSlots}
+              onAssignActionSlot={onAssignActionSlot}
+              onClearActionSlot={onClearActionSlot}
+            />
+          </div>
+        </section>
+      )}
+
       {isInventoryOpen && (
         <section className="world-map-overlay" role="dialog" aria-label="Inventory">
           <div className="inventory-panel">
@@ -719,6 +759,10 @@ export function Hud({
         <button type="button" title="Inventory" onClick={() => setIsInventoryOpen(true)}>
           <Package size={25} />
           <span>Inventory</span>
+        </button>
+        <button type="button" title="Abilities" onClick={() => setIsAbilitiesOpen(true)}>
+          <Sparkles size={25} />
+          <span>Abilities</span>
         </button>
         <button type="button" title="Quest log" onClick={() => setIsQuestLogOpen(true)}>
           <BookOpen size={25} />
@@ -873,6 +917,120 @@ function QuestRewardList({ rewards }: { rewards: string[] }) {
       </span>
     </div>
   );
+}
+
+const BASELINE_ABILITY_IDS: ActionId[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
+const TALENT_ABILITY_IDS: CombatActionId[] = ["whirlwind", "multishot", "iceBlast"];
+const SPELLBOOK_ABILITY_IDS: ActionId[] = [...BASELINE_ABILITY_IDS, ...TALENT_ABILITY_IDS];
+
+function AbilitiesPanel({
+  player,
+  actionSlots,
+  onAssignActionSlot,
+  onClearActionSlot,
+}: {
+  player: PlayerSnapshot | null;
+  actionSlots: ActionSlot[];
+  onAssignActionSlot: (actionId: ActionId, slotIndex: number) => void;
+  onClearActionSlot: (slotIndex: number) => void;
+}) {
+  return (
+    <div className="abilities-layout">
+      <section className="ability-slots-panel">
+        <strong>Hotbar</strong>
+        <div className="ability-slot-grid">
+          {actionSlots.map((actionId, index) => {
+            const meta = actionId ? getActionMeta(actionId) : null;
+            const Icon = meta?.icon;
+            return (
+              <div key={index} className={actionId ? "ability-slot-row filled" : "ability-slot-row"}>
+                <span>{index + 1}</span>
+                {Icon && <Icon size={18} />}
+                <strong>{meta?.label ?? "Empty"}</strong>
+                <button type="button" disabled={!actionId} onClick={() => onClearActionSlot(index)}>
+                  Clear
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="ability-book-panel">
+        <strong>Spellbook</strong>
+        <div className="ability-book-list">
+          {SPELLBOOK_ABILITY_IDS.map((actionId) => (
+            <AbilityBookRow
+              key={actionId}
+              actionId={actionId}
+              player={player}
+              actionSlots={actionSlots}
+              onAssignActionSlot={onAssignActionSlot}
+            />
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AbilityBookRow({
+  actionId,
+  player,
+  actionSlots,
+  onAssignActionSlot,
+}: {
+  actionId: ActionId;
+  player: PlayerSnapshot | null;
+  actionSlots: ActionSlot[];
+  onAssignActionSlot: (actionId: ActionId, slotIndex: number) => void;
+}) {
+  const meta = getActionMeta(actionId);
+  if (!meta) return null;
+
+  const Icon = meta.icon;
+  const isCombat = actionId !== "interact";
+  const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.talents));
+  const unlockTalentId = isCombat ? getCombatActionUnlockTalent(actionId) : null;
+  const assignedIndex = actionSlots.findIndex((slot) => slot === actionId);
+  const description = getAbilityDescription(actionId, unlockTalentId);
+
+  return (
+    <div className={locked ? "ability-book-row locked" : assignedIndex >= 0 ? "ability-book-row assigned" : "ability-book-row"}>
+      <Icon size={22} />
+      <span className="ability-copy">
+        <strong>{meta.label}</strong>
+        <em>{description}</em>
+      </span>
+      <span className="ability-state">
+        {locked ? "Locked" : assignedIndex >= 0 ? `Slot ${assignedIndex + 1}` : "Ready"}
+      </span>
+      <div className="ability-assign-grid">
+        {actionSlots.map((_, index) => (
+          <button
+            key={index}
+            type="button"
+            disabled={locked}
+            className={assignedIndex === index ? "selected" : ""}
+            onClick={() => onAssignActionSlot(actionId, index)}
+          >
+            {index + 1}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getAbilityDescription(actionId: ActionId, unlockTalentId: TalentId | null) {
+  if (actionId === "interact") return "Talk, loot, and use nearby objects.";
+  const action = COMBAT.actions[actionId];
+  const range = action.maxRange > 0
+    ? action.minRange > 0 ? `${action.minRange}-${action.maxRange}m` : `${action.maxRange}m`
+    : "self";
+  const mana = action.manaCost > 0 ? ` / ${action.manaCost} MP` : "";
+  const detail = `${action.damage > 0 ? `${action.damage} base` : actionId === "heal" ? `${COMBAT.actions.heal.healing} heal` : "Utility"} / ${range}${mana}`;
+  return unlockTalentId ? `Talent: ${TALENTS[unlockTalentId].name} / ${detail}` : detail;
 }
 
 function TalentPanel({

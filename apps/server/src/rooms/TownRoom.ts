@@ -1,6 +1,7 @@
 import { Room, type Client } from "colyseus";
 import {
   CHAT,
+  COMBAT,
   LOOT,
   MAX_PLAYERS,
   MFERGPT,
@@ -9,7 +10,9 @@ import {
   QUESTS,
   SERVER_TICK_RATE,
   clamp,
+  getNpcDisposition,
   getInventoryItemKey,
+  getXpForLevel,
   getQuestTurnInNpcId,
   normalizeChainTokenId,
   resolveWorldCollision,
@@ -25,6 +28,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientUnequipItem,
+  type CombatActionId,
   type ExperienceEvent,
   type IdentityType,
   type ItemId,
@@ -43,12 +47,17 @@ import {
   aggroNeutralNpcOnPlayerAttackStart,
   applyCombatDamage,
   applyFrostNova,
+  applyMultishot,
+  applyUnitHealing,
+  applyWhirlwind,
   clearPlayerCast,
   findCombatTarget,
   getActionReadyAt,
   getPlayerActionDamage,
+  getPlayerHealingAmount,
   isNpcAlive,
   isPlayerStationary,
+  makeNpcUtilityEvent,
   normalizeCombatActionId,
   processPendingCombatImpacts,
   respawnPlayerAtFountain,
@@ -85,6 +94,7 @@ import {
   getPlayerActionConfig,
   getPlayerQuestXpReward,
   getPlayerTalentRanks,
+  isPlayerActionUnlocked,
   normalizePlayerTalents,
   normalizeTalentId,
   rankPlayerTalent,
@@ -98,6 +108,11 @@ import {
 } from "../systems/utils.js";
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
+const DEBUG_GUEST_LEVEL = 10;
+
+type HealTarget =
+  | { kind: "player"; id: string; unit: PlayerState }
+  | { kind: "npc"; id: string; unit: NpcState };
 
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
@@ -111,6 +126,8 @@ export class TownRoom extends Room<TownState> {
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
   private readonly temporaryNpcExpiresAt = new Map<string, number>();
   private readonly npcDamageTags = new Map<string, Map<string, number>>();
+  private readonly npcThreat = new Map<string, Map<string, number>>();
+  private readonly forcedNpcTargets = new Map<string, { sessionId: string; until: number }>();
 
   onCreate() {
     this.setState(new TownState());
@@ -243,6 +260,12 @@ export class TownRoom extends Room<TownState> {
     player.level = persistedCharacter?.level ?? 1;
     player.xp = persistedCharacter?.xp ?? 0;
     player.talentPoints = persistedCharacter?.talentPoints ?? 0;
+    if (identityType === "guest" && !persistedCharacter) {
+      const debugLevel = Math.min(DEBUG_GUEST_LEVEL, PROGRESSION.levelCap);
+      player.level = debugLevel;
+      player.xp = getXpForLevel(debugLevel);
+      player.talentPoints = debugLevel - 1;
+    }
     normalizePlayerProgression(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
@@ -272,6 +295,7 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
+    this.removePlayerThreat(client.sessionId);
   }
 
   private async handleChatMessage(client: Client, message: { text?: string }) {
@@ -348,6 +372,7 @@ export class TownRoom extends Room<TownState> {
 
     const actionId = normalizeCombatActionId(message?.actionId);
     if (!actionId) return;
+    if (!isPlayerActionUnlocked(player, actionId)) return;
 
     const action = getPlayerActionConfig(player, actionId);
     const now = Date.now();
@@ -369,7 +394,44 @@ export class TownRoom extends Room<TownState> {
         this.pendingCombatImpacts,
         (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
         (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
+        (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
       );
+      return;
+    }
+
+    if (actionId === "whirlwind") {
+      setActionReadyAt(player, actionId, now + action.cooldownMs);
+      player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+      player.lastCastAt = now;
+      applyWhirlwind(
+        client.sessionId,
+        player,
+        this.state.npcs,
+        now,
+        (event) => this.broadcast("combatEvent", event),
+        this.pendingCombatImpacts,
+        (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+        (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
+        (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
+      );
+      return;
+    }
+
+    if (actionId === "heal") {
+      const healTarget = this.findHealTarget(player, message?.target, client.sessionId);
+      if (!healTarget) return;
+      const distance = this.distanceToHealTarget(player, healTarget);
+      if (distance < action.minRange || distance > action.maxRange) return;
+
+      player.lastCastAt = now;
+      if (healTarget.id !== client.sessionId || healTarget.kind !== "player") {
+        player.yaw = Math.atan2(healTarget.unit.x - player.x, healTarget.unit.z - player.z);
+      }
+      player.castingAction = actionId;
+      player.castStartedAt = now;
+      player.castEndsAt = now + action.castTimeMs;
+      player.castTargetKind = healTarget.kind;
+      player.castTargetId = healTarget.id;
       return;
     }
 
@@ -381,6 +443,15 @@ export class TownRoom extends Room<TownState> {
     if (distance < action.minRange || distance > action.maxRange) return;
 
     player.yaw = Math.atan2(target.x - player.x, target.z - player.z);
+
+    if (actionId === "taunt") {
+      setActionReadyAt(player, actionId, now + action.cooldownMs);
+      player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+      player.lastCastAt = now;
+      this.forceNpcTarget(client.sessionId, target, now);
+      this.broadcast("combatEvent", makeNpcUtilityEvent(client.sessionId, player, target, actionId, now));
+      return;
+    }
 
     if (action.castTimeMs > 0) {
       player.lastCastAt = now;
@@ -394,8 +465,24 @@ export class TownRoom extends Room<TownState> {
 
     setActionReadyAt(player, actionId, now + action.cooldownMs);
     player.lastCastAt = now;
-    const damage = getPlayerActionDamage(player, actionId);
     aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
+    if (actionId === "multishot") {
+      applyMultishot(
+        client.sessionId,
+        player,
+        target,
+        this.state.npcs,
+        now,
+        (event) => this.broadcast("combatEvent", event),
+        this.pendingCombatImpacts,
+        (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+        (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
+        (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
+      );
+      return;
+    }
+
+    const damage = getPlayerActionDamage(player, actionId);
     applyCombatDamage(
       client.sessionId,
       player,
@@ -407,7 +494,195 @@ export class TownRoom extends Room<TownState> {
       this.pendingCombatImpacts,
       (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
       (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
+      (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
     );
+  }
+
+  private updatePlayerHealCast(sessionId: string, player: PlayerState, activeInput: TrackedInput | null, now: number) {
+    const action = getPlayerActionConfig(player, "heal");
+    if (action.requiresStationary && !isPlayerStationary(player, activeInput ?? undefined, now)) {
+      clearPlayerCast(player);
+      return;
+    }
+    if (now < player.castEndsAt) return;
+    if (action.manaCost > 0 && player.mana < action.manaCost) {
+      clearPlayerCast(player);
+      return;
+    }
+
+    const healTarget = this.findHealTarget(player, { kind: player.castTargetKind, id: player.castTargetId }, sessionId);
+    if (!healTarget || this.distanceToHealTarget(player, healTarget) > action.maxRange) {
+      clearPlayerCast(player);
+      return;
+    }
+
+    const healing = getPlayerHealingAmount(player, "heal");
+    player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+    setActionReadyAt(player, "heal", now + action.cooldownMs);
+    player.lastCastAt = now;
+    const appliedHealing = applyUnitHealing(
+      sessionId,
+      player,
+      healTarget.kind,
+      healTarget.id,
+      healTarget.unit,
+      "heal",
+      healing,
+      now,
+      (event) => this.broadcast("combatEvent", event),
+    );
+    this.addHealingThreat(sessionId, healTarget.unit, appliedHealing, now);
+    clearPlayerCast(player);
+  }
+
+  private findHealTarget(player: PlayerState, target: unknown, fallbackSessionId: string): HealTarget | null {
+    if (!target || typeof target !== "object") {
+      return { kind: "player", id: fallbackSessionId, unit: player };
+    }
+
+    const maybeTarget = target as { kind?: unknown; id?: unknown };
+    if (typeof maybeTarget.id !== "string") {
+      return { kind: "player", id: fallbackSessionId, unit: player };
+    }
+
+    if (maybeTarget.kind === "player") {
+      const targetPlayer = this.state.players.get(maybeTarget.id);
+      if (!targetPlayer || targetPlayer.health <= 0) return null;
+      return { kind: "player", id: maybeTarget.id, unit: targetPlayer };
+    }
+
+    if (maybeTarget.kind === "npc") {
+      const npc = this.state.npcs.get(maybeTarget.id);
+      if (!npc || !isNpcAlive(npc) || !this.isHealableNpc(npc)) return null;
+      return { kind: "npc", id: npc.id, unit: npc };
+    }
+
+    return { kind: "player", id: fallbackSessionId, unit: player };
+  }
+
+  private distanceToHealTarget(player: PlayerState, target: HealTarget) {
+    return Math.hypot(player.x - target.unit.x, player.z - target.unit.z);
+  }
+
+  private isHealableNpc(npc: NpcState) {
+    return getNpcDisposition(npc) !== "hostile";
+  }
+
+  private addNpcThreat(sourceId: string, npc: NpcState, actionId: CombatActionId, amount: number, now: number) {
+    if (!sourceId || !isNpcAlive(npc) || npc.isImmortal) return;
+
+    const table = this.npcThreat.get(npc.id) ?? new Map<string, number>();
+    const threat = this.getThreatValue(actionId, amount);
+    table.set(sourceId, (table.get(sourceId) ?? 0) + threat);
+    this.npcThreat.set(npc.id, table);
+
+    const player = this.state.players.get(sourceId);
+    if (player?.health && !npc.aggroTargetId) {
+      npc.aggroTargetId = sourceId;
+      npc.nextDecisionAt = 0;
+    }
+    if (actionId === "taunt") {
+      this.forcedNpcTargets.set(npc.id, { sessionId: sourceId, until: now + COMBAT.actions.taunt.forceMs });
+      npc.aggroTargetId = sourceId;
+      npc.nextDecisionAt = 0;
+    }
+  }
+
+  private getThreatValue(actionId: CombatActionId, amount: number) {
+    if (actionId === "attack") return amount + 18;
+    if (actionId === "whirlwind") return amount + COMBAT.actions.whirlwind.threatBonus;
+    if (actionId === "taunt") return COMBAT.actions.taunt.threat;
+    return Math.max(0, amount);
+  }
+
+  private forceNpcTarget(sourceId: string, npc: NpcState, now: number) {
+    const table = this.npcThreat.get(npc.id) ?? new Map<string, number>();
+    let highestThreat = 0;
+    table.forEach((threat) => {
+      highestThreat = Math.max(highestThreat, threat);
+    });
+    table.set(sourceId, Math.max(table.get(sourceId) ?? 0, highestThreat + COMBAT.actions.taunt.threat));
+    this.npcThreat.set(npc.id, table);
+    this.addNpcThreat(sourceId, npc, "taunt", COMBAT.actions.taunt.threat, now);
+  }
+
+  private addHealingThreat(sourceId: string, healedUnit: Pick<PlayerState | NpcState, "x" | "z">, effectiveHealing: number, now: number) {
+    if (effectiveHealing <= 0) return;
+
+    const healingThreat = effectiveHealing * COMBAT.actions.heal.threatMultiplier;
+    this.state.npcs.forEach((npc) => {
+      if (!isNpcAlive(npc) || npc.isImmortal) return;
+      const table = this.npcThreat.get(npc.id);
+      const isEngaged = Boolean(npc.aggroTargetId || table?.size);
+      if (!isEngaged) return;
+      const distance = Math.hypot(npc.x - healedUnit.x, npc.z - healedUnit.z);
+      if (distance > COMBAT.actions.heal.threatRadius) return;
+      this.addNpcThreat(sourceId, npc, "heal", healingThreat, now);
+    });
+  }
+
+  private applyThreatTargets(now: number) {
+    this.state.npcs.forEach((npc) => {
+      if (!isNpcAlive(npc) || npc.isImmortal) {
+        this.npcThreat.delete(npc.id);
+        this.forcedNpcTargets.delete(npc.id);
+        return;
+      }
+
+      const forcedTarget = this.forcedNpcTargets.get(npc.id);
+      if (forcedTarget) {
+        const player = this.state.players.get(forcedTarget.sessionId);
+        if (now < forcedTarget.until && this.isThreatTargetEligible(npc, player)) {
+          npc.aggroTargetId = forcedTarget.sessionId;
+          npc.nextDecisionAt = 0;
+          return;
+        }
+        this.forcedNpcTargets.delete(npc.id);
+      }
+
+      const table = this.npcThreat.get(npc.id);
+      if (!table?.size) return;
+
+      let highestSessionId = "";
+      let highestThreat = 0;
+      for (const [sessionId, threat] of table) {
+        const player = this.state.players.get(sessionId);
+        if (!this.isThreatTargetEligible(npc, player)) {
+          table.delete(sessionId);
+          continue;
+        }
+        if (threat > highestThreat) {
+          highestThreat = threat;
+          highestSessionId = sessionId;
+        }
+      }
+
+      if (!highestSessionId) {
+        this.npcThreat.delete(npc.id);
+        return;
+      }
+
+      const currentThreat = npc.aggroTargetId ? table.get(npc.aggroTargetId) ?? 0 : 0;
+      const shouldSwitch = !npc.aggroTargetId || highestSessionId === npc.aggroTargetId || highestThreat >= currentThreat * 1.15 + 8;
+      if (shouldSwitch && npc.aggroTargetId !== highestSessionId) {
+        npc.aggroTargetId = highestSessionId;
+        npc.nextDecisionAt = 0;
+      }
+    });
+  }
+
+  private isThreatTargetEligible(npc: NpcState, player: PlayerState | undefined) {
+    if (!player || player.health <= 0) return false;
+    return Math.hypot(player.x - npc.homeX, player.z - npc.homeZ) <= Math.max(npc.leashRadius + 8, COMBAT.actions.fireblast.maxRange + 4);
+  }
+
+  private removePlayerThreat(sessionId: string) {
+    for (const table of this.npcThreat.values()) {
+      table.delete(sessionId);
+    }
+    for (const [npcId, forcedTarget] of this.forcedNpcTargets) {
+      if (forcedTarget.sessionId === sessionId) this.forcedNpcTargets.delete(npcId);
+    }
   }
 
   private handleEquipItem(client: Client, message: Partial<ClientEquipItem>) {
@@ -572,6 +847,7 @@ export class TownRoom extends Room<TownState> {
     const now = Date.now();
     this.removeExpiredTemporaryNpcs(now);
     this.pruneNpcDamageTags(now);
+    this.applyThreatTargets(now);
     updateNpcs(
       this.state.npcs,
       this.state.players,
@@ -599,17 +875,22 @@ export class TownRoom extends Room<TownState> {
         clearPlayerCast(player);
         return;
       }
-      updatePlayerCast(
-        sessionId,
-        player,
-        activeInput,
-        this.state.npcs,
-        now,
-        (event) => this.broadcast("combatEvent", event),
-        this.pendingCombatImpacts,
-        (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
-        (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
-      );
+      if (player.castingAction === "heal") {
+        this.updatePlayerHealCast(sessionId, player, activeInput, now);
+      } else {
+        updatePlayerCast(
+          sessionId,
+          player,
+          activeInput,
+          this.state.npcs,
+          now,
+          (event) => this.broadcast("combatEvent", event),
+          this.pendingCombatImpacts,
+          (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+          (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
+          (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
+        );
+      }
       let grounded = player.y <= 0.001;
 
       if (activeInput?.jump && !this.jumpHeld.get(sessionId) && grounded) {

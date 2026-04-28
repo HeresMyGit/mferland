@@ -60,8 +60,14 @@ type RuntimePlayer = {
   lastSeq: number;
   attackReadyAt: number;
   shootReadyAt: number;
+  signalShotReadyAt: number;
   fireblastReadyAt: number;
   frostNovaReadyAt: number;
+  healReadyAt: number;
+  tauntReadyAt: number;
+  whirlwindReadyAt: number;
+  multishotReadyAt: number;
+  iceBlastReadyAt: number;
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
@@ -107,6 +113,7 @@ type RuntimeNpc = {
   defeatedAt: number;
   despawnAt: number;
   frozenUntil: number;
+  slowedUntil: number;
   aggroTargetId: string;
   hasLoot: boolean;
 };
@@ -181,8 +188,14 @@ class AgentCharacter {
           lastSeq: player.lastSeq,
           attackReadyAt: player.attackReadyAt,
           shootReadyAt: player.shootReadyAt,
+          signalShotReadyAt: player.signalShotReadyAt,
           fireblastReadyAt: player.fireblastReadyAt,
           frostNovaReadyAt: player.frostNovaReadyAt,
+          healReadyAt: player.healReadyAt,
+          tauntReadyAt: player.tauntReadyAt,
+          whirlwindReadyAt: player.whirlwindReadyAt,
+          multishotReadyAt: player.multishotReadyAt,
+          iceBlastReadyAt: player.iceBlastReadyAt,
           castingAction: player.castingAction,
           castStartedAt: player.castStartedAt,
           castEndsAt: player.castEndsAt,
@@ -217,6 +230,7 @@ class AgentCharacter {
           defeatedAt: npc.defeatedAt,
           despawnAt: npc.despawnAt,
           frozenUntil: npc.frozenUntil,
+          slowedUntil: npc.slowedUntil,
           aggroTargetId: npc.aggroTargetId,
           hasLoot: npc.hasLoot,
         });
@@ -290,7 +304,7 @@ class AgentCharacter {
       nearbyNpcs,
       recentChat: this.recentChat.slice(-8),
       bounds: PLAZA_BOUNDS,
-      availableActions: ["move", "look", "jump", "sprint", "chat", "interact", "attack", "shoot", "fireblast", "frostNova"],
+      availableActions: ["move", "look", "jump", "sprint", "chat", "interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt", "whirlwind", "multishot", "iceBlast"],
     };
   }
 

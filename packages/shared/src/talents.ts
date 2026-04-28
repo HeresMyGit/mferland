@@ -46,6 +46,7 @@ export type TalentDefinition = {
   requires?: readonly TalentRequirement[];
   effectText: string;
   effectPerRank: TalentEffect;
+  unlockAction?: CombatActionId;
 };
 
 export const TALENTS = {
@@ -91,6 +92,18 @@ export const TALENTS = {
       },
     },
   },
+  "brawler:whirlwind": {
+    tree: "brawler",
+    nodeId: "whirlwind",
+    name: "Whirlwind",
+    description: "Spin through nearby enemies and hold their attention.",
+    maxRank: 1,
+    minLevel: 6,
+    requires: [{ talentId: "brawler:snap-swing", rank: 1 }],
+    effectText: "Unlocks Whirlwind",
+    effectPerRank: {},
+    unlockAction: "whirlwind",
+  },
   "caster:deep-pockets": {
     tree: "caster",
     nodeId: "deep-pockets",
@@ -132,6 +145,18 @@ export const TALENTS = {
       manaRegenPer5: 4,
     },
   },
+  "caster:ice-blast": {
+    tree: "caster",
+    nodeId: "ice-blast",
+    name: "Ice Blast",
+    description: "A fast cold bolt that slows instead of freezing solid.",
+    maxRank: 1,
+    minLevel: 6,
+    requires: [{ talentId: "caster:flow-state", rank: 1 }],
+    effectText: "Unlocks Ice Blast",
+    effectPerRank: {},
+    unlockAction: "iceBlast",
+  },
   "utility:light-step": {
     tree: "utility",
     nodeId: "light-step",
@@ -169,6 +194,18 @@ export const TALENTS = {
       healthRegenPer5: 3,
       manaRegenPer5: 2,
     },
+  },
+  "utility:multishot": {
+    tree: "utility",
+    nodeId: "multishot",
+    name: "Multishot",
+    description: "Loose one shot that splits across up to three nearby enemies.",
+    maxRank: 1,
+    minLevel: 6,
+    requires: [{ talentId: "utility:recovery-loop", rank: 1 }],
+    effectText: "Unlocks Multishot",
+    effectPerRank: {},
+    unlockAction: "multishot",
   },
 } as const satisfies Record<string, TalentDefinition>;
 
@@ -262,6 +299,18 @@ export function getTalentActionCooldownMs(actionId: CombatActionId, talents: Ite
 export function getTalentQuestXpReward(baseXp: number, talents: Iterable<TalentRankLike> | undefined) {
   const bonusPercent = getTalentEffectTotals(talents).questXpPercent;
   return Math.max(0, Math.round(baseXp * (1 + bonusPercent / 100)));
+}
+
+export function getCombatActionUnlockTalent(actionId: CombatActionId): TalentId | null {
+  for (const talentId of TALENT_IDS) {
+    if ((TALENTS[talentId] as TalentDefinition).unlockAction === actionId) return talentId;
+  }
+  return null;
+}
+
+export function isCombatActionUnlocked(actionId: CombatActionId, talents: Iterable<TalentRankLike> | undefined) {
+  const unlockTalentId = getCombatActionUnlockTalent(actionId);
+  return !unlockTalentId || getTalentRank(talents, unlockTalentId) > 0;
 }
 
 export function isTalentUnlocked(talents: Iterable<TalentRankLike> | undefined, playerLevel: number, talentId: TalentId) {

@@ -138,8 +138,14 @@ export type PlayerSnapshot = {
   lastSeq: number;
   attackReadyAt: number;
   shootReadyAt: number;
+  signalShotReadyAt: number;
   fireblastReadyAt: number;
   frostNovaReadyAt: number;
+  healReadyAt: number;
+  tauntReadyAt: number;
+  whirlwindReadyAt: number;
+  multishotReadyAt: number;
+  iceBlastReadyAt: number;
   castingAction: CombatActionId | "";
   castStartedAt: number;
   castEndsAt: number;
@@ -170,6 +176,7 @@ export type NpcSnapshot = {
   defeatedAt: number;
   despawnAt: number;
   frozenUntil: number;
+  slowedUntil: number;
   aggroTargetId: string;
   hasLoot: boolean;
 };

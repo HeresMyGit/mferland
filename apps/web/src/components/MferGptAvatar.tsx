@@ -9,6 +9,7 @@ import { getNpcDisposition, type AnimationState, type NpcSnapshot, type QuestMar
 import {
   ActorBlobShadow,
   ActorNameplate,
+  ColdStatusEffect,
   DispositionBaseMarker,
   FrozenStatusEffect,
   LootSparkles,
@@ -71,6 +72,7 @@ export function MferGptAvatar({
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = !isDefeated && (Boolean(questMarker) || isTargeted);
   const isFrozen = npc.frozenUntil > Date.now();
+  const isCold = !isFrozen && npc.slowedUntil > Date.now();
 
   useEffect(() => {
     mixerRef.current?.stopAllAction();
@@ -135,6 +137,7 @@ export function MferGptAvatar({
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.94} />}
       {isTargeted && <TargetRing color={badgeColor} disposition={disposition} radius={1.04} />}
       {isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.92} y={1.35} />}
+      {isCold && <ColdStatusEffect slowedUntil={npc.slowedUntil} radius={0.92} y={1.35} />}
       {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={4.05} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
