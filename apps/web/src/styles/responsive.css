@@ -1,0 +1,137 @@
+@media (max-width: 1120px) {
+  .chat-panel {
+    width: min(300px, calc(100vw - 132px));
+  }
+
+  .chat-log {
+    height: 96px;
+  }
+}
+
+@media (max-width: 900px) {
+  .quest-panel {
+    top: 102px;
+    left: 10px;
+    width: min(300px, calc(100vw - 152px));
+    padding: 10px;
+  }
+
+  .quest-panel h2 {
+    font-size: 12px;
+  }
+
+  .quest-row {
+    gap: 8px;
+    padding: 8px 0;
+  }
+
+  .quest-row strong,
+  .quest-row span,
+  .quest-row em,
+  .quest-empty {
+    font-size: 11px;
+  }
+
+  .minimap {
+    width: 128px;
+    height: 128px;
+  }
+
+  .minimap-header h2,
+  .online-row {
+    font-size: 12px;
+  }
+
+  .menu-dock {
+    right: 10px;
+    bottom: 102px;
+    flex-direction: column;
+  }
+
+  .menu-dock button {
+    width: 54px;
+    height: 50px;
+  }
+
+  .menu-dock button span {
+    font-size: 9px;
+  }
+
+  .hotbar {
+    bottom: 16px;
+  }
+
+  .action-slot {
+    width: 52px;
+    height: 52px;
+  }
+
+  .action-slot.filled strong {
+    display: none;
+  }
+
+  .player-card {
+    grid-template-columns: 58px minmax(140px, 190px);
+  }
+
+  .portrait {
+    width: 58px;
+    height: 58px;
+  }
+
+  .player-vitals strong {
+    font-size: 15px;
+  }
+
+  .bar {
+    height: 18px;
+    line-height: 18px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .chat-panel {
+    width: calc(100vw - 132px);
+    bottom: 74px;
+  }
+
+  .chat-log {
+    height: 88px;
+  }
+
+  .minimap-panel {
+    right: 8px;
+    top: 8px;
+  }
+
+  .minimap {
+    width: 120px;
+    height: 120px;
+    border-width: 5px;
+  }
+
+  .player-card {
+    left: 10px;
+    top: 10px;
+    grid-template-columns: 52px 150px;
+    gap: 8px;
+  }
+
+  .portrait {
+    width: 52px;
+    height: 52px;
+    padding: 5px;
+  }
+
+  .player-vitals {
+    width: 150px;
+  }
+
+  .player-vitals strong {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
