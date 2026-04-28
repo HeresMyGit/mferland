@@ -18,10 +18,15 @@ import { randomRange } from "./utils.js";
 const HOG_COMBAT = {
   leashRange: 30,
   moveSpeed: 4.1,
+  chargeSpeed: 6.8,
+  chargeMinRange: 4.8,
+  chargeRange: 11,
   meleeRange: 2.15,
   meleeDamage: 5,
   meleeCooldownMs: 1700,
 };
+
+const CASTER_RETREAT_RANGE = 7.2;
 
 export type NpcSpawnSpec = {
   id: string;
@@ -535,6 +540,11 @@ function updateFarmerNpc(
 
   const isCaster = npc.combatStyle === "caster";
   const attackRange = getFarmerAttackRange(npc, isCaster);
+  if (isCaster && distance < CASTER_RETREAT_RANGE) {
+    moveNpcAwayFrom(npc, target.x, target.z, delta, FARMER_COMBAT.moveSpeed * 0.86);
+    return;
+  }
+
   if (distance > attackRange * 0.82) {
     moveNpcToward(npc, target.x, target.z, delta, FARMER_COMBAT.moveSpeed);
     return;
@@ -591,7 +601,10 @@ function updateHogNpc(
   npc.yaw = Math.atan2(dx, dz);
 
   if (distance > HOG_COMBAT.meleeRange * 0.85) {
-    moveNpcToward(npc, target.x, target.z, delta, HOG_COMBAT.moveSpeed);
+    const shouldCharge = now >= npc.attackReadyAt
+      && distance >= HOG_COMBAT.chargeMinRange
+      && distance <= HOG_COMBAT.chargeRange;
+    moveNpcToward(npc, target.x, target.z, delta, shouldCharge ? HOG_COMBAT.chargeSpeed : HOG_COMBAT.moveSpeed);
     return;
   }
 
@@ -652,6 +665,29 @@ function moveNpcToward(npc: NpcState, x: number, z: number, delta: number, speed
   npc.x = nextPosition.x;
   npc.z = nextPosition.z;
   npc.yaw = Math.atan2(dx, dz);
+  npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "run" : "idle";
+}
+
+function moveNpcAwayFrom(npc: NpcState, x: number, z: number, delta: number, speed: number) {
+  const dx = npc.x - x;
+  const dz = npc.z - z;
+  const distance = Math.hypot(dx, dz);
+  if (distance < 0.12) {
+    npc.animation = "idle";
+    return;
+  }
+
+  const step = speed * delta;
+  const previousX = npc.x;
+  const previousZ = npc.z;
+  const nextPosition = resolveWorldCollision(
+    npc.x + (dx / distance) * step,
+    npc.z + (dz / distance) * step,
+    getNpcCollisionRadius(npc),
+  );
+  npc.x = nextPosition.x;
+  npc.z = nextPosition.z;
+  npc.yaw = Math.atan2(-dx, -dz);
   npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "run" : "idle";
 }
 

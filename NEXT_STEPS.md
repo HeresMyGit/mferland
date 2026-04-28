@@ -83,7 +83,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Done 2026-04-28: Status bar pass: health is red, mana is blue, and XP is purple.
 - Done 2026-04-28: Show a health bar on the character name tag; future settings toggle to hide/show it remains deferred.
 - Done 2026-04-28: Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
-- Add a small number of differentiated enemy behaviors before adding many more enemies.
+- Done 2026-04-28: Add a small number of differentiated enemy behaviors before adding many more enemies.
 - Plan and implement party aggro/threat management: define how much threat each ability generates, track per-player threat on mobs, and allow mobs to switch targets based on threat like an MMO tank/DPS/healer loop.
 - Plan newer role skills around the threat system:
   - Add a heal spell.
@@ -243,6 +243,12 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Added rare normal gear drops for early combat loops: Boar Bristle Cap from wild hogs, Antler Charm from deer, and Farmhand Spade from non-ridge farmhands.
 - Kept quest reward gear intact and separate from mob-drop chase gear.
 - Continued keeping all current regular gear as database items, not onchain/rare token behavior.
+
+### 2026-04-28 10:56 PDT - Enemy Behavior Pass
+
+- Added a hog charge movement burst when an aggroed hog has enough distance to rush the player.
+- Added caster retreat behavior so caster farmers and static mages backpedal when players get too close instead of standing still.
+- Kept this pass schema-free and limited to existing NPC movement/combat logic.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 
