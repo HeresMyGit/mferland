@@ -1,13 +1,21 @@
 import { type CSSProperties, type FormEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, LogOut, Map as MapIcon, Package, X } from "lucide-react";
+import { BookOpen, Check, LogOut, Map as MapIcon, Package, UserRound, X } from "lucide-react";
 import {
   CHAT,
+  EQUIPMENT_SLOT_IDS,
+  EQUIPMENT_SLOTS,
   ITEMS,
+  STAT_LABELS,
+  getItemEquipment,
   getNpcDisposition,
   type ActionId,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientEquipItem,
   type ClientLootCorpse,
+  type ClientUnequipItem,
+  type EquipmentSlotId,
+  type ItemId,
   type LootWindow,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -56,6 +64,8 @@ type HudProps = {
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onDismissQuestOffer: () => void;
   onLootCorpse: (message: ClientLootCorpse) => void;
+  onEquipItem: (message: ClientEquipItem) => void;
+  onUnequipItem: (message: ClientUnequipItem) => void;
   onCloseLootWindow: () => void;
   onSendChat: (text: string) => void;
   onRespawn: () => void;
@@ -82,6 +92,8 @@ export function Hud({
   onAcceptQuest,
   onDismissQuestOffer,
   onLootCorpse,
+  onEquipItem,
+  onUnequipItem,
   onCloseLootWindow,
   onSendChat,
   onRespawn,
@@ -95,6 +107,7 @@ export function Hud({
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
+  const [isCharacterOpen, setIsCharacterOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
@@ -102,6 +115,7 @@ export function Hud({
     () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
     [questLog],
   );
+  const equippableInventory = localPlayer?.inventory.filter((item) => getItemEquipment(item.id)) ?? [];
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 100);
@@ -126,9 +140,11 @@ export function Hud({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || isTypingTarget(event.target)) return;
-      if (event.key.toLowerCase() !== "m") return;
+      const key = event.key.toLowerCase();
+      if (key !== "m" && key !== "c") return;
       event.preventDefault();
-      setIsMapOpen((open) => !open);
+      if (key === "m") setIsMapOpen((open) => !open);
+      else setIsCharacterOpen((open) => !open);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -410,6 +426,90 @@ export function Hud({
         </section>
       )}
 
+      {isCharacterOpen && (
+        <section className="world-map-overlay" role="dialog" aria-label="Character">
+          <div className="character-panel">
+            <div className="world-map-header">
+              <div>
+                <strong>{localPlayer?.name ?? identity.name}</strong>
+                <span>Level {localPlayer?.level ?? 1}</span>
+              </div>
+              <button type="button" title="Close character" aria-label="Close character" onClick={() => setIsCharacterOpen(false)}>
+                <X size={22} />
+              </button>
+            </div>
+
+            <div className="character-layout">
+              <section className="character-summary">
+                <div className="character-portrait" style={{ "--accent": accent } as CSSProperties}>
+                  <span>mf</span>
+                </div>
+                <div className="character-stats">
+                  {getCharacterStatRows(localPlayer).map((stat) => (
+                    <div key={stat.label} className="character-stat">
+                      <span>{stat.label}</span>
+                      <strong>{stat.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="equipment-grid">
+                {EQUIPMENT_SLOT_IDS.map((slotId) => {
+                  const itemId = getEquippedItemId(localPlayer, slotId);
+                  const item = itemId ? ITEMS[itemId] : null;
+                  return (
+                    <button
+                      key={slotId}
+                      type="button"
+                      className={itemId ? "equipment-slot filled" : "equipment-slot"}
+                      title={itemId ? `Unequip ${item?.name}` : EQUIPMENT_SLOTS[slotId]}
+                      onClick={() => itemId && onUnequipItem({ slot: slotId })}
+                    >
+                      <span>{EQUIPMENT_SLOTS[slotId]}</span>
+                      {itemId ? (
+                        <>
+                          <ItemIcon itemId={itemId} />
+                          <strong>{item?.name}</strong>
+                          <em>{formatItemStats(itemId)}</em>
+                        </>
+                      ) : (
+                        <strong>Empty</strong>
+                      )}
+                    </button>
+                  );
+                })}
+              </section>
+
+              <section className="gear-list">
+                {equippableInventory.length > 0 ? equippableInventory.map((item) => {
+                  const equipment = getItemEquipment(item.id);
+                  const isEquipped = equipment ? getEquippedItemId(localPlayer, equipment.slot) === item.id : false;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={isEquipped ? "gear-row equipped" : "gear-row"}
+                      onClick={() => onEquipItem({ itemId: item.id })}
+                    >
+                      <ItemIcon itemId={item.id} />
+                      <span>
+                        <strong>{ITEMS[item.id].name}</strong>
+                        {equipment && <em>{equipment.build} / {EQUIPMENT_SLOTS[equipment.slot]}</em>}
+                        <small>{formatItemStats(item.id)}</small>
+                      </span>
+                      <b>{isEquipped ? "Equipped" : "Equip"}</b>
+                    </button>
+                  );
+                }) : (
+                  <p className="quest-empty">No gear in inventory</p>
+                )}
+              </section>
+            </div>
+          </div>
+        </section>
+      )}
+
       {isInventoryOpen && (
         <section className="world-map-overlay" role="dialog" aria-label="Inventory">
           <div className="inventory-panel">
@@ -481,6 +581,10 @@ export function Hud({
       </section>
 
       <section className="menu-dock">
+        <button type="button" title="Character" onClick={() => setIsCharacterOpen(true)}>
+          <UserRound size={25} />
+          <span>Character</span>
+        </button>
         <button type="button" title="Inventory" onClick={() => setIsInventoryOpen(true)}>
           <Package size={25} />
           <span>Inventory</span>
@@ -507,4 +611,53 @@ export function Hud({
       )}
     </div>
   );
+}
+
+function getCharacterStatRows(player: PlayerSnapshot | null) {
+  return [
+    {
+      label: "HP",
+      value: `${Math.ceil(player?.health ?? 0)}/${Math.ceil(player?.maxHealth ?? 0)}`,
+    },
+    {
+      label: "MP",
+      value: `${Math.floor(player?.mana ?? 0)}/${Math.ceil(player?.maxMana ?? 0)}`,
+    },
+    {
+      label: "STR",
+      value: String(player?.strength ?? 0),
+    },
+    {
+      label: "DEX",
+      value: String(player?.dexterity ?? 0),
+    },
+    {
+      label: "MAG",
+      value: String(player?.magic ?? 0),
+    },
+    {
+      label: "XP",
+      value: String(player?.xp ?? 0),
+    },
+  ];
+}
+
+function getEquippedItemId(player: PlayerSnapshot | null, slotId: EquipmentSlotId): ItemId | "" {
+  return player?.equipment.find((slot) => slot.slot === slotId)?.itemId ?? "";
+}
+
+function formatItemStats(itemId: ItemId) {
+  const equipment = getItemEquipment(itemId);
+  if (!equipment) return "";
+
+  const statKeys = Object.keys(equipment.stats) as Array<keyof typeof STAT_LABELS>;
+  if (statKeys.length === 0) return "No bonuses";
+
+  return statKeys
+    .map((statKey) => {
+      const value = equipment.stats[statKey] ?? 0;
+      const sign = value > 0 ? "+" : "";
+      return `${sign}${value} ${STAT_LABELS[statKey]}`;
+    })
+    .join(", ");
 }

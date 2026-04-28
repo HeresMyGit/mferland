@@ -11,6 +11,9 @@ export const PLAYER = {
   radius: 0.55,
   maxHealth: 100,
   maxMana: 50,
+  strength: 5,
+  dexterity: 5,
+  magic: 5,
   healthRegenPer5: 8,
   manaRegenPer5: 12,
 };

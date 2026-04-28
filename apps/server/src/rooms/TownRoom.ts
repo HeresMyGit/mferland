@@ -14,15 +14,17 @@ import {
   type ChatMessage,
   type ClientAcceptQuest,
   type ClientCombatAction,
+  type ClientEquipItem,
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
+  type ClientUnequipItem,
   type IdentityType,
   type ItemId,
   type JoinOptions,
   type QuestId,
 } from "@mferland/shared";
-import { InventoryItemState, PlayerState, QuestState, TownState } from "../state.js";
+import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TownState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import {
   loadOrCreateWalletCharacter,
@@ -37,6 +39,7 @@ import {
   clearPlayerCast,
   findCombatTarget,
   getActionReadyAt,
+  getPlayerActionDamage,
   isNpcAlive,
   isPlayerStationary,
   normalizeCombatActionId,
@@ -47,6 +50,12 @@ import {
   updatePlayerRegen,
   type PendingCombatImpact,
 } from "../systems/combat.js";
+import {
+  equipInventoryItem,
+  initializeCharacterEquipment,
+  normalizeEquipmentSlotId,
+  unequipPlayerSlot,
+} from "../systems/equipment.js";
 import { findInteractNpc } from "../systems/interactions.js";
 import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../systems/loot.js";
 import { spawnNpcs, updateNpcs } from "../systems/npcs.js";
@@ -100,6 +109,14 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
       this.handleLootCorpse(client, message);
+    });
+
+    this.onMessage("equipItem", (client, message: Partial<ClientEquipItem>) => {
+      this.handleEquipItem(client, message);
+    });
+
+    this.onMessage("unequipItem", (client, message: Partial<ClientUnequipItem>) => {
+      this.handleUnequipItem(client, message);
     });
 
     this.onMessage("respawn", (client) => {
@@ -198,6 +215,9 @@ export class TownRoom extends Room<TownState> {
       applyPersistedCharacter(player, persistedCharacter);
       this.persistentCharacterIds.set(client.sessionId, persistedCharacter.characterId);
     }
+    initializeCharacterEquipment(player);
+    player.health = player.maxHealth;
+    player.mana = player.maxMana;
 
     this.state.players.set(client.sessionId, player);
   }
@@ -264,17 +284,40 @@ export class TownRoom extends Room<TownState> {
 
     setActionReadyAt(player, actionId, now + action.cooldownMs);
     player.lastCastAt = now;
+    const damage = getPlayerActionDamage(player, actionId);
     aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
     applyCombatDamage(
       client.sessionId,
       player,
       target,
       actionId,
-      action.damage,
+      damage,
       now,
       (event) => this.broadcast("combatEvent", event),
       this.pendingCombatImpacts,
     );
+  }
+
+  private handleEquipItem(client: Client, message: Partial<ClientEquipItem>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const itemId = normalizeItemId(message?.itemId);
+    if (!itemId) return;
+    if (!equipInventoryItem(player, itemId)) return;
+
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private handleUnequipItem(client: Client, message: Partial<ClientUnequipItem>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const slotId = normalizeEquipmentSlotId(message?.slot);
+    if (!slotId) return;
+    if (!unequipPlayerSlot(player, slotId)) return;
+
+    this.persistPlayerProgress(client.sessionId, player);
   }
 
   private handleAcceptQuest(client: Client, message: Partial<ClientAcceptQuest>) {
@@ -460,6 +503,14 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     item.count = savedItem.count;
     player.inventory.set(savedItem.id, item);
   }
+
+  player.equipment.clear();
+  for (const savedSlot of character.equipment) {
+    const slot = new EquipmentSlotState();
+    slot.slot = savedSlot.slot;
+    slot.itemId = savedSlot.itemId;
+    player.equipment.set(savedSlot.slot, slot);
+  }
 }
 
 function makePersistableCharacterState(characterId: string, player: PlayerState): PersistableCharacterState {
@@ -483,6 +534,14 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     });
   });
 
+  const equipment: PersistableCharacterState["equipment"] = [];
+  player.equipment.forEach((slot, id) => {
+    equipment.push({
+      slot: (slot.slot || id) as PersistableCharacterState["equipment"][number]["slot"],
+      itemId: slot.itemId,
+    });
+  });
+
   return {
     characterId,
     name: player.name,
@@ -492,5 +551,6 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     talentPoints: player.talentPoints,
     quests,
     inventory,
+    equipment,
   };
 }

@@ -51,6 +51,9 @@ export function updateLocalVisualPlayer(
   visual.mana = authoritative.mana;
   visual.maxMana = authoritative.maxMana;
   visual.manaRegenPer5 = authoritative.manaRegenPer5;
+  visual.strength = authoritative.strength;
+  visual.dexterity = authoritative.dexterity;
+  visual.magic = authoritative.magic;
   visual.lastSeq = authoritative.lastSeq;
   visual.attackReadyAt = authoritative.attackReadyAt;
   visual.shootReadyAt = authoritative.shootReadyAt;
@@ -63,6 +66,7 @@ export function updateLocalVisualPlayer(
   visual.lastDamagedAt = authoritative.lastDamagedAt;
   visual.quests = authoritative.quests;
   visual.inventory = authoritative.inventory;
+  visual.equipment = authoritative.equipment;
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);

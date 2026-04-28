@@ -1,5 +1,5 @@
 import type { COMBAT } from "./combat.js";
-import type { ITEMS } from "./items.js";
+import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { QUESTS } from "./quests.js";
 import type { PLAZA_BOUNDS } from "./world.js";
 
@@ -16,7 +16,6 @@ export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
 export type QuestMarkerType = "available" | "turnIn";
 export type ItemId = keyof typeof ITEMS;
-
 export type QuestSnapshot = {
   id: QuestId;
   status: QuestStatus;
@@ -38,6 +37,11 @@ export type QuestOffer = {
 export type InventoryItemSnapshot = {
   id: ItemId;
   count: number;
+};
+
+export type EquipmentSlotSnapshot = {
+  slot: EquipmentSlotId;
+  itemId: ItemId | "";
 };
 
 export type LootItemSnapshot = {
@@ -82,6 +86,9 @@ export type PlayerSnapshot = {
   mana: number;
   maxMana: number;
   manaRegenPer5: number;
+  strength: number;
+  dexterity: number;
+  magic: number;
   x: number;
   y: number;
   z: number;
@@ -99,6 +106,7 @@ export type PlayerSnapshot = {
   lastDamagedAt: number;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
+  equipment: EquipmentSlotSnapshot[];
 };
 
 export type NpcSnapshot = {
@@ -181,6 +189,14 @@ export type ClientAcceptQuest = {
 export type ClientLootCorpse = {
   npcId: string;
   itemId?: ItemId;
+};
+
+export type ClientEquipItem = {
+  itemId: ItemId;
+};
+
+export type ClientUnequipItem = {
+  slot: EquipmentSlotId;
 };
 
 export type ClientCombatAction = {

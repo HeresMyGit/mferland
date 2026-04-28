@@ -3,6 +3,7 @@ import {
   PLAYER,
   type AnimationState,
   type CombatActionId,
+  type EquipmentSlotId,
   type IdentityType,
   type ItemId,
   type NpcModel,
@@ -30,6 +31,11 @@ export class LootItemState extends Schema {
   @type("number") count = 0;
 }
 
+export class EquipmentSlotState extends Schema {
+  @type("string") slot: EquipmentSlotId = "mainHand";
+  @type("string") itemId: ItemId | "" = "";
+}
+
 export class PlayerState extends Schema {
   @type("string") name = "";
   @type("string") identityType: IdentityType = "guest";
@@ -44,6 +50,9 @@ export class PlayerState extends Schema {
   @type("number") mana = PLAYER.maxMana;
   @type("number") maxMana = PLAYER.maxMana;
   @type("number") manaRegenPer5 = PLAYER.manaRegenPer5;
+  @type("number") strength = PLAYER.strength;
+  @type("number") dexterity = PLAYER.dexterity;
+  @type("number") magic = PLAYER.magic;
   @type("number") x = 0;
   @type("number") y = 0;
   @type("number") z = 0;
@@ -64,6 +73,7 @@ export class PlayerState extends Schema {
   @type("string") castTargetId = "";
   @type({ map: QuestState }) quests = new MapSchema<QuestState>();
   @type({ map: InventoryItemState }) inventory = new MapSchema<InventoryItemState>();
+  @type({ map: EquipmentSlotState }) equipment = new MapSchema<EquipmentSlotState>();
 }
 
 export class NpcState extends Schema {

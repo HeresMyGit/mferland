@@ -63,6 +63,15 @@ export const characterInventory = pgTable("character_inventory", {
   primaryKey({ columns: [table.characterId, table.itemId] }),
 ]);
 
+export const characterEquipment = pgTable("character_equipment", {
+  characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  slot: text("slot").notNull(),
+  itemId: text("item_id").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.characterId, table.slot] }),
+]);
+
 export const characterTalents = pgTable("character_talents", {
   characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
   tree: text("tree").notNull(),

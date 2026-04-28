@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import {
   ITEMS,
+  EQUIPMENT_SLOT_IDS,
   QUEST_IDS,
+  type EquipmentSlotId,
+  type EquipmentSlotSnapshot,
   type InventoryItemSnapshot,
   type ItemId,
   type QuestId,
@@ -14,6 +17,7 @@ import {
   accounts,
   accountWallets,
   characterInventory,
+  characterEquipment,
   characterQuests,
   characters,
 } from "./db/schema.js";
@@ -28,6 +32,7 @@ export type PersistedCharacter = {
   talentPoints: number;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
+  equipment: EquipmentSlotSnapshot[];
 };
 
 export type PersistableCharacterState = {
@@ -39,6 +44,7 @@ export type PersistableCharacterState = {
   talentPoints: number;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
+  equipment: EquipmentSlotSnapshot[];
 };
 
 export async function loadOrCreateWalletCharacter({
@@ -112,9 +118,10 @@ export async function loadOrCreateWalletCharacter({
       character = updated;
     }
 
-    const [questRows, inventoryRows] = await Promise.all([
+    const [questRows, inventoryRows, equipmentRows] = await Promise.all([
       tx.select().from(characterQuests).where(eq(characterQuests.characterId, character.id)),
       tx.select().from(characterInventory).where(eq(characterInventory.characterId, character.id)),
+      tx.select().from(characterEquipment).where(eq(characterEquipment.characterId, character.id)),
     ]);
 
     return {
@@ -140,6 +147,12 @@ export async function loadOrCreateWalletCharacter({
         .map((item) => ({
           id: item.itemId as ItemId,
           count: item.count,
+        })),
+      equipment: equipmentRows
+        .filter((slot) => isKnownEquipmentSlotId(slot.slot) && isKnownItemId(slot.itemId))
+        .map((slot) => ({
+          slot: slot.slot as EquipmentSlotId,
+          itemId: slot.itemId as ItemId,
         })),
     };
   });
@@ -186,6 +199,17 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
         updatedAt: now,
       })));
     }
+
+    await tx.delete(characterEquipment).where(eq(characterEquipment.characterId, state.characterId));
+    const equipment = state.equipment.filter((slot) => slot.itemId && isKnownItemId(slot.itemId));
+    if (equipment.length > 0) {
+      await tx.insert(characterEquipment).values(equipment.map((slot) => ({
+        characterId: state.characterId,
+        slot: slot.slot,
+        itemId: slot.itemId,
+        updatedAt: now,
+      })));
+    }
   });
 }
 
@@ -195,6 +219,10 @@ function isKnownQuestId(value: string): value is QuestId {
 
 function isKnownItemId(value: string): value is ItemId {
   return Object.prototype.hasOwnProperty.call(ITEMS, value);
+}
+
+function isKnownEquipmentSlotId(value: string): value is EquipmentSlotId {
+  return EQUIPMENT_SLOT_IDS.includes(value as EquipmentSlotId);
 }
 
 function isQuestStatus(value: string): value is QuestStatus {

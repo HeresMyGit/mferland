@@ -10,6 +10,7 @@ import {
   type ChatMessage,
   type ClientInput,
   type CombatActionId,
+  type EquipmentSlotSnapshot,
   type IdentityType,
   type InventoryItemSnapshot,
   type NpcModel,
@@ -45,6 +46,9 @@ type RuntimePlayer = {
   mana: number;
   maxMana: number;
   manaRegenPer5: number;
+  strength: number;
+  dexterity: number;
+  magic: number;
   x: number;
   y: number;
   z: number;
@@ -62,6 +66,7 @@ type RuntimePlayer = {
   lastDamagedAt: number;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
+  equipment?: RuntimeEquipmentCollection;
 };
 
 type RuntimeQuestCollection = {
@@ -70,6 +75,10 @@ type RuntimeQuestCollection = {
 
 type RuntimeInventoryCollection = {
   forEach(callback: (item: InventoryItemSnapshot, id: string) => void): void;
+};
+
+type RuntimeEquipmentCollection = {
+  forEach(callback: (slot: EquipmentSlotSnapshot, id: string) => void): void;
 };
 
 type RuntimeNpc = {
@@ -151,6 +160,9 @@ class AgentCharacter {
           mana: player.mana,
           maxMana: player.maxMana,
           manaRegenPer5: player.manaRegenPer5,
+          strength: player.strength,
+          dexterity: player.dexterity,
+          magic: player.magic,
           x: player.x,
           y: player.y,
           z: player.z,
@@ -168,6 +180,7 @@ class AgentCharacter {
           lastDamagedAt: player.lastDamagedAt,
           quests: snapshotQuests(player.quests),
           inventory: snapshotInventory(player.inventory),
+          equipment: snapshotEquipment(player.equipment),
         });
       });
       this.players = next;
@@ -373,6 +386,17 @@ function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): I
     });
   });
   return next.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function snapshotEquipment(equipment: RuntimeEquipmentCollection | undefined): EquipmentSlotSnapshot[] {
+  const next: EquipmentSlotSnapshot[] = [];
+  equipment?.forEach((slot, id) => {
+    next.push({
+      slot: (slot.slot || id) as EquipmentSlotSnapshot["slot"],
+      itemId: slot.itemId,
+    });
+  });
+  return next.sort((left, right) => left.slot.localeCompare(right.slot));
 }
 
 function readPositiveInt(value: string | undefined, fallback: number) {

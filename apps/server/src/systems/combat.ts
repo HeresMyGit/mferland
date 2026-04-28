@@ -74,9 +74,10 @@ export function updatePlayerCast(
 
   const target = findCombatTarget(npcs, { kind: player.castTargetKind, id: player.castTargetId });
   if (target && isNpcAlive(target) && distanceToNpc(player, target) <= action.maxRange && distanceToNpc(player, target) >= action.minRange) {
-    player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
-    setActionReadyAt(player, actionId, now + action.cooldownMs);
-    applyCombatDamage(sessionId, player, target, actionId, action.damage, now, emitCombatEvent, pendingCombatImpacts);
+      const damage = getPlayerActionDamage(player, actionId);
+      player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
+      setActionReadyAt(player, actionId, now + action.cooldownMs);
+      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
   }
   clearPlayerCast(player);
 }
@@ -166,12 +167,20 @@ export function applyFrostNova(
       player,
       npc,
       "frostNova",
-      COMBAT.actions.frostNova.damage,
+      getPlayerActionDamage(player, "frostNova"),
       now,
       emitCombatEvent,
       pendingCombatImpacts,
     );
   });
+}
+
+export function getPlayerActionDamage(player: PlayerState, actionId: CombatActionId) {
+  const baseDamage = COMBAT.actions[actionId].damage;
+  if (actionId === "attack") return baseDamage + Math.floor(player.strength * 0.7);
+  if (actionId === "shoot") return baseDamage + Math.floor(player.dexterity * 0.75);
+  if (actionId === "fireblast") return baseDamage + Math.floor(player.magic * 1.1);
+  return baseDamage + Math.floor(player.magic * 0.35);
 }
 
 function applyNpcFreeze(npc: NpcState, frozenUntil: number) {
