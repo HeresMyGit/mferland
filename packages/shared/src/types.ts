@@ -205,6 +205,17 @@ export type CombatEvent = {
   defeated: boolean;
 };
 
+export type ExperienceEvent = {
+  id: string;
+  sessionId: string;
+  sourceNpcId: string;
+  amount: number;
+  x: number;
+  y: number;
+  z: number;
+  sentAt: number;
+};
+
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
   "sessionId" | "name" | "identityType" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"

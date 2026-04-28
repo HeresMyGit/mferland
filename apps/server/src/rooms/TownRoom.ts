@@ -25,6 +25,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientUnequipItem,
+  type ExperienceEvent,
   type IdentityType,
   type ItemId,
   type JoinOptions,
@@ -673,12 +674,32 @@ export class TownRoom extends Room<TownState> {
       if (!player || player.health <= 0) continue;
       const questProgressed = progressDefeatQuests(player, npc);
       const award = awardExperience(player, mobXp);
+      if (award.xpGained > 0) {
+        this.sendExperienceEvent(sessionId, npc, award.xpGained, now);
+      }
       if (questProgressed || award.xpGained > 0 || award.levelsGained > 0) {
         this.persistPlayerProgress(sessionId, player);
       }
     }
 
     this.npcDamageTags.delete(npc.id);
+  }
+
+  private sendExperienceEvent(sessionId: string, npc: NpcState, amount: number, now: number) {
+    const client = this.clients.find((entry) => entry.sessionId === sessionId);
+    if (!client) return;
+
+    const payload: ExperienceEvent = {
+      id: `${now}:${sessionId}:${npc.id}:xp:${Math.random().toString(36).slice(2, 8)}`,
+      sessionId,
+      sourceNpcId: npc.id,
+      amount,
+      x: npc.x,
+      y: npc.y + 1.35,
+      z: npc.z,
+      sentAt: now,
+    };
+    client.send("experienceEvent", payload);
   }
 
   private tagNpcForCredit(sourceId: string, npc: NpcState, now: number) {

@@ -14,6 +14,7 @@ import {
   type ClientUnequipItem,
   type CombatEvent,
   type EquipmentSlotSnapshot,
+  type ExperienceEvent,
   type InventoryItemSnapshot,
   type JoinOptions,
   type LootWindow,
@@ -61,6 +62,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [snapshotRevision, setSnapshotRevision] = useState(0);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
+  const [experienceEvents, setExperienceEvents] = useState<ExperienceEvent[]>([]);
   const [questOffer, setQuestOffer] = useState<QuestOffer | null>(null);
   const [questTurnIn, setQuestTurnIn] = useState<QuestTurnIn | null>(null);
   const [questStatus, setQuestStatus] = useState<QuestStatusNotice | null>(null);
@@ -114,6 +116,8 @@ export function useTownRoom(identity: JoinOptions) {
     playersRef.current.clear();
     npcsRef.current.clear();
     requestSnapshotRender(true);
+    setCombatEvents([]);
+    setExperienceEvents([]);
     setStatus("connecting");
     setError(null);
 
@@ -149,6 +153,14 @@ export function useTownRoom(identity: JoinOptions) {
           setCombatEvents((current) => [
             ...current.filter((event) => now - (event.impactAt ?? event.sentAt) < 1800).slice(-40),
             visualEvent,
+          ]);
+        });
+
+        room.onMessage("experienceEvent", (message: ExperienceEvent) => {
+          const now = Date.now();
+          setExperienceEvents((current) => [
+            ...current.filter((event) => now - event.sentAt < 2200).slice(-24),
+            { ...message, sentAt: now },
           ]);
         });
 
@@ -307,6 +319,7 @@ export function useTownRoom(identity: JoinOptions) {
     snapshotRevision,
     chat,
     combatEvents,
+    experienceEvents,
     questOffer,
     questTurnIn,
     questStatus,

@@ -66,8 +66,8 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Done 2026-04-28: Reposition the farm so it sits more between main town and the bottom-left hub instead of almost on top of Field Camp.
 - Done 2026-04-28: Move the Hogwatcher questgiver closer to the repositioned farm approach.
 - Done 2026-04-28: Add a clear route from town to the upper-right hub, with enough landmarks and minimap support to make the path legible.
-- Include a large named mfer boss for the questline finale that should take at least 3 players.
-- After players complete the finale, unlock a daily raid-spawn quest that calls a huge mfer ogre raid boss intended for 10+ players.
+- Done 2026-04-28: Include a large named mfer boss for the questline finale that should take at least 3 players.
+- Done 2026-04-28: After players complete the finale, unlock a daily raid-spawn quest that calls a huge mfer ogre raid boss intended for 10+ players.
 
 ### 3. Quest And Drop Based Gear
 
@@ -81,7 +81,7 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Improve hit feedback, enemy tells, cooldown clarity, death/respawn polish, and combat readability.
 - Status bar pass: health should be red and visibly decrease when hit, mana should be blue, and XP should be purple.
 - Show a health bar on the character name tag, with a future settings toggle to hide/show it.
-- Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
+- Done 2026-04-28: Add purple floating XP text such as `34 XP` when a mob dies and awards XP.
 - Add a small number of differentiated enemy behaviors before adding many more enemies.
 - Plan and implement party aggro/threat management: define how much threat each ability generates, track per-player threat on mobs, and allow mobs to switch targets based on threat like an MMO tank/DPS/healer loop.
 - Plan newer role skills around the threat system:
@@ -225,6 +225,12 @@ Work top-to-bottom. Keep changes small, shippable, and verified with `npm run ty
 - Added shared ridge route landmarks so both the minimap and world map show the route breadcrumbs.
 - Added visible 3D RIDGE/MILE/TURN/SIGNAL marker posts along the road to Signal Ridge.
 - Updated the Signal Ridge dispatch quest copy and mferGPT hint text to point players toward the cyan ridge markers.
+
+### 2026-04-28 10:35 PDT - XP Feedback Pass
+
+- Added per-player XP award events sent only to the credited client after mob defeat.
+- Rendered purple floating `{amount} XP` text from the awarded amount, so different players can see different numbers if XP is capped, split, or modified per player.
+- Kept XP feedback out of the replicated room schema to avoid increasing baseline sync payload size.
 
 ### 2026-04-28 09:09 PDT - Stabilization Pass
 

@@ -6,6 +6,7 @@ import {
   getNpcQuestMarker,
   type ClientInput,
   type CombatEvent,
+  type ExperienceEvent,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
@@ -32,6 +33,7 @@ type TownSceneProps = {
   localSessionId: string | null;
   selectedTarget: TargetSelection | null;
   combatEvents: CombatEvent[];
+  experienceEvents: ExperienceEvent[];
   onSelectTarget: (target: TargetSelection | null) => void;
   onInteractAction: () => void;
   sendInput: (input: ClientInput) => void;
@@ -43,6 +45,7 @@ export function TownScene({
   localSessionId,
   selectedTarget,
   combatEvents,
+  experienceEvents,
   onSelectTarget,
   onInteractAction,
   sendInput,
@@ -355,6 +358,7 @@ export function TownScene({
         })}
         <CombatFeedbackLayer
           combatEvents={combatEvents}
+          experienceEvents={experienceEvents}
           players={players}
           npcs={npcs}
           viewerPosition={viewerPosition}

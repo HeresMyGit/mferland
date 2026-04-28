@@ -7,6 +7,7 @@ import {
   clamp,
   type CombatActionId,
   type CombatEvent,
+  type ExperienceEvent,
   type NpcSnapshot,
   type PlayerSnapshot,
 } from "@mferland/shared";
@@ -14,11 +15,13 @@ import {
 type Vec3Tuple = [number, number, number];
 export function CombatFeedbackLayer({
   combatEvents,
+  experienceEvents,
   players,
   npcs,
   viewerPosition,
 }: {
   combatEvents: CombatEvent[];
+  experienceEvents: ExperienceEvent[];
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
   viewerPosition: { x: number; z: number } | null;
@@ -50,6 +53,9 @@ export function CombatFeedbackLayer({
           />
         );
       })}
+      {experienceEvents.slice(-24).filter((event) => shouldRenderExperienceEvent(event, viewerPosition)).map((event) => (
+        <ExperienceEventVisual key={event.id} event={event} />
+      ))}
     </group>
   );
 }
@@ -347,6 +353,47 @@ function FloatingDamageNumber({
   );
 }
 
+function ExperienceEventVisual({ event }: { event: ExperienceEvent }) {
+  const refGroup = useRef<THREE.Group>(null);
+  const clockEpochOffsetRef = useRef<number | null>(null);
+  const offset = useMemo(() => getEventOffset(event.id), [event.id]);
+
+  useFrame(({ clock }) => {
+    if (clockEpochOffsetRef.current === null) {
+      clockEpochOffsetRef.current = Date.now() - clock.elapsedTime * 1000;
+    }
+    const now = clockEpochOffsetRef.current + clock.elapsedTime * 1000;
+    const age = now - event.sentAt;
+    const progress = clamp(age / 1650, 0, 1);
+
+    if (!refGroup.current) return;
+    refGroup.current.visible = age >= 0 && progress < 1;
+    refGroup.current.position.set(
+      event.x + offset[0],
+      event.y + 0.44 + progress * 1.28,
+      event.z + offset[1],
+    );
+    refGroup.current.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.18);
+  });
+
+  return (
+    <group ref={refGroup} position={[event.x + offset[0], event.y + 0.44, event.z + offset[1]]} visible={false}>
+      <Billboard>
+        <Text
+          fontSize={0.34}
+          anchorX="center"
+          anchorY="middle"
+          color="#c084fc"
+          outlineColor="#1f0f34"
+          outlineWidth={0.042}
+        >
+          {Math.round(event.amount)} XP
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
 function getDamageNumberStyle(actionId: CombatActionId) {
   if (actionId === "fireblast") return { color: "#ffb34d", outlineColor: "#2a0d05" };
   if (actionId === "frostNova") return { color: "#c8f7ff", outlineColor: "#052331" };
@@ -385,6 +432,14 @@ function shouldRenderCombatEvent(
   const sourceZ = source?.z ?? event.sourceZ;
   return distanceSq2d(viewerPosition, sourceX, sourceZ) <= COMBAT_VISUAL_RENDER_DISTANCE_SQ
     || distanceSq2d(viewerPosition, event.targetX, event.targetZ) <= COMBAT_VISUAL_RENDER_DISTANCE_SQ;
+}
+
+function shouldRenderExperienceEvent(
+  event: ExperienceEvent,
+  viewerPosition: { x: number; z: number } | null,
+) {
+  if (!viewerPosition) return true;
+  return distanceSq2d(viewerPosition, event.x, event.z) <= COMBAT_VISUAL_RENDER_DISTANCE_SQ;
 }
 
 function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
