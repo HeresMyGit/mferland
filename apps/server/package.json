@@ -7,7 +7,7 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --env-file-if-exists=../../.env ../../node_modules/drizzle-kit/bin.cjs migrate",
+    "db:migrate": "node --env-file-if-exists=../../.env scripts/migrate.mjs",
     "start": "node --env-file-if-exists=../../.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

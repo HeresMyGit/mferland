@@ -67,7 +67,8 @@ Work in this order after the level 8 playtest. Keep the current milestone stable
 - Done 2026-04-28: Quick-fix ranged quest/XP credit by tracking recent player damage tags on mobs, so tagged players share kill quest credit and XP even if they are outside the old death-radius check.
 - Re-run `npm run typecheck`, `npm run build`, and `npm run build:agent`.
 - Restart the local dev server and confirm the buffer warning no longer appears during normal play.
-- Re-test wallet persistence after a fresh restart before applying the Neon migration to main.
+- Done 2026-04-28: Replaced the broken Drizzle metadata-dependent migrate command with a repo-local SQL migration runner, applied the checked-in migrations to the current local `DATABASE_URL`, and smoke-tested wallet persistence with a synthetic wallet for level/XP/talent points, quest state, inventory, equipment, and talents.
+- Still pending before prod/main: wait until Josh is on the Mac mini, then decide the final Neon dev/prod branch layout, apply the verified migrations to the production branch/DB from that launch machine, and point the Mac mini at that production `DATABASE_URL` through local/deploy secrets only.
 
 ### 2. Level 8-10 Capstone World Expansion
 
