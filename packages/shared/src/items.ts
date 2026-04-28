@@ -29,61 +29,87 @@ export type EquipmentDefinition = {
 };
 
 export type ItemDefinition = {
+  id: string;
   name: string;
   description: string;
-  quality: "common" | "uncommon" | "quest";
+  quality: "common" | "uncommon" | "rare" | "quest";
   iconColor: string;
+  stackable: boolean;
+  value?: number;
+  chainTokenId?: string;
   equipment?: EquipmentDefinition;
 };
 
 export const ITEMS = {
   "sealed-note": {
+    id: "sealed-note",
     name: "Sealed Note",
     description: "A folded note from OG mfer. It smells faintly like fountain water.",
     quality: "quest",
     iconColor: "#f2d067",
+    stackable: false,
   },
   "hog-liver": {
+    id: "hog-liver",
     name: "Hog Liver",
     description: "A grimy quest item for Hogwatch mfer's ward brew.",
     quality: "quest",
     iconColor: "#7a2d25",
+    stackable: true,
   },
   "muddy-tusk": {
+    id: "muddy-tusk",
     name: "Muddy Tusk",
     description: "A chipped tusk from a wild hog.",
     quality: "common",
     iconColor: "#d8c89c",
+    stackable: true,
+    value: 3,
   },
   "small-tooth": {
+    id: "small-tooth",
     name: "Small Tooth",
     description: "A tiny animal tooth with no obvious use.",
     quality: "common",
     iconColor: "#e7dfc4",
+    stackable: true,
+    value: 2,
   },
   "worn-antler": {
+    id: "worn-antler",
     name: "Worn Antler",
     description: "A scuffed antler tip from a deer.",
     quality: "common",
     iconColor: "#b89360",
+    stackable: true,
+    value: 4,
   },
   "farmhand-bandana": {
+    id: "farmhand-bandana",
     name: "Farmhand Bandana",
     description: "A rough scrap from the busted farm crew.",
     quality: "common",
     iconColor: "#b84a3d",
+    stackable: true,
+    value: 3,
   },
   "dummy-splinter": {
+    id: "dummy-splinter",
     name: "Dummy Splinter",
     description: "A training dummy splinter. Probably worthless.",
     quality: "common",
     iconColor: "#9b6a3f",
+    stackable: true,
+    value: 1,
   },
   "frayed-cap": {
+    id: "frayed-cap",
     name: "Frayed Cap",
     description: "A soft starter cap with enough brim to keep a caster focused.",
     quality: "common",
     iconColor: "#6fb8b0",
+    stackable: false,
+    value: 6,
     equipment: {
       slot: "head",
       build: "Skirmisher",
@@ -94,10 +120,13 @@ export const ITEMS = {
     },
   },
   "plaza-hoodie": {
+    id: "plaza-hoodie",
     name: "Plaza Hoodie",
     description: "The default town layer. Scuffed, comfortable, and hard to drop.",
     quality: "common",
     iconColor: "#d04f45",
+    stackable: false,
+    value: 8,
     equipment: {
       slot: "chest",
       build: "Brawler",
@@ -108,10 +137,13 @@ export const ITEMS = {
     },
   },
   "rusty-skate-deck": {
+    id: "rusty-skate-deck",
     name: "Rusty Skate Deck",
     description: "A cracked deck held like a club. Heavy enough to matter.",
     quality: "common",
     iconColor: "#9a7046",
+    stackable: false,
+    value: 7,
     equipment: {
       slot: "mainHand",
       build: "Brawler",
@@ -122,10 +154,13 @@ export const ITEMS = {
     },
   },
   "bent-slingshot": {
+    id: "bent-slingshot",
     name: "Bent Slingshot",
     description: "Quick, cheap, and weirdly accurate once you learn the wobble.",
     quality: "common",
     iconColor: "#5c9f63",
+    stackable: false,
+    value: 7,
     equipment: {
       slot: "mainHand",
       build: "Ranger",
@@ -135,10 +170,13 @@ export const ITEMS = {
     },
   },
   "stickered-wand": {
+    id: "stickered-wand",
     name: "Stickered Wand",
     description: "A taped-up wand covered in old DAO stickers.",
     quality: "common",
     iconColor: "#7c72d6",
+    stackable: false,
+    value: 7,
     equipment: {
       slot: "mainHand",
       build: "Mage",
@@ -149,10 +187,13 @@ export const ITEMS = {
     },
   },
   "road-sign-lid": {
+    id: "road-sign-lid",
     name: "Road Sign Lid",
     description: "A dented sign face with a handle bolted through it.",
     quality: "common",
     iconColor: "#d7b447",
+    stackable: false,
+    value: 6,
     equipment: {
       slot: "offHand",
       build: "Tank",
@@ -163,10 +204,13 @@ export const ITEMS = {
     },
   },
   "pocket-zine": {
+    id: "pocket-zine",
     name: "Pocket Zine",
     description: "Tiny notes on mana flow, hog habits, and who owes who.",
     quality: "common",
     iconColor: "#44a6c6",
+    stackable: false,
+    value: 6,
     equipment: {
       slot: "offHand",
       build: "Mage",
@@ -177,10 +221,13 @@ export const ITEMS = {
     },
   },
   "lucky-lighter": {
+    id: "lucky-lighter",
     name: "Lucky Lighter",
     description: "Mostly empty, but it feels better in your pocket.",
     quality: "uncommon",
     iconColor: "#e1783d",
+    stackable: false,
+    value: 14,
     equipment: {
       slot: "trinket",
       build: "Hybrid",
@@ -227,8 +274,29 @@ export function getItemEquipment(itemId: keyof typeof ITEMS): EquipmentDefinitio
   return (ITEMS[itemId] as ItemDefinition).equipment ?? null;
 }
 
+export function getItemChainTokenId(itemId: keyof typeof ITEMS) {
+  return normalizeChainTokenId((ITEMS[itemId] as ItemDefinition).chainTokenId);
+}
+
 export function isEquipmentItem(itemId: keyof typeof ITEMS) {
   return getItemEquipment(itemId) !== null;
+}
+
+export function isEquipmentCompatibleWithSlot(itemId: keyof typeof ITEMS, slotId: EquipmentSlotId) {
+  return getItemEquipment(itemId)?.slot === slotId;
+}
+
+export function isStackableItem(itemId: keyof typeof ITEMS) {
+  return Boolean((ITEMS[itemId] as ItemDefinition).stackable);
+}
+
+export function normalizeChainTokenId(value: string | null | undefined) {
+  return value?.trim().slice(0, 128) ?? "";
+}
+
+export function getInventoryItemKey(itemId: keyof typeof ITEMS, chainTokenId?: string | null) {
+  const normalizedToken = normalizeChainTokenId(chainTokenId);
+  return normalizedToken ? `${itemId}:${normalizedToken}` : itemId;
 }
 
 export function getEquippedCharacterStats(itemIds: Iterable<keyof typeof ITEMS | "" | null | undefined>): CharacterStats {

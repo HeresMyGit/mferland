@@ -1,14 +1,14 @@
 import { useEffect, useMemo } from "react";
 import { useTexture } from "@react-three/drei";
 import * as THREE from "three";
-import { PLAZA_BOUNDS } from "@mferland/shared";
+import { PLAZA_BOUNDS, WORLD_ROADS } from "@mferland/shared";
 import { CastleGate, InstancedBuildingDetails, TownBuilding } from "./world/Buildings";
 import { RundownFarm } from "./world/Farm";
 import { Fountain } from "./world/Fountain";
 import { DirtPath, GroundDetailLayer, RoadStrip } from "./world/Ground";
 import { WorldBackdrop, TreeCluster } from "./world/Trees";
 import { BannerPost, InstancedMarketProps, MarketStall, SpawnRing, WatchTower } from "./world/TownProps";
-import { MARKET_STALLS, TOWN_BUILDINGS } from "./world/shared";
+import { MARKET_STALLS, OUTPOST_BUILDINGS, OUTPOST_MARKET_STALLS, TOWN_BUILDINGS } from "./world/shared";
 import { configureTile, createBarkTexture, createGrassTuftTexture, createLeafTexture, createWaterTexture } from "./world/textures";
 export { Skybox } from "./world/Skybox";
 
@@ -46,17 +46,21 @@ export function TownWorld() {
         <meshBasicMaterial map={grassTexture} />
       </mesh>
 
-      <RoadStrip position={[0, 0.012, -34]} size={[8.5, 44]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.013, 35]} size={[8.5, 42]} texture={cobbleTexture} />
-      <RoadStrip position={[-35, 0.014, 0]} size={[34, 7.5]} texture={cobbleTexture} />
-      <RoadStrip position={[35, 0.014, 0]} size={[34, 7.5]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.011, -34]} size={[52, 6.2]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.011, 29]} size={[52, 6.2]} texture={cobbleTexture} />
-      <RoadStrip position={[-32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
-      <RoadStrip position={[32, 0.01, 22]} size={[7, 28]} texture={cobbleTexture} />
-      <RoadStrip position={[0, 0.011, 56]} size={[8.5, 42]} texture={cobbleTexture} />
-      <DirtPath position={[-29, 0.015, 59]} size={[54, 5.8]} />
-      <DirtPath position={[-52, 0.016, 61]} size={[22, 14]} />
+      {WORLD_ROADS.filter((road) => road.surface === "stone").map((road, index) => (
+        <RoadStrip
+          key={road.id}
+          position={[road.x, 0.01 + index * 0.0005, road.z]}
+          size={[road.width, road.depth]}
+          texture={cobbleTexture}
+        />
+      ))}
+      {WORLD_ROADS.filter((road) => road.surface === "dirt").map((road, index) => (
+        <DirtPath
+          key={road.id}
+          position={[road.x, 0.015 + index * 0.0005, road.z]}
+          size={[road.width, road.depth]}
+        />
+      ))}
 
       <mesh position={[0, 0, 0]}>
         <cylinderGeometry args={[21, 21, 0.16, 96]} />
@@ -85,14 +89,26 @@ export function TownWorld() {
           wallTexture={timberTexture}
         />
       ))}
+      {OUTPOST_BUILDINGS.map((building) => (
+        <TownBuilding
+          key={building.id}
+          placement={building}
+          stoneTexture={stoneTexture}
+          roofTexture={roofTexture}
+          wallTexture={timberTexture}
+        />
+      ))}
       <InstancedBuildingDetails />
       {MARKET_STALLS.map((stall) => (
         <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
       ))}
-      <InstancedMarketProps stalls={MARKET_STALLS} />
+      {OUTPOST_MARKET_STALLS.map((stall) => (
+        <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
+      ))}
+      <InstancedMarketProps stalls={[...MARKET_STALLS, ...OUTPOST_MARKET_STALLS]} />
       <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <RundownFarm position={[-52, 0, 61]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
+      <RundownFarm position={[-104, 0, 92]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
       <SpawnRing position={[5.6, 0.12, 5.6]} />
       <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
       <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
@@ -101,6 +117,8 @@ export function TownWorld() {
       <BannerPost position={[23.5, 0, -39]} color="#395da8" rotation={-Math.PI / 2} />
       <BannerPost position={[-7.2, 0, 39]} color="#9b45ff" rotation={Math.PI} />
       <BannerPost position={[7.2, 0, 39]} color="#e18b35" rotation={Math.PI} />
+      <BannerPost position={[-83.8, 0, 59.6]} color="#9b45ff" rotation={Math.PI / 2} />
+      <BannerPost position={[-112, 0, 126]} color="#52d64f" rotation={Math.PI} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );

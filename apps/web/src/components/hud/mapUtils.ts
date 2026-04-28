@@ -1,21 +1,12 @@
 import { type CSSProperties } from "react";
-import { PLAZA_BOUNDS, type PlayerSnapshot } from "@mferland/shared";
+import { PLAZA_BOUNDS, WORLD_HUBS, WORLD_ROADS, type PlayerSnapshot } from "@mferland/shared";
 
 const MINIMAP_RANGE_YARDS = 48;
 const MINIMAP_EDGE_PERCENT = 42;
 const EXPLORE_CELL_SIZE = 8;
 const EXPLORE_RADIUS_CELLS = 2;
-export const MINIMAP_ROADS = [
-  { x: 0, z: -34, width: 8.5, depth: 44 },
-  { x: 0, z: 35, width: 8.5, depth: 42 },
-  { x: -35, z: 0, width: 34, depth: 7.5 },
-  { x: 35, z: 0, width: 34, depth: 7.5 },
-  { x: 0, z: -34, width: 52, depth: 6.2 },
-  { x: 0, z: 29, width: 52, depth: 6.2 },
-  { x: -32, z: 22, width: 7, depth: 28 },
-  { x: 32, z: 22, width: 7, depth: 28 },
-  { x: 0, z: 56, width: 8.5, depth: 42 },
-];
+export const MINIMAP_ROADS = WORLD_ROADS;
+export const MINIMAP_HUBS = WORLD_HUBS;
 
 function normalize(value: number, min: number, max: number) {
   return Math.max(7, Math.min(93, ((value - min) / (max - min)) * 100));

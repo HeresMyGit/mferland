@@ -10,7 +10,7 @@
 
 @media (max-width: 900px) {
   .quest-panel {
-    top: 102px;
+    top: 112px;
     left: 10px;
     width: min(300px, calc(100vw - 152px));
     padding: 10px;
@@ -98,6 +98,10 @@
     grid-template-columns: 120px 1fr;
     align-items: center;
   }
+
+  .talent-trees {
+    max-height: 300px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -166,5 +170,11 @@
   .gear-row b {
     justify-self: start;
     grid-column: 2;
+  }
+
+  .talent-trees,
+  .gear-list {
+    max-height: none;
+    overflow: visible;
   }
 }

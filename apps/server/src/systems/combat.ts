@@ -11,8 +11,8 @@ import {
 import type { NpcState, PlayerState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { populateCorpseLoot } from "./loot.js";
-import { progressDefeatQuests } from "./quests.js";
 import { distanceToNpc } from "./spatial.js";
+import { getPlayerActionConfig } from "./talents.js";
 
 export type PendingCombatImpact = {
   target: CombatEvent["target"];
@@ -20,6 +20,8 @@ export type PendingCombatImpact = {
   damage: number;
   impactAt: number;
 };
+
+export type NpcDefeatCreditHandler = (sourceId: string, npc: NpcState, now: number) => void;
 
 export function normalizeCombatActionId(actionId: unknown): CombatActionId | null {
   return typeof actionId === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, actionId)
@@ -55,6 +57,7 @@ export function updatePlayerCast(
   now: number,
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
+  creditNpcDefeat: NpcDefeatCreditHandler,
 ) {
   const actionId = normalizeCombatActionId(player.castingAction);
   if (!actionId) return;
@@ -66,7 +69,7 @@ export function updatePlayerCast(
 
   if (now < player.castEndsAt) return;
 
-  const action = COMBAT.actions[actionId];
+  const action = getPlayerActionConfig(player, actionId);
   if (action.manaCost > 0 && player.mana < action.manaCost) {
     clearPlayerCast(player);
     return;
@@ -77,7 +80,7 @@ export function updatePlayerCast(
       const damage = getPlayerActionDamage(player, actionId);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       setActionReadyAt(player, actionId, now + action.cooldownMs);
-      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
+      applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts, creditNpcDefeat);
   }
   clearPlayerCast(player);
 }
@@ -124,6 +127,7 @@ export function applyCombatDamage(
   now: number,
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
+  creditNpcDefeat: NpcDefeatCreditHandler,
 ) {
   if (actionId === "fireblast") {
     const impactAt = now + getProjectileTravelMs(player.x, player.z, target.x, target.z);
@@ -142,7 +146,7 @@ export function applyCombatDamage(
     applyNpcFreeze(target, now + COMBAT.actions.frostNova.freezeMs);
   }
   if (defeated) {
-    handleNpcDefeated(player, target, now);
+    handleNpcDefeated(sourceId, player, target, now, creditNpcDefeat);
   }
   aggroNpcOnPlayerHit(target, sourceId, player);
   emitCombatEvent(makeCombatEvent(sourceId, player, target, actionId, damage, now, defeated, now));
@@ -155,12 +159,14 @@ export function applyFrostNova(
   now: number,
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
+  creditNpcDefeat: NpcDefeatCreditHandler,
 ) {
   emitCombatEvent(makeFrostNovaCastEvent(sourceId, player, now));
+  const action = getPlayerActionConfig(player, "frostNova");
 
   npcs.forEach((npc) => {
     if (!isNpcAlive(npc) || !isAttackableNpcRole(npc.role)) return;
-    if (distanceToNpc(player, npc) > COMBAT.actions.frostNova.maxRange) return;
+    if (distanceToNpc(player, npc) > action.maxRange) return;
 
     applyCombatDamage(
       sourceId,
@@ -171,12 +177,13 @@ export function applyFrostNova(
       now,
       emitCombatEvent,
       pendingCombatImpacts,
+      creditNpcDefeat,
     );
   });
 }
 
 export function getPlayerActionDamage(player: PlayerState, actionId: CombatActionId) {
-  const baseDamage = COMBAT.actions[actionId].damage;
+  const baseDamage = getPlayerActionConfig(player, actionId).damage;
   if (actionId === "attack") return baseDamage + Math.floor(player.strength * 0.7);
   if (actionId === "shoot") return baseDamage + Math.floor(player.dexterity * 0.75);
   if (actionId === "fireblast") return baseDamage + Math.floor(player.magic * 1.1);
@@ -240,9 +247,15 @@ function applyNpcDamage(npc: NpcState, damage: number, now: number) {
   return false;
 }
 
-function handleNpcDefeated(player: PlayerState, npc: NpcState, now: number) {
+function handleNpcDefeated(
+  sourceId: string,
+  player: PlayerState,
+  npc: NpcState,
+  now: number,
+  creditNpcDefeat: NpcDefeatCreditHandler,
+) {
   populateCorpseLoot(player, npc, now);
-  progressDefeatQuests(player, npc);
+  creditNpcDefeat(sourceId, npc, now);
 }
 
 export function processPendingCombatImpacts(
@@ -250,6 +263,7 @@ export function processPendingCombatImpacts(
   players: MapSchema<PlayerState>,
   npcs: MapSchema<NpcState>,
   now: number,
+  creditNpcDefeat: NpcDefeatCreditHandler,
 ) {
   for (let index = pendingCombatImpacts.length - 1; index >= 0; index -= 1) {
     const impact = pendingCombatImpacts[index];
@@ -263,7 +277,7 @@ export function processPendingCombatImpacts(
         const defeated = applyNpcDamage(npc, impact.damage, now);
         if (sourcePlayer && impact.sourcePlayerId) {
           if (defeated) {
-            handleNpcDefeated(sourcePlayer, npc, now);
+            handleNpcDefeated(impact.sourcePlayerId, sourcePlayer, npc, now, creditNpcDefeat);
           }
           aggroNpcOnPlayerHit(npc, impact.sourcePlayerId, sourcePlayer);
         }

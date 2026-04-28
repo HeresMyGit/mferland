@@ -18,6 +18,77 @@ export const PLAYER = {
   manaRegenPer5: 12,
 };
 
+export const PROGRESSION = {
+  levelCap: 10,
+  nearbyCreditRadius: 16,
+  levelXpThresholds: [
+    0,
+    80,
+    200,
+    380,
+    620,
+    920,
+    1280,
+    1700,
+    2180,
+    2720,
+  ],
+  mobXpRewards: {
+    enemy: 18,
+    critter: 8,
+    beast: 22,
+    farmer: 34,
+    hog: 24,
+    rabbit: 6,
+    deer: 10,
+  },
+} as const;
+
+export function getXpForLevel(level: number) {
+  const clampedLevel = Math.min(Math.max(Math.floor(level), 1), PROGRESSION.levelCap);
+  return PROGRESSION.levelXpThresholds[clampedLevel - 1] ?? 0;
+}
+
+export function getMaxLevelXp() {
+  return getXpForLevel(PROGRESSION.levelCap);
+}
+
+export function getLevelForXp(xp: number) {
+  const totalXp = Math.min(Math.max(Math.floor(xp), 0), getMaxLevelXp());
+  let level = 1;
+  for (let index = 0; index < PROGRESSION.levelXpThresholds.length; index += 1) {
+    const threshold = PROGRESSION.levelXpThresholds[index] ?? 0;
+    if (totalXp >= threshold) level = index + 1;
+  }
+  return Math.min(level, PROGRESSION.levelCap);
+}
+
+export function getNextLevelXp(level: number) {
+  const clampedLevel = Math.min(Math.max(Math.floor(level), 1), PROGRESSION.levelCap);
+  if (clampedLevel >= PROGRESSION.levelCap) return getMaxLevelXp();
+  return getXpForLevel(clampedLevel + 1);
+}
+
+export function getLevelProgress(xp: number) {
+  const totalXp = Math.min(Math.max(Math.floor(xp), 0), getMaxLevelXp());
+  const level = getLevelForXp(totalXp);
+  const levelStartXp = getXpForLevel(level);
+  const nextLevelXp = getNextLevelXp(level);
+  const required = Math.max(nextLevelXp - levelStartXp, 0);
+  const current = level >= PROGRESSION.levelCap
+    ? required
+    : Math.min(Math.max(totalXp - levelStartXp, 0), required);
+
+  return {
+    level,
+    totalXp,
+    current,
+    required,
+    nextLevelXp,
+    isMaxLevel: level >= PROGRESSION.levelCap,
+  };
+}
+
 export const RESPAWN_POINT = {
   x: -2.4,
   z: 4.2,
@@ -29,9 +100,25 @@ export const CHAT = {
   minIntervalMs: 1200,
 };
 
+export const MFERGPT = {
+  npcId: "mfergpt",
+  mention: "@mfergpt",
+  commandCooldownMs: 7000,
+  responseMaxLength: 260,
+  llmTimeoutMs: 3500,
+  arenaCenter: { x: -10.8, z: -12.4 },
+  arenaRadius: 5.2,
+  temporaryEnemyPrefix: "mfergpt-arena-",
+  temporaryEventPrefix: "mfergpt-event-",
+  temporaryEnemyCount: 2,
+  maxTemporaryEnemies: 4,
+  temporaryEnemyLifetimeMs: 90_000,
+  townEventLifetimeMs: 60_000,
+} as const;
+
 export const FARMER_COMBAT = {
-  aggroRange: 11,
-  leashRange: 28,
+  aggroRange: 12,
+  leashRange: 34,
   moveSpeed: 3.6,
   meleeRange: 3.8,
   meleeDamage: 8,
@@ -39,7 +126,7 @@ export const FARMER_COMBAT = {
   spellRange: 22,
   spellDamage: 14,
   spellCooldownMs: 3200,
-  respawnMs: 18000,
+  respawnMs: 16000,
 };
 
 export const AGENT = {

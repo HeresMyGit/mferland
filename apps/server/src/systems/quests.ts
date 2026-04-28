@@ -2,30 +2,41 @@ import {
   QUESTS,
   QUEST_IDS,
   clamp,
+  getInventoryItemKey,
   getNpcQuestIds,
   getQuestObjectives,
+  getQuestRepeatLabel,
   getQuestRequiredItemId,
   getQuestRequirement,
   getQuestStartItemId,
   getQuestTurnInNpcId,
   isQuestAutoReady,
+  isQuestReadyToRepeat,
+  isStackableItem,
+  normalizeChainTokenId,
   shouldConsumeQuestItem,
   type ItemId,
   type QuestId,
+  type QuestOffer,
+  type QuestStatusNotice,
+  type QuestTurnIn,
 } from "@mferland/shared";
 import { InventoryItemState, QuestState, type NpcState, type PlayerState } from "../state.js";
 
-export function getNpcDialogue(npc: NpcState, player: PlayerState, now: number, offerQuest: (questId: QuestId) => void) {
-  const questDialogue = getQuestDialogue(npc, player, now, offerQuest);
-  if (questDialogue) return `${player.name}, ${questDialogue}`;
+export type NpcQuestInteraction =
+  | { type: "offer"; offer: QuestOffer }
+  | { type: "turnIn"; turnIn: QuestTurnIn }
+  | { type: "status"; notice: QuestStatusNotice }
+  | { type: "flavor"; text: string };
 
+export function getNpcDialogue(npc: NpcState, player: PlayerState) {
   if (npc.role === "quest_giver" && npc.questId) {
     return `${player.name}, ${npc.dialogue}`;
   }
   return npc.dialogue;
 }
 
-function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offerQuest: (questId: QuestId) => void) {
+export function getNpcQuestInteraction(npc: NpcState, player: PlayerState): NpcQuestInteraction | null {
   const questIds = getNpcQuestIds(npc.id);
   if (questIds.length === 0) return null;
 
@@ -37,8 +48,14 @@ function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offer
       if (!isGiver) continue;
       if (!isQuestAvailable(player, questId)) continue;
 
-      offerQuest(questId);
-      return `quest available: ${QUESTS[questId].title}. ${QUESTS[questId].description}`;
+      return { type: "offer", offer: makeQuestOffer(questId, npc) };
+    }
+
+    if (quest.status === "completed") {
+      if (isGiver && isQuestAvailable(player, questId)) {
+        return { type: "offer", offer: makeQuestOffer(questId, npc) };
+      }
+      continue;
     }
 
     syncQuestItemProgress(player, questId);
@@ -48,32 +65,26 @@ function getQuestDialogue(npc: NpcState, player: PlayerState, now: number, offer
     }
 
     if (quest.status === "active") {
-      if (!isTurnInNpc && isGiver) return getQuestTravelDialogue(questId);
+      if (!isTurnInNpc && isGiver) {
+        return { type: "status", notice: makeQuestStatusNotice(questId, npc, quest, getQuestTravelDialogue(questId)) };
+      }
       if (!isTurnInNpc) continue;
-      return getActiveQuestDialogue(questId, quest);
+      return { type: "status", notice: makeQuestStatusNotice(questId, npc, quest, getActiveQuestDialogue(questId, quest)) };
     }
 
     if (quest.status === "ready") {
       if (!isTurnInNpc) {
-        if (isGiver) return getQuestTravelDialogue(questId);
+        if (isGiver) {
+          return { type: "status", notice: makeQuestStatusNotice(questId, npc, quest, getQuestTravelDialogue(questId)) };
+        }
         continue;
       }
 
-      if (!completeQuest(player, questId, now)) {
-        return getActiveQuestDialogue(questId, quest);
-      }
-
-      const nextQuestId = getNextAvailableQuestId(player, questId);
-      if (nextQuestId && QUESTS[nextQuestId].giverNpcId === npc.id) {
-        offerQuest(nextQuestId);
-        return `${getQuestCompletionDialogue(questId)} I have another job when you are ready.`;
-      }
-
-      return getQuestCompletionDialogue(questId);
+      return { type: "turnIn", turnIn: makeQuestTurnIn(questId, npc, quest) };
     }
   }
 
-  return getFinishedQuestDialogue(npc.id);
+  return { type: "flavor", text: getFinishedQuestDialogue(npc.id) };
 }
 
 function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
@@ -83,6 +94,14 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
 
   if (questId === "hog-livers") {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog livers collected. They do not always drop, so keep hunting.`;
+  }
+
+  if (questId === "route-patrol-daily") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} farm-road threats cleared.`;
+  }
+
+  if (questId === "hog-loop") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild hogs cleared from the loop.`;
   }
 
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
@@ -97,44 +116,54 @@ function getQuestTravelDialogue(questId: QuestId) {
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
 }
 
-function getNextAvailableQuestId(player: PlayerState, questId: QuestId): QuestId | null {
+export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): QuestId | null {
   const quest = QUESTS[questId];
   const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
   return nextQuestId && isQuestAvailable(player, nextQuestId) ? nextQuestId : null;
 }
 
-function getQuestCompletionDialogue(questId: QuestId) {
-  const questTitle = QUESTS[questId].title;
-
+function getQuestCompletionResponse(questId: QuestId) {
   if (questId === "mfer-beginnings") {
-    return `quest complete: ${questTitle}. You are checked in. The plaza is yours.`;
+    return "You are checked in. The plaza is yours.";
   }
 
   if (questId === "sealed-note") {
-    return `quest complete: ${questTitle}. Wearables mfer tucks the note away and starts pulling fabric scraps.`;
+    return "Wearables mfer tucks the note away and starts pulling fabric scraps.";
   }
 
   if (questId === "farmhand-bandanas") {
-    return `quest complete: ${questTitle}. These scraps will make warning flags for the farm road.`;
+    return "These scraps will make warning flags for the farm road.";
   }
 
   if (questId === "dao-tour") {
-    return `quest complete: ${questTitle}. You found the DAO hall. Proposals can wait until the town is ready.`;
+    return "You found the DAO hall. Proposals can wait until the town is ready.";
   }
 
   if (questId === "fountain-vibes") {
-    return `quest complete: ${questTitle}. The fountain is doing its job.`;
+    return "The fountain is doing its job.";
   }
 
   if (questId === "feral-farmers") {
-    return `good work. Quest complete: ${questTitle}.`;
+    return "Good work. The farm road should be safer for now.";
   }
 
   if (questId === "hog-livers") {
-    return `quest complete: ${questTitle}. This brew smells awful, but it should keep the road clear.`;
+    return "This brew smells awful, but it should keep the road clear.";
   }
 
-  return `quest complete: ${questTitle}.`;
+  if (questId === "field-camp-delivery") {
+    return "Field Camp marks the road open and lights the route lantern.";
+  }
+
+  if (questId === "route-patrol-daily") {
+    return "Daily patrol logged. The route has room to breathe.";
+  }
+
+  if (questId === "hog-loop") {
+    return "That pass through the hog loop bought the camp more quiet.";
+  }
+
+  return "Quest complete.";
 }
 
 function getFinishedQuestDialogue(npcId: string) {
@@ -143,6 +172,8 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "dao-mfer") return "the DAO hall is on the map now. Come back when proposals are live.";
   if (npcId === "fountain-mfer") return "fountain vibes are handled for today.";
   if (npcId === "hogwatch-mfer") return "the farm is quieter already. Town owes you one.";
+  if (npcId === "field-guide-mfer") return "the road is marked. Daily patrols will stay posted.";
+  if (npcId === "pen-keeper-mfer") return "the hog loop always needs another sweep.";
   return "nothing else for now.";
 }
 
@@ -152,11 +183,14 @@ function getNpcDisplayName(npcId: string) {
   if (npcId === "dao-mfer") return "DAO mfer";
   if (npcId === "fountain-mfer") return "Fountain mfer";
   if (npcId === "hogwatch-mfer") return "Hogwatch mfer";
+  if (npcId === "field-guide-mfer") return "Field Guide mfer";
+  if (npcId === "pen-keeper-mfer") return "Pen Keeper mfer";
   return "the right mfer";
 }
 
-export function isQuestAvailable(player: PlayerState, questId: QuestId) {
-  if (player.quests.has(questId)) return false;
+export function isQuestAvailable(player: PlayerState, questId: QuestId, now = Date.now()) {
+  const existingQuest = player.quests.get(questId);
+  if (existingQuest) return isQuestReadyToRepeat(questId, existingQuest, now);
 
   const requiredQuestId = getQuestRequirement(questId);
   if (!requiredQuestId) return true;
@@ -169,11 +203,78 @@ export function makeQuestOffer(questId: QuestId, npc: NpcState) {
   return {
     questId,
     npcId: npc.id,
+    npcName: npc.name,
     title: quest.title,
     description: quest.description,
+    storyText: quest.description,
     objectiveLabel: quest.objectiveLabel,
     required: quest.required,
+    rewardPreview: getQuestRewardPreview(questId),
   };
+}
+
+export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: QuestState): QuestTurnIn {
+  const quest = QUESTS[questId];
+  return {
+    questId,
+    npcId: npc.id,
+    npcName: npc.name,
+    title: quest.title,
+    completionText: getQuestCompletionResponse(questId),
+    completedTaskSummary: getCompletedTaskSummary(questId, questState),
+    objectiveLabel: getQuestTurnInLabel(questId),
+    progress: Math.min(questState.progress, questState.required),
+    required: questState.required,
+    rewardPreview: getQuestRewardPreview(questId),
+  };
+}
+
+function makeQuestStatusNotice(
+  questId: QuestId,
+  npc: NpcState,
+  questState: QuestState,
+  statusText: string,
+): QuestStatusNotice {
+  const quest = QUESTS[questId];
+  return {
+    questId,
+    npcId: npc.id,
+    npcName: npc.name,
+    title: quest.title,
+    statusText,
+    objectiveLabel: quest.objectiveLabel,
+    progress: Math.min(questState.progress, questState.required),
+    required: questState.required,
+    rewardPreview: getQuestRewardPreview(questId),
+  };
+}
+
+function getQuestTurnInLabel(questId: QuestId) {
+  const quest = QUESTS[questId];
+  return quest.turnInLabel;
+}
+
+function getQuestRewardPreview(questId: QuestId) {
+  const quest = QUESTS[questId];
+  const rewards = [`${quest.xpReward} XP`, "Town standing"];
+  const repeatLabel = getQuestRepeatLabel(questId);
+  if (repeatLabel) rewards.push(repeatLabel);
+  const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
+  if (nextQuestId) rewards.push(`Follow-up: ${QUESTS[nextQuestId].title}`);
+  return rewards;
+}
+
+function getCompletedTaskSummary(questId: QuestId, quest: QuestState) {
+  const objectives = getQuestObjectives(questId);
+  if (objectives.length > 0) {
+    const completed = getQuestFlags(quest);
+    const completedLabels = objectives
+      .filter((objective) => completed.has(objective.id))
+      .map((objective) => objective.label);
+    if (completedLabels.length > 0) return completedLabels.join(", ");
+  }
+
+  return `${QUESTS[questId].objectiveLabel}: ${Math.min(quest.progress, quest.required)}/${quest.required}`;
 }
 
 export function normalizeQuestId(input: unknown): QuestId | null {
@@ -181,7 +282,13 @@ export function normalizeQuestId(input: unknown): QuestId | null {
 }
 
 export function startQuest(player: PlayerState, questId: QuestId) {
-  if (player.quests.has(questId)) return;
+  const existingQuest = player.quests.get(questId);
+  if (existingQuest) {
+    if (!isQuestReadyToRepeat(questId, existingQuest)) return;
+    resetQuest(existingQuest, questId);
+    syncQuestItemProgress(player, questId);
+    return;
+  }
 
   const startItemId = getQuestStartItemId(questId);
   if (startItemId) addInventoryItem(player, startItemId, QUESTS[questId].required);
@@ -197,9 +304,19 @@ export function startQuest(player: PlayerState, questId: QuestId) {
   syncQuestItemProgress(player, questId);
 }
 
-function completeQuest(player: PlayerState, questId: QuestId, now: number) {
+function resetQuest(quest: QuestState, questId: QuestId) {
+  quest.id = questId;
+  quest.required = QUESTS[questId].required;
+  quest.status = isQuestAutoReady(questId) ? "ready" : "active";
+  quest.progress = quest.status === "ready" ? quest.required : 0;
+  quest.flags = "";
+  quest.completedAt = 0;
+}
+
+export function completeQuest(player: PlayerState, questId: QuestId, now: number) {
   const quest = player.quests.get(questId);
   if (!quest) return false;
+  if (quest.status === "completed") return false;
 
   syncQuestItemProgress(player, questId);
   if (quest.status !== "ready" && quest.progress < quest.required) return false;
@@ -216,18 +333,34 @@ function completeQuest(player: PlayerState, questId: QuestId, now: number) {
 }
 
 export function progressDefeatQuests(player: PlayerState, npc: NpcState) {
+  let progressed = false;
   if (npc.role === "farmer") {
-    progressNamedQuestObjective(player, "feral-farmers", npc.id);
+    progressed = progressNamedQuestObjective(player, "feral-farmers", npc.id);
   }
+
+  for (const questId of QUEST_IDS) {
+    if (isDefeatQuestTarget(questId, npc)) {
+      progressed = progressQuest(player, questId, 1) || progressed;
+    }
+  }
+
+  return progressed;
+}
+
+function isDefeatQuestTarget(questId: QuestId, npc: NpcState) {
+  const quest = QUESTS[questId];
+  const targetModels = "defeatNpcModels" in quest ? quest.defeatNpcModels as readonly string[] : [];
+  const targetRoles = "defeatNpcRoles" in quest ? quest.defeatNpcRoles as readonly string[] : [];
+  return targetModels.includes(npc.model) || targetRoles.includes(npc.role);
 }
 
 function progressNamedQuestObjective(player: PlayerState, questId: QuestId, objectiveId: string) {
   const quest = player.quests.get(questId);
-  if (!quest || quest.status !== "active") return;
-  if (!getQuestObjectiveIds(questId).includes(objectiveId)) return;
+  if (!quest || quest.status !== "active") return false;
+  if (!getQuestObjectiveIds(questId).includes(objectiveId)) return false;
 
   const completed = getQuestFlags(quest);
-  if (completed.has(objectiveId)) return;
+  if (completed.has(objectiveId)) return false;
 
   completed.add(objectiveId);
   quest.flags = Array.from(completed).sort().join(",");
@@ -235,16 +368,18 @@ function progressNamedQuestObjective(player: PlayerState, questId: QuestId, obje
   if (quest.progress >= quest.required) {
     quest.status = "ready";
   }
+  return true;
 }
 
 function progressQuest(player: PlayerState, questId: QuestId, amount: number) {
   const quest = player.quests.get(questId);
-  if (!quest || quest.status !== "active") return;
+  if (!quest || quest.status !== "active") return false;
 
   quest.progress = clamp(quest.progress + amount, 0, quest.required);
   if (quest.progress >= quest.required) {
     quest.status = "ready";
   }
+  return true;
 }
 
 export function syncQuestItemProgress(player: PlayerState, questId: QuestId) {
@@ -288,31 +423,50 @@ function getQuestObjectiveIds(questId: QuestId) {
   return getQuestObjectives(questId).map((objective) => objective.id);
 }
 
-export function addInventoryItem(player: PlayerState, itemId: ItemId, count: number) {
-  const existing = player.inventory.get(itemId);
+export function addInventoryItem(player: PlayerState, itemId: ItemId, count: number, chainTokenId = "") {
+  if (count <= 0) return;
+
+  const normalizedTokenId = normalizeChainTokenId(chainTokenId);
+  const inventoryKey = getInventoryItemKey(itemId, normalizedTokenId);
+  const nextCount = isStackableItem(itemId) || normalizedTokenId ? count : 1;
+  const existing = player.inventory.get(inventoryKey);
   if (existing) {
-    existing.count += count;
+    existing.count = isStackableItem(itemId) || normalizedTokenId
+      ? existing.count + nextCount
+      : Math.max(existing.count, nextCount);
     return;
   }
 
   const item = new InventoryItemState();
   item.id = itemId;
-  item.count = count;
-  player.inventory.set(itemId, item);
+  item.chainTokenId = normalizedTokenId;
+  item.count = nextCount;
+  player.inventory.set(inventoryKey, item);
 }
 
 function removeInventoryItem(player: PlayerState, itemId: ItemId, count: number) {
-  const existing = player.inventory.get(itemId);
-  if (!existing) return;
+  let remaining = count;
+  const emptyKeys: string[] = [];
+  player.inventory.forEach((existing, key) => {
+    if (remaining <= 0 || existing.id !== itemId) return;
 
-  existing.count = Math.max(0, existing.count - count);
-  if (existing.count <= 0) {
-    player.inventory.delete(itemId);
+    const removed = Math.min(existing.count, remaining);
+    existing.count = Math.max(0, existing.count - removed);
+    remaining -= removed;
+    if (existing.count <= 0) emptyKeys.push(key);
+  });
+
+  for (const key of emptyKeys) {
+    player.inventory.delete(key);
   }
 }
 
 function getInventoryItemCount(player: PlayerState, itemId: ItemId) {
-  return player.inventory.get(itemId)?.count ?? 0;
+  let count = 0;
+  player.inventory.forEach((item) => {
+    if (item.id === itemId) count += item.count;
+  });
+  return count;
 }
 
 export function progressLootQuests(player: PlayerState, itemId: ItemId, count: number) {

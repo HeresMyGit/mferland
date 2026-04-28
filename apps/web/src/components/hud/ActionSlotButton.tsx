@@ -2,6 +2,7 @@ import { type CSSProperties, type PointerEvent } from "react";
 import { Crosshair, Flame, Hand, Snowflake, Sword } from "lucide-react";
 import {
   COMBAT,
+  getTalentActionCooldownMs,
   isAttackableNpcRole,
   type ActionId,
   type CombatActionId,
@@ -145,7 +146,7 @@ function getActionReadyAt(player: PlayerSnapshot | null, actionId: CombatActionI
 
 function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number) {
   const remainingMs = Math.max(0, getActionReadyAt(player, actionId) - now);
-  const cooldownMs = COMBAT.actions[actionId].cooldownMs;
+  const cooldownMs = player ? getTalentActionCooldownMs(actionId, player.talents) : COMBAT.actions[actionId].cooldownMs;
   return {
     remainingMs,
     percent: cooldownMs > 0 ? Math.min(100, (remainingMs / cooldownMs) * 100) : 0,

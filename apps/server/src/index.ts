@@ -1,8 +1,11 @@
 import { createServer } from "node:http";
+import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { closeDatabase } from "./db/client.js";
 import { TownRoom } from "./rooms/TownRoom.js";
+
+Encoder.BUFFER_SIZE = 64 * 1024;
 
 const port = Number(process.env.PORT ?? 2567);
 const server = createServer((req, res) => {

@@ -2,6 +2,8 @@ import {
   ITEMS,
   LOOT,
   QUESTS,
+  getInventoryItemKey,
+  normalizeChainTokenId,
   type ItemId,
   type LootWindow,
 } from "@mferland/shared";
@@ -48,8 +50,10 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
   npc.respawnAt = npc.despawnAt + 250;
 }
 
-function addLootItem(npc: NpcState, itemId: ItemId, count: number) {
-  const existing = npc.loot.get(itemId);
+function addLootItem(npc: NpcState, itemId: ItemId, count: number, chainTokenId = "") {
+  const normalizedTokenId = normalizeChainTokenId(chainTokenId);
+  const lootKey = getInventoryItemKey(itemId, normalizedTokenId);
+  const existing = npc.loot.get(lootKey);
   if (existing) {
     existing.count += count;
     return;
@@ -57,17 +61,19 @@ function addLootItem(npc: NpcState, itemId: ItemId, count: number) {
 
   const item = new LootItemState();
   item.id = itemId;
+  item.chainTokenId = normalizedTokenId;
   item.count = count;
-  npc.loot.set(itemId, item);
+  npc.loot.set(lootKey, item);
 }
 
-export function lootCorpseItem(player: PlayerState, npc: NpcState, itemId: ItemId) {
-  const loot = npc.loot.get(itemId);
+export function lootCorpseItem(player: PlayerState, npc: NpcState, itemId: ItemId, chainTokenId = "") {
+  const lootKey = getInventoryItemKey(itemId, chainTokenId);
+  const loot = npc.loot.get(lootKey);
   if (!loot || loot.count <= 0) return;
 
-  addInventoryItem(player, itemId, loot.count);
+  addInventoryItem(player, itemId, loot.count, loot.chainTokenId);
   progressLootQuests(player, itemId, loot.count);
-  npc.loot.delete(itemId);
+  npc.loot.delete(lootKey);
   npc.hasLoot = npcHasLoot(npc);
 }
 
@@ -83,7 +89,7 @@ export function makeLootWindow(npc: NpcState): LootWindow {
   const items: LootWindow["items"] = [];
   npc.loot.forEach((item) => {
     if (item.count > 0 && ITEMS[item.id]) {
-      items.push({ id: item.id, count: item.count });
+      items.push({ id: item.id, chainTokenId: item.chainTokenId, count: item.count });
     }
   });
   return {

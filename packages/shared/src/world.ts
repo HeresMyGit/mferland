@@ -1,11 +1,54 @@
 import { clamp } from "./utils.js";
 
 export const PLAZA_BOUNDS = {
-  minX: -72,
-  maxX: 72,
-  minZ: -58,
-  maxZ: 74,
+  minX: -145,
+  maxX: 82,
+  minZ: -70,
+  maxZ: 154,
 };
+
+export type WorldRoadSurface = "stone" | "dirt";
+
+export type WorldRoad = {
+  id: string;
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+  surface: WorldRoadSurface;
+};
+
+export type WorldHub = {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  diameter: number;
+  kind: "plaza" | "farm" | "hub";
+};
+
+export const WORLD_ROADS: WorldRoad[] = [
+  { id: "south-gate", x: 0, z: -34, width: 8.5, depth: 44, surface: "stone" },
+  { id: "north-gate", x: 0, z: 35, width: 8.5, depth: 42, surface: "stone" },
+  { id: "west-market", x: -35, z: 0, width: 34, depth: 7.5, surface: "stone" },
+  { id: "east-market", x: 35, z: 0, width: 34, depth: 7.5, surface: "stone" },
+  { id: "south-cross", x: 0, z: -34, width: 52, depth: 6.2, surface: "stone" },
+  { id: "north-cross", x: 0, z: 29, width: 52, depth: 6.2, surface: "stone" },
+  { id: "west-row", x: -32, z: 22, width: 7, depth: 28, surface: "stone" },
+  { id: "east-row", x: 32, z: 22, width: 7, depth: 28, surface: "stone" },
+  { id: "north-road", x: 0, z: 56, width: 8.5, depth: 42, surface: "stone" },
+  { id: "farm-fork", x: -39, z: 60, width: 86, depth: 5.8, surface: "dirt" },
+  { id: "farm-lane", x: -84, z: 78, width: 6, depth: 42, surface: "dirt" },
+  { id: "farmyard", x: -104, z: 92, width: 34, depth: 20, surface: "dirt" },
+  { id: "field-road", x: -112, z: 116, width: 6, depth: 42, surface: "dirt" },
+  { id: "field-camp-yard", x: -118, z: 136, width: 38, depth: 24, surface: "dirt" },
+];
+
+export const WORLD_HUBS: WorldHub[] = [
+  { id: "starter-plaza", name: "Starter Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
+  { id: "busted-farm", name: "Busted Farm", x: -104, z: 92, diameter: 32, kind: "farm" },
+  { id: "field-camp", name: "Field Camp", x: -118, z: 136, diameter: 28, kind: "hub" },
+];
 
 export type SolidObstacle =
   | { kind: "circle"; x: number; z: number; radius: number }
@@ -31,10 +74,14 @@ const TOWN_BUILDING_SOLIDS: SolidObstacle[] = [
   { kind: "circle", x: 5.35, z: -24, radius: 2.05 },
   { kind: "rect", x: 0, z: -24, halfX: 2.15, halfZ: 1.65, rotation: 0 },
   { kind: "circle", x: 0, z: 0, radius: 3.95 },
-  { kind: "rect", x: -59, z: 55.9, halfX: 3.35, halfZ: 2.55, rotation: -0.08 },
-  { kind: "rect", x: -44.35, z: 59.15, halfX: 4.25, halfZ: 3.25, rotation: -0.3 },
-  { kind: "rect", x: -47.45, z: 68.35, halfX: 2.7, halfZ: 1.75, rotation: 0.2 },
-  { kind: "circle", x: -62.3, z: 68.45, radius: 0.85 },
+  { kind: "rect", x: -111, z: 86.9, halfX: 3.35, halfZ: 2.55, rotation: -0.08 },
+  { kind: "rect", x: -96.35, z: 90.15, halfX: 4.25, halfZ: 3.25, rotation: -0.3 },
+  { kind: "rect", x: -99.45, z: 99.35, halfX: 2.7, halfZ: 1.75, rotation: 0.2 },
+  { kind: "circle", x: -114.3, z: 99.45, radius: 0.85 },
+  { kind: "rect", x: -129, z: 134, halfX: 4.1, halfZ: 2.85, rotation: 1.42 },
+  { kind: "rect", x: -111.5, z: 142.5, halfX: 4.1, halfZ: 2.85, rotation: -2.75 },
+  { kind: "rect", x: -116.5, z: 126.5, halfX: 4.1, halfZ: 2.85, rotation: 0.18 },
+  { kind: "circle", x: -121.5, z: 135.5, radius: 1.7 },
 ];
 
 const TREE_SOLIDS: SolidObstacle[] = [
@@ -44,6 +91,8 @@ const TREE_SOLIDS: SolidObstacle[] = [
   [-23, -26, 0.75], [35, -39, 0.78], [-35, -39, 0.78], [-67, 51, 0.85],
   [-65, 68, 0.75], [-38, 72, 0.92], [-22, 60, 0.7], [58, 48, 0.78],
   [66, -36, 0.85], [-66, -42, 0.8],
+  [-91, 61, 0.82], [-96, 76, 0.9], [-78, 96, 0.84], [-124, 88, 0.92],
+  [-132, 112, 0.8], [-96, 118, 0.86], [-136, 146, 0.95], [-101, 149, 0.82],
   [-82, -68, 0.78], [-72, -73, 0.86], [-62, -68, 0.95], [-54, -73, 0.78],
   [-47, -68, 0.86], [-38, -73, 0.95], [-31, -68, 0.78], [-24, -73, 0.86],
   [-17, -68, 0.95], [18, -73, 0.78], [25, -68, 0.86], [32, -73, 0.95],

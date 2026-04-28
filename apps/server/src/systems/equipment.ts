@@ -1,14 +1,18 @@
 import {
   DEFAULT_EQUIPMENT,
   EQUIPMENT_SLOTS,
+  PLAYER,
   STARTER_GEAR_IDS,
   clamp,
   getEquippedCharacterStats,
+  getInventoryItemKey,
   getItemEquipment,
+  normalizeChainTokenId,
   type EquipmentSlotId,
   type ItemId,
 } from "@mferland/shared";
 import { EquipmentSlotState, InventoryItemState, type PlayerState } from "../state.js";
+import { getPlayerTalentEffects } from "./talents.js";
 
 export function normalizeEquipmentSlotId(input: unknown): EquipmentSlotId | null {
   return typeof input === "string" && Object.prototype.hasOwnProperty.call(EQUIPMENT_SLOTS, input)
@@ -24,16 +28,19 @@ export function initializeCharacterEquipment(player: PlayerState) {
   recalculatePlayerStats(player);
 }
 
-export function equipInventoryItem(player: PlayerState, itemId: ItemId) {
-  if ((player.inventory.get(itemId)?.count ?? 0) <= 0) return false;
+export function equipInventoryItem(player: PlayerState, itemId: ItemId, chainTokenId = "") {
+  const inventoryKey = getInventoryItemKey(itemId, chainTokenId);
+  if ((player.inventory.get(inventoryKey)?.count ?? 0) <= 0) return false;
 
   const equipment = getItemEquipment(itemId);
   if (!equipment) return false;
 
   const slot = getOrCreateEquipmentSlot(player, equipment.slot);
-  if (slot.itemId === itemId) return true;
+  const normalizedTokenId = normalizeChainTokenId(chainTokenId);
+  if (slot.itemId === itemId && slot.chainTokenId === normalizedTokenId) return true;
 
   slot.itemId = itemId;
+  slot.chainTokenId = normalizedTokenId;
   recalculatePlayerStats(player);
   return true;
 }
@@ -43,6 +50,7 @@ export function unequipPlayerSlot(player: PlayerState, slotId: EquipmentSlotId) 
   if (!slot?.itemId) return false;
 
   slot.itemId = "";
+  slot.chainTokenId = "";
   recalculatePlayerStats(player);
   return true;
 }
@@ -52,23 +60,31 @@ export function recalculatePlayerStats(player: PlayerState) {
   player.equipment.forEach((slot) => itemIds.push(slot.itemId));
 
   const stats = getEquippedCharacterStats(itemIds);
-  player.maxHealth = stats.maxHealth;
-  player.maxMana = stats.maxMana;
-  player.strength = stats.strength;
-  player.dexterity = stats.dexterity;
-  player.magic = stats.magic;
+  const talentEffects = getPlayerTalentEffects(player);
+
+  player.maxHealth = stats.maxHealth + (talentEffects.stats.maxHealth ?? 0);
+  player.maxMana = stats.maxMana + (talentEffects.stats.maxMana ?? 0);
+  player.strength = stats.strength + (talentEffects.stats.strength ?? 0);
+  player.dexterity = stats.dexterity + (talentEffects.stats.dexterity ?? 0);
+  player.magic = stats.magic + (talentEffects.stats.magic ?? 0);
+  player.healthRegenPer5 = PLAYER.healthRegenPer5 + talentEffects.healthRegenPer5;
+  player.manaRegenPer5 = PLAYER.manaRegenPer5 + talentEffects.manaRegenPer5;
+  player.walkSpeed = PLAYER.walkSpeed + talentEffects.walkSpeed;
+  player.runSpeed = PLAYER.runSpeed + talentEffects.runSpeed;
   player.health = clamp(player.health, 0, player.maxHealth);
   player.mana = clamp(player.mana, 0, player.maxMana);
 }
 
 function grantStarterGear(player: PlayerState) {
   for (const itemId of STARTER_GEAR_IDS) {
-    if ((player.inventory.get(itemId)?.count ?? 0) > 0) continue;
+    const inventoryKey = getInventoryItemKey(itemId);
+    if ((player.inventory.get(inventoryKey)?.count ?? 0) > 0) continue;
 
     const item = new InventoryItemState();
     item.id = itemId;
+    item.chainTokenId = "";
     item.count = 1;
-    player.inventory.set(itemId, item);
+    player.inventory.set(inventoryKey, item);
   }
 }
 
@@ -80,6 +96,7 @@ function equipDefaultStarterGear(player: PlayerState) {
 
     const slot = getOrCreateEquipmentSlot(player, slotId);
     slot.itemId = itemId;
+    slot.chainTokenId = "";
   }
 }
 

@@ -1,13 +1,14 @@
 import type { COMBAT } from "./combat.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { QUESTS } from "./quests.js";
+import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
 
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
 export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast" | "farmer";
-export type NpcModel = "mfer" | "rabbit" | "deer" | "hog";
+export type NpcModel = "mfer" | "mfergpt" | "rabbit" | "deer" | "hog";
 export type TargetKind = "player" | "npc";
 export type CombatActionId = keyof typeof COMBAT.actions;
 export type ActionId = "interact" | CombatActionId;
@@ -28,24 +29,62 @@ export type QuestSnapshot = {
 export type QuestOffer = {
   questId: QuestId;
   npcId: string;
+  npcName: string;
   title: string;
   description: string;
+  storyText: string;
   objectiveLabel: string;
   required: number;
+  rewardPreview: string[];
+};
+
+export type QuestTurnIn = {
+  questId: QuestId;
+  npcId: string;
+  npcName: string;
+  title: string;
+  completionText: string;
+  completedTaskSummary: string;
+  objectiveLabel: string;
+  progress: number;
+  required: number;
+  rewardPreview: string[];
+};
+
+export type QuestStatusNotice = {
+  questId: QuestId;
+  npcId: string;
+  npcName: string;
+  title: string;
+  statusText: string;
+  objectiveLabel: string;
+  progress: number;
+  required: number;
+  rewardPreview: string[];
 };
 
 export type InventoryItemSnapshot = {
   id: ItemId;
+  chainTokenId: string;
   count: number;
 };
 
 export type EquipmentSlotSnapshot = {
   slot: EquipmentSlotId;
   itemId: ItemId | "";
+  chainTokenId: string;
+};
+
+export type TalentRankSnapshot = {
+  id: TalentId;
+  tree: TalentTreeId;
+  nodeId: string;
+  rank: number;
 };
 
 export type LootItemSnapshot = {
   id: ItemId;
+  chainTokenId: string;
   count: number;
 };
 
@@ -86,6 +125,8 @@ export type PlayerSnapshot = {
   mana: number;
   maxMana: number;
   manaRegenPer5: number;
+  walkSpeed: number;
+  runSpeed: number;
   strength: number;
   dexterity: number;
   magic: number;
@@ -107,6 +148,7 @@ export type PlayerSnapshot = {
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
+  talents: TalentRankSnapshot[];
 };
 
 export type NpcSnapshot = {
@@ -186,17 +228,28 @@ export type ClientAcceptQuest = {
   npcId?: string;
 };
 
+export type ClientCompleteQuest = {
+  questId: QuestId;
+  npcId?: string;
+};
+
 export type ClientLootCorpse = {
   npcId: string;
   itemId?: ItemId;
+  chainTokenId?: string;
 };
 
 export type ClientEquipItem = {
   itemId: ItemId;
+  chainTokenId?: string;
 };
 
 export type ClientUnequipItem = {
   slot: EquipmentSlotId;
+};
+
+export type ClientSelectTalent = {
+  talentId: TalentId;
 };
 
 export type ClientCombatAction = {

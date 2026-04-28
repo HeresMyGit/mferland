@@ -16,30 +16,32 @@ import { applyNpcCombatDamage, isNpcAlive, type PendingCombatImpact } from "./co
 import { randomRange } from "./utils.js";
 
 const HOG_COMBAT = {
-  leashRange: 24,
+  leashRange: 30,
   moveSpeed: 4.1,
   meleeRange: 2.15,
   meleeDamage: 5,
   meleeCooldownMs: 1700,
 };
 
+export type NpcSpawnSpec = {
+  id: string;
+  name: string;
+  role: NpcRole;
+  model?: NpcModel;
+  x: number;
+  z: number;
+  yaw: number;
+  leashRadius: number;
+  dialogue: string;
+  questId?: QuestId;
+  health?: number;
+  maxHealth?: number;
+  isImmortal?: boolean;
+  combatStyle?: "melee" | "caster";
+};
+
 export function spawnNpcs(npcs: MapSchema<NpcState>) {
-  const specs: Array<{
-    id: string;
-    name: string;
-    role: NpcRole;
-    model?: NpcModel;
-    x: number;
-    z: number;
-    yaw: number;
-    leashRadius: number;
-    dialogue: string;
-    questId?: QuestId;
-    health?: number;
-    maxHealth?: number;
-    isImmortal?: boolean;
-    combatStyle?: "melee" | "caster";
-  }> = [
+  const specs: NpcSpawnSpec[] = [
     {
       id: "og-mfer",
       name: "OG mfer",
@@ -104,6 +106,17 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       questId: "fountain-vibes",
     },
     {
+      id: "mfergpt",
+      name: "mferGPT",
+      role: "wanderer",
+      model: "mfergpt",
+      x: -10.2,
+      z: -9.2,
+      yaw: 2.55,
+      leashRadius: 1.4,
+      dialogue: "Say @mfergpt in chat if you need a quest hint, an arena test, or a town scan.",
+    },
+    {
       id: "hogwatch-mfer",
       name: "Hogwatch mfer",
       role: "quest_giver",
@@ -113,6 +126,48 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       leashRadius: 1.3,
       dialogue: "The busted farm is making the roads rough. I could use a hand.",
       questId: "feral-farmers",
+    },
+    {
+      id: "route-guard",
+      name: "Route guard",
+      role: "guard",
+      x: -83.5,
+      z: 60.8,
+      yaw: -1.35,
+      leashRadius: 5.5,
+      dialogue: "Follow the dirt west, then north. Farm first, Field Camp after the hog run.",
+    },
+    {
+      id: "field-guide-mfer",
+      name: "Field Guide mfer",
+      role: "quest_giver",
+      x: -119.2,
+      z: 132.4,
+      yaw: 0.2,
+      leashRadius: 1.4,
+      dialogue: "Field Camp keeps the route board. Check the daily patrol before heading back.",
+      questId: "route-patrol-daily",
+    },
+    {
+      id: "pen-keeper-mfer",
+      name: "Pen Keeper mfer",
+      role: "quest_giver",
+      x: -111.2,
+      z: 136.7,
+      yaw: -0.8,
+      leashRadius: 1.2,
+      dialogue: "The hog loop is never really done. I can post another sweep whenever you are ready.",
+      questId: "hog-loop",
+    },
+    {
+      id: "camp-merchant",
+      name: "Camp merchant",
+      role: "merchant",
+      x: -125.3,
+      z: 140.4,
+      yaw: 1.45,
+      leashRadius: 1.3,
+      dialogue: "Field Camp supplies are basic, but the route is open.",
     },
     {
       id: "training-dummy-left",
@@ -149,32 +204,37 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
   ];
 
   for (const spec of specs) {
-    const npc = new NpcState();
-    npc.id = spec.id;
-    npc.name = spec.name;
-    npc.role = spec.role;
-    npc.model = spec.model ?? "mfer";
-    npc.avatarSeed = stableHash(`npc:${spec.id}`);
-    npc.health = spec.health ?? 100;
-    npc.maxHealth = spec.maxHealth ?? spec.health ?? 100;
-    npc.isImmortal = Boolean(spec.isImmortal);
-    const spawnPosition = resolveWorldCollision(spec.x, spec.z, getNpcCollisionRadius(npc));
-    npc.x = spawnPosition.x;
-    npc.y = 0;
-    npc.z = spawnPosition.z;
-    npc.yaw = spec.yaw;
-    npc.animation = "idle";
-    npc.dialogue = spec.dialogue;
-    npc.questId = spec.questId ?? "";
-    npc.homeX = npc.x;
-    npc.homeZ = npc.z;
-    npc.targetX = npc.x;
-    npc.targetZ = npc.z;
-    npc.leashRadius = spec.leashRadius;
-    npc.combatStyle = spec.combatStyle ?? "";
-    npc.nextDecisionAt = Date.now() + randomRange(1000, 5000);
-    npcs.set(npc.id, npc);
+    spawnNpcFromSpec(npcs, spec);
   }
+}
+
+export function spawnNpcFromSpec(npcs: MapSchema<NpcState>, spec: NpcSpawnSpec, now = Date.now()) {
+  const npc = new NpcState();
+  npc.id = spec.id;
+  npc.name = spec.name;
+  npc.role = spec.role;
+  npc.model = spec.model ?? "mfer";
+  npc.avatarSeed = stableHash(`npc:${spec.id}`);
+  npc.health = spec.health ?? 100;
+  npc.maxHealth = spec.maxHealth ?? spec.health ?? 100;
+  npc.isImmortal = Boolean(spec.isImmortal);
+  const spawnPosition = resolveWorldCollision(spec.x, spec.z, getNpcCollisionRadius(npc));
+  npc.x = spawnPosition.x;
+  npc.y = 0;
+  npc.z = spawnPosition.z;
+  npc.yaw = spec.yaw;
+  npc.animation = "idle";
+  npc.dialogue = spec.dialogue;
+  npc.questId = spec.questId ?? "";
+  npc.homeX = npc.x;
+  npc.homeZ = npc.z;
+  npc.targetX = npc.x;
+  npc.targetZ = npc.z;
+  npc.leashRadius = spec.leashRadius;
+  npc.combatStyle = spec.combatStyle ?? "";
+  npc.nextDecisionAt = now + randomRange(1000, 5000);
+  npcs.set(npc.id, npc);
+  return npc;
 }
 
 function makeRabbitSpecs() {
@@ -223,14 +283,18 @@ function makeDeerSpecs() {
 
 function makeWildHogSpecs() {
   return [
-    { id: "wild-hog-rooter", x: -52.5, z: 59.8 },
-    { id: "wild-hog-bristle", x: -46.8, z: 63.5 },
-    { id: "wild-hog-snort", x: -57.2, z: 65.4 },
-    { id: "wild-hog-mud", x: -42.4, z: 56.9 },
-    { id: "wild-hog-runt", x: -60.8, z: 55.3 },
-    { id: "wild-hog-tusk", x: -48.7, z: 52.1 },
-    { id: "wild-hog-grub", x: -55.9, z: 48.8 },
-    { id: "wild-hog-boar", x: -38.6, z: 61.4 },
+    { id: "wild-hog-rooter", x: -103.5, z: 88.2 },
+    { id: "wild-hog-bristle", x: -98.8, z: 93.5 },
+    { id: "wild-hog-snort", x: -111.2, z: 95.4 },
+    { id: "wild-hog-mud", x: -93.4, z: 86.9 },
+    { id: "wild-hog-runt", x: -116.8, z: 88.3 },
+    { id: "wild-hog-tusk", x: -102.7, z: 80.1 },
+    { id: "wild-hog-grub", x: -112.9, z: 78.8 },
+    { id: "wild-hog-boar", x: -92.6, z: 101.4 },
+    { id: "wild-hog-thistle", x: -120.4, z: 104.6 },
+    { id: "wild-hog-burrow", x: -108.2, z: 111.8 },
+    { id: "wild-hog-ridge", x: -98.4, z: 113.5 },
+    { id: "wild-hog-camp", x: -124.8, z: 120.2 },
   ].map((hog, index) => ({
     id: hog.id,
     name: index === 7 ? "Old boar" : "Wild hog",
@@ -239,7 +303,7 @@ function makeWildHogSpecs() {
     x: hog.x,
     z: hog.z,
     yaw: Math.PI * 0.35 + index * 0.58,
-    leashRadius: index === 7 ? 10.5 : 8.4,
+    leashRadius: index === 7 ? 12.5 : 9.6,
     health: index === 7 ? 42 : 24,
     maxHealth: index === 7 ? 42 : 24,
     dialogue: index === 7 ? "The old boar paws at the broken fence." : "The wild hog snorts and roots through the mud.",
@@ -248,9 +312,11 @@ function makeWildHogSpecs() {
 
 function makeFarmerSpecs() {
   return [
-    { id: "farmhand-bran", name: "Farmhand Bran", x: -47.5, z: 55.5, yaw: -0.7, style: "melee" },
-    { id: "farmhand-mae", name: "Farmhand Mae", x: -55.5, z: 58.5, yaw: 0.8, style: "melee" },
-    { id: "field-mage-sol", name: "Field mage Sol", x: -43.2, z: 64.8, yaw: -1.6, style: "caster" },
+    { id: "farmhand-bran", name: "Farmhand Bran", x: -99.5, z: 86.5, yaw: -0.7, style: "melee" },
+    { id: "farmhand-mae", name: "Farmhand Mae", x: -109.5, z: 91.5, yaw: 0.8, style: "melee" },
+    { id: "field-mage-sol", name: "Field mage Sol", x: -95.2, z: 99.8, yaw: -1.6, style: "caster" },
+    { id: "farmhand-jo", name: "Farmhand Jo", x: -116.5, z: 102.4, yaw: 0.4, style: "melee" },
+    { id: "field-mage-ren", name: "Field mage Ren", x: -106.8, z: 108.6, yaw: 2.2, style: "caster" },
   ].map((farmer) => ({
     id: farmer.id,
     name: farmer.name,
@@ -259,7 +325,7 @@ function makeFarmerSpecs() {
     x: farmer.x,
     z: farmer.z,
     yaw: farmer.yaw,
-    leashRadius: 8.5,
+    leashRadius: farmer.style === "caster" ? 10.5 : 9.5,
     health: farmer.style === "caster" ? 70 : 90,
     maxHealth: farmer.style === "caster" ? 70 : 90,
     combatStyle: farmer.style as "melee" | "caster",

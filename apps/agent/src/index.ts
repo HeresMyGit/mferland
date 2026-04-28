@@ -18,6 +18,7 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestSnapshot,
+  type TalentRankSnapshot,
 } from "@mferland/shared";
 
 type AgentConfig = {
@@ -46,6 +47,8 @@ type RuntimePlayer = {
   mana: number;
   maxMana: number;
   manaRegenPer5: number;
+  walkSpeed: number;
+  runSpeed: number;
   strength: number;
   dexterity: number;
   magic: number;
@@ -67,6 +70,7 @@ type RuntimePlayer = {
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
+  talents?: RuntimeTalentCollection;
 };
 
 type RuntimeQuestCollection = {
@@ -79,6 +83,10 @@ type RuntimeInventoryCollection = {
 
 type RuntimeEquipmentCollection = {
   forEach(callback: (slot: EquipmentSlotSnapshot, id: string) => void): void;
+};
+
+type RuntimeTalentCollection = {
+  forEach(callback: (talent: TalentRankSnapshot, id: string) => void): void;
 };
 
 type RuntimeNpc = {
@@ -160,6 +168,8 @@ class AgentCharacter {
           mana: player.mana,
           maxMana: player.maxMana,
           manaRegenPer5: player.manaRegenPer5,
+          walkSpeed: player.walkSpeed,
+          runSpeed: player.runSpeed,
           strength: player.strength,
           dexterity: player.dexterity,
           magic: player.magic,
@@ -181,6 +191,7 @@ class AgentCharacter {
           quests: snapshotQuests(player.quests),
           inventory: snapshotInventory(player.inventory),
           equipment: snapshotEquipment(player.equipment),
+          talents: snapshotTalents(player.talents),
         });
       });
       this.players = next;
@@ -382,6 +393,7 @@ function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): I
   inventory?.forEach((item, id) => {
     next.push({
       id: (item.id || id) as InventoryItemSnapshot["id"],
+      chainTokenId: item.chainTokenId,
       count: item.count,
     });
   });
@@ -394,9 +406,23 @@ function snapshotEquipment(equipment: RuntimeEquipmentCollection | undefined): E
     next.push({
       slot: (slot.slot || id) as EquipmentSlotSnapshot["slot"],
       itemId: slot.itemId,
+      chainTokenId: slot.chainTokenId,
     });
   });
   return next.sort((left, right) => left.slot.localeCompare(right.slot));
+}
+
+function snapshotTalents(talents: RuntimeTalentCollection | undefined): TalentRankSnapshot[] {
+  const next: TalentRankSnapshot[] = [];
+  talents?.forEach((talent, id) => {
+    next.push({
+      id: (talent.id || id) as TalentRankSnapshot["id"],
+      tree: talent.tree,
+      nodeId: talent.nodeId,
+      rank: talent.rank,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function readPositiveInt(value: string | undefined, fallback: number) {

@@ -10,6 +10,8 @@ import {
   type NpcRole,
   type QuestId,
   type QuestStatus,
+  type TalentId,
+  type TalentTreeId,
 } from "@mferland/shared";
 
 export class QuestState extends Schema {
@@ -23,17 +25,27 @@ export class QuestState extends Schema {
 
 export class InventoryItemState extends Schema {
   @type("string") id: ItemId = "hog-liver";
+  @type("string") chainTokenId = "";
   @type("number") count = 0;
 }
 
 export class LootItemState extends Schema {
   @type("string") id: ItemId = "hog-liver";
+  @type("string") chainTokenId = "";
   @type("number") count = 0;
 }
 
 export class EquipmentSlotState extends Schema {
   @type("string") slot: EquipmentSlotId = "mainHand";
   @type("string") itemId: ItemId | "" = "";
+  @type("string") chainTokenId = "";
+}
+
+export class TalentState extends Schema {
+  @type("string") id: TalentId = "brawler:street-tough";
+  @type("string") tree: TalentTreeId = "brawler";
+  @type("string") nodeId = "street-tough";
+  @type("number") rank = 0;
 }
 
 export class PlayerState extends Schema {
@@ -50,6 +62,8 @@ export class PlayerState extends Schema {
   @type("number") mana = PLAYER.maxMana;
   @type("number") maxMana = PLAYER.maxMana;
   @type("number") manaRegenPer5 = PLAYER.manaRegenPer5;
+  @type("number") walkSpeed = PLAYER.walkSpeed;
+  @type("number") runSpeed = PLAYER.runSpeed;
   @type("number") strength = PLAYER.strength;
   @type("number") dexterity = PLAYER.dexterity;
   @type("number") magic = PLAYER.magic;
@@ -74,6 +88,7 @@ export class PlayerState extends Schema {
   @type({ map: QuestState }) quests = new MapSchema<QuestState>();
   @type({ map: InventoryItemState }) inventory = new MapSchema<InventoryItemState>();
   @type({ map: EquipmentSlotState }) equipment = new MapSchema<EquipmentSlotState>();
+  @type({ map: TalentState }) talents = new MapSchema<TalentState>();
 }
 
 export class NpcState extends Schema {

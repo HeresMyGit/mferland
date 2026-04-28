@@ -51,6 +51,8 @@ export function updateLocalVisualPlayer(
   visual.mana = authoritative.mana;
   visual.maxMana = authoritative.maxMana;
   visual.manaRegenPer5 = authoritative.manaRegenPer5;
+  visual.walkSpeed = authoritative.walkSpeed;
+  visual.runSpeed = authoritative.runSpeed;
   visual.strength = authoritative.strength;
   visual.dexterity = authoritative.dexterity;
   visual.magic = authoritative.magic;
@@ -67,6 +69,7 @@ export function updateLocalVisualPlayer(
   visual.quests = authoritative.quests;
   visual.inventory = authoritative.inventory;
   visual.equipment = authoritative.equipment;
+  visual.talents = authoritative.talents;
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);
@@ -83,7 +86,7 @@ export function updateLocalVisualPlayer(
   }
 
   if (moveLength > 0.01) {
-    const speed = sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
+    const speed = sprint ? authoritative.runSpeed : authoritative.walkSpeed;
     visual.x += move.x * speed * delta;
     visual.z += move.z * speed * delta;
   }

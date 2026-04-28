@@ -1,6 +1,7 @@
 export * from "./config.js";
 export * from "./combat.js";
 export * from "./items.js";
+export * from "./talents.js";
 export * from "./quests.js";
 export * from "./types.js";
 export * from "./utils.js";

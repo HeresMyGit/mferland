@@ -36,7 +36,7 @@ type LoadedMferGltf = {
 
 const MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
 const DEATH_ANIMATION_SECONDS = 0.82;
-const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number }> = {
+export const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number }> = {
   idle: { file: "Standing_Idle", loop: THREE.LoopRepeat, timeScale: 1 },
   walk: { file: "Walking_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1 },
   run: { file: "Slow_Run_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1.08 },
@@ -60,7 +60,7 @@ const TARGET_BADGE_COLORS: Record<NpcDisposition | "player" | "local" | "agent",
   local: "#f3d04e",
   agent: "#b38cff",
 };
-const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
+export const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
 const animationClipCache = new WeakMap<THREE.AnimationClip, Map<AnimationState, THREE.AnimationClip>>();
 const avatarTemplateCache = new WeakMap<THREE.Group, Map<string, THREE.Group>>();
@@ -163,7 +163,7 @@ export function MferAvatar({
 
     if (isDefeated) {
       deathAgeRef.current += delta;
-      updateDeathPose(poseRef.current, deathAgeRef.current);
+      updateMferDeathPose(poseRef.current, deathAgeRef.current);
     } else {
       mixerRef.current?.update(delta);
     }
@@ -265,7 +265,7 @@ export function MferAvatar({
   }
 }
 
-function updateDeathPose(pose: THREE.Group | null, deathAge: number) {
+export function updateMferDeathPose(pose: THREE.Group | null, deathAge: number) {
   if (!pose) return;
 
   const progress = easeOutCubic(clamp(deathAge / DEATH_ANIMATION_SECONDS, 0, 1));
@@ -647,7 +647,7 @@ function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
   return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
 
-function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
+export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
   const cacheKey = fbxAnimations[0]?.animations?.[0];
   if (cacheKey) {
     const cached = animationClipCache.get(cacheKey);

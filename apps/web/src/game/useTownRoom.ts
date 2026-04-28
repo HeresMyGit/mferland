@@ -4,11 +4,13 @@ import {
   ROOM_NAME,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientCompleteQuest,
   type ClientCombatAction,
   type ClientEquipItem,
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
+  type ClientSelectTalent,
   type ClientUnequipItem,
   type CombatEvent,
   type EquipmentSlotSnapshot,
@@ -19,6 +21,9 @@ import {
   type PlayerSnapshot,
   type QuestOffer,
   type QuestSnapshot,
+  type QuestStatusNotice,
+  type QuestTurnIn,
+  type TalentRankSnapshot,
 } from "@mferland/shared";
 
 type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
@@ -31,10 +36,14 @@ type RuntimeInventoryCollection = {
 type RuntimeEquipmentCollection = {
   forEach(callback: (slot: EquipmentSlotSnapshot, id: string) => void): void;
 };
-type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests" | "inventory" | "equipment"> & {
+type RuntimeTalentCollection = {
+  forEach(callback: (talent: TalentRankSnapshot, id: string) => void): void;
+};
+type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests" | "inventory" | "equipment" | "talents"> & {
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
+  talents?: RuntimeTalentCollection;
 };
 type RuntimePlayerCollection = {
   forEach(callback: (player: RuntimePlayer, id: string) => void): void;
@@ -53,6 +62,8 @@ export function useTownRoom(identity: JoinOptions) {
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [combatEvents, setCombatEvents] = useState<CombatEvent[]>([]);
   const [questOffer, setQuestOffer] = useState<QuestOffer | null>(null);
+  const [questTurnIn, setQuestTurnIn] = useState<QuestTurnIn | null>(null);
+  const [questStatus, setQuestStatus] = useState<QuestStatusNotice | null>(null);
   const [lootWindow, setLootWindow] = useState<LootWindow | null>(null);
   const roomRef = useRef<Room | null>(null);
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
@@ -142,7 +153,21 @@ export function useTownRoom(identity: JoinOptions) {
         });
 
         room.onMessage("questOffer", (message: QuestOffer) => {
+          setQuestTurnIn(null);
+          setQuestStatus(null);
           setQuestOffer(message);
+        });
+
+        room.onMessage("questTurnIn", (message: QuestTurnIn) => {
+          setQuestOffer(null);
+          setQuestStatus(null);
+          setQuestTurnIn(message);
+        });
+
+        room.onMessage("questStatus", (message: QuestStatusNotice) => {
+          setQuestOffer(null);
+          setQuestTurnIn(null);
+          setQuestStatus(message);
         });
 
         room.onMessage("lootWindow", (message: LootWindow) => {
@@ -186,6 +211,26 @@ export function useTownRoom(identity: JoinOptions) {
   }, [questOffer, sessionId, snapshotRevision]);
 
   useEffect(() => {
+    if (!questTurnIn || !sessionId) return;
+
+    const localPlayer = playersRef.current.get(sessionId);
+    const quest = localPlayer?.quests.find((entry) => entry.id === questTurnIn.questId);
+    if (quest?.status === "completed") {
+      setQuestTurnIn(null);
+    }
+  }, [questTurnIn, sessionId, snapshotRevision]);
+
+  useEffect(() => {
+    if (!questStatus || !sessionId) return;
+
+    const localPlayer = playersRef.current.get(sessionId);
+    const quest = localPlayer?.quests.find((entry) => entry.id === questStatus.questId);
+    if (quest?.status === "completed") {
+      setQuestStatus(null);
+    }
+  }, [questStatus, sessionId, snapshotRevision]);
+
+  useEffect(() => {
     if (!lootWindow) return;
     const npc = npcsRef.current.get(lootWindow.npcId);
     if (!npc?.hasLoot) setLootWindow(null);
@@ -208,8 +253,21 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("acceptQuest", message);
   }, []);
 
+  const sendCompleteQuest = useCallback((message: ClientCompleteQuest) => {
+    setQuestTurnIn(null);
+    roomRef.current?.send("completeQuest", message);
+  }, []);
+
   const dismissQuestOffer = useCallback(() => {
     setQuestOffer(null);
+  }, []);
+
+  const dismissQuestTurnIn = useCallback(() => {
+    setQuestTurnIn(null);
+  }, []);
+
+  const dismissQuestStatus = useCallback(() => {
+    setQuestStatus(null);
   }, []);
 
   const sendCombatAction = useCallback((message: ClientCombatAction) => {
@@ -226,6 +284,10 @@ export function useTownRoom(identity: JoinOptions) {
 
   const sendUnequipItem = useCallback((message: ClientUnequipItem) => {
     roomRef.current?.send("unequipItem", message);
+  }, []);
+
+  const sendSelectTalent = useCallback((message: ClientSelectTalent) => {
+    roomRef.current?.send("selectTalent", message);
   }, []);
 
   const closeLootWindow = useCallback(() => {
@@ -246,16 +308,22 @@ export function useTownRoom(identity: JoinOptions) {
     chat,
     combatEvents,
     questOffer,
+    questTurnIn,
+    questStatus,
     lootWindow,
     sendInput,
     sendChat,
     sendInteract,
     sendAcceptQuest,
+    sendCompleteQuest,
     dismissQuestOffer,
+    dismissQuestTurnIn,
+    dismissQuestStatus,
     sendCombatAction,
     sendLootCorpse,
     sendEquipItem,
     sendUnequipItem,
+    sendSelectTalent,
     closeLootWindow,
     sendRespawn,
   };
@@ -296,6 +364,8 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     mana: player.mana,
     maxMana: player.maxMana,
     manaRegenPer5: player.manaRegenPer5,
+    walkSpeed: player.walkSpeed,
+    runSpeed: player.runSpeed,
     strength: player.strength,
     dexterity: player.dexterity,
     magic: player.magic,
@@ -317,6 +387,7 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
+    talents: snapshotTalents(player.talents),
   };
 }
 
@@ -335,6 +406,8 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.mana = player.mana;
   target.maxMana = player.maxMana;
   target.manaRegenPer5 = player.manaRegenPer5;
+  target.walkSpeed = player.walkSpeed;
+  target.runSpeed = player.runSpeed;
   target.strength = player.strength;
   target.dexterity = player.dexterity;
   target.magic = player.magic;
@@ -356,6 +429,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.quests = snapshotQuests(player.quests);
   target.inventory = snapshotInventory(player.inventory);
   target.equipment = snapshotEquipment(player.equipment);
+  target.talents = snapshotTalents(player.talents);
 }
 
 function syncNpcSnapshots(target: Map<string, NpcSnapshot>, source: RuntimeNpcCollection | undefined) {
@@ -461,6 +535,7 @@ function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): I
   inventory?.forEach((item, id) => {
     next.push({
       id: (item.id || id) as InventoryItemSnapshot["id"],
+      chainTokenId: item.chainTokenId,
       count: item.count,
     });
   });
@@ -473,7 +548,21 @@ function snapshotEquipment(equipment: RuntimeEquipmentCollection | undefined): E
     next.push({
       slot: (slot.slot || id) as EquipmentSlotSnapshot["slot"],
       itemId: slot.itemId,
+      chainTokenId: slot.chainTokenId,
     });
   });
   return next.sort((left, right) => left.slot.localeCompare(right.slot));
+}
+
+function snapshotTalents(talents: RuntimeTalentCollection | undefined): TalentRankSnapshot[] {
+  const next: TalentRankSnapshot[] = [];
+  talents?.forEach((talent, id) => {
+    next.push({
+      id: (talent.id || id) as TalentRankSnapshot["id"],
+      tree: talent.tree,
+      nodeId: talent.nodeId,
+      rank: talent.rank,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
 }

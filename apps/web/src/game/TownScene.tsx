@@ -12,6 +12,7 @@ import {
 } from "@mferland/shared";
 import { CreatureAvatar } from "../components/CreatureAvatar";
 import { MferAvatar } from "../components/MferAvatar";
+import { MferGptAvatar } from "../components/MferGptAvatar";
 import { CombatFeedbackLayer } from "./scene/CombatFeedbackLayer";
 import { Skybox, TownWorld } from "./scene/TownWorld";
 import {
@@ -307,6 +308,21 @@ export function TownScene({
           const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
           const onTarget = () => onSelectTarget({ kind: "npc", id: npc.id });
           const questMarker = getNpcQuestMarker(npc, localQuestState);
+          if (npc.model === "mfergpt") {
+            return (
+              <MferGptAvatar
+                key={npc.id}
+                npc={npc}
+                questMarker={questMarker}
+                hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
+                isTargeted={isTargeted}
+                isDefeated={!npc.isImmortal && npc.health <= 0}
+                viewerPosition={viewerPosition}
+                onTarget={onTarget}
+              />
+            );
+          }
+
           if (npc.model !== "mfer") {
             return (
               <CreatureAvatar

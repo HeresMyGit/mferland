@@ -37,13 +37,34 @@ export function shouldConsumeQuestItem(questId: QuestId): boolean {
   return "consumeItem" in quest && quest.consumeItem;
 }
 
+export function getQuestRepeatCooldownMs(questId: QuestId): number {
+  const quest = QUESTS[questId];
+  return "repeatCooldownMs" in quest ? quest.repeatCooldownMs : 0;
+}
+
+export function getQuestRepeatLabel(questId: QuestId): string {
+  const quest = QUESTS[questId];
+  return "repeatLabel" in quest ? quest.repeatLabel : "";
+}
+
+export function isRepeatableQuest(questId: QuestId): boolean {
+  return getQuestRepeatCooldownMs(questId) > 0;
+}
+
+export function isQuestReadyToRepeat(questId: QuestId, quest: Pick<QuestSnapshot, "status" | "completedAt">, now = Date.now()): boolean {
+  const cooldownMs = getQuestRepeatCooldownMs(questId);
+  if (cooldownMs <= 0 || quest.status !== "completed") return false;
+  return quest.completedAt <= 0 || now - quest.completedAt >= cooldownMs;
+}
+
 export function isQuestAutoReady(questId: QuestId): boolean {
   const quest = QUESTS[questId];
   return "autoReady" in quest && quest.autoReady;
 }
 
 export function isQuestAvailableForSnapshots(questId: QuestId, quests: QuestSnapshot[] | undefined): boolean {
-  if (quests?.some((quest) => quest.id === questId)) return false;
+  const existingQuest = quests?.find((quest) => quest.id === questId);
+  if (existingQuest) return isQuestReadyToRepeat(questId, existingQuest);
 
   const requiredQuestId = getQuestRequirement(questId);
   if (!requiredQuestId) return true;
@@ -67,6 +88,7 @@ export function getNpcQuestMarker(
       continue;
     }
 
+    if (quest.status === "completed" && isGiver && isQuestReadyToRepeat(questId, quest)) return "available";
     if (quest.status === "ready" && isTurnInNpc) return "turnIn";
     if (quest.status !== "completed") return null;
   }

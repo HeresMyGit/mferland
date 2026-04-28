@@ -4,6 +4,11 @@ import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
   QUEST_IDS,
+  TALENTS,
+  getInventoryItemKey,
+  getTalentId,
+  isEquipmentCompatibleWithSlot,
+  normalizeChainTokenId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
   type InventoryItemSnapshot,
@@ -11,6 +16,7 @@ import {
   type QuestId,
   type QuestSnapshot,
   type QuestStatus,
+  type TalentRankSnapshot,
 } from "@mferland/shared";
 import { getDatabase } from "./db/client.js";
 import {
@@ -19,6 +25,7 @@ import {
   characterInventory,
   characterEquipment,
   characterQuests,
+  characterTalents,
   characters,
 } from "./db/schema.js";
 
@@ -33,6 +40,7 @@ export type PersistedCharacter = {
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
+  talents: TalentRankSnapshot[];
 };
 
 export type PersistableCharacterState = {
@@ -45,6 +53,7 @@ export type PersistableCharacterState = {
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
+  talents: TalentRankSnapshot[];
 };
 
 export async function loadOrCreateWalletCharacter({
@@ -118,11 +127,32 @@ export async function loadOrCreateWalletCharacter({
       character = updated;
     }
 
-    const [questRows, inventoryRows, equipmentRows] = await Promise.all([
+    const [questRows, inventoryRows, equipmentRows, talentRows] = await Promise.all([
       tx.select().from(characterQuests).where(eq(characterQuests.characterId, character.id)),
       tx.select().from(characterInventory).where(eq(characterInventory.characterId, character.id)),
       tx.select().from(characterEquipment).where(eq(characterEquipment.characterId, character.id)),
+      tx.select().from(characterTalents).where(eq(characterTalents.characterId, character.id)),
     ]);
+
+    const inventory = inventoryRows
+      .filter((item) => isKnownItemId(item.itemId) && item.count > 0)
+      .map((item) => ({
+        id: item.itemId as ItemId,
+        chainTokenId: normalizeChainTokenId(item.chainTokenId),
+        count: item.count,
+      }));
+    const ownedInventoryKeys = new Set(inventory.map((item) => getInventoryItemKey(item.id, item.chainTokenId)));
+    const equipment = equipmentRows
+      .filter((slot) => {
+        if (!isKnownEquipmentSlotId(slot.slot) || !isKnownItemId(slot.itemId)) return false;
+        if (!isEquipmentCompatibleWithSlot(slot.itemId as ItemId, slot.slot as EquipmentSlotId)) return false;
+        return ownedInventoryKeys.has(getInventoryItemKey(slot.itemId as ItemId, slot.chainTokenId));
+      })
+      .map((slot) => ({
+        slot: slot.slot as EquipmentSlotId,
+        itemId: slot.itemId as ItemId,
+        chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+      }));
 
     return {
       accountId,
@@ -142,18 +172,11 @@ export async function loadOrCreateWalletCharacter({
           flags: quest.flags,
           completedAt: quest.completedAt,
         })),
-      inventory: inventoryRows
-        .filter((item) => isKnownItemId(item.itemId) && item.count > 0)
-        .map((item) => ({
-          id: item.itemId as ItemId,
-          count: item.count,
-        })),
-      equipment: equipmentRows
-        .filter((slot) => isKnownEquipmentSlotId(slot.slot) && isKnownItemId(slot.itemId))
-        .map((slot) => ({
-          slot: slot.slot as EquipmentSlotId,
-          itemId: slot.itemId as ItemId,
-        })),
+      inventory,
+      equipment,
+      talents: talentRows
+        .map((talent) => toTalentSnapshot(talent.tree, talent.nodeId, talent.rank))
+        .filter((talent): talent is TalentRankSnapshot => talent !== null),
     };
   });
 }
@@ -195,18 +218,38 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
       await tx.insert(characterInventory).values(inventory.map((item) => ({
         characterId: state.characterId,
         itemId: item.id,
+        chainTokenId: normalizeChainTokenId(item.chainTokenId),
         count: item.count,
         updatedAt: now,
       })));
     }
 
     await tx.delete(characterEquipment).where(eq(characterEquipment.characterId, state.characterId));
-    const equipment = state.equipment.filter((slot) => slot.itemId && isKnownItemId(slot.itemId));
+    const ownedInventoryKeys = new Set(inventory.map((item) => getInventoryItemKey(item.id, item.chainTokenId)));
+    const equipment = state.equipment.filter((slot) => (
+      slot.itemId
+      && isKnownItemId(slot.itemId)
+      && isEquipmentCompatibleWithSlot(slot.itemId, slot.slot)
+      && ownedInventoryKeys.has(getInventoryItemKey(slot.itemId, slot.chainTokenId))
+    ));
     if (equipment.length > 0) {
       await tx.insert(characterEquipment).values(equipment.map((slot) => ({
         characterId: state.characterId,
         slot: slot.slot,
         itemId: slot.itemId,
+        chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+        updatedAt: now,
+      })));
+    }
+
+    await tx.delete(characterTalents).where(eq(characterTalents.characterId, state.characterId));
+    const talents = state.talents.filter((talent) => talent.rank > 0 && Object.prototype.hasOwnProperty.call(TALENTS, talent.id));
+    if (talents.length > 0) {
+      await tx.insert(characterTalents).values(talents.map((talent) => ({
+        characterId: state.characterId,
+        tree: talent.tree,
+        nodeId: talent.nodeId,
+        rank: talent.rank,
         updatedAt: now,
       })));
     }
@@ -227,4 +270,20 @@ function isKnownEquipmentSlotId(value: string): value is EquipmentSlotId {
 
 function isQuestStatus(value: string): value is QuestStatus {
   return value === "active" || value === "ready" || value === "completed";
+}
+
+function toTalentSnapshot(tree: string, nodeId: string, rank: number): TalentRankSnapshot | null {
+  const talentId = getTalentId(tree, nodeId);
+  if (!talentId) return null;
+
+  const definition = TALENTS[talentId];
+  const safeRank = Math.min(Math.max(Math.floor(rank), 0), definition.maxRank);
+  if (safeRank <= 0) return null;
+
+  return {
+    id: talentId,
+    tree: definition.tree,
+    nodeId: definition.nodeId,
+    rank: safeRank,
+  };
 }

@@ -110,6 +110,14 @@ export const TOWN_TREES: TreeSpec[] = [
   [58, 0, 48, 0.95],
   [66, 0, -36, 1.04],
   [-66, 0, -42, 0.96],
+  [-91, 0, 61, 1.0],
+  [-96, 0, 76, 1.08],
+  [-78, 0, 96, 0.98],
+  [-124, 0, 88, 1.1],
+  [-132, 0, 112, 0.96],
+  [-96, 0, 118, 1.02],
+  [-136, 0, 146, 1.14],
+  [-101, 0, 149, 0.98],
 ].map(([x, y, z, scale]) => ({ position: [x, y, z], scale }));
 export const BACKDROP_TREES: TreeSpec[] = [-82, -72, -62, -54, -47, -38, -31, -24, -17, 18, 25, 32, 39, 47, 54, 64, 74, 84]
   .map((x, index) => ({
@@ -151,10 +159,19 @@ export const TOWN_BUILDINGS: TownBuildingPlacement[] = [
   { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565" },
   { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35" },
 ];
+export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = [
+  { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "FIELD", accent: "#52d64f" },
+  { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "TRAIL", accent: "#f5c344" },
+  { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "WATCH", accent: "#477fe7" },
+];
 export const MARKET_STALLS: MarketStallSpec[] = [
   { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: "#9b45ff" },
   { id: "center-market", position: [0, 0, 31.4], rotation: Math.PI, color: "#52d64f" },
   { id: "right-market", position: [6.4, 0, 29.2], rotation: Math.PI, color: "#e754d8" },
+];
+export const OUTPOST_MARKET_STALLS: MarketStallSpec[] = [
+  { id: "field-camp-left-stall", position: [-123, 0, 129.8], rotation: 0.18, color: "#52d64f" },
+  { id: "field-camp-right-stall", position: [-114, 0, 132.2], rotation: -0.26, color: "#e18b35" },
 ];
 export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },
@@ -173,8 +190,12 @@ export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-28.1, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
   { position: [28.1, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
   { position: [35.9, 0.024, 22], size: [0.7, 25.5], color: "#5d7038" },
-  { position: [-57, 0.026, 58.2], size: [20, 0.78], color: "#6e5539" },
-  { position: [-57, 0.026, 63.8], size: [20, 0.78], color: "#6e5539" },
+  { position: [-39, 0.026, 56.8], size: [82, 0.78], color: "#6e5539" },
+  { position: [-39, 0.026, 63.2], size: [82, 0.78], color: "#6e5539" },
+  { position: [-87.4, 0.026, 78], size: [0.78, 40], color: "#6e5539" },
+  { position: [-80.6, 0.026, 78], size: [0.78, 40], color: "#6e5539" },
+  { position: [-116, 0.026, 116], size: [0.78, 40], color: "#6e5539" },
+  { position: [-108, 0.026, 116], size: [0.78, 40], color: "#6e5539" },
 ];
 export const PLAZA_CRACK_DECALS: GroundRectDecalSpec[] = [
   { position: [-9.2, 0.128, -3.8], size: [4.8, 0.07], rotation: 0.28, color: "#3f3a31" },
@@ -187,7 +208,7 @@ export const PLAZA_CRACK_DECALS: GroundRectDecalSpec[] = [
   { position: [-2.7, 0.128, -13.3], size: [4.4, 0.06], rotation: 0.48, color: "#3f3a31" },
 ];
 export const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
-  ...TOWN_BUILDINGS.map((building) => {
+  ...[...TOWN_BUILDINGS, ...OUTPOST_BUILDINGS].map((building) => {
     const blueprint = BUILDING_BLUEPRINTS[building.blueprint];
     return {
       position: [building.position[0], 0.031, building.position[2]] as Vec3Tuple,
@@ -203,12 +224,15 @@ export const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
   { position: [-6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
   { position: [0, 0.03, 31.4], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
   { position: [6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
+  { position: [-123, 0.03, 129.8], size: [3.5, 1.9], rotation: 0.18, color: "#21170d" },
+  { position: [-114, 0.03, 132.2], size: [3.5, 1.9], rotation: -0.26, color: "#21170d" },
 ];
 export const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: 0.08, color: "#765b3b" },
   { position: [0, 0.032, 32.6], size: [4.5, 2.1], rotation: -0.05, color: "#725738" },
   { position: [6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: -0.12, color: "#765b3b" },
-  { position: [-52, 0.034, 61], size: [18, 8.5], rotation: -0.18, color: "#563f2b" },
+  { position: [-104, 0.034, 92], size: [24, 11], rotation: -0.18, color: "#563f2b" },
+  { position: [-118, 0.034, 136], size: [31, 16], rotation: 0.04, color: "#604832" },
   { position: [-18, 0.031, 38.6], size: [5.5, 1.7], rotation: 2.82, color: "#69503a" },
   { position: [18, 0.031, 38.6], size: [5.5, 1.7], rotation: -2.82, color: "#69503a" },
 ];
@@ -235,6 +259,9 @@ function buildGrassTufts(): GrassTuftSpec[] {
     { center: [-16, 54], size: [22, 18], count: 12 },
     { center: [16, 54], size: [22, 18], count: 12 },
     { center: [-58, 60], size: [22, 20], count: 14 },
+    { center: [-90, 82], size: [28, 34], count: 18 },
+    { center: [-121, 115], size: [34, 42], count: 20 },
+    { center: [-124, 145], size: [32, 18], count: 12 },
   ] as const;
 
   return zones.flatMap((zone, zoneIndex) => (

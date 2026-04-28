@@ -1,30 +1,36 @@
 import { Room, type Client } from "colyseus";
 import {
   CHAT,
-  COMBAT,
   LOOT,
   MAX_PLAYERS,
+  MFERGPT,
   PLAYER,
+  PROGRESSION,
   QUESTS,
   SERVER_TICK_RATE,
   clamp,
+  getInventoryItemKey,
+  getQuestTurnInNpcId,
+  normalizeChainTokenId,
   resolveWorldCollision,
   stableHash,
   sanitizePlayerName,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientCompleteQuest,
   type ClientCombatAction,
   type ClientEquipItem,
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
+  type ClientSelectTalent,
   type ClientUnequipItem,
   type IdentityType,
   type ItemId,
   type JoinOptions,
   type QuestId,
 } from "@mferland/shared";
-import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TownState } from "../state.js";
+import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import {
   loadOrCreateWalletCharacter,
@@ -54,19 +60,34 @@ import {
   equipInventoryItem,
   initializeCharacterEquipment,
   normalizeEquipmentSlotId,
+  recalculatePlayerStats,
   unequipPlayerSlot,
 } from "../systems/equipment.js";
 import { findInteractNpc } from "../systems/interactions.js";
 import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../systems/loot.js";
+import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
 import { spawnNpcs, updateNpcs } from "../systems/npcs.js";
 import {
+  completeQuest,
   getNpcDialogue,
+  getNextAvailableQuestId,
+  getNpcQuestInteraction,
   isQuestAvailable,
   makeQuestOffer,
   normalizeQuestId,
   startQuest,
+  progressDefeatQuests,
 } from "../systems/quests.js";
+import { awardExperience, getNpcDefeatXp, normalizePlayerProgression } from "../systems/progression.js";
 import { distanceToNpc } from "../systems/spatial.js";
+import {
+  getPlayerActionConfig,
+  getPlayerQuestXpReward,
+  getPlayerTalentRanks,
+  normalizePlayerTalents,
+  normalizeTalentId,
+  rankPlayerTalent,
+} from "../systems/talents.js";
 import {
   getDefaultName,
   getIdentityType,
@@ -81,9 +102,11 @@ export class TownRoom extends Room<TownState> {
   private readonly inputs = new Map<string, TrackedInput>();
   private readonly jumpHeld = new Map<string, boolean>();
   private readonly lastChatAt = new Map<string, number>();
+  private readonly lastMferGptAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
   private readonly persistentCharacterIds = new Map<string, string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
+  private readonly temporaryNpcExpiresAt = new Map<string, number>();
 
   onCreate() {
     this.setState(new TownState());
@@ -107,6 +130,10 @@ export class TownRoom extends Room<TownState> {
       this.handleAcceptQuest(client, message);
     });
 
+    this.onMessage("completeQuest", (client, message: Partial<ClientCompleteQuest>) => {
+      this.handleCompleteQuest(client, message);
+    });
+
     this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
       this.handleLootCorpse(client, message);
     });
@@ -119,6 +146,10 @@ export class TownRoom extends Room<TownState> {
       this.handleUnequipItem(client, message);
     });
 
+    this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
+      this.handleSelectTalent(client, message);
+    });
+
     this.onMessage("respawn", (client) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.health > 0) return;
@@ -128,25 +159,7 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("chat", (client, message: { text?: string }) => {
-      const player = this.state.players.get(client.sessionId);
-      if (!player) return;
-
-      const text = sanitizeChatText(message?.text);
-      if (!text) return;
-
-      const now = Date.now();
-      const lastChat = this.lastChatAt.get(client.sessionId) ?? 0;
-      if (now - lastChat < CHAT.minIntervalMs) return;
-      this.lastChatAt.set(client.sessionId, now);
-
-      const payload: ChatMessage = {
-        sessionId: client.sessionId,
-        name: player.name,
-        identityType: player.identityType,
-        text,
-        sentAt: now,
-      };
-      this.broadcast("chat", payload);
+      void this.handleChatMessage(client, message);
     });
 
     this.onMessage("interact", (client, message: ClientInteract = {}) => {
@@ -171,11 +184,32 @@ export class TownRoom extends Room<TownState> {
       npc.yaw = Math.atan2(player.x - npc.x, player.z - npc.z);
       npc.animation = "idle";
 
+      const questInteraction = getNpcQuestInteraction(npc, player);
+      if (questInteraction?.type === "offer") {
+        client.send("questOffer", questInteraction.offer);
+        this.persistPlayerProgress(client.sessionId, player);
+        return;
+      }
+
+      if (questInteraction?.type === "turnIn") {
+        client.send("questTurnIn", questInteraction.turnIn);
+        this.persistPlayerProgress(client.sessionId, player);
+        return;
+      }
+
+      if (questInteraction?.type === "status") {
+        client.send("questStatus", questInteraction.notice);
+        this.persistPlayerProgress(client.sessionId, player);
+        return;
+      }
+
       const payload: ChatMessage = {
         sessionId: npc.id,
         name: npc.name,
         identityType: "npc",
-        text: getNpcDialogue(npc, player, now, (questId) => client.send("questOffer", makeQuestOffer(questId, npc))),
+        text: questInteraction?.type === "flavor"
+          ? `${player.name}, ${questInteraction.text}`
+          : getNpcDialogue(npc, player),
         sentAt: now,
       };
       this.broadcast("chat", payload);
@@ -205,6 +239,7 @@ export class TownRoom extends Room<TownState> {
     player.level = persistedCharacter?.level ?? 1;
     player.xp = persistedCharacter?.xp ?? 0;
     player.talentPoints = persistedCharacter?.talentPoints ?? 0;
+    normalizePlayerProgression(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
     player.x = spawn.x;
@@ -215,6 +250,7 @@ export class TownRoom extends Room<TownState> {
       applyPersistedCharacter(player, persistedCharacter);
       this.persistentCharacterIds.set(client.sessionId, persistedCharacter.characterId);
     }
+    normalizePlayerTalents(player);
     initializeCharacterEquipment(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
@@ -229,8 +265,76 @@ export class TownRoom extends Room<TownState> {
     this.inputs.delete(client.sessionId);
     this.jumpHeld.delete(client.sessionId);
     this.lastChatAt.delete(client.sessionId);
+    this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
+  }
+
+  private async handleChatMessage(client: Client, message: { text?: string }) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const text = sanitizeChatText(message?.text);
+    if (!text) return;
+
+    const now = Date.now();
+    const lastChat = this.lastChatAt.get(client.sessionId) ?? 0;
+    if (now - lastChat < CHAT.minIntervalMs) return;
+    this.lastChatAt.set(client.sessionId, now);
+
+    const payload: ChatMessage = {
+      sessionId: client.sessionId,
+      name: player.name,
+      identityType: player.identityType,
+      text,
+      sentAt: now,
+    };
+    this.broadcast("chat", payload);
+
+    const prompt = getMferGptPrompt(text);
+    if (!prompt) return;
+
+    const lastMferGpt = this.lastMferGptAt.get(client.sessionId) ?? 0;
+    if (now - lastMferGpt < MFERGPT.commandCooldownMs) {
+      const waitSeconds = Math.ceil((MFERGPT.commandCooldownMs - (now - lastMferGpt)) / 1000);
+      client.send("chat", makeMferGptChatMessage(`Signal cooling down. Try @mfergpt again in ${waitSeconds}s.`, Date.now()));
+      this.logMferGptCommand(client.sessionId, player.name, "chat", false, "cooldown", 0, []);
+      return;
+    }
+    this.lastMferGptAt.set(client.sessionId, now);
+
+    const startedAt = Date.now();
+    try {
+      const result = await handleMferGptPrompt({
+        sessionId: client.sessionId,
+        player,
+        players: this.state.players,
+        npcs: this.state.npcs,
+        prompt,
+        now: Date.now(),
+      });
+      for (const temporaryNpc of result.temporaryNpcs) {
+        this.temporaryNpcExpiresAt.set(temporaryNpc.id, temporaryNpc.expiresAt);
+      }
+      this.broadcast("chat", makeMferGptChatMessage(result.responseText, Date.now()));
+      this.logMferGptCommand(
+        client.sessionId,
+        player.name,
+        result.command,
+        true,
+        "ok",
+        Date.now() - startedAt,
+        result.temporaryNpcs.map((npc) => npc.id),
+      );
+    } catch (error) {
+      client.send("chat", makeMferGptChatMessage("mferGPT hit static. Try a simpler prompt in a moment.", Date.now()));
+      console.error("mfergpt.command_failed", {
+        sessionId: client.sessionId,
+        playerName: player.name,
+        latencyMs: Date.now() - startedAt,
+        error,
+      });
+    }
   }
 
   private handleCombatAction(client: Client, message: Partial<ClientCombatAction>) {
@@ -241,7 +345,7 @@ export class TownRoom extends Room<TownState> {
     const actionId = normalizeCombatActionId(message?.actionId);
     if (!actionId) return;
 
-    const action = COMBAT.actions[actionId];
+    const action = getPlayerActionConfig(player, actionId);
     const now = Date.now();
     if (player.castingAction) return;
     if (getActionReadyAt(player, actionId) > now) return;
@@ -259,6 +363,7 @@ export class TownRoom extends Room<TownState> {
         now,
         (event) => this.broadcast("combatEvent", event),
         this.pendingCombatImpacts,
+        (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
       );
       return;
     }
@@ -295,6 +400,7 @@ export class TownRoom extends Room<TownState> {
       now,
       (event) => this.broadcast("combatEvent", event),
       this.pendingCombatImpacts,
+      (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
     );
   }
 
@@ -304,7 +410,7 @@ export class TownRoom extends Room<TownState> {
 
     const itemId = normalizeItemId(message?.itemId);
     if (!itemId) return;
-    if (!equipInventoryItem(player, itemId)) return;
+    if (!equipInventoryItem(player, itemId, message?.chainTokenId)) return;
 
     this.persistPlayerProgress(client.sessionId, player);
   }
@@ -331,16 +437,30 @@ export class TownRoom extends Room<TownState> {
     if (!npc || distanceToNpc(player, npc) > 3.75) return;
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
 
-    const now = Date.now();
     startQuest(player, questId);
     this.persistPlayerProgress(client.sessionId, player);
-    this.broadcast("chat", {
-      sessionId: npc.id,
-      name: npc.name,
-      identityType: "npc",
-      text: `${player.name}, quest accepted: ${QUESTS[questId].title}.`,
-      sentAt: now,
-    } satisfies ChatMessage);
+  }
+
+  private handleCompleteQuest(client: Client, message: Partial<ClientCompleteQuest>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const questId = normalizeQuestId(message?.questId);
+    if (!questId) return;
+
+    const turnInNpcId = getQuestTurnInNpcId(questId);
+    const npc = this.state.npcs.get(turnInNpcId);
+    if (!npc || distanceToNpc(player, npc) > 3.75) return;
+    if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
+    if (!completeQuest(player, questId, Date.now())) return;
+    awardExperience(player, getPlayerQuestXpReward(player, QUESTS[questId].xpReward));
+
+    this.persistPlayerProgress(client.sessionId, player);
+
+    const nextQuestId = getNextAvailableQuestId(player, questId);
+    if (nextQuestId && QUESTS[nextQuestId].giverNpcId === npc.id) {
+      client.send("questOffer", makeQuestOffer(nextQuestId, npc));
+    }
   }
 
   private handleLootCorpse(client: Client, message: Partial<ClientLootCorpse>) {
@@ -355,15 +475,17 @@ export class TownRoom extends Room<TownState> {
     const requestedItemId = message?.itemId;
     const itemId = requestedItemId === undefined ? null : normalizeItemId(requestedItemId);
     if (requestedItemId !== undefined && !itemId) return;
-    if (itemId && !npc.loot.has(itemId)) return;
+    const chainTokenId = normalizeChainTokenId(message?.chainTokenId);
+    const requestedLootKey = itemId ? getInventoryItemKey(itemId, chainTokenId) : "";
+    if (itemId && !npc.loot.has(requestedLootKey)) return;
 
     if (itemId) {
-      lootCorpseItem(player, npc, itemId);
+      lootCorpseItem(player, npc, itemId, chainTokenId);
     } else {
-      const itemIds: ItemId[] = [];
-      npc.loot.forEach((item) => itemIds.push(item.id));
-      for (const nextItemId of itemIds) {
-        lootCorpseItem(player, npc, nextItemId);
+      const lootItems: Array<{ itemId: ItemId; chainTokenId: string }> = [];
+      npc.loot.forEach((item) => lootItems.push({ itemId: item.id, chainTokenId: item.chainTokenId }));
+      for (const item of lootItems) {
+        lootCorpseItem(player, npc, item.itemId, item.chainTokenId);
       }
     }
 
@@ -376,6 +498,18 @@ export class TownRoom extends Room<TownState> {
     npc.despawnAt = Date.now() + LOOT.lootedDespawnMs;
     npc.respawnAt = Math.max(npc.respawnAt, npc.despawnAt + 250);
     client.send("closeLootWindow", { npcId: npc.id });
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private handleSelectTalent(client: Client, message: Partial<ClientSelectTalent>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const talentId = normalizeTalentId(message?.talentId);
+    if (!talentId) return;
+    if (!rankPlayerTalent(player, talentId)) return;
+
+    recalculatePlayerStats(player);
     this.persistPlayerProgress(client.sessionId, player);
   }
 
@@ -398,6 +532,7 @@ export class TownRoom extends Room<TownState> {
   private update(dt: number) {
     const delta = Math.min(dt, 0.1);
     const now = Date.now();
+    this.removeExpiredTemporaryNpcs(now);
     updateNpcs(
       this.state.npcs,
       this.state.players,
@@ -406,7 +541,13 @@ export class TownRoom extends Room<TownState> {
       (event) => this.broadcast("combatEvent", event),
       this.pendingCombatImpacts,
     );
-    processPendingCombatImpacts(this.pendingCombatImpacts, this.state.players, this.state.npcs, now);
+    processPendingCombatImpacts(
+      this.pendingCombatImpacts,
+      this.state.players,
+      this.state.npcs,
+      now,
+      (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+    );
 
     this.state.players.forEach((player, sessionId) => {
       const input = this.inputs.get(sessionId);
@@ -426,6 +567,7 @@ export class TownRoom extends Room<TownState> {
         now,
         (event) => this.broadcast("combatEvent", event),
         this.pendingCombatImpacts,
+        (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
       );
       let grounded = player.y <= 0.001;
 
@@ -461,7 +603,7 @@ export class TownRoom extends Room<TownState> {
 
       const nx = activeInput.x / length;
       const nz = activeInput.z / length;
-      const speed = activeInput.sprint ? PLAYER.runSpeed : PLAYER.walkSpeed;
+      const speed = activeInput.sprint ? player.runSpeed : player.walkSpeed;
       const nextPosition = resolveWorldCollision(
         player.x + nx * speed * delta,
         player.z + nz * speed * delta,
@@ -472,6 +614,71 @@ export class TownRoom extends Room<TownState> {
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
     });
   }
+
+  private creditNearbyPlayersForNpcDefeat(sourceId: string, npc: NpcState, _now: number) {
+    const mobXp = getNpcDefeatXp(npc);
+    this.state.players.forEach((player, sessionId) => {
+      if (!isEligibleForDefeatCredit(player, npc)) return;
+
+      const questProgressed = progressDefeatQuests(player, npc);
+      const award = awardExperience(player, mobXp);
+      if (questProgressed || award.xpGained > 0 || award.levelsGained > 0) {
+        this.persistPlayerProgress(sessionId, player);
+      }
+    });
+    void sourceId;
+  }
+
+  private removeExpiredTemporaryNpcs(now: number) {
+    for (const [npcId, expiresAt] of this.temporaryNpcExpiresAt) {
+      const npc = this.state.npcs.get(npcId);
+      if (!npc) {
+        this.temporaryNpcExpiresAt.delete(npcId);
+        continue;
+      }
+
+      const defeatedAndDespawned = !isNpcAlive(npc) && npc.despawnAt > 0 && now >= npc.despawnAt;
+      if (now < expiresAt && !defeatedAndDespawned) continue;
+
+      this.state.npcs.delete(npcId);
+      this.temporaryNpcExpiresAt.delete(npcId);
+    }
+  }
+
+  private logMferGptCommand(
+    sessionId: string,
+    playerName: string,
+    command: MferGptCommand,
+    accepted: boolean,
+    reason: string,
+    latencyMs: number,
+    temporaryNpcIds: string[],
+  ) {
+    console.info("mfergpt.command", {
+      sessionId,
+      playerName,
+      command,
+      accepted,
+      reason,
+      latencyMs,
+      temporaryNpcIds,
+    });
+  }
+}
+
+function makeMferGptChatMessage(text: string, sentAt: number): ChatMessage {
+  return {
+    sessionId: MFERGPT.npcId,
+    name: "mferGPT",
+    identityType: "npc",
+    text,
+    sentAt,
+  };
+}
+
+function isEligibleForDefeatCredit(player: PlayerState, npc: { x: number; z: number }) {
+  if (player.health <= 0) return false;
+  return Math.hypot(player.x - npc.x, player.z - npc.z) <= PROGRESSION.nearbyCreditRadius;
 }
 
 async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number) {
@@ -500,8 +707,9 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
   for (const savedItem of character.inventory) {
     const item = new InventoryItemState();
     item.id = savedItem.id;
+    item.chainTokenId = normalizeChainTokenId(savedItem.chainTokenId);
     item.count = savedItem.count;
-    player.inventory.set(savedItem.id, item);
+    player.inventory.set(getInventoryItemKey(savedItem.id, item.chainTokenId), item);
   }
 
   player.equipment.clear();
@@ -509,7 +717,18 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     const slot = new EquipmentSlotState();
     slot.slot = savedSlot.slot;
     slot.itemId = savedSlot.itemId;
+    slot.chainTokenId = normalizeChainTokenId(savedSlot.chainTokenId);
     player.equipment.set(savedSlot.slot, slot);
+  }
+
+  player.talents.clear();
+  for (const savedTalent of character.talents) {
+    const talent = new TalentState();
+    talent.id = savedTalent.id;
+    talent.tree = savedTalent.tree;
+    talent.nodeId = savedTalent.nodeId;
+    talent.rank = savedTalent.rank;
+    player.talents.set(savedTalent.id, talent);
   }
 }
 
@@ -530,6 +749,7 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
   player.inventory.forEach((item, id) => {
     inventory.push({
       id: (item.id || id) as ItemId,
+      chainTokenId: normalizeChainTokenId(item.chainTokenId),
       count: item.count,
     });
   });
@@ -539,8 +759,11 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     equipment.push({
       slot: (slot.slot || id) as PersistableCharacterState["equipment"][number]["slot"],
       itemId: slot.itemId,
+      chainTokenId: normalizeChainTokenId(slot.chainTokenId),
     });
   });
+
+  const talents = getPlayerTalentRanks(player);
 
   return {
     characterId,
@@ -552,5 +775,6 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     quests,
     inventory,
     equipment,
+    talents,
   };
 }
