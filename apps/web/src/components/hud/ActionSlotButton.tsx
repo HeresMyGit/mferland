@@ -345,13 +345,14 @@ function getCombatUsability(
   if (player.mana < action.manaCost) return { usable: false, reason: "Mana" };
   if (actionId === "frostNova" || actionId === "whirlwind") return { usable: true, reason: "" };
   if (actionId === "heal") {
-    if (!selectedTarget) return { usable: true, reason: "" };
-    if (!selectedTargetUnit) return { usable: false, reason: "Target" };
-    if (selectedTargetUnit.health <= 0) return { usable: false, reason: "Dead" };
-    if (isNpcSnapshot(selectedTargetUnit) && getNpcDisposition(selectedTargetUnit) === "hostile") {
+    const targetUnit = selectedTarget ? selectedTargetUnit : player;
+    if (!targetUnit) return { usable: false, reason: "Target" };
+    if (targetUnit.health <= 0) return { usable: false, reason: "Dead" };
+    if (isNpcSnapshot(targetUnit) && getNpcDisposition(targetUnit) === "hostile") {
       return { usable: false, reason: "Hostile" };
     }
-    const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
+    if (targetUnit.health >= targetUnit.maxHealth) return { usable: false, reason: "Full" };
+    const distance = Math.hypot(player.x - targetUnit.x, player.z - targetUnit.z);
     return distance <= action.maxRange ? { usable: true, reason: "" } : { usable: false, reason: "Range" };
   }
 

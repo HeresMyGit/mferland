@@ -424,6 +424,7 @@ export class TownRoom extends Room<TownState> {
       if (!healTarget) return;
       const distance = this.distanceToHealTarget(player, healTarget);
       if (distance < action.minRange || distance > action.maxRange) return;
+      if (healTarget.unit.health >= healTarget.unit.maxHealth) return;
 
       player.lastCastAt = now;
       if (healTarget.id !== client.sessionId || healTarget.kind !== "player") {
@@ -466,6 +467,7 @@ export class TownRoom extends Room<TownState> {
     }
 
     setActionReadyAt(player, actionId, now + action.cooldownMs);
+    player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
     player.lastCastAt = now;
     aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
     if (actionId === "multishot") {
@@ -514,6 +516,10 @@ export class TownRoom extends Room<TownState> {
 
     const healTarget = this.findHealTarget(player, { kind: player.castTargetKind, id: player.castTargetId }, sessionId);
     if (!healTarget || this.distanceToHealTarget(player, healTarget) > action.maxRange) {
+      clearPlayerCast(player);
+      return;
+    }
+    if (healTarget.unit.health >= healTarget.unit.maxHealth) {
       clearPlayerCast(player);
       return;
     }

@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
 import * as THREE from "three";
@@ -7,6 +7,7 @@ import {
   COMBAT,
   ITEMS,
   getInventoryItemKey,
+  getItemConsumable,
   getNpcDisposition,
   isAttackableNpcRole,
   isCombatActionUnlocked,
@@ -23,7 +24,7 @@ import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
-import { getActionSlotKey, type ActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
+import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
@@ -162,6 +163,8 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
+  const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
+  const actionErrorIdRef = useRef(0);
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
@@ -177,19 +180,32 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
     const nearestNpc = findNearestNpc(localPlayer, room.npcs);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
   }, [localPlayer, room.npcs, room.sendInteract]);
+  const showActionError = useCallback((text: string) => {
+    actionErrorIdRef.current += 1;
+    setActionError({ id: actionErrorIdRef.current, text });
+  }, []);
   const performAction = useCallback((slot: ActionSlot) => {
     if (!slot) return;
     if (slot === "interact") performInteract();
     else if (isItemActionSlot(slot)) {
+      const blockMessage = getItemActionBlockMessage(slot, localPlayer ?? null);
+      if (blockMessage) {
+        showActionError(blockMessage);
+        return;
+      }
       room.sendUseItem({ itemId: slot.itemId, chainTokenId: slot.chainTokenId });
     } else {
-      if (!canUseCombatAction(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit)) return;
+      const blockMessage = getCombatActionBlockMessage(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit);
+      if (blockMessage) {
+        showActionError(blockMessage);
+        return;
+      }
       room.sendCombatAction({
         actionId: slot,
         target: selectedTarget,
       });
     }
-  }, [localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit]);
+  }, [localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, showActionError]);
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
@@ -214,6 +230,12 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   useEffect(() => {
     window.localStorage.setItem(ACTION_SLOT_STORAGE_KEY, JSON.stringify(actionSlots));
   }, [actionSlots]);
+
+  useEffect(() => {
+    if (!actionError) return;
+    const timeout = window.setTimeout(() => setActionError(null), 1500);
+    return () => window.clearTimeout(timeout);
+  }, [actionError]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -267,6 +289,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         questTurnIn={room.questTurnIn}
         questStatus={room.questStatus}
         lootWindow={room.lootWindow}
+        actionError={actionError}
         actionSlots={actionSlots}
         onAction={performAction}
         onReplaceActionSlots={replaceActionSlots}
@@ -303,13 +326,33 @@ function getSelectedTargetUnit(
   return npc;
 }
 
-function canUseCombatAction(
+function getItemActionBlockMessage(slot: ItemActionSlot, player: PlayerSnapshot | null) {
+  if (!player || player.health <= 0) return "Not ready";
+  const inventoryKey = getInventoryItemKey(slot.itemId, slot.chainTokenId);
+  const inventoryItem = player.inventory.find((item) => getInventoryItemKey(item.id, item.chainTokenId) === inventoryKey);
+  if (!inventoryItem || inventoryItem.count <= 0) return "Item is empty";
+
+  const consumable = getItemConsumable(slot.itemId);
+  if (!consumable) return "Can't use that";
+
+  const needsHealth = Boolean(consumable.health && player.health < player.maxHealth);
+  const needsMana = Boolean(consumable.mana && player.mana < player.maxMana);
+  if (needsHealth || needsMana) return null;
+  if (consumable.health && consumable.mana) return "Health and mana are full";
+  if (consumable.health) return "Health is full";
+  if (consumable.mana) return "Mana is full";
+  return "Can't use that";
+}
+
+function getCombatActionBlockMessage(
   actionId: CombatActionId,
   player: PlayerSnapshot | null,
   selectedTarget: TargetSelection | null,
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
 ) {
-  if (!player || player.castingAction) return false;
+  if (!player) return "Not ready";
+  if (player.health <= 0) return "You are dead";
+  if (player.castingAction) return "Already casting";
   const action = COMBAT.actions[actionId];
   const now = Date.now();
   const readyAt = actionId === "attack"
@@ -328,30 +371,38 @@ function canUseCombatAction(
                 ? player.tauntReadyAt
                 : actionId === "whirlwind"
                   ? player.whirlwindReadyAt
-                  : actionId === "multishot"
-                    ? player.multishotReadyAt
-                    : player.iceBlastReadyAt;
-  if (readyAt > now || player.mana < action.manaCost) return false;
-  if (!isCombatActionUnlocked(actionId, player.talents)) return false;
-  if (actionId === "frostNova" || actionId === "whirlwind") return true;
+                : actionId === "multishot"
+                  ? player.multishotReadyAt
+                  : player.iceBlastReadyAt;
+  if (readyAt > now) return "Ability is not ready";
+  if (player.mana < action.manaCost) return "Not enough mana";
+  if (!isCombatActionUnlocked(actionId, player.talents)) return "Ability is locked";
+  if (actionId === "frostNova" || actionId === "whirlwind") return null;
   if (actionId === "heal") {
-    if (!selectedTarget) return true;
-    if (!selectedTargetUnit) return false;
-    if (selectedTargetUnit.health <= 0) return false;
-    if (isNpcSnapshot(selectedTargetUnit) && getNpcDisposition(selectedTargetUnit) === "hostile") return false;
-    const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
-    return distance >= action.minRange && distance <= action.maxRange;
+    const targetUnit = selectedTarget ? selectedTargetUnit : player;
+    if (!targetUnit) return "Invalid target";
+    if (targetUnit.health <= 0) return "Target is dead";
+    if (isNpcSnapshot(targetUnit) && getNpcDisposition(targetUnit) === "hostile") return "Can't heal hostile target";
+    if (targetUnit.health >= targetUnit.maxHealth) {
+      return targetUnit === player ? "You have full health" : "Target has full health";
+    }
+    const distance = Math.hypot(player.x - targetUnit.x, player.z - targetUnit.z);
+    if (distance < action.minRange) return "Too close";
+    if (distance > action.maxRange) return "Out of range";
+    return null;
   }
 
   if (!selectedTarget) {
-    return true;
+    return "No target";
   }
-  if (selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) return false;
-  if (!isAttackableNpcRole(selectedTargetUnit.role)) return false;
-  if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return false;
+  if (selectedTarget.kind !== "npc" || !selectedTargetUnit || !isNpcSnapshot(selectedTargetUnit)) return "Target an enemy";
+  if (!isAttackableNpcRole(selectedTargetUnit.role)) return "Target is friendly";
+  if (!selectedTargetUnit.isImmortal && selectedTargetUnit.health <= 0) return "Target is dead";
 
   const distance = Math.hypot(player.x - selectedTargetUnit.x, player.z - selectedTargetUnit.z);
-  return distance >= action.minRange && distance <= action.maxRange;
+  if (distance < action.minRange) return "Too close";
+  if (distance > action.maxRange) return "Out of range";
+  return null;
 }
 
 function isNpcSnapshot(unit: PlayerSnapshot | NpcSnapshot): unit is NpcSnapshot {

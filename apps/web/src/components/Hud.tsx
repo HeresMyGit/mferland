@@ -96,6 +96,7 @@ type HudProps = {
   questTurnIn: QuestTurnIn | null;
   questStatus: QuestStatusNotice | null;
   lootWindow: LootWindow | null;
+  actionError: { id: number; text: string } | null;
   actionSlots: ActionSlot[];
   onAction: (slot: NonNullable<ActionSlot>) => void;
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
@@ -132,6 +133,7 @@ export function Hud({
   questTurnIn,
   questStatus,
   lootWindow,
+  actionError,
   actionSlots,
   onAction,
   onReplaceActionSlots,
@@ -272,6 +274,10 @@ export function Hud({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) return;
+      if (event.key === "Escape" && !isTypingTarget(event.target)) {
+        if (closeTopOverlay()) event.preventDefault();
+        return;
+      }
       if (event.key === "Enter" && !isTypingTarget(event.target) && isChatShortcutTarget(event.target)) {
         event.preventDefault();
         chatInputRef.current?.focus();
@@ -290,7 +296,66 @@ export function Hud({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [
+    isMapOpen,
+    isQuestLogOpen,
+    isInventoryOpen,
+    isCharacterOpen,
+    isAbilitiesOpen,
+    lootWindow,
+    questOffer,
+    questTurnIn,
+    questStatus,
+    onCloseLootWindow,
+    onDismissQuestOffer,
+    onDismissQuestTurnIn,
+    onDismissQuestStatus,
+  ]);
+
+  function closeTopOverlay() {
+    if (carriedSlotRef.current) {
+      setCarriedSlot(null);
+      setDropSlot(null);
+      return true;
+    }
+    if (lootWindow) {
+      onCloseLootWindow();
+      return true;
+    }
+    if (questStatus) {
+      onDismissQuestStatus();
+      return true;
+    }
+    if (questTurnIn) {
+      onDismissQuestTurnIn();
+      return true;
+    }
+    if (questOffer) {
+      onDismissQuestOffer();
+      return true;
+    }
+    if (isInventoryOpen) {
+      setIsInventoryOpen(false);
+      return true;
+    }
+    if (isAbilitiesOpen) {
+      setIsAbilitiesOpen(false);
+      return true;
+    }
+    if (isCharacterOpen) {
+      setIsCharacterOpen(false);
+      return true;
+    }
+    if (isQuestLogOpen) {
+      setIsQuestLogOpen(false);
+      return true;
+    }
+    if (isMapOpen) {
+      setIsMapOpen(false);
+      return true;
+    }
+    return false;
+  }
 
   useEffect(() => {
     if (!carriedSlot) return;
@@ -1044,7 +1109,16 @@ export function Hud({
         </section>
       )}
 
+      {actionError && <HudErrorText key={actionError.id} text={actionError.text} />}
       {tooltip && <HudTooltip tooltip={tooltip} />}
+    </div>
+  );
+}
+
+function HudErrorText({ text }: { text: string }) {
+  return (
+    <div className="hud-error-text" role="status" aria-live="polite">
+      {text}
     </div>
   );
 }

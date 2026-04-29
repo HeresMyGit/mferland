@@ -11,7 +11,7 @@ export const COMBAT = {
   actions: {
     attack: {
       label: "Attack",
-      damage: 5,
+      damage: 4,
       cooldownMs: 1500,
       minRange: 0,
       maxRange: 5,
@@ -21,7 +21,7 @@ export const COMBAT = {
     },
     shoot: {
       label: "Shoot",
-      damage: 9,
+      damage: 10,
       cooldownMs: 2000,
       minRange: 4.0,
       maxRange: 40,

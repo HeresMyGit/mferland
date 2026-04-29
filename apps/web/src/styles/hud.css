@@ -28,6 +28,7 @@
 .hotbar,
 .menu-dock,
 .death-panel,
+.hud-error-text,
 .status-pill {
   position: absolute;
 }
@@ -132,6 +133,43 @@
   transform: scaleX(0);
   transform-origin: left center;
   will-change: transform;
+}
+
+.hud-error-text {
+  left: 50%;
+  top: 31%;
+  z-index: 120;
+  min-width: 180px;
+  max-width: min(420px, calc(100vw - 32px));
+  color: #ff5f52;
+  font-size: 18px;
+  font-weight: 1000;
+  letter-spacing: 0;
+  line-height: 1.1;
+  text-align: center;
+  text-shadow:
+    0 2px 0 #120403,
+    0 0 10px rgba(0, 0, 0, 0.72);
+  text-transform: uppercase;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: hud-error-pop 1500ms ease-out forwards;
+}
+
+@keyframes hud-error-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.96);
+  }
+  12%,
+  72% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -12px) scale(0.98);
+  }
 }
 
 .target-frame {
