@@ -115,11 +115,11 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       name: "mferGPT",
       role: "wanderer",
       model: "mfergpt",
-      x: -10.2,
-      z: -9.2,
-      yaw: 2.55,
-      leashRadius: 1.4,
-      dialogue: "Say @mfergpt in chat if you need a quest hint, an arena test, or a town scan.",
+      x: 6.8,
+      z: -5.2,
+      yaw: -0.92,
+      leashRadius: 0,
+      dialogue: "Say @mfergpt in chat for quest hints, a town scan, or an arena test over by the dummies.",
     },
     {
       id: "hogwatch-mfer",
@@ -447,6 +447,11 @@ export function updateNpcs(
     }
     if (npc.slowedUntil > 0 && now >= npc.slowedUntil) npc.slowedUntil = 0;
 
+    if (npc.model === "mfergpt") {
+      updateMferGptNpc(npc, players, now);
+      return;
+    }
+
     if (npc.role === "farmer") {
       updateFarmerNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
       return;
@@ -514,6 +519,20 @@ export function updateNpcs(
     npc.yaw = Math.atan2(dx, dz);
     npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "walk" : "idle";
   });
+}
+
+function updateMferGptNpc(npc: NpcState, players: MapSchema<PlayerState>, now: number) {
+  const nearest = findNearestPlayer(npc, players, 20);
+  if (nearest) {
+    const dx = nearest.x - npc.x;
+    const dz = nearest.z - npc.z;
+    if (Math.hypot(dx, dz) > 0.05) npc.yaw = Math.atan2(dx, dz);
+  }
+
+  npc.targetX = npc.homeX;
+  npc.targetZ = npc.homeZ;
+  npc.animation = "idle";
+  npc.nextDecisionAt = now + 10000;
 }
 
 function updateFarmerNpc(
@@ -645,6 +664,20 @@ function getPlayerSessionId(players: MapSchema<PlayerState>, target: PlayerState
     if (player === target) found = sessionId;
   });
   return found;
+}
+
+function findNearestPlayer(npc: NpcState, players: MapSchema<PlayerState>, maxDistance: number): PlayerState | null {
+  let nearest: PlayerState | null = null;
+  let nearestDistance = maxDistance;
+  players.forEach((player) => {
+    if (player.health <= 0) return;
+    const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
+    if (distance < nearestDistance) {
+      nearest = player;
+      nearestDistance = distance;
+    }
+  });
+  return nearest;
 }
 
 function moveNpcToward(npc: NpcState, x: number, z: number, delta: number, speed: number) {
