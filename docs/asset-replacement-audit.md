@@ -76,6 +76,8 @@ Simplified score key:
 - 2026-04-29: Repeated town prop cleanup merged `/models/market-stall.glb`, `/models/banner-post.glb`, and `/models/watch-tower.glb` down to one mesh each while preserving texture/material slots and runtime color variants.
 - 2026-04-29: Fountain basin cleanup merged `/models/fountain-basin.glb` down to one mesh while preserving its ChatGPT Images 2.0 texture/material slots. Runtime water remains procedural.
 - 2026-04-29: Fountain runtime text cleanup removed the old `MFERS NEVER DIE` overlay from the basin area while keeping the procedural water and GLB basin.
+- 2026-04-29: Sartoshi fountain statue pass added a center pedestal and runtime 3D mfer statue using the canonical mfer GLB with plain body, regular eyes, smile, black headphones, black cig, and white Argo watch. The basin GLB stayed in place, while water changed to a ring with outward arcs/droplets so the statue owns the center.
+- 2026-04-29: Creature GLB source bank added standalone Blender source, GLB export, and preview PNG assets for `wild-rabbit`, `town-deer`, `wild-hog`, `old-boar`, `field-crow`, `living-scarecrow`, and `static-wisp`. These are not runtime-integrated yet.
 
 ## Static World Objects
 

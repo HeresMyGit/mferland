@@ -136,6 +136,17 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 
 ## Verification Notes
 
+### 2026-04-29 16:56 PDT - Creature GLB Source Bank
+
+- Added standalone Blender source, GLB export, and preview PNG assets for `wild-rabbit`, `town-deer`, `wild-hog`, `old-boar`, `field-crow`, `living-scarecrow`, and `static-wisp` under `assets/blender/`.
+- These are not wired into the game runtime yet; they are a creature-pass model bank for later selection, optimization, and integration.
+
+### 2026-04-29 16:05 PDT - Sartoshi Fountain Statue Pass
+
+- Added a center pedestal and trait-filtered 3D mfer statue to the plaza fountain runtime: plain mfer, regular eyes, smile, black headphones, black cig, and white Argo watch.
+- Kept the existing `/models/fountain-basin.glb` and procedural water, but changed the water surface to a ring and moved arcs/droplets outward so the statue owns the center instead of being crossed by water effects.
+- Verified with `npm run typecheck -w apps/web` and an in-app browser plaza check. The browser also showed pre-existing runtime/HMR errors from concurrent debug-placement/shared-package work, so console cleanliness was not attributable to this pass.
+
 ### 2026-04-29 12:52 PDT - Shopfront Window Color Pass
 
 - Updated `assets/blender/town-shopfront.blend` and re-exported `/models/town-shopfront.glb` so shopfront window panes use darker warm glass instead of bright blue.
