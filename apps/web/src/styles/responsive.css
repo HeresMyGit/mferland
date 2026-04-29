@@ -117,6 +117,29 @@
 }
 
 @media (max-width: 640px) {
+  .auth-title-lockup {
+    left: 16px;
+    right: auto;
+    top: 14px;
+    padding: 10px 12px;
+  }
+
+  .auth-title-lockup .brand-mark {
+    width: 52px;
+    height: 52px;
+  }
+
+  .auth-title-lockup h1 {
+    font-size: 25px;
+  }
+
+  .auth-connect-panel {
+    left: 16px;
+    right: 16px;
+    bottom: 18px;
+    width: auto;
+  }
+
   .chat-panel {
     width: calc(100vw - 132px);
     bottom: 74px;

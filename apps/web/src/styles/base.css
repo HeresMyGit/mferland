@@ -42,53 +42,38 @@ button {
 }
 
 .auth-screen {
-  display: grid;
-  place-items: center;
   background: #76b4e8;
 }
 
 .auth-bg {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(180deg, rgba(85, 174, 232, 0.25), rgba(73, 132, 78, 0.45)),
-    radial-gradient(circle at 50% 100%, #7f9b59 0 24%, transparent 25%),
-    linear-gradient(#71b9ef 0 62%, #6f954d 63%);
+  background: #76b4e8;
 }
 
-.auth-castle {
+.auth-town-canvas {
   position: absolute;
-  left: 50%;
-  bottom: 34%;
-  width: min(420px, 68vw);
-  height: 210px;
-  transform: translateX(-50%);
-  background:
-    linear-gradient(90deg, transparent 0 9%, #7c7a72 9% 24%, transparent 24% 76%, #7c7a72 76% 91%, transparent 91%),
-    linear-gradient(#908b80, #736c62);
-  clip-path: polygon(0 34%, 11% 34%, 11% 10%, 22% 10%, 22% 34%, 39% 34%, 39% 0, 47% 0, 47% 34%, 53% 34%, 53% 0, 61% 0, 61% 34%, 78% 34%, 78% 10%, 89% 10%, 89% 34%, 100% 34%, 100% 100%, 0 100%);
-  box-shadow: 0 24px 60px rgba(25, 32, 28, 0.35);
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
-.auth-plaza {
+.auth-scene-vignette {
   position: absolute;
-  left: 50%;
-  bottom: -22%;
-  width: min(900px, 120vw);
-  aspect-ratio: 1;
-  transform: translateX(-50%) rotateX(64deg);
-  border-radius: 50%;
+  inset: 0;
   background:
-    repeating-radial-gradient(circle, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 34px),
-    #a29377;
-  box-shadow: 0 -18px 80px rgba(39, 64, 39, 0.3);
+    linear-gradient(90deg, rgba(9, 10, 7, 0.42), transparent 36%, rgba(8, 9, 7, 0.2)),
+    linear-gradient(180deg, rgba(93, 181, 235, 0.08), rgba(16, 22, 11, 0.18)),
+    radial-gradient(circle at 54% 52%, transparent 0 28%, rgba(5, 6, 4, 0.26) 78%);
+  pointer-events: none;
 }
 
-.auth-panel {
-  position: relative;
+.auth-title-lockup,
+.auth-connect-panel {
+  position: absolute;
   z-index: 1;
-  width: min(440px, calc(100vw - 32px));
-  padding: 24px;
   border: 1px solid rgba(255, 255, 255, 0.24);
   border-radius: 8px;
   background: rgba(22, 20, 16, 0.78);
@@ -96,11 +81,20 @@ button {
   backdrop-filter: blur(18px);
 }
 
-.brand-lockup {
+.auth-title-lockup {
+  top: 28px;
+  left: clamp(20px, 4vw, 58px);
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 22px;
+  padding: 14px 18px;
+}
+
+.auth-connect-panel {
+  right: clamp(18px, 3vw, 36px);
+  bottom: clamp(18px, 3vh, 36px);
+  width: min(340px, calc(100vw - 32px));
+  padding: 16px;
 }
 
 .brand-mark {
@@ -126,7 +120,7 @@ button {
   text-transform: uppercase;
 }
 
-.brand-lockup h1 {
+.auth-title-lockup h1 {
   margin: 0;
   font-size: 34px;
   line-height: 1;
@@ -134,7 +128,7 @@ button {
   text-transform: uppercase;
 }
 
-.brand-lockup p,
+.auth-title-lockup p,
 .name-field span {
   margin: 4px 0 0;
   color: #cfc6ab;
@@ -158,7 +152,7 @@ button {
 }
 
 .name-field input {
-  height: 44px;
+  height: 42px;
   padding: 0 12px;
 }
 
@@ -175,7 +169,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  min-height: 44px;
+  min-height: 42px;
   border: 0;
   border-radius: 6px;
   font-weight: 900;

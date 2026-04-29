@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
+import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import {
   COMBAT,
@@ -20,6 +21,7 @@ import {
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
+import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
 import { getActionSlotKey, type ActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 
@@ -59,21 +61,27 @@ function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
 
   return (
     <main className="auth-screen">
-      <div className="auth-bg">
-        <div className="auth-castle" />
-        <div className="auth-plaza" />
+      <div className="auth-bg" aria-hidden="true">
+        <Canvas
+          className="auth-town-canvas"
+          dpr={[1, 1.35]}
+          camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
+        >
+          <AuthTownPreview />
+        </Canvas>
+        <div className="auth-scene-vignette" />
       </div>
-      <section className="auth-panel">
-        <div className="brand-lockup">
-          <div className="brand-mark">
-            <span>mf</span>
-          </div>
-          <div>
-            <h1>Mfer Town</h1>
-            <p>social plaza alpha</p>
-          </div>
+      <section className="auth-title-lockup" aria-label="Mfer Town">
+        <div className="brand-mark">
+          <span>mf</span>
         </div>
+        <div>
+          <h1>Mfer Town</h1>
+          <p>social plaza alpha</p>
+        </div>
+      </section>
 
+      <section className="auth-connect-panel">
         <label className="name-field">
           <span>Name</span>
           <input
@@ -114,6 +122,40 @@ function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
       </section>
     </main>
   );
+}
+
+function AuthTownPreview() {
+  return (
+    <>
+      <fog attach="fog" args={["#b7dce9", 32, 92]} />
+      <ambientLight intensity={1.08} />
+      <hemisphereLight args={["#f4fbff", "#8da16f", 0.82]} />
+      <directionalLight position={[-10, 18, 8]} intensity={1.45} color="#fff3d3" />
+      <Skybox />
+      <Suspense fallback={null}>
+        <TownWorld />
+      </Suspense>
+      <AuthPreviewCamera />
+    </>
+  );
+}
+
+function AuthPreviewCamera() {
+  const { camera } = useThree();
+  const lookAt = useMemo(() => new THREE.Vector3(0, 0.92, 0), []);
+
+  useFrame(({ clock }) => {
+    const elapsed = clock.elapsedTime;
+    const orbit = elapsed * 0.09;
+    camera.position.set(
+      Math.sin(orbit) * 2.2,
+      7.2 + Math.sin(elapsed * 0.35) * 0.12,
+      17.6 + Math.cos(orbit) * 1.05,
+    );
+    camera.lookAt(lookAt);
+  });
+
+  return null;
 }
 
 function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => void }) {
