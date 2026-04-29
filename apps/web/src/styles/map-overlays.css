@@ -478,28 +478,6 @@
   transform: translate(-50%, -50%);
 }
 
-.range-label {
-  position: absolute;
-  z-index: 3;
-  left: 50%;
-  bottom: 16px;
-  max-width: 52px;
-  overflow: hidden;
-  padding: 2px 4px;
-  border-radius: 3px;
-  color: #ffddd6;
-  background: rgba(69, 18, 16, 0.78);
-  font-size: 9px;
-  font-style: normal;
-  font-weight: 1000;
-  line-height: 1;
-  text-overflow: ellipsis;
-  text-shadow: 0 2px 0 #111;
-  text-transform: uppercase;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
 .slot-key {
   position: absolute;
   z-index: 3;

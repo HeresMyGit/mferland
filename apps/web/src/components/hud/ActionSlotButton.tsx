@@ -126,7 +126,6 @@ export function ActionSlotButton({
       {cooldown && cooldown.remainingMs > 0 && (
         <em className="cooldown-label">{formatCooldown(cooldown.remainingMs)}</em>
       )}
-      {!usability.usable && usability.reason && <em className="range-label">{usability.reason}</em>}
       <span className="slot-key">{index + 1}</span>
     </button>
   );
