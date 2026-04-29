@@ -11,6 +11,7 @@ import {
   getNpcDisposition,
   isAttackableNpcRole,
   isCombatActionUnlocked,
+  setWorldCollisionPlacementOverrides,
   type ActionId,
   type CombatActionId,
   type JoinOptions,
@@ -24,11 +25,22 @@ import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
+import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
+import {
+  DEBUG_PLACEMENT_STORAGE_KEY,
+  DEBUG_WORLD_PLACEMENT_TARGETS,
+  type DebugPlacementOverrides,
+  type DebugPlacementTarget,
+  type DebugPlacementValue,
+  makeNpcDebugPlacementTargets,
+} from "./game/debugPlacement";
+import { DEFAULT_GAME_SETTINGS, normalizeGameSettings, type GameSettings } from "./game/settings";
 
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
 const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v3";
+const GAME_SETTINGS_STORAGE_KEY = "mferland:settings:v1";
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -45,18 +57,56 @@ type DebugTravelView = {
   yaw: number;
   nonce: number;
 };
+type DebugPlacementStoredRecord = DebugPlacementValue & {
+  kind?: DebugPlacementTarget["kind"];
+  label?: string;
+  source?: string;
+};
+type DebugPlacementStoredRecordMap = Record<string, DebugPlacementStoredRecord>;
+type DebugPlacementSaveStatus = {
+  state: "idle" | "saving" | "saved" | "error";
+  message: string;
+};
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
+  const [savedDebugPlacementDefaults, setSavedDebugPlacementDefaults] = useState<DebugPlacementOverrides>({});
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    void fetchDebugPlacementMap(abortController.signal)
+      .then((document) => {
+        if (abortController.signal.aborted) return;
+        setSavedDebugPlacementDefaults(normalizeDebugPlacementOverridesFromRecordMap(getUnknownRecordProperty(document, "placements")));
+      })
+      .catch(() => {
+        if (!abortController.signal.aborted) setSavedDebugPlacementDefaults({});
+      });
+
+    return () => abortController.abort();
+  }, []);
 
   if (!identity) {
-    return <AuthGate onEnter={setIdentity} />;
+    return <AuthGate onEnter={setIdentity} debugPlacementOverrides={savedDebugPlacementDefaults} />;
   }
 
-  return <GameShell identity={identity} onExit={() => setIdentity(null)} />;
+  return (
+    <GameShell
+      identity={identity}
+      initialSavedDebugPlacementDefaults={savedDebugPlacementDefaults}
+      onSavedDebugPlacementDefaultsChange={setSavedDebugPlacementDefaults}
+      onExit={() => setIdentity(null)}
+    />
+  );
 }
 
-function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
+function AuthGate({
+  onEnter,
+  debugPlacementOverrides,
+}: {
+  onEnter: (identity: JoinOptions) => void;
+  debugPlacementOverrides: DebugPlacementOverrides;
+}) {
   const [name, setName] = useState(() => getStoredName());
   const { address, isConnected } = useAccount();
   const { connect, connectors, isPending } = useConnect();
@@ -84,7 +134,7 @@ function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
           dpr={[1, 1.35]}
           camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
         >
-          <AuthTownPreview />
+          <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} />
         </Canvas>
         <div className="auth-scene-vignette" />
       </div>
@@ -141,7 +191,7 @@ function AuthGate({ onEnter }: { onEnter: (identity: JoinOptions) => void }) {
   );
 }
 
-function AuthTownPreview() {
+function AuthTownPreview({ debugPlacementOverrides }: { debugPlacementOverrides: DebugPlacementOverrides }) {
   return (
     <>
       <fog attach="fog" args={["#b7dce9", 32, 92]} />
@@ -150,7 +200,7 @@ function AuthTownPreview() {
       <directionalLight position={[-10, 18, 8]} intensity={1.45} color="#fff3d3" />
       <Skybox />
       <Suspense fallback={null}>
-        <TownWorld />
+        <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
       </Suspense>
       <AuthPreviewCamera />
     </>
@@ -175,13 +225,35 @@ function AuthPreviewCamera() {
   return null;
 }
 
-function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => void }) {
+function GameShell({
+  identity,
+  initialSavedDebugPlacementDefaults,
+  onSavedDebugPlacementDefaultsChange,
+  onExit,
+}: {
+  identity: JoinOptions;
+  initialSavedDebugPlacementDefaults: DebugPlacementOverrides;
+  onSavedDebugPlacementDefaultsChange: (overrides: DebugPlacementOverrides) => void;
+  onExit: () => void;
+}) {
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
   const [debugTravelView, setDebugTravelView] = useState<DebugTravelView | null>(null);
+  const [settings, setSettings] = useState<GameSettings>(() => readStoredGameSettings());
+  const [debugPlacementOverrides, setDebugPlacementOverrides] = useState<DebugPlacementOverrides>(() => readStoredDebugPlacementOverrides());
+  const [savedDebugPlacementDefaults, setSavedDebugPlacementDefaults] = useState<DebugPlacementOverrides>(initialSavedDebugPlacementDefaults);
+  const [sourceDebugPlacementDefaults, setSourceDebugPlacementDefaults] = useState<DebugPlacementStoredRecordMap>({});
+  const [selectedDebugPlacementId, setSelectedDebugPlacementId] = useState<string | null>(null);
+  const [debugPlacementPanelOpen, setDebugPlacementPanelOpen] = useState(false);
+  const [debugPlacementSaveStatus, setDebugPlacementSaveStatus] = useState<DebugPlacementSaveStatus>({ state: "idle", message: "" });
   const actionErrorIdRef = useRef(0);
+  const pendingDebugPlacementSaveRef = useRef<{
+    placements: DebugPlacementOverrides;
+    sourceDefaults: DebugPlacementStoredRecordMap;
+  } | null>(null);
+  const debugToolsAvailable = import.meta.env.DEV;
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
@@ -192,6 +264,35 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
     () => getSelectedTargetUnit(selectedTarget, room.players, room.npcs),
     [room.npcs, room.players, room.snapshotRevision, selectedTarget],
   );
+  const debugPlacementTargets = useMemo(
+    () => [
+      ...makeNpcDebugPlacementTargets(room.npcs),
+      ...DEBUG_WORLD_PLACEMENT_TARGETS,
+    ],
+    [room.npcs, room.snapshotRevision],
+  );
+  const debugPlacementMode = debugToolsAvailable && settings.debugPlacementEditor;
+  const effectiveDebugPlacementOverrides = useMemo(
+    () => ({
+      ...savedDebugPlacementDefaults,
+      ...debugPlacementOverrides,
+    }),
+    [debugPlacementOverrides, savedDebugPlacementDefaults],
+  );
+
+  useEffect(() => {
+    setSavedDebugPlacementDefaults(initialSavedDebugPlacementDefaults);
+  }, [initialSavedDebugPlacementDefaults]);
+
+  useEffect(() => {
+    setWorldCollisionPlacementOverrides(effectiveDebugPlacementOverrides);
+    return () => setWorldCollisionPlacementOverrides(initialSavedDebugPlacementDefaults);
+  }, [effectiveDebugPlacementOverrides, initialSavedDebugPlacementDefaults]);
+
+  const selectDebugPlacement = useCallback((targetId: string | null) => {
+    setSelectedDebugPlacementId(targetId);
+    if (targetId) setDebugPlacementPanelOpen(true);
+  }, []);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const nearestNpc = findNearestNpc(localPlayer, room.npcs);
@@ -236,6 +337,156 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
       nonce: Date.now(),
     });
   }, [room.sendDebugTeleport]);
+  const updateDebugPlacement = useCallback((target: DebugPlacementTarget, value: DebugPlacementValue, commit: boolean) => {
+    const nextValue = normalizeDebugPlacementValue(value);
+    setDebugPlacementSaveStatus({ state: "idle", message: "Unsaved local draft." });
+    setDebugPlacementOverrides((current) => ({
+      ...current,
+      [target.id]: nextValue,
+    }));
+
+    if (!commit) return;
+    if (target.kind === "npc") {
+      const npcId = target.id.startsWith("npc:") ? target.id.slice("npc:".length) : "";
+      if (!npcId) return;
+      room.sendDebugNpcPlacement({
+        npcId,
+        x: nextValue.x,
+        z: nextValue.z,
+        yaw: nextValue.rotation,
+      });
+      return;
+    }
+
+    room.sendDebugWorldPlacement({
+      targetId: target.id,
+      x: nextValue.x,
+      z: nextValue.z,
+      rotation: nextValue.rotation,
+    });
+  }, [room.sendDebugNpcPlacement, room.sendDebugWorldPlacement]);
+  const clearDebugPlacement = useCallback((targetId: string) => {
+    setDebugPlacementSaveStatus({ state: "idle", message: "Unsaved local draft." });
+    setDebugPlacementOverrides((current) => {
+      if (!(targetId in current)) return current;
+      const next = { ...current };
+      delete next[targetId];
+      return next;
+    });
+    const target = debugPlacementTargets.find((entry) => entry.id === targetId);
+    if (!target || target.kind === "npc") return;
+    const fallback = savedDebugPlacementDefaults[target.id] ?? target;
+    room.sendDebugWorldPlacement({
+      targetId,
+      x: fallback.x,
+      z: fallback.z,
+      rotation: fallback.rotation,
+    });
+  }, [debugPlacementTargets, room, savedDebugPlacementDefaults]);
+  const clearAllDebugPlacements = useCallback(() => {
+    setDebugPlacementSaveStatus({ state: "idle", message: "Unsaved local draft cleared." });
+    setDebugPlacementOverrides({});
+    for (const target of debugPlacementTargets) {
+      if (target.kind === "npc") continue;
+      const fallback = savedDebugPlacementDefaults[target.id] ?? target;
+      room.sendDebugWorldPlacement({
+        targetId: target.id,
+        x: fallback.x,
+        z: fallback.z,
+        rotation: fallback.rotation,
+      });
+    }
+  }, [debugPlacementTargets, room, savedDebugPlacementDefaults]);
+  const saveDebugPlacementDefaults = useCallback(() => {
+    if (room.status !== "connected") {
+      setDebugPlacementSaveStatus({ state: "error", message: "Server is not connected." });
+      return;
+    }
+    const payload = buildDebugPlacementSavePayload(debugPlacementTargets, effectiveDebugPlacementOverrides, sourceDebugPlacementDefaults);
+    pendingDebugPlacementSaveRef.current = payload;
+    setDebugPlacementSaveStatus({ state: "saving", message: "Writing repo map defaults..." });
+    room.sendDebugPlacementSave({
+      placements: payload.placementRecords,
+      sourceDefaults: payload.sourceDefaults,
+    });
+  }, [debugPlacementTargets, effectiveDebugPlacementOverrides, room, sourceDebugPlacementDefaults]);
+
+  useEffect(() => {
+    if (!debugPlacementMode) {
+      setDebugPlacementPanelOpen(false);
+      setSelectedDebugPlacementId(null);
+      return;
+    }
+    setDebugPlacementPanelOpen(true);
+  }, [debugPlacementMode]);
+
+  useEffect(() => {
+    if (!selectedDebugPlacementId) return;
+    if (debugPlacementTargets.some((target) => target.id === selectedDebugPlacementId)) return;
+    setSelectedDebugPlacementId(null);
+  }, [debugPlacementTargets, selectedDebugPlacementId]);
+
+  useEffect(() => {
+    setSourceDebugPlacementDefaults((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const target of debugPlacementTargets) {
+        if (next[target.id]) continue;
+        next[target.id] = makeDebugPlacementStoredRecord(target, target);
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [debugPlacementTargets]);
+
+  useEffect(() => {
+    const document = room.debugPlacementMap;
+    if (!document) return;
+    const loadedPlacements = normalizeDebugPlacementOverridesFromRecordMap(getUnknownRecordProperty(document, "placements"));
+    setSavedDebugPlacementDefaults(loadedPlacements);
+    onSavedDebugPlacementDefaultsChange(loadedPlacements);
+    const loadedSourceDefaults = normalizeDebugPlacementStoredRecords(getUnknownRecordProperty(document, "sourceDefaults"));
+    setSourceDebugPlacementDefaults((current) => ({
+      ...current,
+      ...loadedSourceDefaults,
+    }));
+  }, [onSavedDebugPlacementDefaultsChange, room.debugPlacementMap]);
+
+  useEffect(() => {
+    const result = room.debugPlacementSaveResult;
+    if (!result) return;
+    if (result.ok) {
+      const pending = pendingDebugPlacementSaveRef.current;
+      if (pending) {
+        setSavedDebugPlacementDefaults(pending.placements);
+        onSavedDebugPlacementDefaultsChange(pending.placements);
+        setSourceDebugPlacementDefaults(pending.sourceDefaults);
+        setDebugPlacementOverrides({});
+      }
+      pendingDebugPlacementSaveRef.current = null;
+      const count = typeof result.count === "number" ? `${result.count} placements` : "map defaults";
+      setDebugPlacementSaveStatus({ state: "saved", message: `Saved ${count}.` });
+      return;
+    }
+
+    pendingDebugPlacementSaveRef.current = null;
+    setDebugPlacementSaveStatus({
+      state: "error",
+      message: result.error ? `Save failed: ${result.error}` : "Save failed.",
+    });
+  }, [onSavedDebugPlacementDefaultsChange, room.debugPlacementSaveResult]);
+
+  useEffect(() => {
+    if (debugPlacementSaveStatus.state !== "saving") return;
+    const timeout = window.setTimeout(() => {
+      pendingDebugPlacementSaveRef.current = null;
+      setDebugPlacementSaveStatus({
+        state: "error",
+        message: "Save timed out. Restart the dev server if it was running old code.",
+      });
+    }, 8000);
+    return () => window.clearTimeout(timeout);
+  }, [debugPlacementSaveStatus.state]);
 
   useEffect(() => {
     if (!localPlayer) return;
@@ -257,6 +508,14 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   useEffect(() => {
     window.localStorage.setItem(ACTION_SLOT_STORAGE_KEY, JSON.stringify(actionSlots));
   }, [actionSlots]);
+
+  useEffect(() => {
+    window.localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    window.localStorage.setItem(DEBUG_PLACEMENT_STORAGE_KEY, JSON.stringify(debugPlacementOverrides));
+  }, [debugPlacementOverrides]);
 
   useEffect(() => {
     if (!actionError) return;
@@ -298,6 +557,13 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
           onInteractAction={performInteract}
           sendInput={room.sendInput}
           debugTravelView={debugTravelView}
+          nameplateVisibility={settings.nameplates}
+          debugPlacementMode={debugPlacementMode}
+          debugPlacementTargets={debugPlacementTargets}
+          debugPlacementOverrides={effectiveDebugPlacementOverrides}
+          selectedDebugPlacementId={selectedDebugPlacementId}
+          onSelectDebugPlacement={selectDebugPlacement}
+          onChangeDebugPlacement={updateDebugPlacement}
         />
       </Canvas>
 
@@ -336,10 +602,27 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         onRespawn={room.sendRespawn}
         onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
         onExit={onExit}
+        settings={settings}
+        debugToolsAvailable={debugToolsAvailable}
+        onSettingsChange={setSettings}
       />
 
-      {import.meta.env.DEV && (
+      {debugToolsAvailable && settings.debugTravelPanel && (
         <DebugTravelPanel localPlayer={localPlayer ?? null} onTravel={performDebugTravel} />
+      )}
+      {debugPlacementMode && debugPlacementPanelOpen && (
+        <DebugPlacementEditor
+          targets={debugPlacementTargets}
+          overrides={effectiveDebugPlacementOverrides}
+          selectedId={selectedDebugPlacementId}
+          onSelect={selectDebugPlacement}
+          onChange={updateDebugPlacement}
+          onClear={clearDebugPlacement}
+          onClearAll={clearAllDebugPlacements}
+          onSaveDefaults={saveDebugPlacementDefaults}
+          saveStatus={debugPlacementSaveStatus}
+          onClose={() => setDebugPlacementPanelOpen(false)}
+        />
       )}
     </main>
   );
@@ -485,6 +768,134 @@ function readStoredActionSlots() {
   } catch {
     return [...DEFAULT_ACTION_SLOTS];
   }
+}
+
+function readStoredGameSettings(): GameSettings {
+  try {
+    const stored = window.localStorage.getItem(GAME_SETTINGS_STORAGE_KEY);
+    if (!stored) return DEFAULT_GAME_SETTINGS;
+    return normalizeGameSettings(JSON.parse(stored) as unknown);
+  } catch {
+    return DEFAULT_GAME_SETTINGS;
+  }
+}
+
+function readStoredDebugPlacementOverrides(): DebugPlacementOverrides {
+  try {
+    const stored = window.localStorage.getItem(DEBUG_PLACEMENT_STORAGE_KEY);
+    if (!stored) return {};
+    return normalizeDebugPlacementOverrides(JSON.parse(stored) as unknown);
+  } catch {
+    return {};
+  }
+}
+
+async function fetchDebugPlacementMap(signal: AbortSignal) {
+  const response = await fetch(getDebugPlacementMapUrl(), { signal });
+  if (!response.ok) throw new Error(`Unable to load placement map: ${response.status}`);
+  return response.json() as Promise<unknown>;
+}
+
+function getDebugPlacementMapUrl() {
+  const configured = import.meta.env.VITE_SERVER_URL ? String(import.meta.env.VITE_SERVER_URL) : "";
+  if (configured) {
+    return `${configured.replace(/^ws:/, "http:").replace(/^wss:/, "https:").replace(/\/$/, "")}/debug-placement-map`;
+  }
+  const protocol = window.location.protocol === "https:" ? "https" : "http";
+  return `${protocol}://${window.location.hostname}:2567/debug-placement-map`;
+}
+
+function normalizeDebugPlacementOverrides(value: unknown): DebugPlacementOverrides {
+  if (!value || typeof value !== "object") return {};
+  const next: DebugPlacementOverrides = {};
+  for (const [id, placement] of Object.entries(value as Record<string, unknown>)) {
+    if (!placement || typeof placement !== "object") continue;
+    const record = placement as Partial<Record<keyof DebugPlacementValue, unknown>>;
+    const x = Number(record.x);
+    const z = Number(record.z);
+    const rotation = Number(record.rotation);
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(rotation)) continue;
+    next[id] = normalizeDebugPlacementValue({ x, z, rotation });
+  }
+  return next;
+}
+
+function normalizeDebugPlacementOverridesFromRecordMap(value: unknown): DebugPlacementOverrides {
+  const records = normalizeDebugPlacementStoredRecords(value);
+  const next: DebugPlacementOverrides = {};
+  for (const [id, record] of Object.entries(records)) {
+    next[id] = normalizeDebugPlacementValue(record);
+  }
+  return next;
+}
+
+function normalizeDebugPlacementStoredRecords(value: unknown): DebugPlacementStoredRecordMap {
+  if (!value || typeof value !== "object") return {};
+  const next: DebugPlacementStoredRecordMap = {};
+  for (const [id, placement] of Object.entries(value as Record<string, unknown>)) {
+    if (!placement || typeof placement !== "object") continue;
+    const record = placement as Record<string, unknown>;
+    const x = Number(record.x);
+    const z = Number(record.z);
+    const rotation = Number(record.rotation);
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(rotation)) continue;
+    const kind = typeof record.kind === "string" && isDebugPlacementKind(record.kind) ? record.kind : undefined;
+    next[id] = {
+      ...normalizeDebugPlacementValue({ x, z, rotation }),
+      ...(kind ? { kind } : {}),
+      ...(typeof record.label === "string" ? { label: record.label } : {}),
+      ...(typeof record.source === "string" ? { source: record.source } : {}),
+    };
+  }
+  return next;
+}
+
+function buildDebugPlacementSavePayload(
+  targets: DebugPlacementTarget[],
+  effectiveOverrides: DebugPlacementOverrides,
+  sourceDefaults: DebugPlacementStoredRecordMap,
+) {
+  const placements: DebugPlacementOverrides = {};
+  const placementRecords: DebugPlacementStoredRecordMap = {};
+  const nextSourceDefaults: DebugPlacementStoredRecordMap = {};
+  for (const target of targets) {
+    const value = normalizeDebugPlacementValue(effectiveOverrides[target.id] ?? target);
+    placements[target.id] = value;
+    placementRecords[target.id] = makeDebugPlacementStoredRecord(target, value);
+    nextSourceDefaults[target.id] = sourceDefaults[target.id] ?? makeDebugPlacementStoredRecord(target, target);
+  }
+
+  return {
+    placements,
+    placementRecords,
+    sourceDefaults: nextSourceDefaults,
+  };
+}
+
+function makeDebugPlacementStoredRecord(target: DebugPlacementTarget, value: DebugPlacementValue): DebugPlacementStoredRecord {
+  return {
+    ...normalizeDebugPlacementValue(value),
+    kind: target.kind,
+    label: target.label,
+    source: target.source,
+  };
+}
+
+function getUnknownRecordProperty(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function isDebugPlacementKind(value: string): value is DebugPlacementTarget["kind"] {
+  return value === "npc" || value === "building" || value === "model" || value === "prop";
+}
+
+function normalizeDebugPlacementValue(value: DebugPlacementValue): DebugPlacementValue {
+  return {
+    x: Math.round(value.x * 10) / 10,
+    z: Math.round(value.z * 10) / 10,
+    rotation: Number.isFinite(value.rotation) ? value.rotation : 0,
+  };
 }
 
 function normalizeActionSlots(slots: unknown[]) {

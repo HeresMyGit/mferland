@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Gift, ListChecks, LogOut, Map as MapIcon, Package, Sparkles, UserRound, X } from "lucide-react";
+import { BookOpen, Check, Gift, ListChecks, LogOut, Map as MapIcon, Package, Settings, Sparkles, UserRound, X } from "lucide-react";
 import {
   CHAT,
   EQUIPMENT_SLOT_IDS,
@@ -33,6 +33,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
+import { type GameSettings, type NameplateVisibility } from "../game/settings";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
 import { AbilitiesPanel } from "./hud/AbilitiesPanel";
 import { AbilityIcon, EquipmentSlotIcon } from "./hud/GameIcon";
@@ -105,6 +106,9 @@ type HudProps = {
   onRespawn: () => void;
   onSelectSelfTarget: () => void;
   onExit: () => void;
+  settings: GameSettings;
+  debugToolsAvailable: boolean;
+  onSettingsChange: (settings: GameSettings) => void;
 };
 
 export function Hud({
@@ -142,6 +146,9 @@ export function Hud({
   onRespawn,
   onSelectSelfTarget,
   onExit,
+  settings,
+  debugToolsAvailable,
+  onSettingsChange,
 }: HudProps) {
   const [draft, setDraft] = useState("");
   const dragStateRef = useRef<DragState | null>(null);
@@ -158,6 +165,7 @@ export function Hud({
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const exploredCellKeyRef = useRef("");
   const minimapHubRefs = useRef(new Map<string, HTMLElement>());
@@ -292,6 +300,7 @@ export function Hud({
     isInventoryOpen,
     isCharacterOpen,
     isAbilitiesOpen,
+    isSettingsOpen,
     lootWindow,
     questOffer,
     questTurnIn,
@@ -338,6 +347,10 @@ export function Hud({
     }
     if (isQuestLogOpen) {
       setIsQuestLogOpen(false);
+      return true;
+    }
+    if (isSettingsOpen) {
+      setIsSettingsOpen(false);
       return true;
     }
     if (isMapOpen) {
@@ -1011,6 +1024,17 @@ export function Hud({
         </section>
       )}
 
+      {isSettingsOpen && (
+        <section className="floating-menu-overlay settings-anchor" role="dialog" aria-label="Settings">
+          <SettingsPanel
+            settings={settings}
+            debugToolsAvailable={debugToolsAvailable}
+            onChange={onSettingsChange}
+            onClose={() => setIsSettingsOpen(false)}
+          />
+        </section>
+      )}
+
       <section className="chat-panel">
         <div className="chat-log">
           {chat.length === 0 ? (
@@ -1082,6 +1106,10 @@ export function Hud({
           <BookOpen size={25} />
           <span>Quests</span>
         </button>
+        <button type="button" title="Settings" onClick={() => setIsSettingsOpen((open) => !open)}>
+          <Settings size={25} />
+          <span>Settings</span>
+        </button>
         <button type="button" title="Leave" onClick={onExit}>
           <LogOut size={25} />
           <span>Leave</span>
@@ -1102,6 +1130,104 @@ export function Hud({
       {actionError && <HudErrorText key={actionError.id} text={actionError.text} />}
       {tooltip && <HudTooltip tooltip={tooltip} />}
     </div>
+  );
+}
+
+function SettingsPanel({
+  settings,
+  debugToolsAvailable,
+  onChange,
+  onClose,
+}: {
+  settings: GameSettings;
+  debugToolsAvailable: boolean;
+  onChange: (settings: GameSettings) => void;
+  onClose: () => void;
+}) {
+  function updateDebugSetting(key: "debugPlacementEditor" | "debugTravelPanel", value: boolean) {
+    onChange({ ...settings, [key]: value });
+  }
+
+  function updateNameplateSetting(key: keyof NameplateVisibility, value: boolean) {
+    onChange({
+      ...settings,
+      nameplates: {
+        ...settings.nameplates,
+        [key]: value,
+      },
+    });
+  }
+
+  return (
+    <div className="settings-panel">
+      <div className="world-map-header">
+        <div>
+          <strong>Settings</strong>
+          <span>Display and debug</span>
+        </div>
+        <button type="button" title="Close settings" aria-label="Close settings" onClick={onClose}>
+          <X size={22} />
+        </button>
+      </div>
+
+      {debugToolsAvailable && (
+        <section className="settings-section">
+          <strong>Debug</strong>
+          <SettingsToggle
+            label="Placement editor"
+            checked={settings.debugPlacementEditor}
+            onChange={(checked) => updateDebugSetting("debugPlacementEditor", checked)}
+          />
+          <SettingsToggle
+            label="Teleport panel"
+            checked={settings.debugTravelPanel}
+            onChange={(checked) => updateDebugSetting("debugTravelPanel", checked)}
+          />
+        </section>
+      )}
+
+      <section className="settings-section">
+        <strong>Nameplates</strong>
+        <SettingsToggle
+          label="Player"
+          checked={settings.nameplates.localPlayer}
+          onChange={(checked) => updateNameplateSetting("localPlayer", checked)}
+        />
+        <SettingsToggle
+          label="Other players"
+          checked={settings.nameplates.otherPlayers}
+          onChange={(checked) => updateNameplateSetting("otherPlayers", checked)}
+        />
+        <SettingsToggle
+          label="Friendly NPCs"
+          checked={settings.nameplates.friendlyNpcs}
+          onChange={(checked) => updateNameplateSetting("friendlyNpcs", checked)}
+        />
+        <SettingsToggle
+          label="Unfriendly NPCs"
+          checked={settings.nameplates.unfriendlyNpcs}
+          onChange={(checked) => updateNameplateSetting("unfriendlyNpcs", checked)}
+        />
+      </section>
+    </div>
+  );
+}
+
+function SettingsToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="settings-toggle-row">
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <i aria-hidden="true" />
+    </label>
   );
 }
 

@@ -16,13 +16,21 @@ import {
   type Vec3Tuple,
 } from "./shared";
 
-export function CastleGate({ stoneTexture }: { stoneTexture: THREE.Texture }) {
+export function CastleGate({
+  stoneTexture,
+  position = [0, 0, -30],
+  rotation = 0,
+}: {
+  stoneTexture: THREE.Texture;
+  position?: Vec3Tuple;
+  rotation?: number;
+}) {
   const gltf = useLoader(GLTFLoader, "/models/castle-gate.glb") as { scene: THREE.Group };
   const model = useMemo(() => createCastleGateModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
 
   return (
-    <group position={[0, 0, -30]}>
+    <group position={position} rotation-y={rotation}>
       <primitive object={model} dispose={null} />
     </group>
   );

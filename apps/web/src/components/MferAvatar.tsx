@@ -29,6 +29,7 @@ type MferAvatarProps = {
   actorScale?: number;
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
+  showNameplate?: boolean;
   onTarget?: () => void;
 };
 type ShadowScale = [number, number, number];
@@ -97,6 +98,7 @@ export function MferAvatar({
   actorScale = 1,
   chatBubble = null,
   viewerPosition = null,
+  showNameplate: canShowNameplate = true,
   onTarget,
 }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -122,7 +124,7 @@ export function MferAvatar({
     ? TARGET_BADGE_COLORS[disposition]
     : isLocal ? TARGET_BADGE_COLORS.local : isAgentPlayer ? TARGET_BADGE_COLORS.agent : TARGET_BADGE_COLORS.player;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, player.x, player.z) : 0;
-  const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showNameplate = canShowNameplate && !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);

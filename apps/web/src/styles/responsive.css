@@ -185,7 +185,8 @@
   }
 
   .character-panel,
-  .inventory-panel {
+  .inventory-panel,
+  .settings-panel {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
   }
@@ -206,6 +207,19 @@
   .floating-menu-overlay.inventory-anchor {
     top: auto;
     bottom: 76px;
+  }
+
+  .floating-menu-overlay.settings-anchor {
+    top: auto;
+    bottom: 76px;
+  }
+
+  .debug-placement-editor {
+    left: 12px;
+    right: 12px;
+    top: 76px;
+    width: auto;
+    max-height: calc(100vh - 94px);
   }
 
   .character-layout,

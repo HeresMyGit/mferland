@@ -588,6 +588,11 @@
   bottom: 92px;
 }
 
+.settings-anchor {
+  right: 108px;
+  bottom: 168px;
+}
+
 .world-map-panel {
   width: min(760px, calc(100vw - 48px));
   padding: 14px;
@@ -639,6 +644,92 @@
   border-radius: 8px;
   background: rgba(18, 14, 10, 0.91);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.settings-panel {
+  width: min(310px, calc(100vw - 132px));
+  max-height: min(430px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 14, 10, 0.92);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.settings-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.settings-section > strong {
+  color: #fff7d0;
+  font-size: 12px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.settings-toggle-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 10px;
+  align-items: center;
+  min-height: 36px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  color: #fff8dc;
+  background: rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+
+.settings-toggle-row span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-toggle-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-toggle-row i {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.settings-toggle-row i::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 248, 224, 0.78);
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.settings-toggle-row input:checked + i {
+  border-color: rgba(243, 208, 78, 0.5);
+  background: rgba(243, 208, 78, 0.32);
+}
+
+.settings-toggle-row input:checked + i::after {
+  transform: translateX(20px);
+  background: #f3d04e;
 }
 
 .abilities-layout {

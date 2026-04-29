@@ -110,10 +110,12 @@ function MarketStallSign({ color }: { color: string }) {
 
 export function WatchTower({
   position,
+  rotation = 0,
   stoneTexture,
   roofTexture,
 }: {
   position: [number, number, number];
+  rotation?: number;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
 }) {
@@ -123,7 +125,7 @@ export function WatchTower({
   void roofTexture;
 
   return (
-    <group position={position}>
+    <group position={position} rotation-y={rotation}>
       <primitive object={model} dispose={null} />
       <BannerPost position={[0, 0.04, 1.9]} color="#395da8" />
     </group>
@@ -174,9 +176,17 @@ function createWatchTowerModel(sourceScene: THREE.Group) {
   return scene;
 }
 
-export function SpawnRing({ position, color = "#8b6cff" }: { position: [number, number, number]; color?: string }) {
+export function SpawnRing({
+  position,
+  color = "#8b6cff",
+  rotation = 0,
+}: {
+  position: [number, number, number];
+  color?: string;
+  rotation?: number;
+}) {
   return (
-    <group position={position}>
+    <group position={position} rotation-y={rotation}>
       <mesh rotation-x={-Math.PI / 2}>
         <ringGeometry args={[1.05, 1.18, 64]} />
         <meshBasicMaterial color={color} transparent opacity={0.72} side={THREE.DoubleSide} />

@@ -12,6 +12,12 @@ import { WorldBackdrop, TreeCluster } from "./world/Trees";
 import { BannerPost, HangingSign, MarketStall, SpawnRing, WatchTower } from "./world/TownProps";
 import { MARKET_STALLS, OUTPOST_BUILDINGS, OUTPOST_MARKET_STALLS, TOWN_BUILDINGS } from "./world/shared";
 import { configureTile, createBarkTexture, createDirtPathTexture, createGrassTuftTexture, createLeafTexture, createWaterTexture } from "./world/textures";
+import {
+  applyDebugPlacementToBuilding,
+  applyDebugPlacementToMarketStall,
+  getDebugPlacementTransform,
+  type DebugPlacementOverrides,
+} from "../debugPlacement";
 export { Skybox } from "./world/Skybox";
 
 const GROUND_MARGIN = 110;
@@ -19,7 +25,11 @@ const TOWN_GROUND_WIDTH = PLAZA_BOUNDS.maxX - PLAZA_BOUNDS.minX + GROUND_MARGIN;
 const TOWN_GROUND_DEPTH = PLAZA_BOUNDS.maxZ - PLAZA_BOUNDS.minZ + GROUND_MARGIN;
 const PLAZA_SURFACE_Y = 0.016;
 
-export function TownWorld() {
+export function TownWorld({
+  debugPlacementOverrides = null,
+}: {
+  debugPlacementOverrides?: DebugPlacementOverrides | null;
+}) {
   const [grassTexture, cobbleTexture, stoneTexture, roofTexture, timberTexture] = useTexture([
     "/textures/grass-town.webp",
     "/textures/cobblestone-plaza.webp",
@@ -40,6 +50,16 @@ export function TownWorld() {
     configureTile(roofTexture, 1.6, 1.6);
     configureTile(timberTexture, 1.25, 1.25);
   }, [cobbleTexture, grassTexture, roofTexture, stoneTexture, timberTexture]);
+
+  const fountainPlacement = getDebugPlacementTransform("model:fountain", [0, 0, 0], 0, debugPlacementOverrides);
+  const castleGatePlacement = getDebugPlacementTransform("model:castle-gate", [0, 0, -30], 0, debugPlacementOverrides);
+  const westWatchTowerPlacement = getDebugPlacementTransform("model:watch-tower-west", [-41, 0, -36], 0, debugPlacementOverrides);
+  const eastWatchTowerPlacement = getDebugPlacementTransform("model:watch-tower-east", [41, 0, -36], 0, debugPlacementOverrides);
+  const ridgeWatchTowerPlacement = getDebugPlacementTransform("model:watch-tower-ridge", [134.2, 0, -108.6], 0, debugPlacementOverrides);
+  const farmPlacement = getDebugPlacementTransform("model:farm", [-82, 0, 92], -0.18, debugPlacementOverrides);
+  const signalRelayPlacement = getDebugPlacementTransform("model:signal-relay", [136, 0, -121], 0, debugPlacementOverrides);
+  const purpleSpawnPlacement = getDebugPlacementTransform("prop:spawn-ring-purple", [5.6, 0.12, 5.6], 0, debugPlacementOverrides);
+  const blueSpawnPlacement = getDebugPlacementTransform("prop:spawn-ring-blue", [-6.1, 0.12, 4.4], 0, debugPlacementOverrides);
 
   return (
     <group>
@@ -83,12 +103,18 @@ export function TownWorld() {
       </mesh>
 
       <GroundDetailLayer grassTuftTexture={grassTuftTexture} />
-      <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} />
-      <CastleGate stoneTexture={stoneTexture} />
+      <group position={fountainPlacement.position} rotation-y={fountainPlacement.rotation}>
+        <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} />
+      </group>
+      <CastleGate
+        stoneTexture={stoneTexture}
+        position={castleGatePlacement.position}
+        rotation={castleGatePlacement.rotation}
+      />
       {TOWN_BUILDINGS.map((building) => (
         <TownBuilding
           key={building.id}
-          placement={building}
+          placement={applyDebugPlacementToBuilding(building, debugPlacementOverrides)}
           stoneTexture={stoneTexture}
           roofTexture={roofTexture}
           wallTexture={timberTexture}
@@ -97,52 +123,68 @@ export function TownWorld() {
       {OUTPOST_BUILDINGS.map((building) => (
         <TownBuilding
           key={building.id}
-          placement={building}
+          placement={applyDebugPlacementToBuilding(building, debugPlacementOverrides)}
           stoneTexture={stoneTexture}
           roofTexture={roofTexture}
           wallTexture={timberTexture}
         />
       ))}
       {MARKET_STALLS.map((stall) => (
-        <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
+        <MarketStall key={stall.id} stall={applyDebugPlacementToMarketStall(stall, debugPlacementOverrides)} roofTexture={roofTexture} />
       ))}
       {OUTPOST_MARKET_STALLS.map((stall) => (
-        <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
+        <MarketStall key={stall.id} stall={applyDebugPlacementToMarketStall(stall, debugPlacementOverrides)} roofTexture={roofTexture} />
       ))}
-      <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <WatchTower position={[134.2, 0, -108.6]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <RundownFarm position={[-82, 0, 92]} rotation={-0.18} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
-      <SignalRelay position={[136, 0, -121]} />
-      {WORLD_LANDMARKS.map((landmark) => (
-        <SignalRouteMarker key={landmark.id} landmark={landmark} />
-      ))}
-      <SpawnRing position={[5.6, 0.12, 5.6]} />
-      <SpawnRing position={[-6.1, 0.12, 4.4]} color="#59ccff" />
-      <BannerPost position={[-7.2, 0, -19.8]} color="#328346" />
-      <BannerPost position={[7.2, 0, -19.8]} color="#328346" />
-      <BannerPost position={[-23.5, 0, -39]} color="#395da8" rotation={Math.PI / 2} />
-      <BannerPost position={[23.5, 0, -39]} color="#395da8" rotation={-Math.PI / 2} />
-      <BannerPost position={[-7.2, 0, 39]} color="#9b45ff" rotation={Math.PI} />
-      <BannerPost position={[7.2, 0, 39]} color="#e18b35" rotation={Math.PI} />
-      <BannerPost position={[-83.8, 0, 59.6]} color="#9b45ff" rotation={Math.PI / 2} />
-      <BannerPost position={[-112, 0, 126]} color="#52d64f" rotation={Math.PI} />
-      <BannerPost position={[94, 0, -22]} color="#36b7c9" rotation={-Math.PI / 2} />
-      <BannerPost position={[123, 0, -91]} color="#9b45ff" />
-      <BannerPost position={[137.5, 0, -91]} color="#d9453d" />
-      <BannerPost position={[137.5, 0, -116.5]} color="#d9453d" rotation={Math.PI} />
+      <WatchTower position={westWatchTowerPlacement.position} rotation={westWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <WatchTower position={eastWatchTowerPlacement.position} rotation={eastWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <WatchTower position={ridgeWatchTowerPlacement.position} rotation={ridgeWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} />
+      <RundownFarm position={farmPlacement.position} rotation={farmPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
+      <SignalRelay position={signalRelayPlacement.position} rotation={signalRelayPlacement.rotation} />
+      {WORLD_LANDMARKS.map((landmark) => {
+        const transform = getDebugPlacementTransform(`prop:route-marker:${landmark.id}`, [landmark.x, 0, landmark.z], -Math.PI / 2, debugPlacementOverrides);
+        return (
+          <SignalRouteMarker
+            key={landmark.id}
+            landmark={landmark}
+            rotation={transform.rotation}
+            position={transform.position}
+          />
+        );
+      })}
+      <SpawnRing position={purpleSpawnPlacement.position} rotation={purpleSpawnPlacement.rotation} />
+      <SpawnRing position={blueSpawnPlacement.position} rotation={blueSpawnPlacement.rotation} color="#59ccff" />
+      <DebugBannerPost id="prop:banner-gate-left" position={[-7.2, 0, -19.8]} color="#328346" overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-gate-right" position={[7.2, 0, -19.8]} color="#328346" overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-west-road" position={[-23.5, 0, -39]} color="#395da8" rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-east-road" position={[23.5, 0, -39]} color="#395da8" rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-inn" position={[-7.2, 0, 39]} color="#9b45ff" rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-forge" position={[7.2, 0, 39]} color="#e18b35" rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-farm-route" position={[-83.8, 0, 59.6]} color="#9b45ff" rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-field-camp" position={[-112, 0, 126]} color="#52d64f" rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-ridge-route" position={[94, 0, -22]} color="#36b7c9" rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-ridge-entry" position={[123, 0, -91]} color="#9b45ff" overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color="#d9453d" overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color="#d9453d" rotation={Math.PI} overrides={debugPlacementOverrides} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );
 }
 
-function SignalRouteMarker({ landmark }: { landmark: WorldLandmark }) {
+function SignalRouteMarker({
+  landmark,
+  position,
+  rotation,
+}: {
+  landmark: WorldLandmark;
+  position: [number, number, number];
+  rotation: number;
+}) {
   const accent = landmark.kind === "relay" ? "#b38cff" : "#7ddcff";
   const trim = landmark.kind === "relay" ? "#5c3aa8" : "#16798a";
   const labelSize = landmark.label.length > 4 ? 0.7 : 0.86;
 
   return (
-    <group position={[landmark.x, 0, landmark.z]} rotation-y={-Math.PI / 2}>
+    <group position={position} rotation-y={rotation}>
       <mesh position={[0, 1.22, 0]}>
         <cylinderGeometry args={[0.07, 0.09, 2.44, 8]} />
         <meshBasicMaterial color="#4b2d18" />
@@ -168,12 +210,12 @@ function SignalRouteMarker({ landmark }: { landmark: WorldLandmark }) {
   );
 }
 
-function SignalRelay({ position }: { position: [number, number, number] }) {
+function SignalRelay({ position, rotation }: { position: [number, number, number]; rotation: number }) {
   const gltf = useLoader(GLTFLoader, "/models/signal-relay-body.glb") as { scene: THREE.Group };
   const bodyModel = useMemo(() => createSignalRelayBodyModel(gltf.scene), [gltf.scene]);
 
   return (
-    <group position={position}>
+    <group position={position} rotation-y={rotation}>
       <mesh position={[0, 0.08, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[2.4, 2.65, 64]} />
         <meshBasicMaterial color="#7ddcff" transparent opacity={0.52} side={THREE.DoubleSide} />
@@ -191,6 +233,23 @@ function SignalRelay({ position }: { position: [number, number, number] }) {
       ))}
     </group>
   );
+}
+
+function DebugBannerPost({
+  id,
+  position,
+  rotation = 0,
+  color,
+  overrides,
+}: {
+  id: string;
+  position: [number, number, number];
+  rotation?: number;
+  color: string;
+  overrides: DebugPlacementOverrides | null | undefined;
+}) {
+  const transform = getDebugPlacementTransform(id, position, rotation, overrides);
+  return <BannerPost position={transform.position} color={color} rotation={transform.rotation} />;
 }
 
 function createSignalRelayBodyModel(sourceScene: THREE.Group) {

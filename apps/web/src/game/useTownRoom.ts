@@ -59,8 +59,36 @@ type DebugTeleportDestination = {
   z: number;
   yaw?: number;
 };
+type DebugNpcPlacement = {
+  npcId: string;
+  x: number;
+  z: number;
+  yaw: number;
+};
+type DebugWorldPlacement = {
+  targetId: string;
+  x: number;
+  z: number;
+  rotation: number;
+};
+type DebugPlacementSavePayload = {
+  placements: Record<string, unknown>;
+  sourceDefaults: Record<string, unknown>;
+};
+type DebugPlacementSaveResult = {
+  ok: boolean;
+  path?: string;
+  savedAt?: string;
+  count?: number;
+  error?: string;
+};
+type DebugPlacementMapDocument = {
+  placements?: unknown;
+  sourceDefaults?: unknown;
+};
 
 const SNAPSHOT_RENDER_INTERVAL_MS = 125;
+const DEBUG_PLACEMENT_SAVE_CHUNK_SIZE = 8;
 
 export function useTownRoom(identity: JoinOptions) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -76,6 +104,8 @@ export function useTownRoom(identity: JoinOptions) {
   const [questTurnIn, setQuestTurnIn] = useState<QuestTurnIn | null>(null);
   const [questStatus, setQuestStatus] = useState<QuestStatusNotice | null>(null);
   const [lootWindow, setLootWindow] = useState<LootWindow | null>(null);
+  const [debugPlacementSaveResult, setDebugPlacementSaveResult] = useState<DebugPlacementSaveResult | null>(null);
+  const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
   const roomRef = useRef<Room | null>(null);
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
   const npcsRef = useRef(new Map<string, NpcSnapshot>());
@@ -230,6 +260,18 @@ export function useTownRoom(identity: JoinOptions) {
           setLootWindow(null);
         });
 
+        room.onMessage("debugPlacementSaveResult", (message: DebugPlacementSaveResult) => {
+          setDebugPlacementSaveResult(message);
+        });
+
+        room.onMessage("debugPlacementMap", (message: DebugPlacementMapDocument) => {
+          setDebugPlacementMap(message);
+        });
+
+        if (import.meta.env.DEV) {
+          room.send("debugRequestPlacementMap", {});
+        }
+
         room.onLeave(() => {
           if (!disposed) {
             playersRef.current.clear();
@@ -360,6 +402,38 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("debugTeleport", destination);
   }, []);
 
+  const sendDebugNpcPlacement = useCallback((placement: DebugNpcPlacement) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugSetNpcPlacement", placement);
+  }, []);
+
+  const sendDebugWorldPlacement = useCallback((placement: DebugWorldPlacement) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugSetWorldPlacement", placement);
+  }, []);
+
+  const sendDebugPlacementSave = useCallback((payload: DebugPlacementSavePayload) => {
+    if (!import.meta.env.DEV) return;
+    const room = roomRef.current;
+    if (!room) return;
+
+    const chunks = makeDebugPlacementSaveChunks(payload);
+    const saveId = makeDebugPlacementSaveId();
+    room.send("debugBeginPlacementSave", {
+      saveId,
+      totalChunks: chunks.length,
+    });
+    chunks.forEach((chunk, index) => {
+      room.send("debugPlacementSaveChunk", {
+        saveId,
+        index,
+        totalChunks: chunks.length,
+        placements: chunk.placements,
+        sourceDefaults: chunk.sourceDefaults,
+      });
+    });
+  }, []);
+
   return {
     status,
     error,
@@ -376,6 +450,8 @@ export function useTownRoom(identity: JoinOptions) {
     questTurnIn,
     questStatus,
     lootWindow,
+    debugPlacementSaveResult,
+    debugPlacementMap,
     sendInput,
     sendChat,
     sendInteract,
@@ -393,7 +469,43 @@ export function useTownRoom(identity: JoinOptions) {
     closeLootWindow,
     sendRespawn,
     sendDebugTeleport,
+    sendDebugNpcPlacement,
+    sendDebugWorldPlacement,
+    sendDebugPlacementSave,
   };
+}
+
+function makeDebugPlacementSaveChunks(payload: DebugPlacementSavePayload) {
+  const ids = Array.from(new Set([
+    ...Object.keys(payload.placements),
+    ...Object.keys(payload.sourceDefaults),
+  ]));
+  if (ids.length === 0) {
+    return [{ placements: {}, sourceDefaults: {} }];
+  }
+
+  const chunks: DebugPlacementSavePayload[] = [];
+  for (let offset = 0; offset < ids.length; offset += DEBUG_PLACEMENT_SAVE_CHUNK_SIZE) {
+    const placements: Record<string, unknown> = {};
+    const sourceDefaults: Record<string, unknown> = {};
+    for (const id of ids.slice(offset, offset + DEBUG_PLACEMENT_SAVE_CHUNK_SIZE)) {
+      if (Object.prototype.hasOwnProperty.call(payload.placements, id)) {
+        placements[id] = payload.placements[id];
+      }
+      if (Object.prototype.hasOwnProperty.call(payload.sourceDefaults, id)) {
+        sourceDefaults[id] = payload.sourceDefaults[id];
+      }
+    }
+    chunks.push({ placements, sourceDefaults });
+  }
+  return chunks;
+}
+
+function makeDebugPlacementSaveId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function syncPlayerSnapshots(target: Map<string, PlayerSnapshot>, source: RuntimePlayerCollection) {

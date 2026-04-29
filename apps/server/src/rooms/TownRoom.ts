@@ -1,3 +1,6 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Room, type Client } from "colyseus";
 import {
   CHAT,
@@ -15,6 +18,7 @@ import {
   getQuestTurnInNpcId,
   normalizeChainTokenId,
   resolveWorldCollision,
+  setWorldCollisionPlacementOverrides,
   stableHash,
   sanitizePlayerName,
   type ChatMessage,
@@ -108,11 +112,60 @@ import {
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const PLAYER_ATTACK_THREAT_BONUS = 24;
+const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 
 type DebugTeleportMessage = {
   x?: unknown;
   z?: unknown;
   yaw?: unknown;
+};
+
+type DebugNpcPlacementMessage = {
+  npcId?: unknown;
+  x?: unknown;
+  z?: unknown;
+  yaw?: unknown;
+};
+
+type DebugWorldPlacementMessage = {
+  targetId?: unknown;
+  x?: unknown;
+  z?: unknown;
+  rotation?: unknown;
+};
+
+type DebugPlacementSaveMessage = {
+  placements?: unknown;
+  sourceDefaults?: unknown;
+};
+
+type DebugPlacementSaveBeginMessage = {
+  saveId?: unknown;
+  totalChunks?: unknown;
+};
+
+type DebugPlacementSaveChunkMessage = DebugPlacementSaveBeginMessage & {
+  index?: unknown;
+  chunkIndex?: unknown;
+  placements?: unknown;
+  sourceDefaults?: unknown;
+};
+
+type DebugPlacementRecord = {
+  x: number;
+  z: number;
+  rotation: number;
+  kind?: string;
+  label?: string;
+  source?: string;
+};
+
+type PendingDebugPlacementSave = {
+  saveId: string;
+  totalChunks: number;
+  receivedChunks: Set<number>;
+  placements: Record<string, DebugPlacementRecord>;
+  sourceDefaults: Record<string, DebugPlacementRecord>;
 };
 
 type HealTarget =
@@ -134,10 +187,13 @@ export class TownRoom extends Room<TownState> {
   private readonly npcThreat = new Map<string, Map<string, number>>();
   private readonly forcedNpcTargets = new Map<string, { sessionId: string; until: number }>();
   private readonly consumableCooldowns = new Map<string, number>();
+  private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
+  private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
   onCreate() {
     this.setState(new TownState());
-    spawnNpcs(this.state.npcs);
+  spawnNpcs(this.state.npcs);
+    void this.loadSavedDebugPlacementMap();
     this.setSimulationInterval((dt) => this.update(dt / 1000), 1000 / SERVER_TICK_RATE);
 
     this.onMessage("input", (client, message: Partial<ClientInput>) => {
@@ -211,6 +267,55 @@ export class TownRoom extends Room<TownState> {
         this.removePlayerThreat(client.sessionId);
         this.inputs.delete(client.sessionId);
         this.jumpHeld.set(client.sessionId, false);
+      });
+
+      this.onMessage("debugSetNpcPlacement", (_client, message: DebugNpcPlacementMessage = {}) => {
+        const npcId = typeof message.npcId === "string" ? message.npcId : "";
+        const npc = this.state.npcs.get(npcId);
+        if (!npc) return;
+
+        const x = Number(message.x);
+        const z = Number(message.z);
+        const yaw = Number(message.yaw);
+        if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+
+        npc.x = x;
+        npc.y = 0;
+        npc.z = z;
+        if (Number.isFinite(yaw)) npc.yaw = yaw;
+        npc.homeX = x;
+        npc.homeZ = z;
+        npc.targetX = x;
+        npc.targetZ = z;
+        npc.animation = "idle";
+        npc.aggroTargetId = "";
+        npc.attackReadyAt = 0;
+        npc.frozenUntil = 0;
+        npc.slowedUntil = 0;
+        this.npcThreat.delete(npc.id);
+        this.forcedNpcTargets.delete(npc.id);
+      });
+
+      this.onMessage("debugSetWorldPlacement", (_client, message: DebugWorldPlacementMessage = {}) => {
+        this.handleDebugSetWorldPlacement(message);
+      });
+
+      this.onMessage("debugSavePlacements", (client, message: DebugPlacementSaveMessage = {}) => {
+        void this.handleDebugSavePlacements(client, message);
+      });
+
+      this.onMessage("debugBeginPlacementSave", (client, message: DebugPlacementSaveBeginMessage = {}) => {
+        this.handleDebugBeginPlacementSave(client, message);
+      });
+
+      this.onMessage("debugPlacementSaveChunk", (client, message: DebugPlacementSaveChunkMessage = {}) => {
+        void this.handleDebugPlacementSaveChunk(client, message);
+      });
+
+      this.onMessage("debugRequestPlacementMap", (client) => {
+        void readDebugPlacementMap().then((document) => {
+          client.send("debugPlacementMap", document);
+        });
       });
     }
 
@@ -325,8 +430,143 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
+    this.pendingDebugPlacementSaves.delete(client.sessionId);
     clearConsumableCooldownsForPlayer(this.consumableCooldowns, client.sessionId);
     this.removePlayerThreat(client.sessionId);
+  }
+
+  private async handleDebugSavePlacements(client: Client, message: DebugPlacementSaveMessage) {
+    const placements = normalizeDebugPlacementRecordMap(message.placements);
+    const incomingSourceDefaults = normalizeDebugPlacementRecordMap(message.sourceDefaults);
+    await this.writeDebugPlacementMap(client, placements, incomingSourceDefaults);
+  }
+
+  private handleDebugBeginPlacementSave(client: Client, message: DebugPlacementSaveBeginMessage) {
+    const saveId = normalizeDebugPlacementSaveId(message.saveId);
+    const totalChunks = normalizeDebugPlacementChunkNumber(message.totalChunks, 1, 200);
+    if (!saveId || !totalChunks) {
+      client.send("debugPlacementSaveResult", {
+        ok: false,
+        error: "Invalid placement save chunk header.",
+      });
+      return;
+    }
+
+    this.pendingDebugPlacementSaves.set(client.sessionId, {
+      saveId,
+      totalChunks,
+      receivedChunks: new Set(),
+      placements: {},
+      sourceDefaults: {},
+    });
+  }
+
+  private async handleDebugPlacementSaveChunk(client: Client, message: DebugPlacementSaveChunkMessage) {
+    const saveId = normalizeDebugPlacementSaveId(message.saveId);
+    const pending = this.pendingDebugPlacementSaves.get(client.sessionId);
+    if (!saveId || !pending || pending.saveId !== saveId) {
+      client.send("debugPlacementSaveResult", {
+        ok: false,
+        error: "Placement save session was not ready.",
+      });
+      return;
+    }
+
+    const totalChunks = normalizeDebugPlacementChunkNumber(message.totalChunks, 1, 200);
+    const chunkIndex = normalizeDebugPlacementChunkNumber(message.index ?? message.chunkIndex, 0, pending.totalChunks - 1);
+    if (totalChunks !== pending.totalChunks || chunkIndex === null) {
+      client.send("debugPlacementSaveResult", {
+        ok: false,
+        error: "Invalid placement save chunk.",
+      });
+      this.pendingDebugPlacementSaves.delete(client.sessionId);
+      return;
+    }
+
+    if (!pending.receivedChunks.has(chunkIndex)) {
+      Object.assign(pending.placements, normalizeDebugPlacementRecordMap(message.placements));
+      Object.assign(pending.sourceDefaults, normalizeDebugPlacementRecordMap(message.sourceDefaults));
+      pending.receivedChunks.add(chunkIndex);
+    }
+
+    if (pending.receivedChunks.size < pending.totalChunks) return;
+
+    this.pendingDebugPlacementSaves.delete(client.sessionId);
+    await this.writeDebugPlacementMap(client, pending.placements, pending.sourceDefaults);
+  }
+
+  private async writeDebugPlacementMap(
+    client: Client,
+    placements: Record<string, DebugPlacementRecord>,
+    incomingSourceDefaults: Record<string, DebugPlacementRecord>,
+  ) {
+    const placementCount = Object.keys(placements).length;
+    if (placementCount === 0) {
+      client.send("debugPlacementSaveResult", {
+        ok: false,
+        error: "No placement records to save.",
+      });
+      return;
+    }
+
+    try {
+      const existing = await readDebugPlacementMap();
+      const sourceDefaults: Record<string, DebugPlacementRecord> = {};
+      for (const id of Object.keys(placements)) {
+        sourceDefaults[id] = existing.sourceDefaults[id] ?? incomingSourceDefaults[id] ?? placements[id];
+      }
+      const savedAt = new Date().toISOString();
+      const document = {
+        version: 1,
+        savedAt,
+        sourceDefaults,
+        placements,
+      };
+      await mkdir(dirname(DEBUG_PLACEMENT_MAP_PATH), { recursive: true });
+      await writeFile(DEBUG_PLACEMENT_MAP_PATH, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+      this.debugWorldPlacementOverrides = placements;
+      setWorldCollisionPlacementOverrides(this.debugWorldPlacementOverrides);
+      this.broadcast("debugPlacementMap", {
+        placements,
+        sourceDefaults,
+      });
+      client.send("debugPlacementSaveResult", {
+        ok: true,
+        path: DEBUG_PLACEMENT_MAP_PATH,
+        savedAt,
+        count: placementCount,
+      });
+    } catch (error) {
+      client.send("debugPlacementSaveResult", {
+        ok: false,
+        error: error instanceof Error ? error.message : "Unable to save placement map.",
+      });
+    }
+  }
+
+  private async loadSavedDebugPlacementMap() {
+    const saved = await readDebugPlacementMap();
+    this.debugWorldPlacementOverrides = saved.placements;
+    setWorldCollisionPlacementOverrides(this.debugWorldPlacementOverrides);
+    applySavedDebugNpcPlacements(this.state.npcs, saved.placements);
+  }
+
+  private handleDebugSetWorldPlacement(message: DebugWorldPlacementMessage) {
+    const targetId = typeof message.targetId === "string" ? message.targetId : "";
+    if (!targetId || targetId.startsWith("npc:")) return;
+
+    const placement = normalizeDebugPlacementRecord({
+      x: message.x,
+      z: message.z,
+      rotation: message.rotation,
+    });
+    if (!placement) return;
+
+    this.debugWorldPlacementOverrides = {
+      ...this.debugWorldPlacementOverrides,
+      [targetId]: placement,
+    };
+    setWorldCollisionPlacementOverrides(this.debugWorldPlacementOverrides);
   }
 
   private async handleChatMessage(client: Client, message: { text?: string }) {
@@ -1160,6 +1400,80 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     talent.rank = savedTalent.rank;
     player.talents.set(savedTalent.id, talent);
   }
+}
+
+function applySavedDebugNpcPlacements(npcs: TownState["npcs"], placements: Record<string, DebugPlacementRecord>) {
+  for (const [id, placement] of Object.entries(placements)) {
+    if (!id.startsWith("npc:")) continue;
+    const npc = npcs.get(id.slice("npc:".length));
+    if (!npc) continue;
+    npc.x = placement.x;
+    npc.y = 0;
+    npc.z = placement.z;
+    npc.yaw = placement.rotation;
+    npc.homeX = placement.x;
+    npc.homeZ = placement.z;
+    npc.targetX = placement.x;
+    npc.targetZ = placement.z;
+  }
+}
+
+export async function readDebugPlacementMap() {
+  try {
+    const text = await readFile(DEBUG_PLACEMENT_MAP_PATH, "utf8");
+    const document = JSON.parse(text) as { placements?: unknown; sourceDefaults?: unknown };
+    return {
+      placements: normalizeDebugPlacementRecordMap(document.placements),
+      sourceDefaults: normalizeDebugPlacementRecordMap(document.sourceDefaults),
+    };
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { placements: {}, sourceDefaults: {} };
+    }
+    console.warn("debug_placement_map_load_failed", error);
+    return { placements: {}, sourceDefaults: {} };
+  }
+}
+
+function normalizeDebugPlacementRecordMap(value: unknown) {
+  const records: Record<string, DebugPlacementRecord> = {};
+  if (!value || typeof value !== "object") return records;
+  for (const [id, rawRecord] of Object.entries(value as Record<string, unknown>)) {
+    const record = normalizeDebugPlacementRecord(rawRecord);
+    if (!record) continue;
+    records[id] = record;
+  }
+  return records;
+}
+
+function normalizeDebugPlacementRecord(value: unknown): DebugPlacementRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const x = Number(record.x);
+  const z = Number(record.z);
+  const rotation = Number(record.rotation);
+  if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(rotation)) return null;
+  return {
+    x: Math.round(x * 10) / 10,
+    z: Math.round(z * 10) / 10,
+    rotation,
+    ...(typeof record.kind === "string" ? { kind: record.kind.slice(0, 32) } : {}),
+    ...(typeof record.label === "string" ? { label: record.label.slice(0, 160) } : {}),
+    ...(typeof record.source === "string" ? { source: record.source.slice(0, 160) } : {}),
+  };
+}
+
+function normalizeDebugPlacementSaveId(value: unknown) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 80) return "";
+  return /^[a-z0-9:_-]+$/i.test(trimmed) ? trimmed : "";
+}
+
+function normalizeDebugPlacementChunkNumber(value: unknown, min: number, max: number) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) return null;
+  return number;
 }
 
 function makePersistableCharacterState(characterId: string, player: PlayerState): PersistableCharacterState {

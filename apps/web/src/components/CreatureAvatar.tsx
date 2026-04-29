@@ -26,6 +26,7 @@ type CreatureAvatarProps = {
   hasLoot?: boolean;
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
+  showNameplate?: boolean;
   onTarget?: () => void;
 };
 
@@ -102,6 +103,7 @@ export function CreatureAvatar({
   hasLoot = false,
   chatBubble = null,
   viewerPosition = null,
+  showNameplate: canShowNameplate = true,
   onTarget,
 }: CreatureAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -114,7 +116,7 @@ export function CreatureAvatar({
   const labelY = npc.model === "rabbit" ? 1.22 : npc.model === "hog" ? 1.55 : 1.86;
   const markerRadius = npc.model === "rabbit" ? 0.48 : npc.model === "hog" ? 0.76 : 0.66;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
-  const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showNameplate = canShowNameplate && !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);

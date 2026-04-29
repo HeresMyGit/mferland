@@ -1,8 +1,10 @@
 import { memo, Suspense, useEffect, useMemo, useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { Text } from "@react-three/drei";
+import { type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
   INPUT_SEND_RATE,
+  getNpcDisposition,
   getNpcQuestMarker,
   type ClientInput,
   type CombatEvent,
@@ -18,6 +20,13 @@ import { TrainingDummyAvatar } from "../components/TrainingDummyAvatar";
 import { type ChatBubble } from "./chatBubbles";
 import { CombatFeedbackLayer } from "./scene/CombatFeedbackLayer";
 import { Skybox, TownWorld } from "./scene/TownWorld";
+import {
+  type DebugPlacementOverrides,
+  type DebugPlacementTarget,
+  getDebugPlacementValue,
+  getNpcDebugPlacementId,
+} from "./debugPlacement";
+import { type NameplateVisibility } from "./settings";
 import {
   clamp,
   getNextEnemyTarget,
@@ -47,9 +56,33 @@ type TownSceneProps = {
     yaw: number;
     nonce: number;
   } | null;
+  nameplateVisibility: NameplateVisibility;
+  debugPlacementMode?: boolean;
+  debugPlacementTargets?: DebugPlacementTarget[];
+  debugPlacementOverrides?: DebugPlacementOverrides;
+  selectedDebugPlacementId?: string | null;
+  onSelectDebugPlacement?: (targetId: string | null) => void;
+  onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
 };
 
 const CONTROL_DELTA_CAP = 1 / 30;
+const DEFAULT_NAMEPLATE_VISIBILITY: NameplateVisibility = {
+  localPlayer: true,
+  otherPlayers: true,
+  friendlyNpcs: true,
+  unfriendlyNpcs: true,
+};
+const EMPTY_DEBUG_PLACEMENT_OVERRIDES: DebugPlacementOverrides = {};
+const DEBUG_CAMERA_FOV = 54;
+const DEFAULT_CAMERA_FOV = 54;
+const DEFAULT_CAMERA_FAR = 140;
+const DEBUG_CAMERA_FAR = 900;
+const DEBUG_CAMERA_OVERVIEW_HEIGHT = 275;
+const DEBUG_CAMERA_MIN_HEIGHT = 32;
+const DEBUG_CAMERA_MAX_HEIGHT = 310;
+const DEBUG_CAMERA_WHEEL_ZOOM_SCALE = 0.16;
+const DEBUG_CAMERA_TURN_SPEED = 2.8;
+const DEBUG_PLACEMENT_CLICK_Y = 18;
 
 function TownSceneComponent({
   players,
@@ -64,6 +97,13 @@ function TownSceneComponent({
   onInteractAction,
   sendInput,
   debugTravelView = null,
+  nameplateVisibility = DEFAULT_NAMEPLATE_VISIBILITY,
+  debugPlacementMode = false,
+  debugPlacementTargets = [],
+  debugPlacementOverrides = EMPTY_DEBUG_PLACEMENT_OVERRIDES,
+  selectedDebugPlacementId = null,
+  onSelectDebugPlacement,
+  onChangeDebugPlacement,
 }: TownSceneProps) {
   const { gl } = useThree();
   const keyState = useRef(new Set<string>());
@@ -89,10 +129,18 @@ function TownSceneComponent({
   const cameraLookAt = useMemo(() => new THREE.Vector3(), []);
   const cameraForward = useMemo(() => new THREE.Vector3(), []);
   const cameraDesired = useMemo(() => new THREE.Vector3(), []);
+  const debugCameraTarget = useMemo(() => new THREE.Vector3(), []);
+  const debugCameraDesired = useMemo(() => new THREE.Vector3(), []);
+  const debugCameraFocus = useRef({ x: 5, z: 5 });
+  const debugCameraHeight = useRef(DEBUG_CAMERA_OVERVIEW_HEIGHT);
+  const debugCameraYaw = useRef(Math.PI);
+  const debugCameraSelectionState = useRef<{ enabled: boolean; selectedId: string | null }>({
+    enabled: false,
+    selectedId: null,
+  });
   const localPlayer = localSessionId ? players.get(localSessionId) : undefined;
   const localQuestState = localPlayer?.quests ?? [];
   const chatBubbleBySessionId = useMemo(() => new Map(chatBubbles.map((bubble) => [bubble.sessionId, bubble])), [chatBubbles]);
-
   if (!localPlayer) {
     localVisualPlayer.current = null;
   } else if (localVisualPlayer.current?.sessionId !== localPlayer.sessionId) {
@@ -167,6 +215,59 @@ function TownSceneComponent({
   }, [debugTravelView?.nonce, localSessionId]);
 
   useEffect(() => {
+    const wasEnabled = debugCameraSelectionState.current.enabled;
+    if (!debugPlacementMode) {
+      debugCameraSelectionState.current = { enabled: false, selectedId: null };
+      return;
+    }
+
+    if (!wasEnabled) {
+      debugCameraFocus.current.x = localPlayer?.x ?? 5;
+      debugCameraFocus.current.z = localPlayer?.z ?? 5;
+      debugCameraHeight.current = DEBUG_CAMERA_OVERVIEW_HEIGHT;
+    }
+
+    debugCameraSelectionState.current = {
+      enabled: true,
+      selectedId: selectedDebugPlacementId,
+    };
+  }, [debugPlacementMode, selectedDebugPlacementId, localPlayer?.x, localPlayer?.z]);
+
+  useEffect(() => {
+    if (debugPlacementMode) {
+      const canvas = gl.domElement;
+      keyState.current.clear();
+      pointerState.current.left = false;
+      pointerState.current.right = false;
+      inputTimer.current = 0;
+      sendInput({
+        seq: ++seqRef.current,
+        x: 0,
+        z: 0,
+        yaw: facingYaw.current,
+        sprint: false,
+        jump: false,
+      });
+
+      const onWheel = (event: WheelEvent) => {
+        if (isTypingTarget(event.target)) return;
+        event.preventDefault();
+        debugCameraHeight.current = clamp(
+          debugCameraHeight.current + event.deltaY * DEBUG_CAMERA_WHEEL_ZOOM_SCALE,
+          DEBUG_CAMERA_MIN_HEIGHT,
+          DEBUG_CAMERA_MAX_HEIGHT,
+        );
+      };
+      const onContextMenu = (event: MouseEvent) => event.preventDefault();
+
+      window.addEventListener("wheel", onWheel, { passive: false });
+      canvas.addEventListener("contextmenu", onContextMenu);
+      return () => {
+        window.removeEventListener("wheel", onWheel);
+        canvas.removeEventListener("contextmenu", onContextMenu);
+      };
+    }
+
     const canvas = gl.domElement;
     const state = pointerState.current;
 
@@ -254,9 +355,61 @@ function TownSceneComponent({
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("contextmenu", onContextMenu);
     };
-  }, [gl]);
+  }, [debugPlacementMode, gl, sendInput]);
 
   useFrame(({ camera }, delta) => {
+    if (debugPlacementMode) {
+      const controlDelta = Math.min(delta, CONTROL_DELTA_CAP);
+      const keys = keyState.current;
+      const turnLeft = keys.has("a") || keys.has("arrowleft") || keys.has("keya");
+      const turnRight = keys.has("d") || keys.has("arrowright") || keys.has("keyd");
+      const turnIntent = (turnLeft ? 1 : 0) - (turnRight ? 1 : 0);
+      if (turnIntent) {
+        debugCameraYaw.current = wrapAngle(debugCameraYaw.current + turnIntent * DEBUG_CAMERA_TURN_SPEED * controlDelta);
+      }
+
+      const debugForwardX = Math.sin(debugCameraYaw.current);
+      const debugForwardZ = Math.cos(debugCameraYaw.current);
+      const debugLeftX = Math.cos(debugCameraYaw.current);
+      const debugLeftZ = -Math.sin(debugCameraYaw.current);
+      const forwardIntent = (keys.has("w") || keys.has("arrowup") || keys.has("keyw") ? 1 : 0)
+        - (keys.has("s") || keys.has("arrowdown") || keys.has("keys") ? 1 : 0);
+      const strafeIntent = (keys.has("q") || keys.has("keyq") ? 1 : 0)
+        - (keys.has("e") || keys.has("keye") ? 1 : 0);
+      if (forwardIntent || strafeIntent) {
+        const panSpeed = (12 + debugCameraHeight.current * 0.42) * controlDelta;
+        const moveX = debugForwardX * forwardIntent + debugLeftX * strafeIntent;
+        const moveZ = debugForwardZ * forwardIntent + debugLeftZ * strafeIntent;
+        const moveLength = Math.hypot(moveX, moveZ);
+        debugCameraFocus.current.x += (moveX / moveLength) * panSpeed;
+        debugCameraFocus.current.z += (moveZ / moveLength) * panSpeed;
+      }
+
+      if (camera instanceof THREE.PerspectiveCamera && (camera.fov !== DEBUG_CAMERA_FOV || camera.far !== DEBUG_CAMERA_FAR)) {
+        camera.fov = DEBUG_CAMERA_FOV;
+        camera.far = DEBUG_CAMERA_FAR;
+        camera.updateProjectionMatrix();
+      }
+      const focus = debugCameraFocus.current;
+      debugCameraTarget.set(focus.x, 0, focus.z);
+      debugCameraDesired.set(
+        focus.x - debugForwardX * 0.16,
+        debugCameraHeight.current,
+        focus.z - debugForwardZ * 0.16,
+      );
+      camera.up.set(debugForwardX, 0, debugForwardZ);
+      camera.position.lerp(debugCameraDesired, 1 - Math.pow(0.05, controlDelta * 60));
+      camera.lookAt(debugCameraTarget);
+      return;
+    }
+
+    camera.up.set(0, 1, 0);
+    if (camera instanceof THREE.PerspectiveCamera && (camera.fov !== DEFAULT_CAMERA_FOV || camera.far !== DEFAULT_CAMERA_FAR)) {
+      camera.fov = DEFAULT_CAMERA_FOV;
+      camera.far = DEFAULT_CAMERA_FAR;
+      camera.updateProjectionMatrix();
+    }
+
     const controlDelta = Math.min(delta, CONTROL_DELTA_CAP);
     const keys = keyState.current;
     const pointer = pointerState.current;
@@ -341,26 +494,37 @@ function TownSceneComponent({
 
   return (
     <>
-      <fog attach="fog" args={["#b4d7e8", 38, 118]} />
+      <fog attach="fog" args={debugPlacementMode ? ["#b4d7e8", 820, 920] : ["#b4d7e8", 38, 118]} />
       <ambientLight intensity={1.15} />
       <hemisphereLight args={["#f4fbff", "#8da16f", 0.9]} />
       <directionalLight position={[-10, 18, 8]} intensity={1.55} color="#fff3d3" />
       <Skybox />
 
       <Suspense fallback={null}>
-        <TownWorld />
+        <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
       </Suspense>
+      {debugPlacementMode && (
+        <DebugPlacementGizmos
+          targets={debugPlacementTargets}
+          overrides={debugPlacementOverrides}
+          selectedId={selectedDebugPlacementId}
+          onSelect={onSelectDebugPlacement}
+          onChange={onChangeDebugPlacement}
+        />
+      )}
       <Suspense fallback={null}>
         {Array.from(players.entries()).map(([sessionId, player]) => {
           const isLocalPlayer = sessionId === localSessionId;
           const renderedPlayer = isLocalPlayer && localVisualPlayer.current?.sessionId === sessionId
             ? localVisualPlayer.current
             : player;
+          const showNameplate = isLocalPlayer ? nameplateVisibility.localPlayer : nameplateVisibility.otherPlayers;
           return (
             <MferAvatar
               key={sessionId}
               player={renderedPlayer}
               isLocal={isLocalPlayer}
+              showNameplate={showNameplate}
               isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
               isDefeated={player.health <= 0}
               chatBubble={chatBubbleBySessionId.get(sessionId)}
@@ -370,14 +534,17 @@ function TownSceneComponent({
           );
         })}
         {Array.from(npcs.values()).filter(isVisibleNpc).map((npc) => {
+          const renderedNpc = applyNpcDebugPlacementOverride(npc, debugPlacementOverrides);
           const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
           const onTarget = () => onSelectTarget({ kind: "npc", id: npc.id });
-          const questMarker = getNpcQuestMarker(npc, localQuestState);
-          if (npc.model === "mfergpt") {
+          const questMarker = getNpcQuestMarker(renderedNpc, localQuestState);
+          const showNameplate = shouldShowNpcNameplate(renderedNpc, nameplateVisibility);
+          if (renderedNpc.model === "mfergpt") {
             return (
               <MferGptAvatar
                 key={npc.id}
-                npc={npc}
+                npc={renderedNpc}
+                showNameplate={showNameplate}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
@@ -389,11 +556,12 @@ function TownSceneComponent({
             );
           }
 
-          if (npc.model === "training-dummy") {
+          if (renderedNpc.model === "training-dummy") {
             return (
               <TrainingDummyAvatar
                 key={npc.id}
-                npc={npc}
+                npc={renderedNpc}
+                showNameplate={showNameplate}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
@@ -405,11 +573,12 @@ function TownSceneComponent({
             );
           }
 
-          if (npc.model !== "mfer") {
+          if (renderedNpc.model !== "mfer") {
             return (
               <CreatureAvatar
                 key={npc.id}
-                npc={npc}
+                npc={renderedNpc}
+                showNameplate={showNameplate}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
@@ -424,11 +593,12 @@ function TownSceneComponent({
           return (
             <MferAvatar
               key={npc.id}
-              player={npc}
+              player={renderedNpc}
               isNpc
+              showNameplate={showNameplate}
               questMarker={questMarker}
               hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
-              actorScale={getNpcActorScale(npc)}
+              actorScale={getNpcActorScale(renderedNpc)}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
               chatBubble={chatBubbleBySessionId.get(npc.id)}
@@ -463,7 +633,14 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.onSelectTarget === next.onSelectTarget
     && previous.onInteractAction === next.onInteractAction
     && previous.sendInput === next.sendInput
-    && previous.debugTravelView === next.debugTravelView;
+    && previous.debugTravelView === next.debugTravelView
+    && previous.nameplateVisibility === next.nameplateVisibility
+    && previous.debugPlacementMode === next.debugPlacementMode
+    && previous.debugPlacementTargets === next.debugPlacementTargets
+    && previous.debugPlacementOverrides === next.debugPlacementOverrides
+    && previous.selectedDebugPlacementId === next.selectedDebugPlacementId
+    && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
+    && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;
 }
 
 function targetsEqual(previous: TargetSelection | null, next: TargetSelection | null) {
@@ -476,6 +653,385 @@ function getNpcActorScale(npc: NpcSnapshot) {
   if (npc.id === "raid-ogre-mfer") return 3.1;
   if (npc.id === "static-baron-nox") return 1.75;
   return 1;
+}
+
+function shouldShowNpcNameplate(npc: NpcSnapshot, visibility: NameplateVisibility) {
+  const disposition = getNpcDisposition(npc);
+  return disposition === "friendly" ? visibility.friendlyNpcs : visibility.unfriendlyNpcs;
+}
+
+function applyNpcDebugPlacementOverride(npc: NpcSnapshot, overrides: DebugPlacementOverrides): NpcSnapshot {
+  const override = overrides[getNpcDebugPlacementId(npc.id)];
+  if (!override) return npc;
+  return {
+    ...npc,
+    x: override.x,
+    z: override.z,
+    yaw: override.rotation,
+  };
+}
+
+function DebugPlacementGizmos({
+  targets,
+  overrides,
+  selectedId,
+  onSelect,
+  onChange,
+}: {
+  targets: DebugPlacementTarget[];
+  overrides: DebugPlacementOverrides;
+  selectedId: string | null;
+  onSelect?: (targetId: string | null) => void;
+  onChange?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
+}) {
+  const dragRef = useRef<DebugPlacementDragState | null>(null);
+  const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+  const groundPoint = useMemo(() => new THREE.Vector3(), []);
+
+  function getGroundPoint(event: ThreeEvent<PointerEvent>) {
+    const point = event.ray.intersectPlane(groundPlane, groundPoint);
+    if (!point) return null;
+    return { x: point.x, z: point.z };
+  }
+
+  function beginMove(event: ThreeEvent<PointerEvent>, target: DebugPlacementTarget) {
+    event.stopPropagation();
+    onSelect?.(target.id);
+    const point = getGroundPoint(event);
+    if (!point || !onChange) return;
+    const value = getDebugPlacementValue(target, overrides);
+    capturePointer(event);
+    dragRef.current = {
+      mode: "move",
+      target,
+      offsetX: value.x - point.x,
+      offsetZ: value.z - point.z,
+      value,
+    };
+  }
+
+  function beginRotate(event: ThreeEvent<PointerEvent>, target: DebugPlacementTarget) {
+    event.stopPropagation();
+    onSelect?.(target.id);
+    const point = getGroundPoint(event);
+    if (!point || !onChange) return;
+    const value = getDebugPlacementValue(target, overrides);
+    capturePointer(event);
+    dragRef.current = {
+      mode: "rotate",
+      target,
+      centerX: value.x,
+      centerZ: value.z,
+      startPointerAngle: Math.atan2(point.x - value.x, point.z - value.z),
+      startRotation: value.rotation,
+      value,
+    };
+  }
+
+  function updateDrag(event: ThreeEvent<PointerEvent>) {
+    const drag = dragRef.current;
+    if (!drag || !onChange) return;
+    event.stopPropagation();
+    const point = getGroundPoint(event);
+    if (!point) return;
+
+    if (drag.mode === "move") {
+      drag.value = {
+        x: roundDebugPlacement(point.x + drag.offsetX),
+        z: roundDebugPlacement(point.z + drag.offsetZ),
+        rotation: drag.value.rotation,
+      };
+    } else {
+      const pointerAngle = Math.atan2(point.x - drag.centerX, point.z - drag.centerZ);
+      drag.value = {
+        x: drag.centerX,
+        z: drag.centerZ,
+        rotation: drag.startRotation + wrapDebugAngle(pointerAngle - drag.startPointerAngle),
+      };
+    }
+
+    onChange(drag.target, drag.value, false);
+  }
+
+  function finishDrag(event: ThreeEvent<PointerEvent>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    event.stopPropagation();
+    releasePointer(event);
+    dragRef.current = null;
+    onChange?.(drag.target, drag.value, true);
+  }
+
+  return (
+    <group>
+      <DebugPlacementDragPlane
+        onPointerMove={updateDrag}
+        onPointerUp={finishDrag}
+        onPointerCancel={finishDrag}
+      />
+      {targets.map((target) => {
+        const value = getDebugPlacementValue(target, overrides);
+        const selected = target.id === selectedId;
+        const color = getDebugPlacementColor(target, selected);
+        const radius = target.hitRadius ?? (target.kind === "npc" ? 0.82 : target.kind === "building" ? 1.18 : 1.02);
+        const handleRadius = Math.max(radius, target.hitSize ? Math.hypot(target.hitSize[0], target.hitSize[1]) * 0.38 : radius);
+        const hitHeight = target.hitHeight ?? (target.kind === "npc" ? 3.2 : 4);
+        return (
+          <group key={target.id} position={[value.x, 0.2, value.z]} rotation-y={value.rotation}>
+            <DebugPlacementClickSurface
+              target={target}
+              radius={radius}
+              onPointerDown={(event) => beginMove(event, target)}
+              onPointerMove={updateDrag}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+            />
+            {selected && (
+              <DebugPlacementAura
+                target={target}
+                radius={radius}
+                handleRadius={handleRadius}
+                height={hitHeight}
+              />
+            )}
+            <DebugPlacementHitVolume
+              target={target}
+              color={color}
+              opacity={selected ? 0.22 : 0.07}
+              radius={radius}
+              height={hitHeight}
+              onPointerDown={(event) => beginMove(event, target)}
+              onPointerMove={updateDrag}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+            />
+            <mesh
+              rotation-x={-Math.PI / 2}
+              position={[0, 0.06, 0]}
+              onPointerDown={(event) => beginMove(event, target)}
+              onPointerMove={updateDrag}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+            >
+              <ringGeometry args={[handleRadius, handleRadius + (selected ? 0.18 : 0.1), 48]} />
+              <meshBasicMaterial color={color} transparent opacity={selected ? 0.82 : 0.34} depthWrite={false} depthTest={false} side={THREE.DoubleSide} />
+            </mesh>
+            <mesh
+              position={[0, DEBUG_PLACEMENT_CLICK_Y + 0.35, handleRadius + 0.64]}
+              onPointerDown={(event) => beginRotate(event, target)}
+              onPointerMove={updateDrag}
+              onPointerUp={finishDrag}
+              onPointerCancel={finishDrag}
+            >
+              <boxGeometry args={[selected ? 0.22 : 0.16, 0.14, 1.25]} />
+              <meshBasicMaterial color={color} transparent opacity={selected ? 0.95 : 0.56} depthWrite={false} depthTest={false} />
+            </mesh>
+            {selected && (
+              <Text
+                position={[0, 0.35, -handleRadius - 0.8]}
+                rotation-x={-Math.PI / 2}
+                fontSize={1.15}
+                color="#fff7d2"
+                outlineColor="#1a1208"
+                outlineWidth={0.05}
+                anchorX="center"
+                anchorY="middle"
+              >
+                {target.label}
+              </Text>
+            )}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function DebugPlacementAura({
+  target,
+  radius,
+  handleRadius,
+  height,
+}: {
+  target: DebugPlacementTarget;
+  radius: number;
+  handleRadius: number;
+  height: number;
+}) {
+  const hitSize = target.hitSize;
+  const auraHeight = Math.max(height, 0.8);
+  return (
+    <group>
+      <mesh position={[0, auraHeight / 2, 0]}>
+        {hitSize ? (
+          <boxGeometry args={[hitSize[0] + 0.9, auraHeight, hitSize[1] + 0.9]} />
+        ) : (
+          <cylinderGeometry args={[radius + 0.45, radius + 0.45, auraHeight, 36]} />
+        )}
+        <meshBasicMaterial
+          color="#f3d04e"
+          transparent
+          opacity={0.16}
+          depthWrite={false}
+          depthTest={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, DEBUG_PLACEMENT_CLICK_Y + 0.8, 0]}>
+        <ringGeometry args={[handleRadius + 0.22, handleRadius + 0.48, 72]} />
+        <meshBasicMaterial color="#fff2a6" transparent opacity={0.72} depthWrite={false} depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
+function DebugPlacementDragPlane({
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+}: {
+  onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerCancel: (event: ThreeEvent<PointerEvent>) => void;
+}) {
+  return (
+    <mesh
+      rotation-x={-Math.PI / 2}
+      position={[0, 0.01, 0]}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+    >
+      <planeGeometry args={[520, 520]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
+type DebugPlacementDragState =
+  | {
+    mode: "move";
+    target: DebugPlacementTarget;
+    offsetX: number;
+    offsetZ: number;
+    value: { x: number; z: number; rotation: number };
+  }
+  | {
+    mode: "rotate";
+    target: DebugPlacementTarget;
+    centerX: number;
+    centerZ: number;
+    startPointerAngle: number;
+    startRotation: number;
+    value: { x: number; z: number; rotation: number };
+  };
+
+function DebugPlacementClickSurface({
+  target,
+  radius,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+}: {
+  target: DebugPlacementTarget;
+  radius: number;
+  onPointerDown: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerCancel: (event: ThreeEvent<PointerEvent>) => void;
+}) {
+  const hitSize = target.hitSize;
+  return (
+    <mesh
+      rotation-x={-Math.PI / 2}
+      position={[0, DEBUG_PLACEMENT_CLICK_Y, 0]}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+    >
+      {hitSize ? (
+        <planeGeometry args={[hitSize[0], hitSize[1]]} />
+      ) : (
+        <circleGeometry args={[radius, 32]} />
+      )}
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
+  );
+}
+
+function DebugPlacementHitVolume({
+  target,
+  color,
+  opacity,
+  radius,
+  height,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+}: {
+  target: DebugPlacementTarget;
+  color: string;
+  opacity: number;
+  radius: number;
+  height: number;
+  onPointerDown: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerMove: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerUp: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerCancel: (event: ThreeEvent<PointerEvent>) => void;
+}) {
+  const hitSize = target.hitSize;
+  return (
+    <mesh
+      position={[0, height / 2, 0]}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+    >
+      {hitSize ? (
+        <boxGeometry args={[hitSize[0], height, hitSize[1]]} />
+      ) : (
+        <cylinderGeometry args={[radius, radius, height, 24]} />
+      )}
+      <meshBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
+    </mesh>
+  );
+}
+
+function capturePointer(event: ThreeEvent<PointerEvent>) {
+  if (event.target instanceof Element && "setPointerCapture" in event.target) {
+    event.target.setPointerCapture(event.pointerId);
+  }
+}
+
+function releasePointer(event: ThreeEvent<PointerEvent>) {
+  if (event.target instanceof Element && "releasePointerCapture" in event.target) {
+    try {
+      event.target.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture may already be gone if the pointer leaves the canvas.
+    }
+  }
+}
+
+function roundDebugPlacement(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function wrapDebugAngle(value: number) {
+  const full = Math.PI * 2;
+  return ((((value + Math.PI) % full) + full) % full) - Math.PI;
+}
+
+function getDebugPlacementColor(target: DebugPlacementTarget, selected: boolean) {
+  if (selected) return "#f3d04e";
+  if (target.kind === "npc") return "#66d9ff";
+  if (target.kind === "building") return "#f38f4d";
+  if (target.kind === "model") return "#a982ff";
+  return "#5fe777";
 }
 
 function blurActiveTextField() {

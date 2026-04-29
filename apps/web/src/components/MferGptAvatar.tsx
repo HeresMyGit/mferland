@@ -31,6 +31,7 @@ type MferGptAvatarProps = {
   hasLoot?: boolean;
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
+  showNameplate?: boolean;
   onTarget?: () => void;
 };
 
@@ -63,6 +64,7 @@ export function MferGptAvatar({
   hasLoot = false,
   chatBubble = null,
   viewerPosition = null,
+  showNameplate: canShowNameplate = true,
   onTarget,
 }: MferGptAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -80,7 +82,7 @@ export function MferGptAvatar({
   const antennaLightMaterials = useMemo(() => getMferGptAntennaLightMaterials(avatar), [avatar]);
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
-  const showNameplate = !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
+  const showNameplate = canShowNameplate && !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);

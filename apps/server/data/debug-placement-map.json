@@ -1,0 +1,1576 @@
+{
+  "version": 1,
+  "savedAt": "2026-04-29T22:46:47.696Z",
+  "sourceDefaults": {
+    "npc:beacon-keeper-mfer": {
+      "x": 117.6,
+      "z": -91.2,
+      "rotation": 2.75,
+      "kind": "npc",
+      "label": "Beacon Keeper mfer",
+      "source": "spawnNpcs:beacon-keeper-mfer"
+    },
+    "npc:camp-merchant": {
+      "x": -125.3,
+      "z": 140.4,
+      "rotation": 1.4500000476837158,
+      "kind": "npc",
+      "label": "Camp merchant",
+      "source": "spawnNpcs:camp-merchant"
+    },
+    "npc:dao-mfer": {
+      "x": 13.7,
+      "z": -9.3,
+      "rotation": -1.7000000476837158,
+      "kind": "npc",
+      "label": "DAO mfer",
+      "source": "spawnNpcs:dao-mfer"
+    },
+    "npc:deer-copse": {
+      "x": 34.8,
+      "z": -25.8,
+      "rotation": 1.0415925979614258,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-copse"
+    },
+    "npc:deer-hill": {
+      "x": -19.2,
+      "z": 30.2,
+      "rotation": 1.7415926456451416,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-hill"
+    },
+    "npc:deer-south": {
+      "x": 29.7,
+      "z": 22.2,
+      "rotation": 2.4033498764038086,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-south"
+    },
+    "npc:deer-west": {
+      "x": -33.5,
+      "z": -2.2,
+      "rotation": 3.1415927410125732,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-west"
+    },
+    "npc:farmhand-bran": {
+      "x": -78.2,
+      "z": 86.3,
+      "rotation": -0.699999988079071,
+      "kind": "npc",
+      "label": "Farmhand Bran",
+      "source": "spawnNpcs:farmhand-bran"
+    },
+    "npc:farmhand-jo": {
+      "x": -94.5,
+      "z": 102.4,
+      "rotation": 0.4000000059604645,
+      "kind": "npc",
+      "label": "Farmhand Jo",
+      "source": "spawnNpcs:farmhand-jo"
+    },
+    "npc:farmhand-mae": {
+      "x": -87.5,
+      "z": 91.5,
+      "rotation": 0.800000011920929,
+      "kind": "npc",
+      "label": "Farmhand Mae",
+      "source": "spawnNpcs:farmhand-mae"
+    },
+    "npc:field-guide-mfer": {
+      "x": -119.2,
+      "z": 132.4,
+      "rotation": 0.20000000298023224,
+      "kind": "npc",
+      "label": "Field Guide mfer",
+      "source": "spawnNpcs:field-guide-mfer"
+    },
+    "npc:field-mage-ren": {
+      "x": -84.8,
+      "z": 108.6,
+      "rotation": 2.200000047683716,
+      "kind": "npc",
+      "label": "Field mage Ren",
+      "source": "spawnNpcs:field-mage-ren"
+    },
+    "npc:field-mage-sol": {
+      "x": -73.2,
+      "z": 99.8,
+      "rotation": -1.600000023841858,
+      "kind": "npc",
+      "label": "Field mage Sol",
+      "source": "spawnNpcs:field-mage-sol"
+    },
+    "npc:fountain-mfer": {
+      "x": -7.5,
+      "z": -2.8,
+      "rotation": 1.600000023841858,
+      "kind": "npc",
+      "label": "Fountain mfer",
+      "source": "spawnNpcs:fountain-mfer"
+    },
+    "npc:gate-guard": {
+      "x": 5.9,
+      "z": -18.5,
+      "rotation": 0.20000000298023224,
+      "kind": "npc",
+      "label": "Gate guard",
+      "source": "spawnNpcs:gate-guard"
+    },
+    "npc:hogwatch-mfer": {
+      "x": -64.5,
+      "z": 64.5,
+      "rotation": -0.3499999940395355,
+      "kind": "npc",
+      "label": "Hogwatch mfer",
+      "source": "spawnNpcs:hogwatch-mfer"
+    },
+    "npc:mfergpt": {
+      "x": 6.8,
+      "z": -5.2,
+      "rotation": -0.33324429392814636,
+      "kind": "npc",
+      "label": "mferGPT",
+      "source": "spawnNpcs:mfergpt"
+    },
+    "npc:og-mfer": {
+      "x": -4.2,
+      "z": 3.9,
+      "rotation": 2.299999952316284,
+      "kind": "npc",
+      "label": "OG mfer",
+      "source": "spawnNpcs:og-mfer"
+    },
+    "npc:wild-hog-boar": {
+      "x": -70.6,
+      "z": 101.4,
+      "rotation": 5.159557342529297,
+      "kind": "npc",
+      "label": "Old boar",
+      "source": "spawnNpcs:wild-hog-boar"
+    },
+    "npc:pen-keeper-mfer": {
+      "x": -111.2,
+      "z": 136.7,
+      "rotation": -0.800000011920929,
+      "kind": "npc",
+      "label": "Pen Keeper mfer",
+      "source": "spawnNpcs:pen-keeper-mfer"
+    },
+    "npc:plaza-mfer": {
+      "x": 8.6,
+      "z": 6.2,
+      "rotation": 2.6781344413757324,
+      "kind": "npc",
+      "label": "Plaza mfer",
+      "source": "spawnNpcs:plaza-mfer"
+    },
+    "npc:rabbit-fountain": {
+      "x": -15.4,
+      "z": -5.6,
+      "rotation": -2.391869306564331,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-fountain"
+    },
+    "npc:rabbit-gate": {
+      "x": 11.8,
+      "z": -27.5,
+      "rotation": 1.591489553451538,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-gate"
+    },
+    "npc:rabbit-grove": {
+      "x": -28.2,
+      "z": 17.4,
+      "rotation": 1.7999999523162842,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-grove"
+    },
+    "npc:rabbit-north": {
+      "x": -21.8,
+      "z": -20.8,
+      "rotation": -2.3458924293518066,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-north"
+    },
+    "npc:rabbit-path": {
+      "x": 24.4,
+      "z": -14.2,
+      "rotation": -0.08887897431850433,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-path"
+    },
+    "npc:rabbit-plaza": {
+      "x": 17.7,
+      "z": 7,
+      "rotation": -3.088667392730713,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-plaza"
+    },
+    "npc:ridge-raider-pax": {
+      "x": 153.2,
+      "z": -95.8,
+      "rotation": 2.5,
+      "kind": "npc",
+      "label": "Raider Pax",
+      "source": "spawnNpcs:ridge-raider-pax"
+    },
+    "npc:ridge-raider-vex": {
+      "x": 145.5,
+      "z": -84.2,
+      "rotation": -2.4000000953674316,
+      "kind": "npc",
+      "label": "Raider Vex",
+      "source": "spawnNpcs:ridge-raider-vex"
+    },
+    "npc:ridge-guide-mfer": {
+      "x": 108.8,
+      "z": -92.8,
+      "rotation": 2.049999952316284,
+      "kind": "npc",
+      "label": "Ridge Guide mfer",
+      "source": "spawnNpcs:ridge-guide-mfer"
+    },
+    "npc:ridge-merchant": {
+      "x": 126.2,
+      "z": -88.8,
+      "rotation": -2.5999999046325684,
+      "kind": "npc",
+      "label": "Ridge merchant",
+      "source": "spawnNpcs:ridge-merchant"
+    },
+    "npc:ridge-raider-loop": {
+      "x": 142,
+      "z": -74.5,
+      "rotation": 1.100000023841858,
+      "kind": "npc",
+      "label": "Ridge raider",
+      "source": "spawnNpcs:ridge-raider-loop"
+    },
+    "npc:ridge-raider-spark": {
+      "x": 158.2,
+      "z": -106.2,
+      "rotation": -2.200000047683716,
+      "kind": "npc",
+      "label": "Ridge raider",
+      "source": "spawnNpcs:ridge-raider-spark"
+    },
+    "npc:route-guard": {
+      "x": -83.5,
+      "z": 60.8,
+      "rotation": -1.350000023841858,
+      "kind": "npc",
+      "label": "Route guard",
+      "source": "spawnNpcs:route-guard"
+    },
+    "npc:static-baron-nox": {
+      "x": 151.5,
+      "z": -124.8,
+      "rotation": 2.8499999046325684,
+      "kind": "npc",
+      "label": "Static Baron Nox",
+      "source": "spawnNpcs:static-baron-nox"
+    },
+    "npc:static-mage-ori": {
+      "x": 150.2,
+      "z": -113.4,
+      "rotation": -0.20000000298023224,
+      "kind": "npc",
+      "label": "Static mage Ori",
+      "source": "spawnNpcs:static-mage-ori"
+    },
+    "npc:training-dummy-left": {
+      "x": -10.5,
+      "z": -11.5,
+      "rotation": 2.5,
+      "kind": "npc",
+      "label": "Training dummy",
+      "source": "spawnNpcs:training-dummy-left"
+    },
+    "npc:training-dummy-right": {
+      "x": -7.8,
+      "z": -13.8,
+      "rotation": 2.200000047683716,
+      "kind": "npc",
+      "label": "Training dummy",
+      "source": "spawnNpcs:training-dummy-right"
+    },
+    "npc:wearables-mfer": {
+      "x": -13.6,
+      "z": 12.7,
+      "rotation": 1.100000023841858,
+      "kind": "npc",
+      "label": "Wearables mfer",
+      "source": "spawnNpcs:wearables-mfer"
+    },
+    "npc:wild-hog-bristle": {
+      "x": -76.8,
+      "z": 93.6,
+      "rotation": 1.6795574426651,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-bristle"
+    },
+    "npc:wild-hog-burrow": {
+      "x": -86.2,
+      "z": 111.8,
+      "rotation": 6.3195576667785645,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-burrow"
+    },
+    "npc:wild-hog-camp": {
+      "x": -102.8,
+      "z": 120.2,
+      "rotation": 7.479557514190674,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-camp"
+    },
+    "npc:wild-hog-grub": {
+      "x": -90.9,
+      "z": 78.8,
+      "rotation": 4.579557418823242,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-grub"
+    },
+    "npc:wild-hog-mud": {
+      "x": -71.4,
+      "z": 86.9,
+      "rotation": 2.839557409286499,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-mud"
+    },
+    "npc:wild-hog-ridge": {
+      "x": -76.4,
+      "z": 113.5,
+      "rotation": 6.899557590484619,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-ridge"
+    },
+    "npc:wild-hog-rooter": {
+      "x": -81.5,
+      "z": 88.2,
+      "rotation": 1.0995573997497559,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-rooter"
+    },
+    "npc:wild-hog-runt": {
+      "x": -94.8,
+      "z": 88.3,
+      "rotation": 3.4195573329925537,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-runt"
+    },
+    "npc:wild-hog-snort": {
+      "x": -89.2,
+      "z": 95.4,
+      "rotation": 2.2595574855804443,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-snort"
+    },
+    "npc:wild-hog-thistle": {
+      "x": -98.4,
+      "z": 104.6,
+      "rotation": 5.739557266235352,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-thistle"
+    },
+    "npc:wild-hog-tusk": {
+      "x": -80.7,
+      "z": 80.1,
+      "rotation": 3.9995574951171875,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-tusk"
+    },
+    "building:mfers": {
+      "x": -18,
+      "z": -8,
+      "rotation": 0.4,
+      "kind": "building",
+      "label": "Town building: MFERS",
+      "source": "world/shared.ts"
+    },
+    "building:dao": {
+      "x": 18,
+      "z": -7.5,
+      "rotation": -0.45,
+      "kind": "building",
+      "label": "Town building: DAO",
+      "source": "world/shared.ts"
+    },
+    "building:wearables": {
+      "x": -18,
+      "z": 11,
+      "rotation": -0.2,
+      "kind": "building",
+      "label": "Town building: WEARABLES",
+      "source": "world/shared.ts"
+    },
+    "building:shop": {
+      "x": 18,
+      "z": 10.5,
+      "rotation": 0.25,
+      "kind": "building",
+      "label": "Town building: SHOP",
+      "source": "world/shared.ts"
+    },
+    "building:barracks": {
+      "x": -25.5,
+      "z": -33.8,
+      "rotation": 1.28,
+      "kind": "building",
+      "label": "Town building: BARRACKS",
+      "source": "world/shared.ts"
+    },
+    "building:keep": {
+      "x": 25.5,
+      "z": -33.8,
+      "rotation": -1.28,
+      "kind": "building",
+      "label": "Town building: KEEP",
+      "source": "world/shared.ts"
+    },
+    "building:gallery": {
+      "x": -36,
+      "z": 17.5,
+      "rotation": 1.5,
+      "kind": "building",
+      "label": "Town building: GALLERY",
+      "source": "world/shared.ts"
+    },
+    "building:arcade": {
+      "x": 36,
+      "z": 17.5,
+      "rotation": -1.5,
+      "kind": "building",
+      "label": "Town building: ARCADE",
+      "source": "world/shared.ts"
+    },
+    "building:inn": {
+      "x": -16,
+      "z": 36.5,
+      "rotation": 2.82,
+      "kind": "building",
+      "label": "Town building: INN",
+      "source": "world/shared.ts"
+    },
+    "building:forge": {
+      "x": 16,
+      "z": 36.5,
+      "rotation": -2.82,
+      "kind": "building",
+      "label": "Town building: FORGE",
+      "source": "world/shared.ts"
+    },
+    "building:field-post": {
+      "x": -129,
+      "z": 134,
+      "rotation": 1.42,
+      "kind": "building",
+      "label": "Outpost building: FIELD",
+      "source": "world/shared.ts"
+    },
+    "building:trail-shed": {
+      "x": -111.5,
+      "z": 142.5,
+      "rotation": -2.75,
+      "kind": "building",
+      "label": "Outpost building: TRAIL",
+      "source": "world/shared.ts"
+    },
+    "building:hub-watch": {
+      "x": -116.5,
+      "z": 126.5,
+      "rotation": 0.18,
+      "kind": "building",
+      "label": "Outpost building: WATCH",
+      "source": "world/shared.ts"
+    },
+    "building:ridge-post": {
+      "x": 112,
+      "z": -101.5,
+      "rotation": -1.2,
+      "kind": "building",
+      "label": "Outpost building: RIDGE",
+      "source": "world/shared.ts"
+    },
+    "building:signal-shed": {
+      "x": 128.5,
+      "z": -97.5,
+      "rotation": 2.68,
+      "kind": "building",
+      "label": "Outpost building: SIGNAL",
+      "source": "world/shared.ts"
+    },
+    "building:relay-watch": {
+      "x": 123,
+      "z": -116.5,
+      "rotation": -0.08,
+      "kind": "building",
+      "label": "Outpost building: RELAY",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:left-market": {
+      "x": -6.4,
+      "z": 29.2,
+      "rotation": 3.141592653589793,
+      "kind": "model",
+      "label": "Market stall: left-market",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:center-market": {
+      "x": 0,
+      "z": 31.4,
+      "rotation": 3.141592653589793,
+      "kind": "model",
+      "label": "Market stall: center-market",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:right-market": {
+      "x": 6.4,
+      "z": 29.2,
+      "rotation": 3.141592653589793,
+      "kind": "model",
+      "label": "Market stall: right-market",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:field-camp-left-stall": {
+      "x": -123,
+      "z": 129.8,
+      "rotation": 0.18,
+      "kind": "model",
+      "label": "Outpost stall: field-camp-left-stall",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:field-camp-right-stall": {
+      "x": -114,
+      "z": 132.2,
+      "rotation": -0.26,
+      "kind": "model",
+      "label": "Outpost stall: field-camp-right-stall",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:ridge-left-stall": {
+      "x": 111.4,
+      "z": -93.4,
+      "rotation": -0.18,
+      "kind": "model",
+      "label": "Outpost stall: ridge-left-stall",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:ridge-right-stall": {
+      "x": 121.8,
+      "z": -91.8,
+      "rotation": 0.32,
+      "kind": "model",
+      "label": "Outpost stall: ridge-right-stall",
+      "source": "world/shared.ts"
+    },
+    "model:fountain": {
+      "x": 0,
+      "z": 0,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Fountain",
+      "source": "Fountain.tsx"
+    },
+    "model:castle-gate": {
+      "x": 0,
+      "z": -30,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Castle gate",
+      "source": "Buildings.tsx"
+    },
+    "model:watch-tower-west": {
+      "x": -41,
+      "z": -36,
+      "rotation": 0,
+      "kind": "model",
+      "label": "West watch tower",
+      "source": "TownWorld.tsx"
+    },
+    "model:watch-tower-east": {
+      "x": 41,
+      "z": -36,
+      "rotation": 0,
+      "kind": "model",
+      "label": "East watch tower",
+      "source": "TownWorld.tsx"
+    },
+    "model:watch-tower-ridge": {
+      "x": 134.2,
+      "z": -108.6,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Ridge watch tower",
+      "source": "TownWorld.tsx"
+    },
+    "model:farm": {
+      "x": -82,
+      "z": 92,
+      "rotation": -0.18,
+      "kind": "model",
+      "label": "Rundown farm",
+      "source": "Farm.tsx"
+    },
+    "model:signal-relay": {
+      "x": 136,
+      "z": -121,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Signal relay",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:ridge-gate-marker": {
+      "x": 55.5,
+      "z": -5.5,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Ridge Gate route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:relay-milepost-marker": {
+      "x": 92,
+      "z": -18.2,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Relay Milepost route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:switchback-lantern-marker": {
+      "x": 124.4,
+      "z": -58,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Switchback Lantern route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:signal-approach-marker": {
+      "x": 116.6,
+      "z": -90,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Signal Approach route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:spawn-ring-purple": {
+      "x": 5.6,
+      "z": 5.6,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Purple spawn ring",
+      "source": "TownWorld.tsx"
+    },
+    "prop:spawn-ring-blue": {
+      "x": -6.1,
+      "z": 4.4,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Blue spawn ring",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-gate-left": {
+      "x": -7.2,
+      "z": -19.8,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Gate left banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-gate-right": {
+      "x": 7.2,
+      "z": -19.8,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Gate right banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-west-road": {
+      "x": -23.5,
+      "z": -39,
+      "rotation": 1.5707963267948966,
+      "kind": "prop",
+      "label": "West road banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-east-road": {
+      "x": 23.5,
+      "z": -39,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "East road banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-inn": {
+      "x": -7.2,
+      "z": 39,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Inn banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-forge": {
+      "x": 7.2,
+      "z": 39,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Forge banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-farm-route": {
+      "x": -83.8,
+      "z": 59.6,
+      "rotation": 1.5707963267948966,
+      "kind": "prop",
+      "label": "Farm route banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-field-camp": {
+      "x": -112,
+      "z": 126,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Field camp banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-ridge-route": {
+      "x": 94,
+      "z": -22,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Ridge route banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-ridge-entry": {
+      "x": 123,
+      "z": -91,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Ridge entry banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-relay-north": {
+      "x": 137.5,
+      "z": -91,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Relay north banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-relay-south": {
+      "x": 137.5,
+      "z": -116.5,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Relay south banner",
+      "source": "TownWorld.tsx"
+    }
+  },
+  "placements": {
+    "npc:beacon-keeper-mfer": {
+      "x": 117.6,
+      "z": -91.2,
+      "rotation": 2.75,
+      "kind": "npc",
+      "label": "Beacon Keeper mfer",
+      "source": "spawnNpcs:beacon-keeper-mfer"
+    },
+    "npc:camp-merchant": {
+      "x": -125.3,
+      "z": 140.4,
+      "rotation": 1.4500000476837158,
+      "kind": "npc",
+      "label": "Camp merchant",
+      "source": "spawnNpcs:camp-merchant"
+    },
+    "npc:dao-mfer": {
+      "x": 13.7,
+      "z": -9.3,
+      "rotation": -1.7000000476837158,
+      "kind": "npc",
+      "label": "DAO mfer",
+      "source": "spawnNpcs:dao-mfer"
+    },
+    "npc:deer-copse": {
+      "x": 34.8,
+      "z": -25.8,
+      "rotation": 1.0415925979614258,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-copse"
+    },
+    "npc:deer-hill": {
+      "x": -19.2,
+      "z": 30.2,
+      "rotation": 1.7415926456451416,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-hill"
+    },
+    "npc:deer-south": {
+      "x": 29.7,
+      "z": 22.2,
+      "rotation": 2.4033498764038086,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-south"
+    },
+    "npc:deer-west": {
+      "x": -33.5,
+      "z": -2.2,
+      "rotation": 3.1415927410125732,
+      "kind": "npc",
+      "label": "Deer",
+      "source": "spawnNpcs:deer-west"
+    },
+    "npc:farmhand-bran": {
+      "x": -78.2,
+      "z": 86.3,
+      "rotation": -0.699999988079071,
+      "kind": "npc",
+      "label": "Farmhand Bran",
+      "source": "spawnNpcs:farmhand-bran"
+    },
+    "npc:farmhand-jo": {
+      "x": -94.5,
+      "z": 102.4,
+      "rotation": 0.4000000059604645,
+      "kind": "npc",
+      "label": "Farmhand Jo",
+      "source": "spawnNpcs:farmhand-jo"
+    },
+    "npc:farmhand-mae": {
+      "x": -87.5,
+      "z": 91.5,
+      "rotation": 0.800000011920929,
+      "kind": "npc",
+      "label": "Farmhand Mae",
+      "source": "spawnNpcs:farmhand-mae"
+    },
+    "npc:field-guide-mfer": {
+      "x": -119.2,
+      "z": 132.4,
+      "rotation": 0.20000000298023224,
+      "kind": "npc",
+      "label": "Field Guide mfer",
+      "source": "spawnNpcs:field-guide-mfer"
+    },
+    "npc:field-mage-ren": {
+      "x": -84.8,
+      "z": 108.6,
+      "rotation": 2.200000047683716,
+      "kind": "npc",
+      "label": "Field mage Ren",
+      "source": "spawnNpcs:field-mage-ren"
+    },
+    "npc:field-mage-sol": {
+      "x": -73.2,
+      "z": 99.8,
+      "rotation": -1.600000023841858,
+      "kind": "npc",
+      "label": "Field mage Sol",
+      "source": "spawnNpcs:field-mage-sol"
+    },
+    "npc:fountain-mfer": {
+      "x": -7.5,
+      "z": -2.8,
+      "rotation": 1.600000023841858,
+      "kind": "npc",
+      "label": "Fountain mfer",
+      "source": "spawnNpcs:fountain-mfer"
+    },
+    "npc:gate-guard": {
+      "x": 5.9,
+      "z": -18.5,
+      "rotation": 0.20000000298023224,
+      "kind": "npc",
+      "label": "Gate guard",
+      "source": "spawnNpcs:gate-guard"
+    },
+    "npc:hogwatch-mfer": {
+      "x": -64.5,
+      "z": 64.5,
+      "rotation": -0.3499999940395355,
+      "kind": "npc",
+      "label": "Hogwatch mfer",
+      "source": "spawnNpcs:hogwatch-mfer"
+    },
+    "npc:mfergpt": {
+      "x": 6.8,
+      "z": -5.2,
+      "rotation": -0.33324429392814636,
+      "kind": "npc",
+      "label": "mferGPT",
+      "source": "spawnNpcs:mfergpt"
+    },
+    "npc:og-mfer": {
+      "x": -4.2,
+      "z": 3.9,
+      "rotation": 2.299999952316284,
+      "kind": "npc",
+      "label": "OG mfer",
+      "source": "spawnNpcs:og-mfer"
+    },
+    "npc:wild-hog-boar": {
+      "x": -70.6,
+      "z": 101.4,
+      "rotation": 5.159557342529297,
+      "kind": "npc",
+      "label": "Old boar",
+      "source": "spawnNpcs:wild-hog-boar"
+    },
+    "npc:pen-keeper-mfer": {
+      "x": -111.2,
+      "z": 136.7,
+      "rotation": -0.800000011920929,
+      "kind": "npc",
+      "label": "Pen Keeper mfer",
+      "source": "spawnNpcs:pen-keeper-mfer"
+    },
+    "npc:plaza-mfer": {
+      "x": 8.6,
+      "z": 6.2,
+      "rotation": 2.6781344413757324,
+      "kind": "npc",
+      "label": "Plaza mfer",
+      "source": "spawnNpcs:plaza-mfer"
+    },
+    "npc:rabbit-fountain": {
+      "x": -15.4,
+      "z": -5.6,
+      "rotation": -2.391869306564331,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-fountain"
+    },
+    "npc:rabbit-gate": {
+      "x": 11.8,
+      "z": -27.5,
+      "rotation": 1.591489553451538,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-gate"
+    },
+    "npc:rabbit-grove": {
+      "x": -28.2,
+      "z": 17.4,
+      "rotation": 1.7999999523162842,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-grove"
+    },
+    "npc:rabbit-north": {
+      "x": -21.8,
+      "z": -20.8,
+      "rotation": -2.3458924293518066,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-north"
+    },
+    "npc:rabbit-path": {
+      "x": 19.5,
+      "z": 15.4,
+      "rotation": 2.700000047683716,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-path"
+    },
+    "npc:rabbit-plaza": {
+      "x": 17.7,
+      "z": 7,
+      "rotation": -3.088667392730713,
+      "kind": "npc",
+      "label": "Rabbit",
+      "source": "spawnNpcs:rabbit-plaza"
+    },
+    "npc:ridge-raider-pax": {
+      "x": 153.2,
+      "z": -95.8,
+      "rotation": 2.5,
+      "kind": "npc",
+      "label": "Raider Pax",
+      "source": "spawnNpcs:ridge-raider-pax"
+    },
+    "npc:ridge-raider-vex": {
+      "x": 145.5,
+      "z": -84.2,
+      "rotation": -2.4000000953674316,
+      "kind": "npc",
+      "label": "Raider Vex",
+      "source": "spawnNpcs:ridge-raider-vex"
+    },
+    "npc:ridge-guide-mfer": {
+      "x": 108.8,
+      "z": -92.8,
+      "rotation": 2.049999952316284,
+      "kind": "npc",
+      "label": "Ridge Guide mfer",
+      "source": "spawnNpcs:ridge-guide-mfer"
+    },
+    "npc:ridge-merchant": {
+      "x": 126.2,
+      "z": -88.8,
+      "rotation": -2.5999999046325684,
+      "kind": "npc",
+      "label": "Ridge merchant",
+      "source": "spawnNpcs:ridge-merchant"
+    },
+    "npc:ridge-raider-loop": {
+      "x": 142,
+      "z": -74.5,
+      "rotation": 1.100000023841858,
+      "kind": "npc",
+      "label": "Ridge raider",
+      "source": "spawnNpcs:ridge-raider-loop"
+    },
+    "npc:ridge-raider-spark": {
+      "x": 158.2,
+      "z": -106.2,
+      "rotation": -2.200000047683716,
+      "kind": "npc",
+      "label": "Ridge raider",
+      "source": "spawnNpcs:ridge-raider-spark"
+    },
+    "npc:route-guard": {
+      "x": -83.5,
+      "z": 60.8,
+      "rotation": -1.350000023841858,
+      "kind": "npc",
+      "label": "Route guard",
+      "source": "spawnNpcs:route-guard"
+    },
+    "npc:static-baron-nox": {
+      "x": 151.5,
+      "z": -124.8,
+      "rotation": 2.8499999046325684,
+      "kind": "npc",
+      "label": "Static Baron Nox",
+      "source": "spawnNpcs:static-baron-nox"
+    },
+    "npc:static-mage-ori": {
+      "x": 150.2,
+      "z": -113.4,
+      "rotation": -0.20000000298023224,
+      "kind": "npc",
+      "label": "Static mage Ori",
+      "source": "spawnNpcs:static-mage-ori"
+    },
+    "npc:training-dummy-left": {
+      "x": -10.5,
+      "z": -11.5,
+      "rotation": 2.5,
+      "kind": "npc",
+      "label": "Training dummy",
+      "source": "spawnNpcs:training-dummy-left"
+    },
+    "npc:training-dummy-right": {
+      "x": -7.8,
+      "z": -13.8,
+      "rotation": 2.200000047683716,
+      "kind": "npc",
+      "label": "Training dummy",
+      "source": "spawnNpcs:training-dummy-right"
+    },
+    "npc:wearables-mfer": {
+      "x": -13.6,
+      "z": 12.7,
+      "rotation": 1.100000023841858,
+      "kind": "npc",
+      "label": "Wearables mfer",
+      "source": "spawnNpcs:wearables-mfer"
+    },
+    "npc:wild-hog-bristle": {
+      "x": -76.8,
+      "z": 93.6,
+      "rotation": 1.6795574426651,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-bristle"
+    },
+    "npc:wild-hog-burrow": {
+      "x": -86.2,
+      "z": 111.8,
+      "rotation": 6.3195576667785645,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-burrow"
+    },
+    "npc:wild-hog-camp": {
+      "x": -102.8,
+      "z": 120.2,
+      "rotation": 7.479557514190674,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-camp"
+    },
+    "npc:wild-hog-grub": {
+      "x": -90.9,
+      "z": 78.8,
+      "rotation": 4.579557418823242,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-grub"
+    },
+    "npc:wild-hog-mud": {
+      "x": -71.4,
+      "z": 86.9,
+      "rotation": 2.839557409286499,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-mud"
+    },
+    "npc:wild-hog-ridge": {
+      "x": -76.4,
+      "z": 113.5,
+      "rotation": 6.899557590484619,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-ridge"
+    },
+    "npc:wild-hog-rooter": {
+      "x": -81.5,
+      "z": 88.2,
+      "rotation": 1.0995573997497559,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-rooter"
+    },
+    "npc:wild-hog-runt": {
+      "x": -94.8,
+      "z": 88.3,
+      "rotation": 3.4195573329925537,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-runt"
+    },
+    "npc:wild-hog-snort": {
+      "x": -89.2,
+      "z": 95.4,
+      "rotation": 2.2595574855804443,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-snort"
+    },
+    "npc:wild-hog-thistle": {
+      "x": -98.4,
+      "z": 104.6,
+      "rotation": 5.739557266235352,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-thistle"
+    },
+    "npc:wild-hog-tusk": {
+      "x": -80.7,
+      "z": 80.1,
+      "rotation": 3.9995574951171875,
+      "kind": "npc",
+      "label": "Wild hog",
+      "source": "spawnNpcs:wild-hog-tusk"
+    },
+    "building:mfers": {
+      "x": -16.8,
+      "z": -15.5,
+      "rotation": 0.8377580409572781,
+      "kind": "building",
+      "label": "Town building: MFERS",
+      "source": "world/shared.ts"
+    },
+    "building:dao": {
+      "x": 20.2,
+      "z": -10.8,
+      "rotation": -0.9773843811168246,
+      "kind": "building",
+      "label": "Town building: DAO",
+      "source": "world/shared.ts"
+    },
+    "building:wearables": {
+      "x": -17.5,
+      "z": 16,
+      "rotation": -0.8552113334772214,
+      "kind": "building",
+      "label": "Town building: WEARABLES",
+      "source": "world/shared.ts"
+    },
+    "building:shop": {
+      "x": 16.8,
+      "z": 17,
+      "rotation": 0.7504915783575616,
+      "kind": "building",
+      "label": "Town building: SHOP",
+      "source": "world/shared.ts"
+    },
+    "building:barracks": {
+      "x": -25.5,
+      "z": -33.8,
+      "rotation": 1.28,
+      "kind": "building",
+      "label": "Town building: BARRACKS",
+      "source": "world/shared.ts"
+    },
+    "building:keep": {
+      "x": 25.5,
+      "z": -33.8,
+      "rotation": -1.28,
+      "kind": "building",
+      "label": "Town building: KEEP",
+      "source": "world/shared.ts"
+    },
+    "building:gallery": {
+      "x": -36,
+      "z": 17.5,
+      "rotation": 1.5,
+      "kind": "building",
+      "label": "Town building: GALLERY",
+      "source": "world/shared.ts"
+    },
+    "building:arcade": {
+      "x": 36,
+      "z": 17.5,
+      "rotation": -1.5,
+      "kind": "building",
+      "label": "Town building: ARCADE",
+      "source": "world/shared.ts"
+    },
+    "building:inn": {
+      "x": -16,
+      "z": 36.5,
+      "rotation": 2.82,
+      "kind": "building",
+      "label": "Town building: INN",
+      "source": "world/shared.ts"
+    },
+    "building:forge": {
+      "x": 16,
+      "z": 36.5,
+      "rotation": -2.82,
+      "kind": "building",
+      "label": "Town building: FORGE",
+      "source": "world/shared.ts"
+    },
+    "building:field-post": {
+      "x": -129,
+      "z": 134,
+      "rotation": 1.42,
+      "kind": "building",
+      "label": "Outpost building: FIELD",
+      "source": "world/shared.ts"
+    },
+    "building:trail-shed": {
+      "x": -111.5,
+      "z": 142.5,
+      "rotation": -2.75,
+      "kind": "building",
+      "label": "Outpost building: TRAIL",
+      "source": "world/shared.ts"
+    },
+    "building:hub-watch": {
+      "x": -116.5,
+      "z": 126.5,
+      "rotation": 0.18,
+      "kind": "building",
+      "label": "Outpost building: WATCH",
+      "source": "world/shared.ts"
+    },
+    "building:ridge-post": {
+      "x": 112,
+      "z": -101.5,
+      "rotation": -1.2,
+      "kind": "building",
+      "label": "Outpost building: RIDGE",
+      "source": "world/shared.ts"
+    },
+    "building:signal-shed": {
+      "x": 128.5,
+      "z": -97.5,
+      "rotation": 2.68,
+      "kind": "building",
+      "label": "Outpost building: SIGNAL",
+      "source": "world/shared.ts"
+    },
+    "building:relay-watch": {
+      "x": 123,
+      "z": -116.5,
+      "rotation": -0.08,
+      "kind": "building",
+      "label": "Outpost building: RELAY",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:left-market": {
+      "x": -6.4,
+      "z": 29.2,
+      "rotation": 3.141592653589793,
+      "kind": "model",
+      "label": "Market stall: left-market",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:center-market": {
+      "x": 0,
+      "z": 31.4,
+      "rotation": 3.141592653589793,
+      "kind": "model",
+      "label": "Market stall: center-market",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:right-market": {
+      "x": 6.4,
+      "z": 29.2,
+      "rotation": 3.141592653589793,
+      "kind": "model",
+      "label": "Market stall: right-market",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:field-camp-left-stall": {
+      "x": -123,
+      "z": 129.8,
+      "rotation": 0.18,
+      "kind": "model",
+      "label": "Outpost stall: field-camp-left-stall",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:field-camp-right-stall": {
+      "x": -114,
+      "z": 132.2,
+      "rotation": -0.26,
+      "kind": "model",
+      "label": "Outpost stall: field-camp-right-stall",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:ridge-left-stall": {
+      "x": 111.4,
+      "z": -93.4,
+      "rotation": -0.18,
+      "kind": "model",
+      "label": "Outpost stall: ridge-left-stall",
+      "source": "world/shared.ts"
+    },
+    "model:market-stall:ridge-right-stall": {
+      "x": 121.8,
+      "z": -91.8,
+      "rotation": 0.32,
+      "kind": "model",
+      "label": "Outpost stall: ridge-right-stall",
+      "source": "world/shared.ts"
+    },
+    "model:fountain": {
+      "x": 0,
+      "z": 0,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Fountain",
+      "source": "Fountain.tsx"
+    },
+    "model:castle-gate": {
+      "x": 0,
+      "z": -53.8,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Castle gate",
+      "source": "Buildings.tsx"
+    },
+    "model:watch-tower-west": {
+      "x": -41.2,
+      "z": -36,
+      "rotation": 0,
+      "kind": "model",
+      "label": "West watch tower",
+      "source": "TownWorld.tsx"
+    },
+    "model:watch-tower-east": {
+      "x": 41,
+      "z": -36,
+      "rotation": 0,
+      "kind": "model",
+      "label": "East watch tower",
+      "source": "TownWorld.tsx"
+    },
+    "model:watch-tower-ridge": {
+      "x": 134.2,
+      "z": -108.6,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Ridge watch tower",
+      "source": "TownWorld.tsx"
+    },
+    "model:farm": {
+      "x": -82,
+      "z": 92,
+      "rotation": -0.18,
+      "kind": "model",
+      "label": "Rundown farm",
+      "source": "Farm.tsx"
+    },
+    "model:signal-relay": {
+      "x": 136,
+      "z": -121,
+      "rotation": 0,
+      "kind": "model",
+      "label": "Signal relay",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:ridge-gate-marker": {
+      "x": 55.5,
+      "z": -5.5,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Ridge Gate route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:relay-milepost-marker": {
+      "x": 92,
+      "z": -18.2,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Relay Milepost route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:switchback-lantern-marker": {
+      "x": 124.4,
+      "z": -58,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Switchback Lantern route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:route-marker:signal-approach-marker": {
+      "x": 116.6,
+      "z": -90,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Signal Approach route marker",
+      "source": "TownWorld.tsx"
+    },
+    "prop:spawn-ring-purple": {
+      "x": 5.6,
+      "z": 5.6,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Purple spawn ring",
+      "source": "TownWorld.tsx"
+    },
+    "prop:spawn-ring-blue": {
+      "x": -6.1,
+      "z": 4.4,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Blue spawn ring",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-gate-left": {
+      "x": -7.2,
+      "z": -19.8,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Gate left banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-gate-right": {
+      "x": 7.2,
+      "z": -19.8,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Gate right banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-west-road": {
+      "x": -23.5,
+      "z": -39,
+      "rotation": 1.5707963267948966,
+      "kind": "prop",
+      "label": "West road banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-east-road": {
+      "x": 23.5,
+      "z": -39,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "East road banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-inn": {
+      "x": -7.2,
+      "z": 39,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Inn banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-forge": {
+      "x": 7.2,
+      "z": 39,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Forge banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-farm-route": {
+      "x": -83.8,
+      "z": 59.6,
+      "rotation": 1.5707963267948966,
+      "kind": "prop",
+      "label": "Farm route banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-field-camp": {
+      "x": -112,
+      "z": 126,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Field camp banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-ridge-route": {
+      "x": 94,
+      "z": -22,
+      "rotation": -1.5707963267948966,
+      "kind": "prop",
+      "label": "Ridge route banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-ridge-entry": {
+      "x": 123,
+      "z": -91,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Ridge entry banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-relay-north": {
+      "x": 137.5,
+      "z": -91,
+      "rotation": 0,
+      "kind": "prop",
+      "label": "Relay north banner",
+      "source": "TownWorld.tsx"
+    },
+    "prop:banner-relay-south": {
+      "x": 137.5,
+      "z": -116.5,
+      "rotation": 3.141592653589793,
+      "kind": "prop",
+      "label": "Relay south banner",
+      "source": "TownWorld.tsx"
+    }
+  }
+}
