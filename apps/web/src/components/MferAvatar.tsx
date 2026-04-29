@@ -345,13 +345,12 @@ export function TargetRing({
     <group position={[0, 0.11, 0]}>
       <mesh rotation-x={Math.PI / 2} renderOrder={44}>
         <torusGeometry args={[radius, 0.04, 8, 80]} />
-        <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial color={color} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.012, 0]} renderOrder={43}>
         <ringGeometry args={[radius * 0.74, radius * 1.14, 80]} />
         <meshBasicMaterial
           color={color}
-          depthTest={false}
           depthWrite={false}
           opacity={disposition === "hostile" ? 0.24 : 0.16}
           side={THREE.DoubleSide}
@@ -361,7 +360,7 @@ export function TargetRing({
       </mesh>
       <mesh rotation-x={Math.PI / 2} position={[0, -0.02, 0]} renderOrder={42}>
         <torusGeometry args={[radius * 1.14, 0.016, 6, 80]} />
-        <meshBasicMaterial color="#1c120b" depthTest={false} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial color="#1c120b" depthWrite={false} toneMapped={false} />
       </mesh>
       {Array.from({ length: tickCount }, (_, index) => {
         const angle = (index / tickCount) * Math.PI * 2;
@@ -373,7 +372,7 @@ export function TargetRing({
             renderOrder={45}
           >
             <boxGeometry args={[disposition === "hostile" ? 0.26 : 0.2, 0.035, 0.075]} />
-            <meshBasicMaterial color={color} depthTest={false} depthWrite={false} toneMapped={false} />
+            <meshBasicMaterial color={color} depthWrite={false} toneMapped={false} />
           </mesh>
         );
       })}
@@ -498,12 +497,12 @@ export function ActorNameplate({
     <group>
       <mesh position={[0, 0, -0.035]} renderOrder={50}>
         <planeGeometry args={[width, height]} />
-        <meshBasicMaterial color="#16120d" depthTest={false} depthWrite={false} opacity={hasHealthBar ? 0.64 : 0.48} transparent />
+        <meshBasicMaterial color="#16120d" depthWrite={false} opacity={hasHealthBar ? 0.64 : 0.48} transparent />
       </mesh>
       {!hasHealthBar && (
         <mesh position={[0, accentY, -0.028]} renderOrder={51}>
           <planeGeometry args={[width * 0.82, 0.04]} />
-          <meshBasicMaterial color={badgeColor} depthTest={false} depthWrite={false} opacity={0.72} transparent toneMapped={false} />
+          <meshBasicMaterial color={badgeColor} depthWrite={false} opacity={0.72} transparent toneMapped={false} />
         </mesh>
       )}
       <Text
@@ -537,16 +536,16 @@ export function ActorNameplate({
         <group position={[0, -height / 2 + 0.085, 0.006]}>
           <mesh renderOrder={56}>
             <planeGeometry args={[healthWidth + 0.12, 0.15]} />
-            <meshBasicMaterial color="#0b0706" depthTest={false} depthWrite={false} opacity={0.9} transparent />
+            <meshBasicMaterial color="#0b0706" depthWrite={false} opacity={0.9} transparent />
           </mesh>
           <mesh position={[0, 0, 0.004]} renderOrder={57}>
             <planeGeometry args={[healthWidth, 0.105]} />
-            <meshBasicMaterial color="#32110e" depthTest={false} depthWrite={false} opacity={1} transparent toneMapped={false} />
+            <meshBasicMaterial color="#32110e" depthWrite={false} opacity={1} transparent toneMapped={false} />
           </mesh>
           {healthPercent > 0 && (
             <mesh position={[-(healthWidth * (1 - healthPercent)) / 2, 0, 0.008]} renderOrder={58}>
               <planeGeometry args={[healthWidth * healthPercent, 0.105]} />
-              <meshBasicMaterial color="#d9453d" depthTest={false} depthWrite={false} opacity={1} transparent toneMapped={false} />
+              <meshBasicMaterial color="#d9453d" depthWrite={false} opacity={1} transparent toneMapped={false} />
             </mesh>
           )}
         </group>
