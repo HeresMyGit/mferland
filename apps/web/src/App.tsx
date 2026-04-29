@@ -151,14 +151,6 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
-  const clearActionSlot = useCallback((slotIndex: number) => {
-    setActionSlots((current) => {
-      if (slotIndex < 0 || slotIndex >= ACTION_SLOT_COUNT) return current;
-      const next = normalizeActionSlots(current);
-      next[slotIndex] = null;
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     if (!localPlayer) return;
@@ -236,7 +228,6 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         actionSlots={actionSlots}
         onAction={performAction}
         onReplaceActionSlots={replaceActionSlots}
-        onClearActionSlot={clearActionSlot}
         onAcceptQuest={room.sendAcceptQuest}
         onCompleteQuest={room.sendCompleteQuest}
         onDismissQuestOffer={room.dismissQuestOffer}

@@ -199,7 +199,7 @@
 
 .chat-panel {
   left: 16px;
-  bottom: 16px;
+  bottom: 96px;
   width: min(390px, calc(100vw - 32px));
   overflow: hidden;
   border: 1px solid var(--hud-border);
@@ -548,6 +548,38 @@
   pointer-events: auto;
 }
 
+.floating-menu-overlay {
+  position: absolute;
+  z-index: 72;
+  display: block;
+  pointer-events: none;
+}
+
+.floating-menu-overlay > * {
+  pointer-events: auto;
+}
+
+.character-anchor {
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.quest-log-anchor {
+  left: 18px;
+  top: 184px;
+}
+
+.abilities-anchor {
+  right: 108px;
+  top: 92px;
+}
+
+.inventory-anchor {
+  right: 108px;
+  bottom: 92px;
+}
+
 .world-map-panel {
   width: min(760px, calc(100vw - 48px));
   padding: 14px;
@@ -558,7 +590,9 @@
 }
 
 .quest-log-panel {
-  width: min(640px, calc(100vw - 48px));
+  width: min(380px, calc(100vw - 36px));
+  max-height: min(430px, calc(100vh - 220px));
+  overflow: auto;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -567,7 +601,9 @@
 }
 
 .inventory-panel {
-  width: min(560px, calc(100vw - 48px));
+  width: min(332px, calc(100vw - 132px));
+  max-height: min(360px, calc(100vh - 150px));
+  overflow: auto;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -576,8 +612,8 @@
 }
 
 .abilities-panel {
-  width: min(820px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  width: min(580px, calc(100vw - 132px));
+  max-height: min(620px, calc(100vh - 120px));
   overflow: auto;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -587,8 +623,8 @@
 }
 
 .character-panel {
-  width: min(880px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  width: min(338px, calc(100vw - 36px));
+  max-height: min(560px, calc(100vh - 36px));
   overflow: auto;
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1273,15 +1309,15 @@ button.inventory-slot:hover {
 .inventory-panel,
 .abilities-panel,
 .character-panel {
-  width: min(620px, calc(100vw - 48px));
+  width: min(332px, calc(100vw - 132px));
 }
 
 .abilities-panel {
-  width: min(720px, calc(100vw - 48px));
+  width: min(580px, calc(100vw - 132px));
 }
 
 .character-panel {
-  width: min(600px, calc(100vw - 48px));
+  width: min(338px, calc(100vw - 36px));
 }
 
 .menu-tabs {
@@ -1371,20 +1407,17 @@ button.inventory-slot:hover {
 }
 
 button.menu-tile,
-.ability-book-tile,
-.hotbar-config-tile.filled {
+.ability-book-tile {
   cursor: pointer;
 }
 
 .ability-book-tile:not(.locked),
-.inventory-slot.consumable,
-.hotbar-config-tile.filled {
+.inventory-slot.consumable {
   cursor: grab;
 }
 
 .ability-book-tile:not(.locked):active,
-.inventory-slot.consumable:active,
-.hotbar-config-tile.filled:active {
+.inventory-slot.consumable:active {
   cursor: grabbing;
 }
 
@@ -1503,22 +1536,6 @@ button.menu-tile,
   border-radius: 999px;
 }
 
-.tile-clear-btn {
-  position: absolute;
-  z-index: 4;
-  top: 3px;
-  right: 3px;
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 5px;
-  color: #fff8dc;
-  background: rgba(0, 0, 0, 0.58);
-}
-
 .inventory-grid {
   grid-template-columns: repeat(auto-fill, 58px);
   gap: 8px;
@@ -1556,16 +1573,6 @@ button.menu-tile,
   cursor: default;
   filter: grayscale(0.35);
   opacity: 0.5;
-}
-
-.hotbar-config-grid {
-  grid-template-columns: repeat(8, 58px);
-}
-
-.hotbar-config-tile.empty {
-  border-style: dashed;
-  color: rgba(255, 248, 224, 0.36);
-  background: rgba(14, 16, 12, 0.34);
 }
 
 .spellbook-grid {

@@ -172,6 +172,19 @@
     max-height: calc(100vh - 24px);
   }
 
+  .floating-menu-overlay {
+    left: 12px;
+    right: auto;
+    top: 76px;
+    bottom: auto;
+    transform: none;
+  }
+
+  .floating-menu-overlay.inventory-anchor {
+    top: auto;
+    bottom: 76px;
+  }
+
   .character-layout,
   .character-summary {
     grid-template-columns: 1fr;
@@ -179,7 +192,6 @@
 
   .equipment-grid,
   .inventory-grid,
-  .hotbar-config-grid,
   .spellbook-grid {
     grid-template-columns: repeat(auto-fill, 58px);
   }
@@ -205,7 +217,6 @@
   .menu-tile-grid,
   .equipment-grid,
   .inventory-grid,
-  .hotbar-config-grid,
   .spellbook-grid {
     grid-template-columns: repeat(auto-fill, 52px);
   }

@@ -99,7 +99,6 @@ type HudProps = {
   actionSlots: ActionSlot[];
   onAction: (slot: NonNullable<ActionSlot>) => void;
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
-  onClearActionSlot: (slotIndex: number) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onCompleteQuest: (message: ClientCompleteQuest) => void;
   onDismissQuestOffer: () => void;
@@ -136,7 +135,6 @@ export function Hud({
   actionSlots,
   onAction,
   onReplaceActionSlots,
-  onClearActionSlot,
   onAcceptQuest,
   onCompleteQuest,
   onDismissQuestOffer,
@@ -281,10 +279,13 @@ export function Hud({
       }
       if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (key !== "m" && key !== "c") return;
+      if (!["m", "c", "b", "i", "l", "n"].includes(key)) return;
       event.preventDefault();
       if (key === "m") setIsMapOpen((open) => !open);
-      else setIsCharacterOpen((open) => !open);
+      else if (key === "c") setIsCharacterOpen((open) => !open);
+      else if (key === "b" || key === "i") setIsInventoryOpen((open) => !open);
+      else if (key === "l") setIsQuestLogOpen((open) => !open);
+      else setIsAbilitiesOpen((open) => !open);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -773,7 +774,7 @@ export function Hud({
       )}
 
       {isQuestLogOpen && (
-        <section className="world-map-overlay" role="dialog" aria-label="Quest log">
+        <section className="floating-menu-overlay quest-log-anchor" role="dialog" aria-label="Quest log">
           <div className="quest-log-panel">
             <div className="world-map-header">
               <div>
@@ -796,7 +797,7 @@ export function Hud({
       )}
 
       {isCharacterOpen && (
-        <section className="world-map-overlay" role="dialog" aria-label="Character">
+        <section className="floating-menu-overlay character-anchor" role="dialog" aria-label="Character">
           <div className="character-panel">
             <div className="world-map-header">
               <div>
@@ -861,7 +862,7 @@ export function Hud({
       )}
 
       {isAbilitiesOpen && (
-        <section className="world-map-overlay" role="dialog" aria-label="Abilities">
+        <section className="floating-menu-overlay abilities-anchor" role="dialog" aria-label="Abilities">
           <div className="abilities-panel">
             <div className="world-map-header">
               <div>
@@ -875,7 +876,6 @@ export function Hud({
             <AbilitiesPanel
               player={localPlayer}
               actionSlots={actionSlots}
-              onClearActionSlot={onClearActionSlot}
               onBeginDrag={beginSlotDrag}
               onPointerMove={updateActionDrag}
               onPointerEnd={endActionDrag}
@@ -886,7 +886,7 @@ export function Hud({
       )}
 
       {isInventoryOpen && (
-        <section className="world-map-overlay" role="dialog" aria-label="Inventory">
+        <section className="floating-menu-overlay inventory-anchor" role="dialog" aria-label="Inventory">
           <div className="inventory-panel">
             <div className="world-map-header">
               <div>
@@ -1010,20 +1010,20 @@ export function Hud({
       )}
 
       <section className="menu-dock">
-        <button type="button" title="Character" onClick={() => setIsCharacterOpen(true)}>
+        <button type="button" title="Character (C)" onClick={() => setIsCharacterOpen((open) => !open)}>
           <UserRound size={25} />
           <span>Character</span>
           {(localPlayer?.talentPoints ?? 0) > 0 && <em className="dock-badge">{localPlayer?.talentPoints}</em>}
         </button>
-        <button type="button" title="Inventory" onClick={() => setIsInventoryOpen(true)}>
+        <button type="button" title="Inventory (B/I)" onClick={() => setIsInventoryOpen((open) => !open)}>
           <Package size={25} />
           <span>Inventory</span>
         </button>
-        <button type="button" title="Abilities" onClick={() => setIsAbilitiesOpen(true)}>
+        <button type="button" title="Abilities (N)" onClick={() => setIsAbilitiesOpen((open) => !open)}>
           <Sparkles size={25} />
           <span>Abilities</span>
         </button>
-        <button type="button" title="Quest log" onClick={() => setIsQuestLogOpen(true)}>
+        <button type="button" title="Quest log (L)" onClick={() => setIsQuestLogOpen((open) => !open)}>
           <BookOpen size={25} />
           <span>Quests</span>
         </button>
@@ -1187,27 +1187,6 @@ function getSlotLabel(slot: ActionSlot) {
   return getActionMeta(slot)?.label ?? "Ability";
 }
 
-function getHotbarSlotTooltip(slot: ActionSlot, index: number) {
-  const slotLabel = `Slot ${index + 1}`;
-  if (!slot) return `${slotLabel}\nEmpty`;
-
-  if (isItemActionSlot(slot)) {
-    const item = ITEMS[slot.itemId];
-    return [
-      `${slotLabel}: ${item.name}`,
-      item.description,
-      formatConsumableEffect(slot.itemId),
-      "Drag to move. Click X to clear.",
-    ].filter(Boolean).join("\n");
-  }
-
-  return [
-    `${slotLabel}: ${getSlotLabel(slot)}`,
-    getAbilityDescription(slot, slot !== "interact" ? getCombatActionUnlockTalent(slot) : null),
-    "Drag to move. Click X to clear.",
-  ].filter(Boolean).join("\n");
-}
-
 function QuestOfferPanel({
   offer,
   onAccept,
@@ -1341,7 +1320,6 @@ const SPELLBOOK_ABILITY_IDS: ActionId[] = [...BASELINE_ABILITY_IDS, ...TALENT_AB
 function AbilitiesPanel({
   player,
   actionSlots,
-  onClearActionSlot,
   onBeginDrag,
   onPointerMove,
   onPointerEnd,
@@ -1349,7 +1327,6 @@ function AbilitiesPanel({
 }: {
   player: PlayerSnapshot | null;
   actionSlots: ActionSlot[];
-  onClearActionSlot: (slotIndex: number) => void;
   onBeginDrag: (slot: NonNullable<ActionSlot>, event: PointerEvent<HTMLElement>, fromIndex?: number) => void;
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
@@ -1378,41 +1355,6 @@ function AbilitiesPanel({
 
       {activeTab === "spellbook" ? (
         <section className="spellbook-tab">
-          <div className="menu-section-header">
-            <strong>Hotbar</strong>
-            <span>Drag tiles to swap slots</span>
-          </div>
-          <div className="menu-tile-grid hotbar-config-grid">
-            {actionSlots.map((slot, index) => (
-              <div
-                key={index}
-                className={slot ? "menu-tile hotbar-config-tile filled" : "menu-tile hotbar-config-tile empty"}
-                data-tooltip={getHotbarSlotTooltip(slot, index)}
-                aria-label={formatTooltipLabel(getHotbarSlotTooltip(slot, index))}
-                onPointerDown={slot ? (event) => onBeginDrag(slot, event, index) : undefined}
-                onPointerMove={slot ? onPointerMove : undefined}
-                onPointerUp={slot ? onPointerEnd : undefined}
-                onPointerCancel={slot ? onPointerEnd : undefined}
-              >
-                <span className="tile-key">{index + 1}</span>
-                {slot ? <SlotIcon slot={slot} size={24} /> : <i className="tile-empty-mark" />}
-                <strong>{getSlotLabel(slot)}</strong>
-                {slot && (
-                  <button
-                    className="tile-clear-btn"
-                    type="button"
-                    title={`Clear slot ${index + 1}`}
-                    aria-label={`Clear hotbar slot ${index + 1}`}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => onClearActionSlot(index)}
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
           <div className="menu-section-header">
             <strong>Spellbook</strong>
             <span>Drag unlocked abilities</span>
