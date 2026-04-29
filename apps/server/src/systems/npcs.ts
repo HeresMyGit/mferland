@@ -210,7 +210,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       id: "training-dummy-left",
       name: "Training dummy",
       role: "enemy",
-      model: "mfer",
+      model: "training-dummy",
       x: -10.5,
       z: -11.5,
       yaw: 2.5,
@@ -224,7 +224,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       id: "training-dummy-right",
       name: "Training dummy",
       role: "enemy",
-      model: "mfer",
+      model: "training-dummy",
       x: -7.8,
       z: -13.8,
       yaw: 2.2,
@@ -760,6 +760,7 @@ function getNpcCollisionRadius(npc: NpcState) {
   if (npc.model === "rabbit") return 0.36;
   if (npc.model === "hog") return 0.74;
   if (npc.model === "deer") return 0.62;
+  if (npc.model === "training-dummy") return 0.68;
   return PLAYER.radius;
 }
 

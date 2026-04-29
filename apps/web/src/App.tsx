@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
+import { Gem, LogOut, MapPin, Sparkles, UserRound } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import {
@@ -29,6 +29,22 @@ import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlo
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
 const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v3";
+const DEBUG_TRAVEL_DESTINATIONS = [
+  { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
+  { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
+  { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
+  { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
+  { id: "field", label: "Field", x: -118, z: 112, yaw: 0 },
+  { id: "relay", label: "Relay", x: 136, z: -129, yaw: 0 },
+  { id: "static", label: "Static", x: 150, z: -92, yaw: Math.PI },
+] as const;
+type DebugTravelDestination = typeof DEBUG_TRAVEL_DESTINATIONS[number];
+type DebugTravelView = {
+  x: number;
+  z: number;
+  yaw: number;
+  nonce: number;
+};
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
@@ -164,6 +180,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
+  const [debugTravelView, setDebugTravelView] = useState<DebugTravelView | null>(null);
   const actionErrorIdRef = useRef(0);
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
@@ -209,6 +226,16 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
+  const performDebugTravel = useCallback((destination: DebugTravelDestination) => {
+    room.sendDebugTeleport(destination);
+    setSelectedTarget(null);
+    setDebugTravelView({
+      x: destination.x,
+      z: destination.z,
+      yaw: destination.yaw,
+      nonce: Date.now(),
+    });
+  }, [room.sendDebugTeleport]);
 
   useEffect(() => {
     if (!localPlayer) return;
@@ -270,6 +297,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
           onSelectTarget={setSelectedTarget}
           onInteractAction={performInteract}
           sendInput={room.sendInput}
+          debugTravelView={debugTravelView}
         />
       </Canvas>
 
@@ -309,7 +337,38 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
         onExit={onExit}
       />
+
+      {import.meta.env.DEV && (
+        <DebugTravelPanel localPlayer={localPlayer ?? null} onTravel={performDebugTravel} />
+      )}
     </main>
+  );
+}
+
+function DebugTravelPanel({
+  localPlayer,
+  onTravel,
+}: {
+  localPlayer: PlayerSnapshot | null;
+  onTravel: (destination: DebugTravelDestination) => void;
+}) {
+  return (
+    <div className="debug-travel-panel" aria-label="Debug travel">
+      <span className="debug-travel-position">
+        {localPlayer ? `${Math.round(localPlayer.x)}, ${Math.round(localPlayer.z)}` : "--, --"}
+      </span>
+      {DEBUG_TRAVEL_DESTINATIONS.map((destination) => (
+        <button
+          key={destination.id}
+          type="button"
+          title={`Debug travel: ${destination.label}`}
+          onClick={() => onTravel(destination)}
+        >
+          <MapPin size={13} />
+          <span>{destination.label}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 

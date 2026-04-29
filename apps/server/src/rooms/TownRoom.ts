@@ -46,10 +46,7 @@ import {
 import {
   aggroNeutralNpcOnPlayerAttackStart,
   applyCombatDamage,
-  applyFrostNova,
-  applyMultishot,
   applyUnitHealing,
-  applyWhirlwind,
   clearPlayerCast,
   findCombatTarget,
   getActionReadyAt,
@@ -78,6 +75,7 @@ import { findInteractNpc } from "../systems/interactions.js";
 import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../systems/loot.js";
 import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
 import { spawnNpcFromSpec, spawnNpcs, updateNpcs } from "../systems/npcs.js";
+import { applyFrostNova, applyMultishot, applyWhirlwind } from "../systems/playerCombatAbilities.js";
 import {
   completeQuest,
   getNpcDialogue,
@@ -110,6 +108,12 @@ import {
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const PLAYER_ATTACK_THREAT_BONUS = 24;
+
+type DebugTeleportMessage = {
+  x?: unknown;
+  z?: unknown;
+  yaw?: unknown;
+};
 
 type HealTarget =
   | { kind: "player"; id: string; unit: PlayerState }
@@ -184,6 +188,31 @@ export class TownRoom extends Room<TownState> {
       this.inputs.delete(client.sessionId);
       this.jumpHeld.set(client.sessionId, false);
     });
+
+    if (process.env.NODE_ENV !== "production") {
+      this.onMessage("debugTeleport", (client, message: DebugTeleportMessage = {}) => {
+        const player = this.state.players.get(client.sessionId);
+        if (!player) return;
+
+        const x = Number(message.x);
+        const z = Number(message.z);
+        if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+
+        const resolved = resolveWorldCollision(x, z, PLAYER.radius);
+        player.x = resolved.x;
+        player.y = 0;
+        player.z = resolved.z;
+        player.health = player.maxHealth;
+        player.mana = player.maxMana;
+        player.verticalVelocity = 0;
+        player.animation = "idle";
+        if (Number.isFinite(Number(message.yaw))) player.yaw = Number(message.yaw);
+        clearPlayerCast(player);
+        this.removePlayerThreat(client.sessionId);
+        this.inputs.delete(client.sessionId);
+        this.jumpHeld.set(client.sessionId, false);
+      });
+    }
 
     this.onMessage("chat", (client, message: { text?: string }) => {
       void this.handleChatMessage(client, message);

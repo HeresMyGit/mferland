@@ -1,12 +1,48 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Text } from "@react-three/drei";
+import { useLoader } from "@react-three/fiber";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import {
-  applyStaticPropInstances,
-  composeInstanceMatrix,
-  type MarketStallSpec,
-  type StaticPropInstance,
-} from "./shared";
+import { MFERS_DISPLAY_FONT_URL } from "./fonts";
+import { type MarketStallSpec } from "./shared";
+
+export function HangingSign({
+  label,
+  color,
+  fontSize = 0.6,
+  textColor = "#2b2117",
+  outlineColor = "#f7e4b8",
+}: {
+  label: string;
+  color: string;
+  fontSize?: number;
+  textColor?: string;
+  outlineColor?: string;
+}) {
+  const gltf = useLoader(GLTFLoader, "/models/town-hanging-sign.glb") as { scene: THREE.Group };
+  const model = useMemo(
+    () => createColoredTownPropModel(gltf.scene, "town_sign_accent_color", color),
+    [color, gltf.scene],
+  );
+
+  return (
+    <>
+      <primitive object={model} dispose={null} />
+      <Text
+        position={[0, 0.04, 0.24]}
+        font={MFERS_DISPLAY_FONT_URL}
+        fontSize={fontSize}
+        color={textColor}
+        outlineColor={outlineColor}
+        outlineWidth={0.018}
+        anchorX="center"
+        anchorY="middle"
+      >
+        {label}
+      </Text>
+    </>
+  );
+}
 
 export function BannerPost({
   position,
@@ -17,26 +53,22 @@ export function BannerPost({
   color: string;
   rotation?: number;
 }) {
+  const gltf = useLoader(GLTFLoader, "/models/banner-post.glb") as { scene: THREE.Group };
+  const model = useMemo(
+    () => createColoredTownPropModel(gltf.scene, "banner_post_cloth_color", color),
+    [color, gltf.scene],
+  );
+
   return (
     <group position={position} rotation-y={rotation}>
-      <mesh position={[0, 1.8, 0]}>
-        <cylinderGeometry args={[0.08, 0.11, 3.6, 8]} />
-        <meshBasicMaterial color="#4b2d18" />
-      </mesh>
-      <mesh position={[0.5, 2.75, 0.02]}>
-        <boxGeometry args={[0.95, 1.2, 0.06]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
-      <mesh position={[0.5, 2.1, 0.04]}>
-        <boxGeometry args={[0.95, 0.08, 0.08]} />
-        <meshBasicMaterial color="#2b2118" />
-      </mesh>
+      <primitive object={model} dispose={null} />
       <Text
-        position={[0.5, 2.78, 0.08]}
-        fontSize={0.31}
-        color="#f8f2d6"
-        outlineColor="#242018"
-        outlineWidth={0.018}
+        position={[0.52, 2.75, 0.2]}
+        font={MFERS_DISPLAY_FONT_URL}
+        fontSize={0.27}
+        color="#211a13"
+        outlineColor="#f8f2d6"
+        outlineWidth={0.01}
         anchorX="center"
         anchorY="middle"
       >
@@ -53,94 +85,27 @@ export function MarketStall({
   stall: MarketStallSpec;
   roofTexture: THREE.Texture;
 }) {
+  const gltf = useLoader(GLTFLoader, "/models/market-stall.glb") as { scene: THREE.Group };
+  const model = useMemo(
+    () => createColoredTownPropModel(gltf.scene, "market_stall_canopy_color", stall.color),
+    [gltf.scene, stall.color],
+  );
+  void roofTexture;
+
   return (
     <group position={stall.position} rotation-y={stall.rotation}>
-      <mesh position={[0, 0.55, 0]}>
-        <boxGeometry args={[3.3, 0.35, 1.7]} />
-        <meshBasicMaterial color="#6a4428" />
-      </mesh>
-      <mesh position={[0, 0.86, 0.05]}>
-        <boxGeometry args={[3.1, 0.18, 1.54]} />
-        <meshBasicMaterial color="#c3a06f" />
-      </mesh>
-      <mesh position={[0, 2.38, 0]} rotation-z={0.08}>
-        <boxGeometry args={[3.65, 0.2, 2.18]} />
-        <meshBasicMaterial map={roofTexture} color={stall.color} />
-      </mesh>
-      <mesh position={[0, 2.08, 1.13]}>
-        <boxGeometry args={[3.45, 0.55, 0.08]} />
-        <meshBasicMaterial color={stall.color} />
-      </mesh>
-      <Text
-        position={[0, 2.09, 1.2]}
-        fontSize={0.34}
-        color="#fff8df"
-        outlineColor="#2d2822"
-        outlineWidth={0.025}
-        anchorX="center"
-        anchorY="middle"
-      >
-        MKT
-      </Text>
+      <primitive object={model} dispose={null} />
+      <MarketStallSign color={stall.color} />
     </group>
   );
 }
 
-export function InstancedMarketProps({ stalls }: { stalls: MarketStallSpec[] }) {
-  const postRef = useRef<THREE.InstancedMesh>(null);
-  const crateRef = useRef<THREE.InstancedMesh>(null);
-  const instances = useMemo(() => buildMarketPropInstances(stalls), [stalls]);
-  const geometries = useMemo(() => ({
-    post: new THREE.CylinderGeometry(0.06, 0.08, 2.1, 8),
-    crate: new THREE.BoxGeometry(1, 1, 1),
-  }), []);
-  const materials = useMemo(() => ({
-    post: new THREE.MeshBasicMaterial({ color: "#4b2d18" }),
-    crate: new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true }),
-  }), []);
-
-  useLayoutEffect(() => {
-    applyStaticPropInstances(postRef.current, instances.posts);
-    applyStaticPropInstances(crateRef.current, instances.crates);
-  }, [instances]);
-
+function MarketStallSign({ color }: { color: string }) {
   return (
-    <>
-      <instancedMesh ref={postRef} args={[geometries.post, materials.post, instances.posts.length]} />
-      <instancedMesh ref={crateRef} args={[geometries.crate, materials.crate, instances.crates.length]} />
-    </>
+    <group position={[0, 2.04, 1.36]} scale={[0.42, 0.42, 0.42]}>
+      <HangingSign label="MKT" color={color} fontSize={0.6} />
+    </group>
   );
-}
-
-function buildMarketPropInstances(stalls: MarketStallSpec[]) {
-  const posts: StaticPropInstance[] = [];
-  const crates: StaticPropInstance[] = [];
-
-  for (const stall of stalls) {
-    const parentMatrix = composeInstanceMatrix(stall.position, [0, stall.rotation, 0], [1, 1, 1]);
-    for (const x of [-1.45, 1.45]) {
-      posts.push({
-        matrix: composeInstanceMatrix([x, 1.48, -0.66], [0, 0, 0], [1, 1, 1], parentMatrix),
-      });
-      posts.push({
-        matrix: composeInstanceMatrix([x, 1.48, 0.66], [0, 0, 0], [1, 1, 1], parentMatrix),
-      });
-    }
-
-    [-1.04, -0.34, 0.4, 1.08].forEach((x, index) => {
-      crates.push({
-        matrix: composeInstanceMatrix(
-          [x, 1.08, 0.42 - (index % 2) * 0.38],
-          [0, 0, 0],
-          [0.42, 0.36, 0.42],
-          parentMatrix,
-        ),
-        color: new THREE.Color(index % 2 ? "#e8c063" : "#8fc263"),
-      });
-    });
-  }
-
-  return { posts, crates };
 }
 
 export function WatchTower({
@@ -152,36 +117,61 @@ export function WatchTower({
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
 }) {
+  const gltf = useLoader(GLTFLoader, "/models/watch-tower.glb") as { scene: THREE.Group };
+  const model = useMemo(() => createWatchTowerModel(gltf.scene), [gltf.scene]);
+  void stoneTexture;
+  void roofTexture;
+
   return (
     <group position={position}>
-      <mesh position={[0, 1.85, 0]}>
-        <cylinderGeometry args={[1.15, 1.35, 3.7, 12]} />
-        <meshBasicMaterial map={stoneTexture} color="#9c9589" />
-      </mesh>
-      <mesh position={[0, 3.86, 0]}>
-        <cylinderGeometry args={[1.62, 1.38, 0.55, 12]} />
-        <meshBasicMaterial map={stoneTexture} color="#837b70" />
-      </mesh>
-      {Array.from({ length: 6 }, (_, index) => {
-        const angle = (index / 6) * Math.PI * 2;
-        return (
-          <mesh
-            key={index}
-            position={[Math.sin(angle) * 1.34, 4.35, Math.cos(angle) * 1.34]}
-            rotation-y={angle}
-          >
-            <boxGeometry args={[0.34, 0.68, 0.28]} />
-            <meshBasicMaterial map={stoneTexture} color="#8d8579" />
-          </mesh>
-        );
-      })}
-      <mesh position={[0, 5.05, 0]} rotation-y={Math.PI / 4}>
-        <coneGeometry args={[1.98, 1.6, 4]} />
-        <meshBasicMaterial map={roofTexture} color="#8e3823" />
-      </mesh>
+      <primitive object={model} dispose={null} />
       <BannerPost position={[0, 0.04, 1.9]} color="#395da8" />
     </group>
   );
+}
+
+function createColoredTownPropModel(sourceScene: THREE.Group, materialName: string, color: string) {
+  const scene = sourceScene.clone(true);
+  const accentColor = new THREE.Color(color);
+
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+
+    const sourceMaterials = Array.isArray(child.material) ? child.material : [child.material];
+    const materials = sourceMaterials.map((material) => {
+      const next = material.clone();
+      if (next.name === materialName && hasMaterialColor(next)) {
+        next.color.copy(accentColor);
+      }
+      return next;
+    });
+    child.material = Array.isArray(child.material) ? materials : materials[0];
+  });
+
+  return scene;
+}
+
+function hasMaterialColor(material: THREE.Material): material is THREE.Material & { color: THREE.Color } {
+  return "color" in material && material.color instanceof THREE.Color;
+}
+
+function createWatchTowerModel(sourceScene: THREE.Group) {
+  const scene = sourceScene.clone(true);
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const center = box.getCenter(new THREE.Vector3());
+  scene.position.set(-center.x, -box.min.y, -center.z);
+  return scene;
 }
 
 export function SpawnRing({ position, color = "#8b6cff" }: { position: [number, number, number]; color?: string }) {

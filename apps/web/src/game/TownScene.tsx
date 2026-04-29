@@ -14,6 +14,7 @@ import {
 import { CreatureAvatar } from "../components/CreatureAvatar";
 import { MferAvatar } from "../components/MferAvatar";
 import { MferGptAvatar } from "../components/MferGptAvatar";
+import { TrainingDummyAvatar } from "../components/TrainingDummyAvatar";
 import { type ChatBubble } from "./chatBubbles";
 import { CombatFeedbackLayer } from "./scene/CombatFeedbackLayer";
 import { Skybox, TownWorld } from "./scene/TownWorld";
@@ -40,6 +41,12 @@ type TownSceneProps = {
   onSelectTarget: (target: TargetSelection | null) => void;
   onInteractAction: () => void;
   sendInput: (input: ClientInput) => void;
+  debugTravelView?: {
+    x: number;
+    z: number;
+    yaw: number;
+    nonce: number;
+  } | null;
 };
 
 const CONTROL_DELTA_CAP = 1 / 30;
@@ -56,6 +63,7 @@ function TownSceneComponent({
   onSelectTarget,
   onInteractAction,
   sendInput,
+  debugTravelView = null,
 }: TownSceneProps) {
   const { gl } = useThree();
   const keyState = useRef(new Set<string>());
@@ -141,6 +149,22 @@ function TownSceneComponent({
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [sendInput]);
+
+  useEffect(() => {
+    if (!debugTravelView) return;
+    cameraYaw.current = debugTravelView.yaw;
+    facingYaw.current = debugTravelView.yaw;
+    cameraPitch.current = 0.32;
+    cameraDistance.current = 6.4;
+    inputTimer.current = 0;
+
+    if (localVisualPlayer.current?.sessionId === localSessionId) {
+      localVisualPlayer.current.x = debugTravelView.x;
+      localVisualPlayer.current.y = 0;
+      localVisualPlayer.current.z = debugTravelView.z;
+      localVisualPlayer.current.yaw = debugTravelView.yaw;
+    }
+  }, [debugTravelView?.nonce, localSessionId]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -365,6 +389,22 @@ function TownSceneComponent({
             );
           }
 
+          if (npc.model === "training-dummy") {
+            return (
+              <TrainingDummyAvatar
+                key={npc.id}
+                npc={npc}
+                questMarker={questMarker}
+                hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
+                isTargeted={isTargeted}
+                isDefeated={!npc.isImmortal && npc.health <= 0}
+                chatBubble={chatBubbleBySessionId.get(npc.id)}
+                viewerPosition={viewerPosition}
+                onTarget={onTarget}
+              />
+            );
+          }
+
           if (npc.model !== "mfer") {
             return (
               <CreatureAvatar
@@ -422,7 +462,8 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.chatBubbles === next.chatBubbles
     && previous.onSelectTarget === next.onSelectTarget
     && previous.onInteractAction === next.onInteractAction
-    && previous.sendInput === next.sendInput;
+    && previous.sendInput === next.sendInput
+    && previous.debugTravelView === next.debugTravelView;
 }
 
 function targetsEqual(previous: TargetSelection | null, next: TargetSelection | null) {

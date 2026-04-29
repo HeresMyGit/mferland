@@ -138,5 +138,6 @@ function getNpcImpactHeight(npc: NpcState) {
   if (npc.model === "rabbit") return 0.75;
   if (npc.model === "hog") return 0.9;
   if (npc.model === "deer") return 1.15;
+  if (npc.model === "training-dummy") return 1.25;
   return 1.45;
 }

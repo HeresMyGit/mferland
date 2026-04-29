@@ -1,7 +1,8 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Text } from "@react-three/drei";
+import { useLoader } from "@react-three/fiber";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { BannerPost } from "./TownProps";
+import { HangingSign } from "./TownProps";
 import {
   BUILDING_BLUEPRINTS,
   TOWN_BUILDINGS,
@@ -16,74 +17,31 @@ import {
 } from "./shared";
 
 export function CastleGate({ stoneTexture }: { stoneTexture: THREE.Texture }) {
-  const crenels = [-5.7, -4.25, -2.8, -1.35, 0, 1.35, 2.8, 4.25, 5.7];
+  const gltf = useLoader(GLTFLoader, "/models/castle-gate.glb") as { scene: THREE.Group };
+  const model = useMemo(() => createCastleGateModel(gltf.scene), [gltf.scene]);
+  void stoneTexture;
 
   return (
-    <group position={[0, 0, -24]}>
-      <mesh position={[-5.35, 3.1, 0]}>
-        <cylinderGeometry args={[1.72, 1.9, 6.2, 18]} />
-        <meshBasicMaterial map={stoneTexture} />
-      </mesh>
-      <mesh position={[5.35, 3.1, 0]}>
-        <cylinderGeometry args={[1.72, 1.9, 6.2, 18]} />
-        <meshBasicMaterial map={stoneTexture} />
-      </mesh>
-      <mesh position={[0, 3.65, 0]}>
-        <boxGeometry args={[9.3, 5.1, 2.85]} />
-        <meshBasicMaterial map={stoneTexture} />
-      </mesh>
-      <mesh position={[0, 1.62, 1.47]}>
-        <boxGeometry args={[3.7, 3.24, 0.18]} />
-        <meshBasicMaterial color="#261a13" />
-      </mesh>
-      <mesh position={[0, 3.2, 1.5]}>
-        <sphereGeometry args={[1.85, 24, 12]} />
-        <meshBasicMaterial color="#261a13" />
-      </mesh>
-      <mesh position={[0, 3.22, 1.58]}>
-        <boxGeometry args={[3.98, 0.36, 0.22]} />
-        <meshBasicMaterial color="#6f6a60" />
-      </mesh>
-      <mesh position={[-2.15, 2.1, 1.58]}>
-        <boxGeometry args={[0.34, 3.25, 0.22]} />
-        <meshBasicMaterial color="#6f6a60" />
-      </mesh>
-      <mesh position={[2.15, 2.1, 1.58]}>
-        <boxGeometry args={[0.34, 3.25, 0.22]} />
-        <meshBasicMaterial color="#6f6a60" />
-      </mesh>
-      <mesh position={[0, 6.42, 0]}>
-        <boxGeometry args={[12.4, 0.55, 3.1]} />
-        <meshBasicMaterial color="#766f64" />
-      </mesh>
-      {crenels.map((x) => (
-        <mesh key={x} position={[x, 7.05, 0]}>
-          <boxGeometry args={[0.86, 1.05, 2.95]} />
-          <meshBasicMaterial map={stoneTexture} />
-        </mesh>
-      ))}
-      <BannerPost position={[-3.25, 0.04, 1.62]} color="#2f8d4d" rotation={0} />
-      <BannerPost position={[3.25, 0.04, 1.62]} color="#2f8d4d" rotation={0} />
-      <mesh position={[-2.9, 3.6, 1.62]}>
-        <sphereGeometry args={[0.22, 12, 8]} />
-        <meshBasicMaterial color="#ffd161" />
-      </mesh>
-      <mesh position={[2.9, 3.6, 1.62]}>
-        <sphereGeometry args={[0.22, 12, 8]} />
-        <meshBasicMaterial color="#ffd161" />
-      </mesh>
-      <Text
-        position={[0, 5.6, 1.62]}
-        fontSize={0.68}
-        color="#f3f0df"
-        outlineColor="#39352c"
-        outlineWidth={0.04}
-        anchorX="center"
-      >
-        MFERS ONLY
-      </Text>
+    <group position={[0, 0, -30]}>
+      <primitive object={model} dispose={null} />
     </group>
   );
+}
+
+function createCastleGateModel(sourceScene: THREE.Group) {
+  const scene = sourceScene.clone(true);
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const center = box.getCenter(new THREE.Vector3());
+  scene.position.set(-center.x, -box.min.y, -center.z);
+  return scene;
 }
 
 export function InstancedBuildingDetails() {
@@ -106,8 +64,8 @@ export function InstancedBuildingDetails() {
   }), []);
   const materials = useMemo(() => ({
     windowFrame: new THREE.MeshBasicMaterial({ color: "#2e2019" }),
-    windowGlass: new THREE.MeshBasicMaterial({ color: "#49a4c8", transparent: true, opacity: 0.78 }),
-    windowMuntin: new THREE.MeshBasicMaterial({ color: "#f4d878" }),
+    windowGlass: new THREE.MeshBasicMaterial({ color: "#183a38", transparent: true, opacity: 0.86 }),
+    windowMuntin: new THREE.MeshBasicMaterial({ color: "#2e2019" }),
     timberTrim: new THREE.MeshBasicMaterial({ color: "#5b331d" }),
     timberBrace: new THREE.MeshBasicMaterial({ color: "#6f3b20" }),
     roofRidge: new THREE.MeshBasicMaterial({ color: "#7c321c" }),
@@ -268,16 +226,34 @@ export function TownBuilding({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
-  const blueprint = BUILDING_BLUEPRINTS[placement.blueprint];
-  const textures = { stone: stoneTexture, roof: roofTexture, wall: wallTexture };
+  const gltf = useLoader(GLTFLoader, "/models/town-shopfront.glb") as { scene: THREE.Group };
+  const model = useMemo(() => createTownShopfrontModel(gltf.scene), [gltf.scene]);
+  void stoneTexture;
+  void roofTexture;
+  void wallTexture;
 
   return (
     <group position={placement.position} rotation-y={placement.rotation}>
-      {blueprint.modules.map((module) => (
-        <BuildingModule key={module.id} module={module} placement={placement} textures={textures} />
-      ))}
+      <primitive object={model} dispose={null} />
+      <ShopSign sign={placement.sign} accent={placement.accent} />
     </group>
   );
+}
+
+function createTownShopfrontModel(sourceScene: THREE.Group) {
+  const scene = sourceScene.clone(true);
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const center = box.getCenter(new THREE.Vector3());
+  scene.position.set(-center.x, -box.min.y, -center.z);
+  return scene;
 }
 
 function BuildingModule({
@@ -324,31 +300,11 @@ function getBuildingTexture(material: BuildingTextureKey, textures: BuildingText
 }
 
 function ShopSign({ sign, accent }: { sign: string; accent: string }) {
+  const fontSize = sign.length > 7 ? 0.46 : sign.length > 5 ? 0.54 : 0.66;
+
   return (
-    <group>
-      <mesh position={[0, 1.62, 2.52]}>
-        <boxGeometry args={[3.6, 0.44, 0.18]} />
-        <meshBasicMaterial color={accent} />
-      </mesh>
-      <mesh position={[0, 3.25, 2.49]}>
-        <boxGeometry args={[4.42, 1.28, 0.1]} />
-        <meshBasicMaterial color="#2a2119" />
-      </mesh>
-      <mesh position={[0, 3.25, 2.58]}>
-        <boxGeometry args={[4.15, 1.05, 0.2]} />
-        <meshBasicMaterial color={accent} />
-      </mesh>
-      <Text
-        position={[0, 3.25, 2.69]}
-        fontSize={sign.length > 6 ? 0.43 : 0.55}
-        color="#ffffff"
-        outlineColor="#2d2822"
-        outlineWidth={0.04}
-        anchorX="center"
-        anchorY="middle"
-      >
-        {sign}
-      </Text>
+    <group position={[0, 3.25, 2.56]} scale={[0.68, 0.68, 0.68]}>
+      <HangingSign label={sign} color={accent} fontSize={fontSize} />
     </group>
   );
 }

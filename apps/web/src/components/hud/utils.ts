@@ -15,3 +15,7 @@ export function percent(value: number, max: number) {
   if (max <= 0) return 0;
   return Math.max(0, Math.min(100, (value / max) * 100));
 }
+
+export function formatTooltipLabel(text: string) {
+  return text.split("\n").filter(Boolean).join(", ");
+}

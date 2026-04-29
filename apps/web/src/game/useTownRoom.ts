@@ -54,6 +54,11 @@ type RuntimePlayerCollection = {
 type RuntimeNpcCollection = {
   forEach(callback: (npc: NpcSnapshot, id: string) => void): void;
 };
+type DebugTeleportDestination = {
+  x: number;
+  z: number;
+  yaw?: number;
+};
 
 const SNAPSHOT_RENDER_INTERVAL_MS = 125;
 
@@ -350,6 +355,11 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("respawn", {});
   }, []);
 
+  const sendDebugTeleport = useCallback((destination: DebugTeleportDestination) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugTeleport", destination);
+  }, []);
+
   return {
     status,
     error,
@@ -382,6 +392,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendSelectTalent,
     closeLootWindow,
     sendRespawn,
+    sendDebugTeleport,
   };
 }
 

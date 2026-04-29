@@ -1,13 +1,15 @@
 import { useEffect, useMemo } from "react";
-import { Text, useTexture } from "@react-three/drei";
+import { useTexture } from "@react-three/drei";
+import { useLoader } from "@react-three/fiber";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
 import { PLAZA_BOUNDS, WORLD_LANDMARKS, WORLD_ROADS, type WorldLandmark } from "@mferland/shared";
-import { CastleGate, InstancedBuildingDetails, TownBuilding } from "./world/Buildings";
+import { CastleGate, TownBuilding } from "./world/Buildings";
 import { RundownFarm } from "./world/Farm";
 import { Fountain } from "./world/Fountain";
 import { DirtPath, GroundDetailLayer, RoadStrip } from "./world/Ground";
 import { WorldBackdrop, TreeCluster } from "./world/Trees";
-import { BannerPost, InstancedMarketProps, MarketStall, SpawnRing, WatchTower } from "./world/TownProps";
+import { BannerPost, HangingSign, MarketStall, SpawnRing, WatchTower } from "./world/TownProps";
 import { MARKET_STALLS, OUTPOST_BUILDINGS, OUTPOST_MARKET_STALLS, TOWN_BUILDINGS } from "./world/shared";
 import { configureTile, createBarkTexture, createDirtPathTexture, createGrassTuftTexture, createLeafTexture, createWaterTexture } from "./world/textures";
 export { Skybox } from "./world/Skybox";
@@ -101,14 +103,12 @@ export function TownWorld() {
           wallTexture={timberTexture}
         />
       ))}
-      <InstancedBuildingDetails />
       {MARKET_STALLS.map((stall) => (
         <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
       ))}
       {OUTPOST_MARKET_STALLS.map((stall) => (
         <MarketStall key={stall.id} stall={stall} roofTexture={roofTexture} />
       ))}
-      <InstancedMarketProps stalls={[...MARKET_STALLS, ...OUTPOST_MARKET_STALLS]} />
       <WatchTower position={[-41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <WatchTower position={[41, 0, -36]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
       <WatchTower position={[134.2, 0, -108.6]} stoneTexture={stoneTexture} roofTexture={roofTexture} />
@@ -139,7 +139,7 @@ export function TownWorld() {
 function SignalRouteMarker({ landmark }: { landmark: WorldLandmark }) {
   const accent = landmark.kind === "relay" ? "#b38cff" : "#7ddcff";
   const trim = landmark.kind === "relay" ? "#5c3aa8" : "#16798a";
-  const labelSize = landmark.label.length > 4 ? 0.24 : 0.3;
+  const labelSize = landmark.label.length > 4 ? 0.7 : 0.86;
 
   return (
     <group position={[landmark.x, 0, landmark.z]} rotation-y={-Math.PI / 2}>
@@ -147,25 +147,19 @@ function SignalRouteMarker({ landmark }: { landmark: WorldLandmark }) {
         <cylinderGeometry args={[0.07, 0.09, 2.44, 8]} />
         <meshBasicMaterial color="#4b2d18" />
       </mesh>
-      <mesh position={[0, 2.24, 0.05]}>
-        <boxGeometry args={[1.38, 0.58, 0.08]} />
+      <mesh position={[0, 2.08, 0.02]}>
+        <boxGeometry args={[1.72, 0.11, 0.12]} />
         <meshBasicMaterial color={trim} />
       </mesh>
-      <mesh position={[0, 2.24, 0.1]}>
-        <boxGeometry args={[1.15, 0.38, 0.05]} />
-        <meshBasicMaterial color={accent} />
-      </mesh>
-      <Text
-        position={[0, 2.25, 0.14]}
-        fontSize={labelSize}
-        color="#fff8df"
-        outlineColor="#17110b"
-        outlineWidth={0.018}
-        anchorX="center"
-        anchorY="middle"
-      >
-        {landmark.label}
-      </Text>
+      <group position={[0, 1.86, 0.14]} scale={[0.33, 0.33, 0.33]}>
+        <HangingSign
+          label={landmark.label}
+          color={accent}
+          fontSize={labelSize}
+          textColor="#271d14"
+          outlineColor="#f9edc8"
+        />
+      </group>
       <mesh position={[0, 0.05, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[0.48, 0.54, 44]} />
         <meshBasicMaterial color={accent} transparent opacity={0.44} side={THREE.DoubleSide} />
@@ -175,16 +169,16 @@ function SignalRouteMarker({ landmark }: { landmark: WorldLandmark }) {
 }
 
 function SignalRelay({ position }: { position: [number, number, number] }) {
+  const gltf = useLoader(GLTFLoader, "/models/signal-relay-body.glb") as { scene: THREE.Group };
+  const bodyModel = useMemo(() => createSignalRelayBodyModel(gltf.scene), [gltf.scene]);
+
   return (
     <group position={position}>
       <mesh position={[0, 0.08, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[2.4, 2.65, 64]} />
         <meshBasicMaterial color="#7ddcff" transparent opacity={0.52} side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[0, 2.8, 0]}>
-        <cylinderGeometry args={[0.12, 0.18, 5.6, 10]} />
-        <meshBasicMaterial color="#3b3544" />
-      </mesh>
+      <primitive object={bodyModel} dispose={null} />
       <mesh position={[0, 5.75, 0]}>
         <octahedronGeometry args={[0.72, 0]} />
         <meshBasicMaterial color="#7ddcff" transparent opacity={0.9} />
@@ -197,4 +191,20 @@ function SignalRelay({ position }: { position: [number, number, number] }) {
       ))}
     </group>
   );
+}
+
+function createSignalRelayBodyModel(sourceScene: THREE.Group) {
+  const scene = sourceScene.clone(true);
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const center = box.getCenter(new THREE.Vector3());
+  scene.position.set(-center.x, -box.min.y, -center.z);
+  return scene;
 }

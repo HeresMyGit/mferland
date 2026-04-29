@@ -19,6 +19,7 @@ import {
 import { AbilityIcon } from "./GameIcon";
 import { ItemIcon } from "./ItemIcon";
 import { type ActionSlot, type ItemActionSlot, isItemActionSlot } from "./types";
+import { formatTooltipLabel } from "./utils";
 
 type SlotUsability = {
   usable: boolean;
@@ -301,10 +302,6 @@ function getInventoryItemCount(inventory: InventoryItemSnapshot[], itemId: ItemI
   const inventoryKey = getInventoryItemKey(itemId, chainTokenId);
   const item = inventory.find((entry) => getInventoryItemKey(entry.id, entry.chainTokenId) === inventoryKey);
   return item?.count ?? 0;
-}
-
-function formatTooltipLabel(text: string) {
-  return text.split("\n").filter(Boolean).join(", ");
 }
 
 function formatTooltipDuration(ms: number) {

@@ -1,5 +1,4 @@
 import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
-import { Text } from "@react-three/drei";
 import { useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
@@ -88,17 +87,6 @@ export function Fountain({
       <WaterFlowHighlights />
       <BasinSplashes groupRef={splashRef} />
       <FountainDroplets groupRef={dropletRef} />
-      <Text
-        position={[0, 0.92, 3.95]}
-        rotation-x={-0.12}
-        fontSize={0.34}
-        color="#42b9ff"
-        outlineColor="#13283a"
-        outlineWidth={0.03}
-        anchorX="center"
-      >
-        MFERS NEVER DIE
-      </Text>
     </group>
   );
 }

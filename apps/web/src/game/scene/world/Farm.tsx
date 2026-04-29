@@ -1,6 +1,8 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Text } from "@react-three/drei";
+import { useLoader } from "@react-three/fiber";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
+import { HangingSign } from "./TownProps";
 import {
   applyStaticPropInstances,
   composeInstanceMatrix,
@@ -29,21 +31,33 @@ export function RundownFarm({
       <MudPatch position={[7.8, 0.027, 3.8]} scale={[6.2, 3.2, 1]} />
       <MudPatch position={[-8.8, 0.027, 4.4]} scale={[5.8, 3.6, 1]} />
       <BrokenFence width={26} depth={18} barkTexture={barkTexture} />
-      <FarmHouse position={[-7.8, 0, -3.8]} rotation={0.1} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
-      <SaggingBarn position={[7.2, 0, -3.2]} rotation={-0.12} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
+      <FarmHouse position={[-7.8, 0, -3.8]} rotation={Math.PI + 0.1} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
+      <SaggingBarn position={[7.2, 0, -3.2]} rotation={Math.PI - 0.12} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
       <CollapsedShed position={[5.8, 0, 6.4]} rotation={0.38} roofTexture={roofTexture} barkTexture={barkTexture} />
-      <Scarecrow position={[-10.2, 0, 5.8]} rotation={0.34} barkTexture={barkTexture} />
-      <Text
-        position={[0, 1.6, -9.5]}
-        rotation-y={0}
-        fontSize={0.42}
-        color="#e9d7ad"
-        outlineColor="#2d2016"
-        outlineWidth={0.035}
-        anchorX="center"
-      >
-        OLD FARM
-      </Text>
+      <Scarecrow position={[-10.2, 0, 5.8]} rotation={0.34} />
+      <FarmEntranceSign barkTexture={barkTexture} />
+    </group>
+  );
+}
+
+function FarmEntranceSign({ barkTexture }: { barkTexture: THREE.Texture }) {
+  return (
+    <group position={[0, 0, -9.45]}>
+      <mesh position={[-1.78, 1.03, 0]}>
+        <cylinderGeometry args={[0.08, 0.12, 2.06, 8]} />
+        <meshBasicMaterial map={barkTexture} color="#4b2d18" />
+      </mesh>
+      <mesh position={[1.78, 1.03, 0]}>
+        <cylinderGeometry args={[0.08, 0.12, 2.06, 8]} />
+        <meshBasicMaterial map={barkTexture} color="#4b2d18" />
+      </mesh>
+      <mesh position={[0, 1.93, 0.01]}>
+        <boxGeometry args={[3.95, 0.12, 0.12]} />
+        <meshBasicMaterial map={barkTexture} color="#4b2d18" />
+      </mesh>
+      <group position={[0, 1.62, -0.02]} rotation-y={Math.PI} scale={[0.62, 0.62, 0.62]}>
+        <HangingSign label="OLD FARM" color="#b46e34" fontSize={0.56} />
+      </group>
     </group>
   );
 }
@@ -76,34 +90,15 @@ function FarmHouse({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
+  const gltf = useLoader(GLTFLoader, "/models/damaged-farmhouse.glb") as { scene: THREE.Group };
+  const model = useMemo(() => createFarmBuildingModel(gltf.scene), [gltf.scene]);
+  void stoneTexture;
+  void roofTexture;
+  void wallTexture;
+
   return (
     <group position={position} rotation-y={rotation}>
-      <mesh position={[0, 0.28, 0]}>
-        <boxGeometry args={[5.6, 0.56, 4.1]} />
-        <meshBasicMaterial map={stoneTexture} color="#a08b70" />
-      </mesh>
-      <mesh position={[0, 2.05, 0]}>
-        <boxGeometry args={[5.25, 3.45, 3.85]} />
-        <meshBasicMaterial map={wallTexture} color="#b79b79" />
-      </mesh>
-      <mesh position={[-0.22, 4.02, 0]} rotation-z={0.16}>
-        <boxGeometry args={[6.45, 0.28, 4.86]} />
-        <meshBasicMaterial map={roofTexture} color="#6f3525" />
-      </mesh>
-      <mesh position={[1.95, 2.35, 2.02]}>
-        <boxGeometry args={[1.08, 1.0, 0.16]} />
-        <meshBasicMaterial color="#201811" />
-      </mesh>
-      <mesh position={[-1.64, 1.52, 2.04]}>
-        <boxGeometry args={[1.15, 1.85, 0.16]} />
-        <meshBasicMaterial color="#3e2919" />
-      </mesh>
-      {[[-2.48, 2.2, 2.12, 0.22], [0.18, 3.72, 2.12, -0.48], [2.6, 1.15, 2.12, 0.08]].map(([x, y, z, rot], index) => (
-        <mesh key={index} position={[x, y, z]} rotation-z={rot}>
-          <boxGeometry args={[0.18, 2.3, 0.15]} />
-          <meshBasicMaterial color="#4d2f1b" />
-        </mesh>
-      ))}
+      <primitive object={model} dispose={null} />
     </group>
   );
 }
@@ -121,38 +116,15 @@ function SaggingBarn({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
+  const gltf = useLoader(GLTFLoader, "/models/sagging-barn.glb") as { scene: THREE.Group };
+  const model = useMemo(() => createFarmBuildingModel(gltf.scene), [gltf.scene]);
+  void stoneTexture;
+  void roofTexture;
+  void wallTexture;
+
   return (
     <group position={position} rotation-y={rotation}>
-      <mesh position={[0, 0.25, 0]}>
-        <boxGeometry args={[7.3, 0.5, 5.7]} />
-        <meshBasicMaterial map={stoneTexture} color="#8e7a62" />
-      </mesh>
-      <mesh position={[0, 2.35, 0]}>
-        <boxGeometry args={[6.9, 4.1, 5.35]} />
-        <meshBasicMaterial map={wallTexture} color="#8b5336" />
-      </mesh>
-      <mesh position={[-0.18, 4.95, 0]} rotation-z={-0.1}>
-        <boxGeometry args={[8.1, 0.34, 6.35]} />
-        <meshBasicMaterial map={roofTexture} color="#5f291d" />
-      </mesh>
-      <mesh position={[0, 1.52, 2.76]}>
-        <boxGeometry args={[2.6, 2.45, 0.18]} />
-        <meshBasicMaterial color="#2f1f16" />
-      </mesh>
-      <mesh position={[0, 1.55, 2.88]} rotation-z={0.55}>
-        <boxGeometry args={[0.22, 3.2, 0.12]} />
-        <meshBasicMaterial color="#a06b42" />
-      </mesh>
-      <mesh position={[0, 1.55, 2.9]} rotation-z={-0.55}>
-        <boxGeometry args={[0.22, 3.2, 0.12]} />
-        <meshBasicMaterial color="#a06b42" />
-      </mesh>
-      {[[-2.85, 2.4, 2.82, 0.1], [2.8, 2.2, 2.82, -0.2], [-1.2, 4.55, 2.84, -0.42]].map(([x, y, z, rot], index) => (
-        <mesh key={index} position={[x, y, z]} rotation-z={rot}>
-          <boxGeometry args={[0.18, 2.2, 0.14]} />
-          <meshBasicMaterial color="#4d2f1b" />
-        </mesh>
-      ))}
+      <primitive object={model} dispose={null} />
     </group>
   );
 }
@@ -187,32 +159,53 @@ function CollapsedShed({
 function Scarecrow({
   position,
   rotation,
-  barkTexture,
 }: {
   position: [number, number, number];
   rotation: number;
-  barkTexture: THREE.Texture;
 }) {
+  const gltf = useLoader(GLTFLoader, "/models/farm-scarecrow.glb") as { scene: THREE.Group };
+  const model = useMemo(() => createFarmScarecrowModel(gltf.scene), [gltf.scene]);
+
   return (
     <group position={position} rotation-y={rotation}>
-      <mesh position={[0, 1.22, 0]}>
-        <cylinderGeometry args={[0.06, 0.08, 2.44, 8]} />
-        <meshStandardMaterial map={barkTexture} color="#5d3b22" roughness={0.96} />
-      </mesh>
-      <mesh position={[0, 1.78, 0]} rotation-z={Math.PI / 2}>
-        <cylinderGeometry args={[0.045, 0.06, 2.2, 8]} />
-        <meshStandardMaterial map={barkTexture} color="#5d3b22" roughness={0.96} />
-      </mesh>
-      <mesh position={[0, 2.3, 0]}>
-        <sphereGeometry args={[0.28, 12, 8]} />
-        <meshBasicMaterial color="#b58a45" />
-      </mesh>
-      <mesh position={[0, 1.55, 0.03]}>
-        <coneGeometry args={[0.58, 1.1, 4]} />
-        <meshBasicMaterial color="#826b34" />
-      </mesh>
+      <primitive object={model} dispose={null} />
     </group>
   );
+}
+
+function createFarmBuildingModel(sourceScene: THREE.Group) {
+  const scene = sourceScene.clone(true);
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const center = box.getCenter(new THREE.Vector3());
+  scene.position.set(-center.x, -box.min.y, -center.z);
+  return scene;
+}
+
+function createFarmScarecrowModel(sourceScene: THREE.Group) {
+  const scene = sourceScene.clone(true);
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.frustumCulled = false;
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const scale = size.y > 0.01 ? 2.75 / size.y : 1;
+  scene.scale.setScalar(scale);
+  scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+  return scene;
 }
 
 function BrokenFence({
