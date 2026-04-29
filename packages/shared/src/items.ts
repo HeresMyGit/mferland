@@ -28,6 +28,13 @@ export type EquipmentDefinition = {
   stats: Partial<Record<StatKey, number>>;
 };
 
+export type ConsumableDefinition = {
+  kind: "food" | "potion";
+  health?: number;
+  mana?: number;
+  cooldownMs: number;
+};
+
 export type ItemDefinition = {
   id: string;
   name: string;
@@ -38,6 +45,7 @@ export type ItemDefinition = {
   value?: number;
   chainTokenId?: string;
   equipment?: EquipmentDefinition;
+  consumable?: ConsumableDefinition;
 };
 
 export const ITEMS = {
@@ -109,6 +117,49 @@ export const ITEMS = {
     iconColor: "#9b6a3f",
     stackable: true,
     value: 1,
+  },
+  "field-snack": {
+    id: "field-snack",
+    name: "Field Snack",
+    description: "A salty little road snack. Restores a small amount of health and mana.",
+    quality: "common",
+    iconColor: "#d6a64b",
+    stackable: true,
+    value: 4,
+    consumable: {
+      kind: "food",
+      health: 24,
+      mana: 12,
+      cooldownMs: 12000,
+    },
+  },
+  "red-juice": {
+    id: "red-juice",
+    name: "Red Juice",
+    description: "A sweet bottled potion from the town fountain stash. Restores health.",
+    quality: "common",
+    iconColor: "#e34d4d",
+    stackable: true,
+    value: 8,
+    consumable: {
+      kind: "potion",
+      health: 58,
+      cooldownMs: 15000,
+    },
+  },
+  "blue-juice": {
+    id: "blue-juice",
+    name: "Blue Juice",
+    description: "A fizzy mana potion with a suspicious static aftertaste. Restores mana.",
+    quality: "common",
+    iconColor: "#45a7e8",
+    stackable: true,
+    value: 8,
+    consumable: {
+      kind: "potion",
+      mana: 46,
+      cooldownMs: 15000,
+    },
   },
   "frayed-cap": {
     id: "frayed-cap",
@@ -403,12 +454,20 @@ export function getItemEquipment(itemId: keyof typeof ITEMS): EquipmentDefinitio
   return (ITEMS[itemId] as ItemDefinition).equipment ?? null;
 }
 
+export function getItemConsumable(itemId: keyof typeof ITEMS): ConsumableDefinition | null {
+  return (ITEMS[itemId] as ItemDefinition).consumable ?? null;
+}
+
 export function getItemChainTokenId(itemId: keyof typeof ITEMS) {
   return normalizeChainTokenId((ITEMS[itemId] as ItemDefinition).chainTokenId);
 }
 
 export function isEquipmentItem(itemId: keyof typeof ITEMS) {
   return getItemEquipment(itemId) !== null;
+}
+
+export function isConsumableItem(itemId: keyof typeof ITEMS) {
+  return getItemConsumable(itemId) !== null;
 }
 
 export function isEquipmentCompatibleWithSlot(itemId: keyof typeof ITEMS, slotId: EquipmentSlotId) {

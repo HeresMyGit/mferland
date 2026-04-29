@@ -2,17 +2,29 @@ import { type CSSProperties, type PointerEvent } from "react";
 import { Crosshair, Flame, Hand, HeartPulse, ShieldAlert, Snowflake, Sparkles, Sword, Tornado, Wind, Zap } from "lucide-react";
 import {
   COMBAT,
+  ITEMS,
+  getInventoryItemKey,
+  getItemConsumable,
   getNpcDisposition,
   getTalentActionCooldownMs,
   isAttackableNpcRole,
   isCombatActionUnlocked,
   type ActionId,
   type CombatActionId,
+  type InventoryItemSnapshot,
+  type ItemId,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
-import type { ActionSlot } from "./types";
+import { ItemIcon } from "./ItemIcon";
+import { type ActionSlot, type ItemActionSlot, isItemActionSlot } from "./types";
+
+type SlotUsability = {
+  usable: boolean;
+  reason: string;
+  count?: number;
+};
 
 export function ActionSlotButton({
   actionId,
@@ -32,7 +44,7 @@ export function ActionSlotButton({
   index: number;
   isDragging: boolean;
   isDropTarget: boolean;
-  onAction: (actionId: ActionId) => void;
+  onAction: (slot: NonNullable<ActionSlot>) => void;
   onPointerStart: (index: number, event: PointerEvent<HTMLElement>) => void;
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
@@ -41,18 +53,27 @@ export function ActionSlotButton({
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   now: number;
 }) {
-  const action = actionId ? getActionMeta(actionId) : null;
+  const itemSlot = isItemActionSlot(actionId) ? actionId : null;
+  const abilitySlot = typeof actionId === "string" ? actionId : null;
+  const combatActionId = abilitySlot && abilitySlot !== "interact" ? abilitySlot : null;
+  const action = abilitySlot ? getActionMeta(abilitySlot) : null;
+  const item = itemSlot ? ITEMS[itemSlot.itemId] : null;
   const Icon = action?.icon;
-  const cooldown = actionId && actionId !== "interact" ? getCooldownState(localPlayer, actionId, now) : null;
-  const hasMana = actionId && actionId !== "interact"
-    ? (localPlayer?.mana ?? 0) >= COMBAT.actions[actionId].manaCost
+  const cooldown = combatActionId ? getCooldownState(localPlayer, combatActionId, now) : null;
+  const hasMana = combatActionId
+    ? (localPlayer?.mana ?? 0) >= COMBAT.actions[combatActionId].manaCost
     : true;
-  const usability = actionId && actionId !== "interact"
-    ? getCombatUsability(actionId, localPlayer, selectedTarget, selectedTargetUnit, now)
+  const usability: SlotUsability = itemSlot
+    ? getItemUsability(itemSlot, localPlayer)
+    : combatActionId
+    ? getCombatUsability(combatActionId, localPlayer, selectedTarget, selectedTargetUnit, now)
     : { usable: true, reason: "" };
+  const filled = Boolean(action || itemSlot);
+  const tooltip = getActionSlotTooltip(actionId, index, localPlayer, usability, cooldown);
   const className = [
     "action-slot",
-    action ? "filled" : "empty",
+    filled ? "filled" : "empty",
+    itemSlot ? "item-slot" : "",
     isDragging ? "dragging" : "",
     isDropTarget ? "drop-target" : "",
     cooldown && cooldown.remainingMs > 0 ? "cooling" : "",
@@ -60,9 +81,18 @@ export function ActionSlotButton({
     usability.usable ? "" : "unusable",
   ].filter(Boolean).join(" ");
 
-  if (!action || !Icon) {
+  if (!filled) {
     return (
-      <div className={className} data-action-slot={index}>
+      <div
+        className={className}
+        data-action-slot={index}
+        data-tooltip={tooltip}
+        aria-label={formatTooltipLabel(tooltip)}
+        onPointerDown={(event) => onPointerStart(index, event)}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+      >
         <span className="slot-key">{index + 1}</span>
       </div>
     );
@@ -73,8 +103,8 @@ export function ActionSlotButton({
       className={className}
       type="button"
       data-action-slot={index}
-      title={`${action.label} (${index + 1})`}
-      aria-label={`${action.label}, slot ${index + 1}`}
+      data-tooltip={tooltip}
+      aria-label={`${action?.label ?? item?.name ?? "Item"}, slot ${index + 1}`}
       aria-disabled={!usability.usable}
       onPointerDown={(event) => onPointerStart(index, event)}
       onPointerMove={onPointerMove}
@@ -83,11 +113,14 @@ export function ActionSlotButton({
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        onAction(action.id);
+        onAction(actionId as NonNullable<ActionSlot>);
       }}
     >
-      <Icon size={25} />
-      <strong>{action.label}</strong>
+      {itemSlot ? <ItemIcon itemId={itemSlot.itemId} /> : Icon ? <Icon size={25} /> : null}
+      <strong>{action?.label ?? item?.name}</strong>
+      {itemSlot && (
+        <em className="item-count-label">x{Math.max(0, usability.count ?? 0)}</em>
+      )}
       {cooldown && cooldown.remainingMs > 0 && (
         <span className="cooldown-sweep" style={{ "--cooldown-fill": cooldown.percent / 100 } as CSSProperties} />
       )}
@@ -201,6 +234,99 @@ function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionI
     remainingMs,
     percent: cooldownMs > 0 ? Math.min(100, (remainingMs / cooldownMs) * 100) : 0,
   };
+}
+
+function getItemUsability(slot: ItemActionSlot, player: PlayerSnapshot | null) {
+  const count = getInventoryItemCount(player?.inventory ?? [], slot.itemId, slot.chainTokenId);
+  if (count <= 0) return { usable: false, reason: "Empty", count };
+
+  const consumable = getItemConsumable(slot.itemId);
+  if (!consumable) return { usable: false, reason: "Item", count };
+  if (!player) return { usable: false, reason: "", count };
+
+  const restoresHealth = Boolean(consumable.health && player.health < player.maxHealth);
+  const restoresMana = Boolean(consumable.mana && player.mana < player.maxMana);
+  if (!restoresHealth && !restoresMana) return { usable: false, reason: "Full", count };
+  return { usable: true, reason: "", count };
+}
+
+function getActionSlotTooltip(
+  slot: ActionSlot,
+  index: number,
+  player: PlayerSnapshot | null,
+  usability: SlotUsability,
+  cooldown: ReturnType<typeof getCooldownState> | null,
+) {
+  const slotLabel = `Slot ${index + 1}`;
+  if (!slot) return `${slotLabel}\nEmpty`;
+
+  if (isItemActionSlot(slot)) {
+    const item = ITEMS[slot.itemId];
+    const consumable = getItemConsumable(slot.itemId);
+    const effects = [
+      consumable?.health ? `Restores ${consumable.health} HP` : "",
+      consumable?.mana ? `Restores ${consumable.mana} MP` : "",
+    ].filter(Boolean).join(" / ");
+
+    return [
+      item.name,
+      slotLabel,
+      item.description,
+      usability.count !== undefined ? `Count: ${usability.count}` : "",
+      effects,
+      consumable ? `${capitalize(consumable.kind)} cooldown: ${formatTooltipDuration(consumable.cooldownMs)}` : "",
+      usability.reason ? `Status: ${usability.reason}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  const meta = getActionMeta(slot);
+  if (slot === "interact") {
+    return [
+      meta?.label ?? "Interact",
+      slotLabel,
+      "Talk, loot, and use nearby objects.",
+    ].join("\n");
+  }
+
+  const action = COMBAT.actions[slot];
+  const effect = action.damage > 0
+    ? `${action.damage} base damage`
+    : slot === "heal"
+      ? `${COMBAT.actions.heal.healing} healing`
+      : "Utility";
+  const range = action.maxRange > 0
+    ? action.minRange > 0 ? `${action.minRange}-${action.maxRange}m range` : `${action.maxRange}m range`
+    : "Self/nearby";
+  const cooldownMs = player ? getTalentActionCooldownMs(slot, player.talents) : action.cooldownMs;
+
+  return [
+    meta?.label ?? "Ability",
+    slotLabel,
+    `${effect} / ${range}`,
+    action.manaCost > 0 ? `${action.manaCost} MP` : "No mana cost",
+    cooldownMs > 0 ? `Cooldown: ${formatTooltipDuration(cooldownMs)}` : "No cooldown",
+    cooldown && cooldown.remainingMs > 0 ? `Ready in ${formatTooltipDuration(cooldown.remainingMs)}` : "",
+    usability.reason ? `Status: ${usability.reason}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function getInventoryItemCount(inventory: InventoryItemSnapshot[], itemId: ItemId, chainTokenId = "") {
+  const inventoryKey = getInventoryItemKey(itemId, chainTokenId);
+  const item = inventory.find((entry) => getInventoryItemKey(entry.id, entry.chainTokenId) === inventoryKey);
+  return item?.count ?? 0;
+}
+
+function formatTooltipLabel(text: string) {
+  return text.split("\n").filter(Boolean).join(", ");
+}
+
+function formatTooltipDuration(ms: number) {
+  const seconds = ms / 1000;
+  return seconds >= 1 ? `${Math.ceil(seconds)}s` : `${seconds.toFixed(1)}s`;
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function getCombatUsability(

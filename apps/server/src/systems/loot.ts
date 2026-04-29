@@ -24,6 +24,12 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     if (Math.random() < 0.18) {
       addLootItem(npc, "small-tooth", 1);
     }
+    if (Math.random() < 0.22) {
+      addLootItem(npc, "field-snack", 1);
+    }
+    if (Math.random() < 0.08) {
+      addLootItem(npc, "red-juice", 1);
+    }
     if (Math.random() < 0.035) {
       addLootItem(npc, "boar-bristle-cap", 1);
     }
@@ -31,9 +37,18 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     if (Math.random() < 0.36) {
       addLootItem(npc, "small-tooth", 1);
     }
+    if (Math.random() < 0.16) {
+      addLootItem(npc, "field-snack", 1);
+    }
   } else if (npc.model === "deer") {
     if (Math.random() < 0.42) {
       addLootItem(npc, "worn-antler", 1);
+    }
+    if (Math.random() < 0.22) {
+      addLootItem(npc, "field-snack", 1);
+    }
+    if (Math.random() < 0.06) {
+      addLootItem(npc, "blue-juice", 1);
     }
     if (Math.random() < 0.04) {
       addLootItem(npc, "antler-charm", 1);
@@ -47,6 +62,8 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       if (Math.random() < 0.12) {
         addLootItem(npc, "baron-breaker-board", 1);
       }
+      addLootItem(npc, "red-juice", 2);
+      addLootItem(npc, "blue-juice", 2);
       npc.hasLoot = npcHasLoot(npc);
       if (!npc.hasLoot) return;
 
@@ -60,6 +77,9 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       }
       if (Math.random() < 0.08) {
         addLootItem(npc, "static-loop-ring", 1);
+      }
+      if (Math.random() < 0.12) {
+        addLootItem(npc, "blue-juice", 1);
       }
     }
 
@@ -75,8 +95,14 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     if (!isRidgeRaider(npc) && Math.random() < 0.04) {
       addLootItem(npc, "farmhand-spade", 1);
     }
+    if (Math.random() < 0.1) {
+      addLootItem(npc, "red-juice", 1);
+    }
   } else if (npc.role === "enemy" && Math.random() < 0.22) {
     addLootItem(npc, "dummy-splinter", 1);
+    if (Math.random() < 0.18) {
+      addLootItem(npc, "field-snack", 1);
+    }
   }
 
   npc.hasLoot = npcHasLoot(npc);

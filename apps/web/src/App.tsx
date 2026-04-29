@@ -4,12 +4,15 @@ import { Gem, LogOut, Sparkles, UserRound } from "lucide-react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import {
   COMBAT,
+  ITEMS,
+  getInventoryItemKey,
   getNpcDisposition,
   isAttackableNpcRole,
   isCombatActionUnlocked,
   type ActionId,
   type CombatActionId,
   type JoinOptions,
+  type ItemId,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
@@ -18,11 +21,11 @@ import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } fr
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene } from "./game/TownScene";
 import { Hud } from "./components/Hud";
+import { getActionSlotKey, type ActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 
-type ActionSlot = ActionId | null;
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
-const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v2";
+const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v3";
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
@@ -132,23 +135,21 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
     const nearestNpc = findNearestNpc(localPlayer, room.npcs);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
   }, [localPlayer, room.npcs, room.sendInteract]);
-  const performAction = useCallback((actionId: ActionId | null) => {
-    if (actionId === "interact") performInteract();
-    else if (actionId) {
-      if (!canUseCombatAction(actionId, localPlayer ?? null, selectedTarget, selectedTargetUnit)) return;
+  const performAction = useCallback((slot: ActionSlot) => {
+    if (!slot) return;
+    if (slot === "interact") performInteract();
+    else if (isItemActionSlot(slot)) {
+      room.sendUseItem({ itemId: slot.itemId, chainTokenId: slot.chainTokenId });
+    } else {
+      if (!canUseCombatAction(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit)) return;
       room.sendCombatAction({
-        actionId,
+        actionId: slot,
         target: selectedTarget,
       });
     }
-  }, [localPlayer, performInteract, room.sendCombatAction, selectedTarget, selectedTargetUnit]);
-  const assignActionSlot = useCallback((actionId: ActionId, slotIndex: number) => {
-    setActionSlots((current) => {
-      if (slotIndex < 0 || slotIndex >= ACTION_SLOT_COUNT) return current;
-      const next = normalizeActionSlots(current).map((slot) => slot === actionId ? null : slot);
-      next[slotIndex] = actionId;
-      return next;
-    });
+  }, [localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit]);
+  const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
+    setActionSlots(normalizeActionSlots(slots));
   }, []);
   const clearActionSlot = useCallback((slotIndex: number) => {
     setActionSlots((current) => {
@@ -158,25 +159,23 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
       return next;
     });
   }, []);
-  const moveActionSlot = useCallback((fromIndex: number, toIndex: number) => {
-    setActionSlots((current) => {
-      if (!current[fromIndex] || fromIndex === toIndex) return current;
-      const next = [...current];
-      [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     if (!localPlayer) return;
     setActionSlots((current) => {
-      const next = normalizeActionSlots(current).map((actionId) => {
-        if (!actionId || actionId === "interact") return actionId;
-        return isCombatActionUnlocked(actionId, localPlayer.talents) ? actionId : null;
+      const next = normalizeActionSlots(current).map((slot) => {
+        if (!slot || slot === "interact") return slot;
+        if (isItemActionSlot(slot)) {
+          const inventoryKey = getInventoryItemKey(slot.itemId, slot.chainTokenId);
+          return localPlayer.inventory.some((item) => getInventoryItemKey(item.id, item.chainTokenId) === inventoryKey && item.count > 0)
+            ? slot
+            : null;
+        }
+        return isCombatActionUnlocked(slot, localPlayer.talents) ? slot : null;
       });
       return slotsEqual(current, next) ? current : next;
     });
-  }, [localPlayer?.talents]);
+  }, [localPlayer?.inventory, localPlayer?.talents, room.snapshotRevision]);
 
   useEffect(() => {
     window.localStorage.setItem(ACTION_SLOT_STORAGE_KEY, JSON.stringify(actionSlots));
@@ -187,10 +186,10 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
       if (event.repeat || isTypingTarget(event.target)) return;
       const slotIndex = numberKeyToSlotIndex(event);
       if (slotIndex === null) return;
-      const actionId = actionSlots[slotIndex] ?? null;
-      if (!actionId) return;
+      const slot = actionSlots[slotIndex] ?? null;
+      if (!slot) return;
       event.preventDefault();
-      performAction(actionId);
+      performAction(slot);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -236,9 +235,8 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         lootWindow={room.lootWindow}
         actionSlots={actionSlots}
         onAction={performAction}
-        onAssignActionSlot={assignActionSlot}
+        onReplaceActionSlots={replaceActionSlots}
         onClearActionSlot={clearActionSlot}
-        onMoveActionSlot={moveActionSlot}
         onAcceptQuest={room.sendAcceptQuest}
         onCompleteQuest={room.sendCompleteQuest}
         onDismissQuestOffer={room.dismissQuestOffer}
@@ -247,6 +245,7 @@ function GameShell({ identity, onExit }: { identity: JoinOptions; onExit: () => 
         onLootCorpse={room.sendLootCorpse}
         onEquipItem={room.sendEquipItem}
         onUnequipItem={room.sendUnequipItem}
+        onUseItem={room.sendUseItem}
         onSelectTalent={room.sendSelectTalent}
         onCloseLootWindow={room.closeLootWindow}
         onSendChat={room.sendChat}
@@ -348,13 +347,15 @@ function readStoredActionSlots() {
 function normalizeActionSlots(slots: unknown[]) {
   const next = Array.from({ length: ACTION_SLOT_COUNT }, (_, index) => {
     const value = slots[index];
-    return isActionId(value) ? value : null;
+    if (isActionId(value)) return value;
+    if (isStoredItemSlot(value)) return makeItemActionSlot(value.itemId, value.chainTokenId);
+    return null;
   });
   return next;
 }
 
 function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {
-  const assignedActions = slots.filter((slot): slot is ActionId => Boolean(slot));
+  const assignedActions = slots.filter((slot): slot is ActionId => Boolean(slot && !isItemActionSlot(slot)));
   const needsStarterLoadout = assignedActions.length === 0 || (
     assignedActions.length === 1 && assignedActions[0] === "interact"
   );
@@ -365,7 +366,7 @@ function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {
   return slots.map((slot, index) => {
     if (slot) return slot;
     const defaultAction = DEFAULT_ACTION_SLOTS[index];
-    if (!defaultAction || usedActions.has(defaultAction)) return null;
+    if (!defaultAction || isItemActionSlot(defaultAction) || usedActions.has(defaultAction)) return null;
     usedActions.add(defaultAction);
     return defaultAction;
   });
@@ -375,8 +376,17 @@ function isActionId(value: unknown): value is ActionId {
   return value === "interact" || (typeof value === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, value));
 }
 
+function isStoredItemSlot(value: unknown): value is { type: "item"; itemId: ItemId; chainTokenId?: string } {
+  if (!value || typeof value !== "object") return false;
+  const slot = value as { type?: unknown; itemId?: unknown; chainTokenId?: unknown };
+  return slot.type === "item"
+    && typeof slot.itemId === "string"
+    && Object.prototype.hasOwnProperty.call(ITEMS, slot.itemId)
+    && (slot.chainTokenId === undefined || typeof slot.chainTokenId === "string");
+}
+
 function slotsEqual(left: ActionSlot[], right: ActionSlot[]) {
-  return left.length === right.length && left.every((slot, index) => slot === right[index]);
+  return left.length === right.length && left.every((slot, index) => getActionSlotKey(slot) === getActionSlotKey(right[index]));
 }
 
 function isTypingTarget(target: EventTarget | null) {

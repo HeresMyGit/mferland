@@ -98,7 +98,7 @@
   }
 
   .character-layout {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .abilities-layout {
@@ -111,8 +111,8 @@
     align-items: center;
   }
 
-  .talent-trees {
-    max-height: 300px;
+  .talent-tree-grid {
+    grid-template-columns: repeat(3, minmax(118px, 1fr));
   }
 }
 
@@ -161,7 +161,8 @@
     white-space: nowrap;
   }
 
-  .character-panel {
+  .character-panel,
+  .inventory-panel {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
   }
@@ -176,23 +177,15 @@
     grid-template-columns: 1fr;
   }
 
-  .equipment-grid {
+  .equipment-grid,
+  .inventory-grid,
+  .hotbar-config-grid,
+  .spellbook-grid {
+    grid-template-columns: repeat(auto-fill, 58px);
+  }
+
+  .talent-tree-grid {
     grid-template-columns: 1fr;
-  }
-
-  .gear-row {
-    grid-template-columns: 36px minmax(0, 1fr);
-  }
-
-  .gear-row b {
-    justify-self: start;
-    grid-column: 2;
-  }
-
-  .talent-trees,
-  .gear-list {
-    max-height: none;
-    overflow: visible;
   }
 
   .hotbar {
@@ -204,16 +197,16 @@
     height: 48px;
   }
 
-  .ability-book-row {
-    grid-template-columns: 26px minmax(0, 1fr);
+  .menu-tile {
+    width: 52px;
+    height: 52px;
   }
 
-  .ability-state,
-  .ability-assign-grid {
-    grid-column: 2;
-  }
-
-  .ability-state {
-    text-align: left;
+  .menu-tile-grid,
+  .equipment-grid,
+  .inventory-grid,
+  .hotbar-config-grid,
+  .spellbook-grid {
+    grid-template-columns: repeat(auto-fill, 52px);
   }
 }

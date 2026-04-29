@@ -12,6 +12,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientUnequipItem,
+  type ClientUseItem,
   type CombatEvent,
   type EquipmentSlotSnapshot,
   type ExperienceEvent,
@@ -333,6 +334,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("unequipItem", message);
   }, []);
 
+  const sendUseItem = useCallback((message: ClientUseItem) => {
+    roomRef.current?.send("useItem", message);
+  }, []);
+
   const sendSelectTalent = useCallback((message: ClientSelectTalent) => {
     roomRef.current?.send("selectTalent", message);
   }, []);
@@ -373,6 +378,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendLootCorpse,
     sendEquipItem,
     sendUnequipItem,
+    sendUseItem,
     sendSelectTalent,
     closeLootWindow,
     sendRespawn,

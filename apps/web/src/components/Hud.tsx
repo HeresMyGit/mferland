@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BadgePlus, BookOpen, Brain, Check, Dumbbell, Footprints, Gift, ListChecks, LogOut, Map as MapIcon, Package, Sparkles, UserRound, X } from "lucide-react";
 import {
   CHAT,
@@ -6,7 +6,6 @@ import {
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
-  PROGRESSION,
   STAT_LABELS,
   TALENTS,
   TALENT_IDS,
@@ -15,6 +14,7 @@ import {
   getLevelProgress,
   getCombatActionUnlockTalent,
   getInventoryItemKey,
+  getItemConsumable,
   getItemEquipment,
   getNpcDisposition,
   getTalentPointsSpent,
@@ -30,6 +30,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientUnequipItem,
+  type ClientUseItem,
   type EquipmentSlotId,
   type InventoryItemSnapshot,
   type ItemId,
@@ -48,7 +49,7 @@ import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionS
 import { ItemIcon } from "./hud/ItemIcon";
 import { Quest } from "./hud/Quest";
 import { TargetFrame } from "./hud/TargetFrame";
-import type { ActionSlot, DragState } from "./hud/types";
+import { type ActionSlot, type DragState, isItemActionSlot, makeItemActionSlot } from "./hud/types";
 import {
   MINIMAP_HUBS,
   MINIMAP_LANDMARKS,
@@ -66,6 +67,15 @@ import { getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
 
 const HUD_TICK_MS = 200;
 const IDLE_HUD_TICK_MIN_MS = 1000;
+const TOOLTIP_MAX_WIDTH = 280;
+const TOOLTIP_MAX_HEIGHT = 220;
+const TOOLTIP_OFFSET = 16;
+
+type HudTooltipState = {
+  text: string;
+  x: number;
+  y: number;
+};
 
 type HudProps = {
   identity: {
@@ -87,10 +97,9 @@ type HudProps = {
   questStatus: QuestStatusNotice | null;
   lootWindow: LootWindow | null;
   actionSlots: ActionSlot[];
-  onAction: (actionId: ActionId) => void;
-  onAssignActionSlot: (actionId: ActionId, slotIndex: number) => void;
+  onAction: (slot: NonNullable<ActionSlot>) => void;
+  onReplaceActionSlots: (slots: ActionSlot[]) => void;
   onClearActionSlot: (slotIndex: number) => void;
-  onMoveActionSlot: (fromIndex: number, toIndex: number) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onCompleteQuest: (message: ClientCompleteQuest) => void;
   onDismissQuestOffer: () => void;
@@ -99,6 +108,7 @@ type HudProps = {
   onLootCorpse: (message: ClientLootCorpse) => void;
   onEquipItem: (message: ClientEquipItem) => void;
   onUnequipItem: (message: ClientUnequipItem) => void;
+  onUseItem: (message: ClientUseItem) => void;
   onSelectTalent: (message: ClientSelectTalent) => void;
   onCloseLootWindow: () => void;
   onSendChat: (text: string) => void;
@@ -125,9 +135,8 @@ export function Hud({
   lootWindow,
   actionSlots,
   onAction,
-  onAssignActionSlot,
+  onReplaceActionSlots,
   onClearActionSlot,
-  onMoveActionSlot,
   onAcceptQuest,
   onCompleteQuest,
   onDismissQuestOffer,
@@ -136,6 +145,7 @@ export function Hud({
   onLootCorpse,
   onEquipItem,
   onUnequipItem,
+  onUseItem,
   onSelectTalent,
   onCloseLootWindow,
   onSendChat,
@@ -146,7 +156,11 @@ export function Hud({
   const [draft, setDraft] = useState("");
   const dragStateRef = useRef<DragState | null>(null);
   const [dragState, setDragStateState] = useState<DragState | null>(null);
+  const [carriedSlot, setCarriedSlot] = useState<ActionSlot>(null);
+  const carriedSlotRef = useRef<ActionSlot>(null);
   const [dropSlot, setDropSlot] = useState<number | null>(null);
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const [tooltip, setTooltip] = useState<HudTooltipState | null>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
   const [now, setNow] = useState(() => Date.now());
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -171,7 +185,6 @@ export function Hud({
     [questLog],
   );
   const hasTrackedQuests = trackedQuests.length > 0;
-  const equippableInventory = localPlayer?.inventory.filter((item) => getItemEquipment(item.id)) ?? [];
   const clockMinute = Math.floor(now / 60000);
   const clockLabel = useMemo(
     () => new Date(clockMinute * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -183,6 +196,10 @@ export function Hud({
     const timeout = window.setTimeout(() => setNow(Date.now()), hudTickDelay);
     return () => window.clearTimeout(timeout);
   }, [hudTickDelay, now]);
+
+  useEffect(() => {
+    carriedSlotRef.current = carriedSlot;
+  }, [carriedSlot]);
 
   useEffect(() => {
     if (!localPlayer || !isMapOpen) return;
@@ -274,6 +291,52 @@ export function Hud({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (!carriedSlot) return;
+
+    const onPointerMove = (event: globalThis.PointerEvent) => {
+      setCursorPosition({ x: event.clientX, y: event.clientY });
+      setDropSlot(getSlotIndexFromPoint(event.clientX, event.clientY));
+    };
+    const onPointerDown = (event: globalThis.PointerEvent) => {
+      const slotIndex = getSlotIndexFromPoint(event.clientX, event.clientY);
+      if (slotIndex !== null) {
+        event.preventDefault();
+        placeSlotInHotbar(carriedSlot, slotIndex);
+        return;
+      }
+      setCarriedSlot(null);
+      setDropSlot(null);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [carriedSlot]);
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const onPointerMove = (event: globalThis.PointerEvent) => {
+      updateDragAt(event.clientX, event.clientY);
+    };
+    const onPointerUp = (event: globalThis.PointerEvent) => {
+      finishDragAt(event.clientX, event.clientY);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [dragState, actionSlots]);
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const text = draft.trim();
@@ -292,17 +355,80 @@ export function Hud({
     event.currentTarget.blur();
   }
 
+  function showTooltip(text: string | undefined, clientX: number, clientY: number) {
+    if (!text || dragStateRef.current || carriedSlotRef.current) return;
+    const position = getTooltipPosition(clientX, clientY);
+    setTooltip({ text, ...position });
+  }
+
+  function moveTooltip(clientX: number, clientY: number) {
+    setTooltip((current) => {
+      if (!current) return current;
+      const position = getTooltipPosition(clientX, clientY);
+      return { ...current, ...position };
+    });
+  }
+
+  function hideTooltip() {
+    setTooltip(null);
+  }
+
+  function handleTooltipFocus(event: ReactFocusEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    showTooltip(element.dataset.tooltip, rect.left + rect.width / 2, rect.bottom);
+  }
+
+  useEffect(() => {
+    const onTooltipOver = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
+      const element = getTooltipElement(event.target);
+      if (!element) return;
+      if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+      showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+    };
+    const onTooltipMove = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
+      if (!getTooltipElement(event.target)) return;
+      moveTooltip(event.clientX, event.clientY);
+    };
+    const onTooltipOut = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
+      const element = getTooltipElement(event.target);
+      if (!element) return;
+      if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+      hideTooltip();
+    };
+
+    window.addEventListener("mouseover", onTooltipOver);
+    window.addEventListener("mousemove", onTooltipMove);
+    window.addEventListener("mouseout", onTooltipOut);
+    window.addEventListener("pointerover", onTooltipOver);
+    window.addEventListener("pointermove", onTooltipMove);
+    window.addEventListener("pointerout", onTooltipOut);
+    return () => {
+      window.removeEventListener("mouseover", onTooltipOver);
+      window.removeEventListener("mousemove", onTooltipMove);
+      window.removeEventListener("mouseout", onTooltipOut);
+      window.removeEventListener("pointerover", onTooltipOver);
+      window.removeEventListener("pointermove", onTooltipMove);
+      window.removeEventListener("pointerout", onTooltipOut);
+    };
+  }, []);
+
   function setDragState(nextDragState: DragState | null) {
     dragStateRef.current = nextDragState;
     setDragStateState(nextDragState);
   }
 
-  function beginActionDrag(index: number, event: PointerEvent<HTMLElement>) {
-    if (!actionSlots[index] || event.button !== 0) return;
+  function beginSlotDrag(slot: NonNullable<ActionSlot>, event: PointerEvent<HTMLElement>, fromIndex?: number) {
+    if (event.button !== 0) return;
     event.preventDefault();
+    event.stopPropagation();
+    hideTooltip();
     event.currentTarget.setPointerCapture(event.pointerId);
+    setCursorPosition({ x: event.clientX, y: event.clientY });
     setDragState({
-      fromIndex: index,
+      slot,
+      fromIndex,
       startX: event.clientX,
       startY: event.clientY,
       x: event.clientX,
@@ -311,45 +437,95 @@ export function Hud({
     });
   }
 
-  function updateActionDrag(event: PointerEvent<HTMLElement>) {
-    const current = dragStateRef.current;
-    if (!current) return;
+  function beginActionDrag(index: number, event: PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    if (carriedSlot) {
+      event.preventDefault();
+      event.stopPropagation();
+      placeSlotInHotbar(carriedSlot, index);
+      return;
+    }
 
-    const distance = Math.hypot(event.clientX - current.startX, event.clientY - current.startY);
-    const isDragging = current.isDragging || distance > 5;
-    setDragState({
-      ...current,
-      x: event.clientX,
-      y: event.clientY,
-      isDragging,
-    });
-    setDropSlot(isDragging ? getSlotIndexFromPoint(event.clientX, event.clientY) : null);
+    const slot = actionSlots[index];
+    if (!slot) return;
+    beginSlotDrag(slot, event, index);
+  }
+
+  function updateActionDrag(event: PointerEvent<HTMLElement>) {
+    updateDragAt(event.clientX, event.clientY);
   }
 
   function endActionDrag(event: PointerEvent<HTMLElement>) {
-    const current = dragStateRef.current;
-    if (!current) return;
-
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
       // Pointer capture can be lost if the gesture leaves the browser window.
     }
 
-    const actionId = actionSlots[current.fromIndex];
-    const toIndex = current.isDragging ? getSlotIndexFromPoint(event.clientX, event.clientY) : null;
+    finishDragAt(event.clientX, event.clientY);
+  }
+
+  function updateDragAt(clientX: number, clientY: number) {
+    const current = dragStateRef.current;
+    if (!current) return;
+
+    const distance = Math.hypot(clientX - current.startX, clientY - current.startY);
+    const isDragging = current.isDragging || distance > 5;
+    setCursorPosition({ x: clientX, y: clientY });
+    setDragState({
+      ...current,
+      x: clientX,
+      y: clientY,
+      isDragging,
+    });
+    setDropSlot(isDragging ? getSlotIndexFromPoint(clientX, clientY) : null);
+  }
+
+  function finishDragAt(clientX: number, clientY: number) {
+    const current = dragStateRef.current;
+    if (!current) return;
+
+    setCursorPosition({ x: clientX, y: clientY });
+    const toIndex = current.isDragging ? getSlotIndexFromPoint(clientX, clientY) : null;
     if (current.isDragging && toIndex !== null) {
-      onMoveActionSlot(current.fromIndex, toIndex);
-    } else if (actionId) {
-      onAction(actionId);
+      placeSlotInHotbar(current.slot, toIndex, current.fromIndex);
+    } else if (current.isDragging && typeof current.fromIndex === "number") {
+      const next = [...actionSlots];
+      next[current.fromIndex] = null;
+      onReplaceActionSlots(next);
+      setCarriedSlot(null);
+    } else if (!current.isDragging && typeof current.fromIndex === "number") {
+      onAction(current.slot);
+    } else if (!current.isDragging && isItemActionSlot(current.slot)) {
+      onUseItem({ itemId: current.slot.itemId, chainTokenId: current.slot.chainTokenId });
     }
 
     setDragState(null);
     setDropSlot(null);
   }
 
+  function placeSlotInHotbar(slot: NonNullable<ActionSlot>, toIndex: number, fromIndex?: number) {
+    if (toIndex < 0 || toIndex >= actionSlots.length) return;
+    const next = [...actionSlots];
+    if (fromIndex === toIndex) {
+      setCarriedSlot(null);
+      return;
+    }
+
+    const replaced = next[toIndex] ?? null;
+    if (typeof fromIndex === "number") next[fromIndex] = null;
+    next[toIndex] = slot;
+    onReplaceActionSlots(next);
+    setCarriedSlot(replaced);
+    setDropSlot(null);
+  }
+
   return (
-    <div className="hud">
+    <div
+      className="hud"
+      onFocusCapture={handleTooltipFocus}
+      onBlurCapture={hideTooltip}
+    >
       <section className="player-card">
         <button
           className="portrait"
@@ -438,6 +614,8 @@ export function Hud({
                 key={getInventoryItemKey(item.id, item.chainTokenId)}
                 type="button"
                 className="item-row"
+                data-tooltip={getLootItemTitle(item)}
+                aria-label={formatTooltipLabel(getLootItemTitle(item))}
                 onClick={() => onLootCorpse({ npcId: lootWindow.npcId, itemId: item.id, chainTokenId: item.chainTokenId })}
               >
                 <ItemIcon itemId={item.id} />
@@ -649,60 +827,33 @@ export function Hud({
                 {EQUIPMENT_SLOT_IDS.map((slotId) => {
                   const itemId = getEquippedItemId(localPlayer, slotId);
                   const item = itemId ? ITEMS[itemId] : null;
+                  const title = itemId && item
+                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${formatItemStats(itemId)}\nClick to unequip`
+                    : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
                   return (
                     <button
                       key={slotId}
                       type="button"
-                      className={itemId ? "equipment-slot filled" : "equipment-slot"}
-                      title={itemId ? `Unequip ${item?.name}` : EQUIPMENT_SLOTS[slotId]}
+                      className={itemId ? "menu-tile equipment-slot filled" : "menu-tile equipment-slot"}
+                      data-tooltip={title}
+                      aria-label={formatTooltipLabel(title)}
                       onClick={() => itemId && onUnequipItem({ slot: slotId })}
                     >
-                      <span>{EQUIPMENT_SLOTS[slotId]}</span>
+                      <span className="tile-badge">{EQUIPMENT_SLOTS[slotId]}</span>
                       {itemId ? (
                         <>
                           <ItemIcon itemId={itemId} />
                           <strong>{item?.name}</strong>
-                          <em>{formatItemStats(itemId)}</em>
                         </>
                       ) : (
-                        <strong>Empty</strong>
+                        <>
+                          <i className="tile-empty-mark" />
+                          <strong>{EQUIPMENT_SLOTS[slotId]}</strong>
+                        </>
                       )}
                     </button>
                   );
                 })}
-              </section>
-
-              <section className="character-side-stack">
-                <TalentPanel player={localPlayer} onSelectTalent={onSelectTalent} />
-
-                <section className="gear-list">
-                  {equippableInventory.length > 0 ? equippableInventory.map((item) => {
-                    const equipment = getItemEquipment(item.id);
-                    const comparison = getItemComparison(item, localPlayer);
-                    const isEquipped = equipment ? isInventoryItemEquipped(localPlayer, item) : false;
-                    return (
-                      <button
-                        key={getInventoryItemKey(item.id, item.chainTokenId)}
-                        type="button"
-                        className={isEquipped ? "gear-row equipped" : "gear-row"}
-                        onClick={() => onEquipItem({ itemId: item.id, chainTokenId: item.chainTokenId })}
-                      >
-                        <ItemIcon itemId={item.id} />
-                        <span>
-                          <strong>{ITEMS[item.id].name}</strong>
-                          {equipment && <em>{equipment.build} / {EQUIPMENT_SLOTS[equipment.slot]}</em>}
-                          <small>{formatItemStats(item.id)}</small>
-                          {comparison && (
-                            <small className={`gear-compare ${comparison.tone}`}>{comparison.text}</small>
-                          )}
-                        </span>
-                        <b>{isEquipped ? "Equipped" : "Equip"}</b>
-                      </button>
-                    );
-                  }) : (
-                    <p className="quest-empty">No gear in inventory</p>
-                  )}
-                </section>
               </section>
             </div>
           </div>
@@ -715,7 +866,7 @@ export function Hud({
             <div className="world-map-header">
               <div>
                 <strong>Abilities</strong>
-                <span>Assign active slots 1-8</span>
+                <span>Spellbook and talents</span>
               </div>
               <button type="button" title="Close abilities" aria-label="Close abilities" onClick={() => setIsAbilitiesOpen(false)}>
                 <X size={22} />
@@ -724,8 +875,11 @@ export function Hud({
             <AbilitiesPanel
               player={localPlayer}
               actionSlots={actionSlots}
-              onAssignActionSlot={onAssignActionSlot}
               onClearActionSlot={onClearActionSlot}
+              onBeginDrag={beginSlotDrag}
+              onPointerMove={updateActionDrag}
+              onPointerEnd={endActionDrag}
+              onSelectTalent={onSelectTalent}
             />
           </div>
         </section>
@@ -746,15 +900,16 @@ export function Hud({
             <div className="inventory-grid">
               {localPlayer && localPlayer.inventory.length > 0 ? localPlayer.inventory.map((item) => {
                 const equipment = getItemEquipment(item.id);
+                const consumable = getItemConsumable(item.id);
                 const comparison = getItemComparison(item, localPlayer);
                 const isEquipped = isInventoryItemEquipped(localPlayer, item);
+                const title = getInventoryItemTitle(item, localPlayer, comparison);
                 const content = (
                   <>
                     <ItemIcon itemId={item.id} />
                     <strong>{ITEMS[item.id].name}</strong>
-                    <em>{equipment ? EQUIPMENT_SLOTS[equipment.slot] : `x${item.count}`}</em>
-                    {equipment && <small>{formatItemStats(item.id)}</small>}
-                    {comparison && <small className={`gear-compare ${comparison.tone}`}>{comparison.text}</small>}
+                    <span className="tile-count">{item.count > 1 ? `x${item.count}` : ""}</span>
+                    {isEquipped && <span className="tile-state">On</span>}
                   </>
                 );
 
@@ -762,17 +917,33 @@ export function Hud({
                   <button
                     key={getInventoryItemKey(item.id, item.chainTokenId)}
                     type="button"
-                    className={isEquipped ? "inventory-slot equipped" : "inventory-slot"}
-                    title={ITEMS[item.id].description}
+                    className={isEquipped ? "menu-tile inventory-slot equipped" : "menu-tile inventory-slot"}
+                    data-tooltip={title}
+                    aria-label={formatTooltipLabel(title)}
                     onClick={() => onEquipItem({ itemId: item.id, chainTokenId: item.chainTokenId })}
+                  >
+                    {content}
+                  </button>
+                ) : consumable ? (
+                  <button
+                    key={getInventoryItemKey(item.id, item.chainTokenId)}
+                    type="button"
+                    className="menu-tile inventory-slot consumable"
+                    data-tooltip={title}
+                    aria-label={formatTooltipLabel(title)}
+                    onPointerDown={(event) => beginSlotDrag(makeItemActionSlot(item.id, item.chainTokenId), event)}
+                    onPointerMove={updateActionDrag}
+                    onPointerUp={endActionDrag}
+                    onPointerCancel={endActionDrag}
                   >
                     {content}
                   </button>
                 ) : (
                   <div
                     key={getInventoryItemKey(item.id, item.chainTokenId)}
-                    className="inventory-slot"
-                    title={ITEMS[item.id].description}
+                    className="menu-tile inventory-slot"
+                    data-tooltip={title}
+                    aria-label={formatTooltipLabel(title)}
                   >
                     {content}
                   </div>
@@ -811,13 +982,13 @@ export function Hud({
       </section>
 
       <section className="hotbar">
-        {actionSlots.map((actionId, index) => (
+        {actionSlots.map((slot, index) => (
           <ActionSlotButton
             key={index}
-            actionId={actionId}
+            actionId={slot}
             index={index}
             isDragging={dragState?.fromIndex === index && dragState.isDragging}
-            isDropTarget={dropSlot === index && dragState?.isDragging === true}
+            isDropTarget={dropSlot === index && (dragState?.isDragging === true || Boolean(carriedSlot))}
             localPlayer={localPlayer}
             selectedTarget={selectedTarget}
             selectedTargetUnit={selectedTargetUnit}
@@ -829,6 +1000,14 @@ export function Hud({
           />
         ))}
       </section>
+
+      {(dragState?.isDragging ? dragState.slot : carriedSlot) && (
+        <ActionSlotGhost
+          slot={(dragState?.isDragging ? dragState.slot : carriedSlot) as NonNullable<ActionSlot>}
+          x={dragState?.isDragging ? dragState.x : cursorPosition.x}
+          y={dragState?.isDragging ? dragState.y : cursorPosition.y}
+        />
+      )}
 
       <section className="menu-dock">
         <button type="button" title="Character" onClick={() => setIsCharacterOpen(true)}>
@@ -864,6 +1043,8 @@ export function Hud({
           <button type="button" onClick={onRespawn}>Respawn</button>
         </section>
       )}
+
+      {tooltip && <HudTooltip tooltip={tooltip} />}
     </div>
   );
 }
@@ -909,9 +1090,33 @@ function CastBar({
   );
 }
 
+function HudTooltip({ tooltip }: { tooltip: HudTooltipState }) {
+  const [title, ...lines] = tooltip.text.split("\n").filter(Boolean);
+  return (
+    <div className="hud-tooltip" role="tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
+      <strong>{title}</strong>
+      {lines.map((line, index) => (
+        <span key={`${line}-${index}`}>{line}</span>
+      ))}
+    </div>
+  );
+}
+
 function isChatShortcutTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return true;
   return !target.closest("button,a,select,[role='button']");
+}
+
+function getTooltipElement(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return null;
+  return target.closest<HTMLElement>("[data-tooltip]");
+}
+
+function getTooltipPosition(clientX: number, clientY: number) {
+  return {
+    x: Math.max(TOOLTIP_OFFSET, Math.min(clientX + TOOLTIP_OFFSET, window.innerWidth - TOOLTIP_MAX_WIDTH - TOOLTIP_OFFSET)),
+    y: Math.max(TOOLTIP_OFFSET, Math.min(clientY + TOOLTIP_OFFSET, window.innerHeight - TOOLTIP_MAX_HEIGHT - TOOLTIP_OFFSET)),
+  };
 }
 
 function setHudElementRef(
@@ -948,8 +1153,59 @@ function getHudTickDelay(player: PlayerSnapshot | null, actionSlots: ActionSlot[
 }
 
 function isCoolingDown(player: PlayerSnapshot, actionId: ActionSlot, now: number) {
-  if (!actionId || actionId === "interact") return false;
+  if (!actionId || actionId === "interact" || isItemActionSlot(actionId)) return false;
   return getActionReadyAt(player, actionId as CombatActionId) > now;
+}
+
+function ActionSlotGhost({
+  slot,
+  x,
+  y,
+}: {
+  slot: NonNullable<ActionSlot>;
+  x: number;
+  y: number;
+}) {
+  return (
+    <div className="action-drag-ghost" style={{ left: x, top: y }}>
+      <SlotIcon slot={slot} size={25} />
+      <strong>{getSlotLabel(slot)}</strong>
+    </div>
+  );
+}
+
+function SlotIcon({ slot, size = 18 }: { slot: NonNullable<ActionSlot>; size?: number }) {
+  if (isItemActionSlot(slot)) return <ItemIcon itemId={slot.itemId} />;
+  const meta = getActionMeta(slot);
+  const Icon = meta?.icon;
+  return Icon ? <Icon size={size} /> : null;
+}
+
+function getSlotLabel(slot: ActionSlot) {
+  if (!slot) return "Empty";
+  if (isItemActionSlot(slot)) return ITEMS[slot.itemId]?.name ?? "Item";
+  return getActionMeta(slot)?.label ?? "Ability";
+}
+
+function getHotbarSlotTooltip(slot: ActionSlot, index: number) {
+  const slotLabel = `Slot ${index + 1}`;
+  if (!slot) return `${slotLabel}\nEmpty`;
+
+  if (isItemActionSlot(slot)) {
+    const item = ITEMS[slot.itemId];
+    return [
+      `${slotLabel}: ${item.name}`,
+      item.description,
+      formatConsumableEffect(slot.itemId),
+      "Drag to move. Click X to clear.",
+    ].filter(Boolean).join("\n");
+  }
+
+  return [
+    `${slotLabel}: ${getSlotLabel(slot)}`,
+    getAbilityDescription(slot, slot !== "interact" ? getCombatActionUnlockTalent(slot) : null),
+    "Drag to move. Click X to clear.",
+  ].filter(Boolean).join("\n");
 }
 
 function QuestOfferPanel({
@@ -1085,64 +1341,117 @@ const SPELLBOOK_ABILITY_IDS: ActionId[] = [...BASELINE_ABILITY_IDS, ...TALENT_AB
 function AbilitiesPanel({
   player,
   actionSlots,
-  onAssignActionSlot,
   onClearActionSlot,
+  onBeginDrag,
+  onPointerMove,
+  onPointerEnd,
+  onSelectTalent,
 }: {
   player: PlayerSnapshot | null;
   actionSlots: ActionSlot[];
-  onAssignActionSlot: (actionId: ActionId, slotIndex: number) => void;
   onClearActionSlot: (slotIndex: number) => void;
+  onBeginDrag: (slot: NonNullable<ActionSlot>, event: PointerEvent<HTMLElement>, fromIndex?: number) => void;
+  onPointerMove: (event: PointerEvent<HTMLElement>) => void;
+  onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
+  onSelectTalent: (message: ClientSelectTalent) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"spellbook" | "talents">("spellbook");
+
   return (
     <div className="abilities-layout">
-      <section className="ability-slots-panel">
-        <strong>Hotbar</strong>
-        <div className="ability-slot-grid">
-          {actionSlots.map((actionId, index) => {
-            const meta = actionId ? getActionMeta(actionId) : null;
-            const Icon = meta?.icon;
-            return (
-              <div key={index} className={actionId ? "ability-slot-row filled" : "ability-slot-row"}>
-                <span>{index + 1}</span>
-                {Icon && <Icon size={18} />}
-                <strong>{meta?.label ?? "Empty"}</strong>
-                <button type="button" disabled={!actionId} onClick={() => onClearActionSlot(index)}>
-                  Clear
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      <div className="menu-tabs" role="tablist" aria-label="Abilities tabs">
+        <button
+          type="button"
+          className={activeTab === "spellbook" ? "active" : ""}
+          onClick={() => setActiveTab("spellbook")}
+        >
+          Spellbook
+        </button>
+        <button
+          type="button"
+          className={activeTab === "talents" ? "active" : ""}
+          onClick={() => setActiveTab("talents")}
+        >
+          Talents
+        </button>
+      </div>
 
-      <section className="ability-book-panel">
-        <strong>Spellbook</strong>
-        <div className="ability-book-list">
-          {SPELLBOOK_ABILITY_IDS.map((actionId) => (
-            <AbilityBookRow
-              key={actionId}
-              actionId={actionId}
-              player={player}
-              actionSlots={actionSlots}
-              onAssignActionSlot={onAssignActionSlot}
-            />
-          ))}
-        </div>
-      </section>
+      {activeTab === "spellbook" ? (
+        <section className="spellbook-tab">
+          <div className="menu-section-header">
+            <strong>Hotbar</strong>
+            <span>Drag tiles to swap slots</span>
+          </div>
+          <div className="menu-tile-grid hotbar-config-grid">
+            {actionSlots.map((slot, index) => (
+              <div
+                key={index}
+                className={slot ? "menu-tile hotbar-config-tile filled" : "menu-tile hotbar-config-tile empty"}
+                data-tooltip={getHotbarSlotTooltip(slot, index)}
+                aria-label={formatTooltipLabel(getHotbarSlotTooltip(slot, index))}
+                onPointerDown={slot ? (event) => onBeginDrag(slot, event, index) : undefined}
+                onPointerMove={slot ? onPointerMove : undefined}
+                onPointerUp={slot ? onPointerEnd : undefined}
+                onPointerCancel={slot ? onPointerEnd : undefined}
+              >
+                <span className="tile-key">{index + 1}</span>
+                {slot ? <SlotIcon slot={slot} size={24} /> : <i className="tile-empty-mark" />}
+                <strong>{getSlotLabel(slot)}</strong>
+                {slot && (
+                  <button
+                    className="tile-clear-btn"
+                    type="button"
+                    title={`Clear slot ${index + 1}`}
+                    aria-label={`Clear hotbar slot ${index + 1}`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => onClearActionSlot(index)}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="menu-section-header">
+            <strong>Spellbook</strong>
+            <span>Drag unlocked abilities</span>
+          </div>
+          <div className="menu-tile-grid spellbook-grid">
+            {SPELLBOOK_ABILITY_IDS.map((actionId) => (
+              <AbilityBookTile
+                key={actionId}
+                actionId={actionId}
+                player={player}
+                actionSlots={actionSlots}
+                onBeginDrag={onBeginDrag}
+                onPointerMove={onPointerMove}
+                onPointerEnd={onPointerEnd}
+              />
+            ))}
+          </div>
+        </section>
+      ) : (
+        <TalentTreePanel player={player} onSelectTalent={onSelectTalent} />
+      )}
     </div>
   );
 }
 
-function AbilityBookRow({
+function AbilityBookTile({
   actionId,
   player,
   actionSlots,
-  onAssignActionSlot,
+  onBeginDrag,
+  onPointerMove,
+  onPointerEnd,
 }: {
   actionId: ActionId;
   player: PlayerSnapshot | null;
   actionSlots: ActionSlot[];
-  onAssignActionSlot: (actionId: ActionId, slotIndex: number) => void;
+  onBeginDrag: (slot: NonNullable<ActionSlot>, event: PointerEvent<HTMLElement>, fromIndex?: number) => void;
+  onPointerMove: (event: PointerEvent<HTMLElement>) => void;
+  onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
 }) {
   const meta = getActionMeta(actionId);
   if (!meta) return null;
@@ -1152,33 +1461,34 @@ function AbilityBookRow({
   const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.talents));
   const unlockTalentId = isCombat ? getCombatActionUnlockTalent(actionId) : null;
   const assignedIndex = actionSlots.findIndex((slot) => slot === actionId);
-  const description = getAbilityDescription(actionId, unlockTalentId);
 
   return (
-    <div className={locked ? "ability-book-row locked" : assignedIndex >= 0 ? "ability-book-row assigned" : "ability-book-row"}>
-      <Icon size={22} />
-      <span className="ability-copy">
-        <strong>{meta.label}</strong>
-        <em>{description}</em>
-      </span>
-      <span className="ability-state">
-        {locked ? "Locked" : assignedIndex >= 0 ? `Slot ${assignedIndex + 1}` : "Ready"}
-      </span>
-      <div className="ability-assign-grid">
-        {actionSlots.map((_, index) => (
-          <button
-            key={index}
-            type="button"
-            disabled={locked}
-            className={assignedIndex === index ? "selected" : ""}
-            onClick={() => onAssignActionSlot(actionId, index)}
-          >
-            {index + 1}
-          </button>
-        ))}
-      </div>
+    <div
+      className={locked ? "menu-tile ability-book-tile locked" : assignedIndex >= 0 ? "menu-tile ability-book-tile assigned" : "menu-tile ability-book-tile"}
+      data-tooltip={getAbilityTitle(actionId, unlockTalentId, assignedIndex, locked)}
+      aria-label={formatTooltipLabel(getAbilityTitle(actionId, unlockTalentId, assignedIndex, locked))}
+      onPointerDown={locked ? undefined : (event) => onBeginDrag(actionId, event)}
+      onPointerMove={locked ? undefined : onPointerMove}
+      onPointerUp={locked ? undefined : onPointerEnd}
+      onPointerCancel={locked ? undefined : onPointerEnd}
+    >
+      <Icon size={24} />
+      <strong>{meta.label}</strong>
+      {assignedIndex >= 0 && <span className="tile-state">{assignedIndex + 1}</span>}
+      {locked && <span className="tile-state">Lock</span>}
     </div>
   );
+}
+
+function getAbilityTitle(actionId: ActionId, unlockTalentId: TalentId | null, assignedIndex: number, locked: boolean) {
+  const meta = getActionMeta(actionId);
+  const state = locked ? "Locked" : assignedIndex >= 0 ? `Assigned to slot ${assignedIndex + 1}` : "Ready";
+  return [
+    meta?.label ?? "Ability",
+    getAbilityDescription(actionId, unlockTalentId),
+    state,
+    locked && unlockTalentId ? `Requires ${TALENTS[unlockTalentId].name}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function getAbilityDescription(actionId: ActionId, unlockTalentId: TalentId | null) {
@@ -1192,7 +1502,7 @@ function getAbilityDescription(actionId: ActionId, unlockTalentId: TalentId | nu
   return unlockTalentId ? `Talent: ${TALENTS[unlockTalentId].name} / ${detail}` : detail;
 }
 
-function TalentPanel({
+function TalentTreePanel({
   player,
   onSelectTalent,
 }: {
@@ -1212,7 +1522,7 @@ function TalentPanel({
         </span>
       </div>
 
-      <div className="talent-trees">
+      <div className="talent-tree-grid">
         {TALENT_TREE_IDS.map((treeId) => {
           const Icon = getTalentTreeIcon(treeId);
           return (
@@ -1226,7 +1536,7 @@ function TalentPanel({
               </div>
               <div className="talent-node-list">
                 {TALENT_IDS.filter((talentId) => TALENTS[talentId].tree === treeId).map((talentId) => (
-                  <TalentRow
+                  <TalentNode
                     key={talentId}
                     talentId={talentId}
                     player={player}
@@ -1242,7 +1552,7 @@ function TalentPanel({
   );
 }
 
-function TalentRow({
+function TalentNode({
   talentId,
   player,
   onSelectTalent,
@@ -1255,8 +1565,10 @@ function TalentRow({
   const talents = player?.talents ?? [];
   const status = getTalentRankStatus(talents, player?.level ?? 1, player?.talentPoints ?? 0, talentId);
   const rank = getTalentRank(talents, talentId);
+  const Icon = getTalentTreeIcon(definition.tree);
   const className = [
-    "talent-row",
+    "menu-tile",
+    "talent-node",
     rank > 0 ? "learned" : "",
     status.canRank ? "available" : "",
   ].filter(Boolean).join(" ");
@@ -1265,25 +1577,28 @@ function TalentRow({
     <button
       type="button"
       className={className}
-      disabled={!status.canRank}
-      title={status.canRank ? definition.name : status.reason}
-      onClick={() => onSelectTalent({ talentId })}
+      aria-disabled={!status.canRank}
+      data-tooltip={getTalentTitle(talentId, rank, status.reason)}
+      aria-label={formatTooltipLabel(getTalentTitle(talentId, rank, status.reason))}
+      onClick={() => status.canRank && onSelectTalent({ talentId })}
     >
-      <span className="talent-copy">
-        <strong>{definition.name}</strong>
-        <em>{definition.effectText}</em>
-        <small>{definition.description}</small>
-      </span>
-      <span className="talent-rank">
-        {renderTalentPips(rank, definition.maxRank)}
-        <b>{rank}/{definition.maxRank}</b>
-      </span>
-      <span className="talent-action">
-        <BadgePlus size={14} />
-        {status.canRank ? "Rank" : status.reason}
-      </span>
+      <Icon size={22} />
+      <strong>{definition.name}</strong>
+      <span className="tile-rank">{rank}/{definition.maxRank}</span>
+      {status.canRank && <BadgePlus className="tile-plus" size={12} />}
     </button>
   );
+}
+
+function getTalentTitle(talentId: TalentId, rank: number, reason: string) {
+  const definition = TALENTS[talentId];
+  return [
+    definition.name,
+    definition.effectText,
+    definition.description,
+    `Rank ${rank}/${definition.maxRank}`,
+    reason,
+  ].filter(Boolean).join("\n");
 }
 
 function getCharacterStatRows(player: PlayerSnapshot | null) {
@@ -1325,18 +1640,6 @@ function getCharacterStatRows(player: PlayerSnapshot | null) {
       label: "XP",
       value: progress.isMaxLevel ? `${progress.totalXp} / cap` : `${progress.current}/${progress.required}`,
     },
-    {
-      label: "Total XP",
-      value: String(progress.totalXp),
-    },
-    {
-      label: "Talent Points",
-      value: String(player?.talentPoints ?? 0),
-    },
-    {
-      label: "Level Cap",
-      value: String(PROGRESSION.levelCap),
-    },
   ];
 }
 
@@ -1344,12 +1647,6 @@ function getTalentTreeIcon(treeId: TalentTreeId) {
   if (treeId === "brawler") return Dumbbell;
   if (treeId === "caster") return Brain;
   return Footprints;
-}
-
-function renderTalentPips(rank: number, maxRank: number) {
-  return Array.from({ length: maxRank }, (_, index) => (
-    <i key={index} className={index < rank ? "filled" : ""} />
-  ));
 }
 
 function formatStatNumber(value: number) {
@@ -1386,6 +1683,57 @@ function formatItemStats(itemId: ItemId) {
       return `${sign}${value} ${STAT_LABELS[statKey]}`;
     })
     .join(", ");
+}
+
+function formatConsumableEffect(itemId: ItemId) {
+  const consumable = getItemConsumable(itemId);
+  if (!consumable) return "";
+
+  const effects = [
+    consumable.health ? `+${consumable.health} HP` : "",
+    consumable.mana ? `+${consumable.mana} MP` : "",
+  ].filter(Boolean);
+  return effects.join(", ");
+}
+
+function getInventoryItemTitle(
+  item: InventoryItemSnapshot,
+  player: PlayerSnapshot | null,
+  comparison: ReturnType<typeof getItemComparison>,
+) {
+  const definition = ITEMS[item.id];
+  const equipment = getItemEquipment(item.id);
+  const consumable = getItemConsumable(item.id);
+  const equipped = isInventoryItemEquipped(player, item);
+  return [
+    definition.name,
+    definition.description,
+    item.count > 1 ? `Count: ${item.count}` : "",
+    equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
+    equipment ? formatItemStats(item.id) : "",
+    consumable ? formatConsumableEffect(item.id) : "",
+    comparison?.text ?? "",
+    equipped ? "Currently equipped" : equipment ? "Click to equip" : consumable ? "Click to use, drag to hotbar" : "",
+  ].filter(Boolean).join("\n");
+}
+
+function getLootItemTitle(item: { id: ItemId; count: number }) {
+  const definition = ITEMS[item.id];
+  const equipment = getItemEquipment(item.id);
+  const consumable = getItemConsumable(item.id);
+  return [
+    definition.name,
+    definition.description,
+    item.count > 1 ? `Count: ${item.count}` : "",
+    equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
+    equipment ? formatItemStats(item.id) : "",
+    consumable ? formatConsumableEffect(item.id) : "",
+    "Click to loot",
+  ].filter(Boolean).join("\n");
+}
+
+function formatTooltipLabel(text: string) {
+  return text.split("\n").filter(Boolean).join(", ");
 }
 
 function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot | null) {

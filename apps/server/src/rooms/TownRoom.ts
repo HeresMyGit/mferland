@@ -27,6 +27,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientUnequipItem,
+  type ClientUseItem,
   type CombatActionId,
   type ExperienceEvent,
   type IdentityType,
@@ -65,6 +66,7 @@ import {
   type PendingCombatImpact,
 } from "../systems/combat.js";
 import { makeNpcUtilityEvent } from "../systems/combatEvents.js";
+import { clearConsumableCooldownsForPlayer, grantStarterConsumables, useInventoryConsumable } from "../systems/consumables.js";
 import {
   equipInventoryItem,
   initializeCharacterEquipment,
@@ -127,6 +129,7 @@ export class TownRoom extends Room<TownState> {
   private readonly npcDamageTags = new Map<string, Map<string, number>>();
   private readonly npcThreat = new Map<string, Map<string, number>>();
   private readonly forcedNpcTargets = new Map<string, { sessionId: string; until: number }>();
+  private readonly consumableCooldowns = new Map<string, number>();
 
   onCreate() {
     this.setState(new TownState());
@@ -160,6 +163,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("equipItem", (client, message: Partial<ClientEquipItem>) => {
       this.handleEquipItem(client, message);
+    });
+
+    this.onMessage("useItem", (client, message: Partial<ClientUseItem>) => {
+      this.handleUseItem(client, message);
     });
 
     this.onMessage("unequipItem", (client, message: Partial<ClientUnequipItem>) => {
@@ -272,6 +279,7 @@ export class TownRoom extends Room<TownState> {
     }
     normalizePlayerTalents(player);
     initializeCharacterEquipment(player);
+    if (player.identityType === "guest") grantStarterConsumables(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
 
@@ -288,6 +296,7 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
+    clearConsumableCooldownsForPlayer(this.consumableCooldowns, client.sessionId);
     this.removePlayerThreat(client.sessionId);
   }
 
@@ -696,6 +705,25 @@ export class TownRoom extends Room<TownState> {
     const slotId = normalizeEquipmentSlotId(message?.slot);
     if (!slotId) return;
     if (!unequipPlayerSlot(player, slotId)) return;
+
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private handleUseItem(client: Client, message: Partial<ClientUseItem>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const itemId = normalizeItemId(message?.itemId);
+    if (!itemId) return;
+    const used = useInventoryConsumable({
+      chainTokenId: message?.chainTokenId,
+      cooldowns: this.consumableCooldowns,
+      itemId,
+      now: Date.now(),
+      player,
+      sessionId: client.sessionId,
+    });
+    if (!used) return;
 
     this.persistPlayerProgress(client.sessionId, player);
   }

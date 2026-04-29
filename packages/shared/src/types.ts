@@ -262,6 +262,11 @@ export type ClientEquipItem = {
   chainTokenId?: string;
 };
 
+export type ClientUseItem = {
+  itemId: ItemId;
+  chainTokenId?: string;
+};
+
 export type ClientUnequipItem = {
   slot: EquipmentSlotId;
 };

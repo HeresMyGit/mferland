@@ -163,6 +163,8 @@ Implementation order:
 ### 6. Consumables
 
 - Add food/potions after combat pressure and gear rewards are more meaningful.
+- Done 2026-04-28: Added first-pass stackable food/potion consumables, server-side use/cooldown validation, inventory use buttons, persisted count changes, and mob drop chances.
+- Done 2026-04-28: Reworked hotbar assignment to support drag/drop/swap for abilities and consumables from the spellbook/inventory, including a carried-slot ghost and click-off removal.
 
 ### 7. Later Redesign
 
@@ -172,6 +174,7 @@ Do this after the engine/system work is stable.
 - Break talent trees out into their own dedicated UI instead of keeping them inside the character screen.
 - Separate inventory from character/equipment management so each screen has a clearer job.
 - Add a spellbook/abilities menu so users can view and change their active abilities.
+- Done 2026-04-28: Unified inventory, spellbook, hotbar management, equipment, and talent nodes around compact square menu tiles with tooltip details; moved talents into an Abilities tab and slimmed the Character screen.
 
 ## Hourly Agent Backlog
 

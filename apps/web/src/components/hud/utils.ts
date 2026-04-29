@@ -1,6 +1,7 @@
 export function getSlotIndexFromPoint(x: number, y: number) {
-  const element = document.elementFromPoint(x, y);
-  const slot = element?.closest<HTMLElement>("[data-action-slot]");
+  const slot = document.elementsFromPoint(x, y)
+    .map((element) => element.closest<HTMLElement>("[data-action-slot]"))
+    .find(Boolean);
   const slotIndex = Number(slot?.dataset.actionSlot);
   return Number.isInteger(slotIndex) ? slotIndex : null;
 }
