@@ -1,5 +1,4 @@
 import { type CSSProperties, type PointerEvent } from "react";
-import { Crosshair, Flame, Hand, HeartPulse, ShieldAlert, Snowflake, Sparkles, Sword, Tornado, Wind, Zap } from "lucide-react";
 import {
   COMBAT,
   ITEMS,
@@ -17,6 +16,7 @@ import {
   type PlayerSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
+import { AbilityIcon } from "./GameIcon";
 import { ItemIcon } from "./ItemIcon";
 import { type ActionSlot, type ItemActionSlot, isItemActionSlot } from "./types";
 
@@ -58,7 +58,6 @@ export function ActionSlotButton({
   const combatActionId = abilitySlot && abilitySlot !== "interact" ? abilitySlot : null;
   const action = abilitySlot ? getActionMeta(abilitySlot) : null;
   const item = itemSlot ? ITEMS[itemSlot.itemId] : null;
-  const Icon = action?.icon;
   const cooldown = combatActionId ? getCooldownState(localPlayer, combatActionId, now) : null;
   const hasMana = combatActionId
     ? (localPlayer?.mana ?? 0) >= COMBAT.actions[combatActionId].manaCost
@@ -116,7 +115,7 @@ export function ActionSlotButton({
         onAction(actionId as NonNullable<ActionSlot>);
       }}
     >
-      {itemSlot ? <ItemIcon itemId={itemSlot.itemId} /> : Icon ? <Icon size={25} /> : null}
+      {itemSlot ? <ItemIcon itemId={itemSlot.itemId} /> : action ? <AbilityIcon actionId={action.id} /> : null}
       <strong>{action?.label ?? item?.name}</strong>
       {itemSlot && (
         <em className="item-count-label">x{Math.max(0, usability.count ?? 0)}</em>
@@ -138,77 +137,66 @@ export function getActionMeta(actionId: ActionId) {
     return {
       id: actionId,
       label: "Interact",
-      icon: Hand,
     };
   }
   if (actionId === "attack") {
     return {
       id: actionId,
       label: "Attack",
-      icon: Sword,
     };
   }
   if (actionId === "shoot") {
     return {
       id: actionId,
       label: "Shoot",
-      icon: Crosshair,
     };
   }
   if (actionId === "signalShot") {
     return {
       id: actionId,
       label: "Signal Shot",
-      icon: Sparkles,
     };
   }
   if (actionId === "fireblast") {
     return {
       id: actionId,
       label: "Fireblast",
-      icon: Flame,
     };
   }
   if (actionId === "frostNova") {
     return {
       id: actionId,
       label: "Frost Nova",
-      icon: Snowflake,
     };
   }
   if (actionId === "heal") {
     return {
       id: actionId,
       label: "Heal",
-      icon: HeartPulse,
     };
   }
   if (actionId === "taunt") {
     return {
       id: actionId,
       label: "Taunt",
-      icon: ShieldAlert,
     };
   }
   if (actionId === "whirlwind") {
     return {
       id: actionId,
       label: "Whirlwind",
-      icon: Tornado,
     };
   }
   if (actionId === "multishot") {
     return {
       id: actionId,
       label: "Multishot",
-      icon: Wind,
     };
   }
   if (actionId === "iceBlast") {
     return {
       id: actionId,
       label: "Ice Blast",
-      icon: Zap,
     };
   }
 }

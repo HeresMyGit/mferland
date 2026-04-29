@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BadgePlus, BookOpen, Brain, Check, Dumbbell, Footprints, Gift, ListChecks, LogOut, Map as MapIcon, Package, Sparkles, UserRound, X } from "lucide-react";
+import { BadgePlus, BookOpen, Check, Gift, ListChecks, LogOut, Map as MapIcon, Package, Sparkles, UserRound, X } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -41,11 +41,11 @@ import {
   type QuestStatusNotice,
   type QuestTurnIn,
   type TalentId,
-  type TalentTreeId,
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
+import { AbilityIcon, EquipmentSlotIcon, TalentTreeIcon } from "./hud/GameIcon";
 import { ItemIcon } from "./hud/ItemIcon";
 import { Quest } from "./hud/Quest";
 import { TargetFrame } from "./hud/TargetFrame";
@@ -913,7 +913,7 @@ export function Hud({
                         </>
                       ) : (
                         <>
-                          <i className="tile-empty-mark" />
+                          <EquipmentSlotIcon slotId={slotId} />
                           <strong>{EQUIPMENT_SLOTS[slotId]}</strong>
                         </>
                       )}
@@ -1242,17 +1242,15 @@ function ActionSlotGhost({
 }) {
   return (
     <div className="action-drag-ghost" style={{ left: x, top: y }}>
-      <SlotIcon slot={slot} size={25} />
+      <SlotIcon slot={slot} />
       <strong>{getSlotLabel(slot)}</strong>
     </div>
   );
 }
 
-function SlotIcon({ slot, size = 18 }: { slot: NonNullable<ActionSlot>; size?: number }) {
+function SlotIcon({ slot }: { slot: NonNullable<ActionSlot> }) {
   if (isItemActionSlot(slot)) return <ItemIcon itemId={slot.itemId} />;
-  const meta = getActionMeta(slot);
-  const Icon = meta?.icon;
-  return Icon ? <Icon size={size} /> : null;
+  return <AbilityIcon actionId={slot} />;
 }
 
 function getSlotLabel(slot: ActionSlot) {
@@ -1472,7 +1470,6 @@ function AbilityBookTile({
   const meta = getActionMeta(actionId);
   if (!meta) return null;
 
-  const Icon = meta.icon;
   const isCombat = actionId !== "interact";
   const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.talents));
   const unlockTalentId = isCombat ? getCombatActionUnlockTalent(actionId) : null;
@@ -1488,7 +1485,7 @@ function AbilityBookTile({
       onPointerUp={locked ? undefined : onPointerEnd}
       onPointerCancel={locked ? undefined : onPointerEnd}
     >
-      <Icon size={24} />
+      <AbilityIcon actionId={actionId} />
       <strong>{meta.label}</strong>
       {assignedIndex >= 0 && <span className="tile-state">{assignedIndex + 1}</span>}
       {locked && <span className="tile-state">Lock</span>}
@@ -1540,11 +1537,10 @@ function TalentTreePanel({
 
       <div className="talent-tree-grid">
         {TALENT_TREE_IDS.map((treeId) => {
-          const Icon = getTalentTreeIcon(treeId);
           return (
             <section key={treeId} className={`talent-tree ${treeId}`}>
               <div className="talent-tree-heading">
-                <Icon size={16} />
+                <TalentTreeIcon treeId={treeId} />
                 <span>
                   <strong>{TALENT_TREES[treeId].label}</strong>
                   <em>{TALENT_TREES[treeId].description}</em>
@@ -1581,7 +1577,6 @@ function TalentNode({
   const talents = player?.talents ?? [];
   const status = getTalentRankStatus(talents, player?.level ?? 1, player?.talentPoints ?? 0, talentId);
   const rank = getTalentRank(talents, talentId);
-  const Icon = getTalentTreeIcon(definition.tree);
   const className = [
     "menu-tile",
     "talent-node",
@@ -1598,7 +1593,7 @@ function TalentNode({
       aria-label={formatTooltipLabel(getTalentTitle(talentId, rank, status.reason))}
       onClick={() => status.canRank && onSelectTalent({ talentId })}
     >
-      <Icon size={22} />
+      <TalentTreeIcon treeId={definition.tree} />
       <strong>{definition.name}</strong>
       <span className="tile-rank">{rank}/{definition.maxRank}</span>
       {status.canRank && <BadgePlus className="tile-plus" size={12} />}
@@ -1657,12 +1652,6 @@ function getCharacterStatRows(player: PlayerSnapshot | null) {
       value: progress.isMaxLevel ? `${progress.totalXp} / cap` : `${progress.current}/${progress.required}`,
     },
   ];
-}
-
-function getTalentTreeIcon(treeId: TalentTreeId) {
-  if (treeId === "brawler") return Dumbbell;
-  if (treeId === "caster") return Brain;
-  return Footprints;
 }
 
 function formatStatNumber(value: number) {

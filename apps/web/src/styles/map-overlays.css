@@ -283,19 +283,45 @@
 
 .action-slot svg,
 .action-slot .item-icon,
+.action-slot .ability-icon,
 .action-slot.filled strong {
   position: relative;
   z-index: 2;
 }
 
 .action-slot .item-icon,
+.action-slot .ability-icon,
 .action-drag-ghost .item-icon {
   width: 28px;
   height: 28px;
-  font-size: 14px;
+}
+
+.action-drag-ghost .ability-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.action-slot.filled > .item-icon,
+.action-slot.filled > .ability-icon,
+.action-drag-ghost > .item-icon,
+.action-drag-ghost > .ability-icon {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
 }
 
 .action-slot.filled strong {
+  position: absolute;
+  z-index: 3;
+  left: 4px;
+  right: 4px;
+  bottom: 17px;
   max-width: 50px;
   overflow: hidden;
   color: #fff8dc;
@@ -319,6 +345,8 @@
 }
 
 .action-slot.oom svg,
+.action-slot.oom .item-icon,
+.action-slot.oom .ability-icon,
 .action-slot.oom strong {
   opacity: 0.54;
 }
@@ -329,6 +357,8 @@
 }
 
 .action-slot.unusable svg,
+.action-slot.unusable .item-icon,
+.action-slot.unusable .ability-icon,
 .action-slot.unusable strong {
   opacity: 0.58;
 }
@@ -420,7 +450,7 @@
 .cooldown-sweep {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 2;
   height: 100%;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
@@ -432,7 +462,7 @@
 
 .cooldown-label {
   position: absolute;
-  z-index: 2;
+  z-index: 4;
   top: 50%;
   left: 50%;
   min-width: 30px;
@@ -690,14 +720,15 @@
   font-weight: 1000;
 }
 
-.ability-slot-row svg {
+.ability-slot-row svg,
+.ability-slot-row .ability-icon {
   color: #f6df77;
 }
 
-.ability-slot-row .item-icon {
+.ability-slot-row .item-icon,
+.ability-slot-row .ability-icon {
   width: 22px;
   height: 22px;
-  font-size: 11px;
 }
 
 .ability-slot-empty {
@@ -763,7 +794,8 @@
   cursor: grabbing;
 }
 
-.ability-book-row > svg {
+.ability-book-row > svg,
+.ability-book-row > .ability-icon {
   color: #f6df77;
 }
 
@@ -893,7 +925,7 @@
   background: rgba(0, 0, 0, 0.52);
 }
 
-.equipment-slot > span {
+.equipment-slot > .tile-badge {
   color: #f6df77;
   font-size: 10px;
   font-weight: 1000;
@@ -992,8 +1024,14 @@
   background: rgba(0, 0, 0, 0.26);
 }
 
-.talent-tree-heading svg {
+.talent-tree-heading svg,
+.talent-tree-heading .category-icon {
   color: #f6df77;
+}
+
+.talent-tree-heading .category-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .talent-tree-heading strong {
@@ -1429,20 +1467,40 @@ button.menu-tile,
 
 .menu-tile svg,
 .menu-tile .item-icon,
+.menu-tile .ability-icon,
+.menu-tile .category-icon,
 .menu-tile .tile-empty-mark {
   position: relative;
   z-index: 2;
 }
 
-.menu-tile .item-icon {
+.menu-tile .item-icon,
+.menu-tile .ability-icon,
+.menu-tile .category-icon {
   width: 30px;
   height: 30px;
-  font-size: 15px;
+}
+
+.menu-tile > .item-icon,
+.menu-tile > .ability-icon,
+.menu-tile > .category-icon {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
 }
 
 .menu-tile strong {
-  position: relative;
-  z-index: 2;
+  position: absolute;
+  z-index: 3;
+  left: 4px;
+  right: 4px;
+  bottom: 5px;
   max-width: 50px;
   overflow: hidden;
   color: #fff8dc;
@@ -1673,7 +1731,8 @@ button.menu-tile,
   z-index: 1;
 }
 
-.talent-node svg {
+.talent-node svg,
+.talent-node .category-icon {
   width: 26px;
   height: 26px;
 }
