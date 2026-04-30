@@ -316,7 +316,7 @@ function MferGptSignalBeacon({ isHostile, isTargeted, showMention }: { isHostile
   );
 }
 
-function createMferGptAvatar(sourceScene: THREE.Group, isHostile: boolean) {
+export function createMferGptAvatar(sourceScene: THREE.Group, isHostile: boolean) {
   const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
   const antennaColor = isHostile ? hostileAntennaLightColor : friendlyAntennaLightColor;
   scene.traverse((child) => {

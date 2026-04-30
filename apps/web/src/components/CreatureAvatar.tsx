@@ -207,7 +207,7 @@ function getCreatureNameplate(npc: NpcSnapshot, disposition: NpcDisposition) {
   return { title: "Deer", badge: "BEAST" };
 }
 
-function HogModel() {
+export function HogModel() {
   return (
     <group position={[0, 0.58, 0]} scale={[1.02, 1.02, 1.02]} dispose={null}>
       <mesh geometry={creatureGeometries.hogBody} material={creatureMaterials.hogHide} position={[0, 0.1, 0]} scale={[1.45, 0.78, 0.9]} />
@@ -226,7 +226,7 @@ function HogModel() {
   );
 }
 
-function RabbitModel() {
+export function RabbitModel() {
   return (
     <group position={[0, 0.18, 0]} scale={[0.9, 0.9, 0.9]} dispose={null}>
       <mesh geometry={creatureGeometries.rabbitBody} material={creatureMaterials.rabbitHide} position={[0, 0.26, 0]} />
@@ -242,7 +242,7 @@ function RabbitModel() {
   );
 }
 
-function DeerModel() {
+export function DeerModel() {
   return (
     <group position={[0, 0.15, 0]} scale={[0.95, 0.95, 0.95]} dispose={null}>
       <mesh geometry={creatureGeometries.deerBody} material={creatureMaterials.deerHide} position={[0, 0.55, 0]} />

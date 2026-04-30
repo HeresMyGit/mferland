@@ -33,6 +33,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
+import { generateMferTraitsForActor } from "../game/mferTraits";
 import { type GameSettings, type NameplateVisibility } from "../game/settings";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
 import { AbilitiesPanel } from "./hud/AbilitiesPanel";
@@ -41,6 +42,7 @@ import { ItemIcon } from "./hud/ItemIcon";
 import { Quest } from "./hud/Quest";
 import { TargetFrame } from "./hud/TargetFrame";
 import { type ActionSlot, type DragState, isItemActionSlot, makeItemActionSlot } from "./hud/types";
+import { MferPortrait } from "./MferPortrait";
 import {
   MINIMAP_HUBS,
   MINIMAP_LANDMARKS,
@@ -176,6 +178,8 @@ export function Hud({
   const worldMapLocalRef = useRef<HTMLElement | null>(null);
   const worldMapNpcRefs = useRef(new Map<string, HTMLElement>());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
+  const portraitSeed = localPlayer?.avatarSeed ?? identity.avatarSeed;
+  const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
   const trackedQuests = useMemo(
@@ -604,7 +608,7 @@ export function Hud({
           onClick={onSelectSelfTarget}
           style={{ "--accent": accent } as CSSProperties}
         >
-          <span>mf</span>
+          <MferPortrait traits={playerPortraitTraits} title="your mfer portrait" />
         </button>
         <div className="player-vitals">
           <div className="player-name-row">
@@ -880,7 +884,7 @@ export function Hud({
             <div className="character-layout">
               <section className="character-summary">
                 <div className="character-portrait" style={{ "--accent": accent } as CSSProperties}>
-                  <span>mf</span>
+                  <MferPortrait traits={playerPortraitTraits} variant="full" title="your mfer portrait" />
                 </div>
                 <div className="character-stats">
                   {getCharacterStatRows(localPlayer).map((stat) => (

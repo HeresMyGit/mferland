@@ -175,6 +175,16 @@ const TYPE_EYE_BASE: Record<string, string> = {
 export type MferTraits = Record<string, string>;
 export type NpcTraitSource = Pick<NpcSnapshot, "id" | "name" | "role">;
 
+export const SARTOSHI_MFER_TRAITS: MferTraits = {
+  background: "orange",
+  type: "plain",
+  eyes: "regular",
+  mouth: "smile",
+  headphones: "black",
+  smoke: "cig_black",
+  watch: "argo_white",
+};
+
 export function generateRandomMferTraits(seed: number): MferTraits {
   const rand = seeded(seed);
   const traits: MferTraits = {};

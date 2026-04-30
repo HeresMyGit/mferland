@@ -1,26 +1,38 @@
+import { useMemo } from "react";
 import {
   getNpcDisposition,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
+import { generateMferTraitsForActor } from "../../game/mferTraits";
+import { ActorModelPortrait } from "../ActorModelPortrait";
+import { MferPortrait } from "../MferPortrait";
 
 export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {
   const isNpc = kind === "npc";
   const npc = isNpc ? (unit as NpcSnapshot) : null;
   const player = isNpc ? null : (unit as PlayerSnapshot);
   const disposition = npc ? getNpcDisposition(npc) : "friendly";
-  const isHostile = disposition === "hostile";
   const maxHealth = npc?.maxHealth ?? player?.maxHealth ?? 100;
   const health = npc?.health ?? player?.health ?? 100;
   const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
   const label = npc ? roleLabel(npc) : playerLabel(unit as PlayerSnapshot);
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
+  const showMferPortrait = !npc || npc.model === "mfer";
+  const portraitTraits = useMemo(
+    () => generateMferTraitsForActor(unit.avatarSeed, showMferPortrait && npc ? npc : null),
+    [npc?.id, npc?.role, showMferPortrait, unit.avatarSeed],
+  );
 
   return (
     <section className={`target-frame ${disposition}`}>
       <div className="target-portrait">
-        <span>{isHostile ? "!" : "mf"}</span>
+        {showMferPortrait ? (
+          <MferPortrait traits={portraitTraits} title={`${unit.name} mfer portrait`} />
+        ) : (
+          <ActorModelPortrait npc={npc} />
+        )}
       </div>
       <div className="target-vitals">
         <strong>{unit.name}</strong>
