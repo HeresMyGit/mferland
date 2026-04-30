@@ -1,11 +1,12 @@
 import { type SyntheticEvent } from "react";
-import { type ActionId, type EquipmentSlotId, type TalentTreeId } from "@mferland/shared";
+import { type ActionId, type EquipmentSlotId, type TalentId, type TalentTreeId } from "@mferland/shared";
 import {
   getActionFallbackIconSrc,
   getActionIconSrc,
   getCategoryIconSrc,
   getEquipmentSlotIconSrc,
   getPlaceholderIconSrc,
+  getTalentIconSrc,
   getTalentTreeCategoryId,
   type IconCategoryId,
   type PlaceholderIconId,
@@ -65,6 +66,16 @@ export function PlaceholderIcon({ placeholderId }: { placeholderId: PlaceholderI
     <IconImage
       className="category-icon"
       src={getPlaceholderIconSrc(placeholderId)}
+      fallbackSrc={getPlaceholderIconSrc("missing-art")}
+    />
+  );
+}
+
+export function TalentIcon({ talentId }: { talentId: TalentId }) {
+  return (
+    <IconImage
+      className="category-icon talent-icon"
+      src={getTalentIconSrc(talentId)}
       fallbackSrc={getPlaceholderIconSrc("missing-art")}
     />
   );

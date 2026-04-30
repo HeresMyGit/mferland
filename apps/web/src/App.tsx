@@ -36,6 +36,7 @@ import { TownScene } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
+import { MferPortrait } from "./components/MferPortrait";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 import {
   DEBUG_PLACEMENT_STORAGE_KEY,
@@ -53,6 +54,7 @@ import {
   getCombatStartCue,
   getExperienceSpatialVolume,
 } from "./game/audio";
+import { SARTOSHI_MFER_TRAITS } from "./game/mferTraits";
 
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
@@ -155,19 +157,19 @@ function AuthGate({
         </Canvas>
         <div className="auth-scene-vignette" />
       </div>
-      <section className="auth-title-lockup" aria-label="Mfer Town">
+      <section className="auth-title-lockup" aria-label="mferland">
         <div className="brand-mark">
-          <span>mf</span>
+          <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
         </div>
         <div>
-          <h1>Mfer Town</h1>
-          <p>social plaza alpha</p>
+          <h1>mferland</h1>
+          <p>officially unofficial plaza build</p>
         </div>
       </section>
 
       <section className="auth-connect-panel">
         <label className="name-field">
-          <span>Name</span>
+          <span>name</span>
           <input
             value={name}
             maxLength={18}
@@ -178,12 +180,12 @@ function AuthGate({
         <div className="auth-actions">
           <button className="primary-btn" type="button" onClick={enterGuest}>
             <UserRound size={18} />
-            Enter as guest
+            enter as anon mfer
           </button>
           {isConnected && address ? (
             <button className="primary-btn wallet" type="button" onClick={enterWallet}>
               <Gem size={18} />
-              Enter with wallet
+              enter as verified mfer
             </button>
           ) : (
             <button
@@ -193,13 +195,13 @@ function AuthGate({
               onClick={() => injected && connect({ connector: injected })}
             >
               <Sparkles size={18} />
-              Connect wallet
+              connect wallet
             </button>
           )}
           {isConnected && (
             <button className="text-btn" type="button" onClick={() => disconnect()}>
               <LogOut size={16} />
-              Disconnect
+              disconnect
             </button>
           )}
         </div>

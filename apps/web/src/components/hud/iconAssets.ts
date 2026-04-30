@@ -5,6 +5,7 @@ import {
   type ActionId,
   type EquipmentSlotId,
   type ItemId,
+  type TalentId,
   type TalentTreeId,
 } from "@mferland/shared";
 
@@ -82,6 +83,21 @@ const ACTION_ICON_SOURCES = {
   iceBlast: `${ICON_ROOT}/abilities/ice-blast.png`,
 } as const satisfies Record<ActionId, string>;
 
+const TALENT_ICON_SOURCES = {
+  "brawler:street-tough": `${ICON_ROOT}/talents/brawler-street-tough.png`,
+  "brawler:heavy-hands": `${ICON_ROOT}/talents/brawler-heavy-hands.png`,
+  "brawler:snap-swing": `${ICON_ROOT}/talents/brawler-snap-swing.png`,
+  "brawler:whirlwind": `${ICON_ROOT}/talents/brawler-whirlwind.png`,
+  "caster:deep-pockets": `${ICON_ROOT}/talents/caster-deep-pockets.png`,
+  "caster:sticker-sparks": `${ICON_ROOT}/talents/caster-sticker-sparks.png`,
+  "caster:flow-state": `${ICON_ROOT}/talents/caster-flow-state.png`,
+  "caster:ice-blast": `${ICON_ROOT}/talents/caster-ice-blast.png`,
+  "utility:light-step": `${ICON_ROOT}/talents/utility-light-step.png`,
+  "utility:errand-brain": `${ICON_ROOT}/talents/utility-errand-brain.png`,
+  "utility:recovery-loop": `${ICON_ROOT}/talents/utility-recovery-loop.png`,
+  "utility:multishot": `${ICON_ROOT}/talents/utility-multishot.png`,
+} as const satisfies Record<TalentId, string>;
+
 const CATEGORY_ICON_SOURCES = {
   armor: `${ICON_ROOT}/categories/armor.png`,
   weapon: `${ICON_ROOT}/categories/weapon.png`,
@@ -136,6 +152,10 @@ export function getActionIconSrc(actionId: ActionId) {
 
 export function getActionFallbackIconSrc() {
   return getPlaceholderIconSrc("unknown-ability");
+}
+
+export function getTalentIconSrc(talentId: TalentId) {
+  return TALENT_ICON_SOURCES[talentId] ?? getPlaceholderIconSrc("missing-art");
 }
 
 export function getCategoryIconSrc(categoryId: IconCategoryId) {

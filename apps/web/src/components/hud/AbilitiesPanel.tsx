@@ -18,7 +18,7 @@ import {
   type TalentId,
 } from "@mferland/shared";
 import { getActionMeta } from "./ActionSlotButton";
-import { AbilityIcon, TalentTreeIcon } from "./GameIcon";
+import { AbilityIcon, TalentIcon, TalentTreeIcon } from "./GameIcon";
 import { type ActionSlot } from "./types";
 import { formatTooltipLabel } from "./utils";
 
@@ -45,28 +45,28 @@ export function AbilitiesPanel({
 
   return (
     <div className="abilities-layout">
-      <div className="menu-tabs" role="tablist" aria-label="Abilities tabs">
+      <div className="menu-tabs" role="tablist" aria-label="moves tabs">
         <button
           type="button"
           className={activeTab === "spellbook" ? "active" : ""}
           onClick={() => setActiveTab("spellbook")}
         >
-          Spellbook
+          moves
         </button>
         <button
           type="button"
           className={activeTab === "talents" ? "active" : ""}
           onClick={() => setActiveTab("talents")}
         >
-          Talents
+          points
         </button>
       </div>
 
       {activeTab === "spellbook" ? (
         <section className="spellbook-tab">
           <div className="menu-section-header">
-            <strong>Spellbook</strong>
-            <span>Drag unlocked abilities</span>
+            <strong>moves</strong>
+            <span>drag unlocked moves</span>
           </div>
           <div className="menu-tile-grid spellbook-grid">
             {SPELLBOOK_ABILITY_IDS.map((actionId) => (
@@ -125,15 +125,13 @@ function AbilityBookTile({
     >
       <AbilityIcon actionId={actionId} />
       <strong>{meta.label}</strong>
-      {assignedIndex >= 0 && <span className="tile-state">{assignedIndex + 1}</span>}
-      {locked && <span className="tile-state">Lock</span>}
     </div>
   );
 }
 
 function getAbilityTitle(actionId: ActionId, unlockTalentId: TalentId | null, assignedIndex: number, locked: boolean) {
   const meta = getActionMeta(actionId);
-  const state = locked ? "Locked" : assignedIndex >= 0 ? `Assigned to slot ${assignedIndex + 1}` : "Ready";
+  const state = locked ? "locked" : assignedIndex >= 0 ? `slot ${assignedIndex + 1}` : "ready";
   return [
     meta?.label ?? "Ability",
     getAbilityDescription(actionId, unlockTalentId),
@@ -143,7 +141,7 @@ function getAbilityTitle(actionId: ActionId, unlockTalentId: TalentId | null, as
 }
 
 function getAbilityDescription(actionId: ActionId, unlockTalentId: TalentId | null) {
-  if (actionId === "interact") return "Talk, loot, and use nearby objects.";
+  if (actionId === "interact") return "talk, loot, and use nearby objects.";
   const action = COMBAT.actions[actionId];
   const range = action.maxRange > 0
     ? action.minRange > 0 ? `${action.minRange}-${action.maxRange}m` : `${action.maxRange}m`
@@ -168,7 +166,7 @@ function TalentTreePanel({
     <section className="talent-panel">
       <div className="talent-panel-header">
         <span>
-          <strong>Talents</strong>
+          <strong>points</strong>
           <em>{points} points / {spent} spent</em>
         </span>
       </div>
@@ -216,6 +214,7 @@ function TalentNode({
   const status = getTalentRankStatus(talents, player?.level ?? 1, player?.talentPoints ?? 0, talentId);
   const rank = getTalentRank(talents, talentId);
   const title = getTalentTitle(talentId, rank, status.reason);
+  const unlockAction = "unlockAction" in definition ? definition.unlockAction : null;
   const className = [
     "menu-tile",
     "talent-node",
@@ -232,7 +231,7 @@ function TalentNode({
       aria-label={formatTooltipLabel(title)}
       onClick={() => status.canRank && onSelectTalent({ talentId })}
     >
-      <TalentTreeIcon treeId={definition.tree} />
+      {unlockAction ? <AbilityIcon actionId={unlockAction} /> : <TalentIcon talentId={talentId} />}
       <strong>{definition.name}</strong>
       <span className="tile-rank">{rank}/{definition.maxRank}</span>
       {status.canRank && <BadgePlus className="tile-plus" size={12} />}

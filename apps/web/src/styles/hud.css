@@ -58,6 +58,7 @@
 }
 
 .portrait {
+  display: block;
   width: 70px;
   height: 70px;
   border: 0;
@@ -66,6 +67,7 @@
   background: var(--accent);
   box-shadow: inset 0 0 0 4px #121212, 0 6px 16px rgba(0, 0, 0, 0.22);
   cursor: pointer;
+  overflow: hidden;
 }
 
 .portrait:hover,
@@ -73,18 +75,24 @@
   box-shadow: inset 0 0 0 4px #121212, 0 0 0 3px rgba(243, 208, 78, 0.55), 0 6px 16px rgba(0, 0, 0, 0.22);
 }
 
-.portrait span {
-  display: grid;
-  place-items: center;
+.mfer-portrait-art {
+  display: block;
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.portrait .mfer-portrait-art,
+.target-portrait .mfer-portrait-art,
+.target-portrait .npc-portrait-image,
+.model-portrait-canvas {
   border-radius: 50%;
-  background: #f8f8ef;
-  color: #111;
-  font-size: 19px;
-  font-weight: 1000;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  overflow: hidden;
+}
+
+.mfer-portrait-loading {
+  background: rgba(255, 248, 216, 0.18);
 }
 
 .player-vitals strong {
@@ -189,6 +197,7 @@
   border-radius: 50%;
   background: #43be5f;
   box-shadow: inset 0 0 0 4px #15110b, 0 8px 22px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
 }
 
 .target-frame.neutral .target-portrait {
@@ -199,17 +208,19 @@
   background: #d3483f;
 }
 
-.target-portrait span {
-  display: grid;
-  place-items: center;
+.model-portrait-canvas {
   width: 100%;
   height: 100%;
-  border-radius: 50%;
   background: #1f1812;
-  color: #fff3ca;
-  font-size: 18px;
-  font-weight: 1000;
-  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.npc-portrait-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
 .target-vitals {
@@ -328,7 +339,7 @@
 }
 
 .quest-panel {
-  top: 116px;
+  top: 148px;
   left: 16px;
   width: min(310px, calc(100vw - 32px));
   padding: 12px;

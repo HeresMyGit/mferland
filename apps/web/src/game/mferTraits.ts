@@ -175,6 +175,16 @@ const TYPE_EYE_BASE: Record<string, string> = {
 export type MferTraits = Record<string, string>;
 export type NpcTraitSource = Pick<NpcSnapshot, "id" | "name" | "role">;
 
+export const SARTOSHI_MFER_TRAITS: MferTraits = {
+  background: "orange",
+  type: "plain",
+  eyes: "regular",
+  mouth: "smile",
+  headphones: "black",
+  smoke: "cig_black",
+  watch: "argo_white",
+};
+
 export function generateRandomMferTraits(seed: number): MferTraits {
   const rand = seeded(seed);
   const traits: MferTraits = {};
@@ -193,7 +203,6 @@ export function generateRandomMferTraits(seed: number): MferTraits {
     if (category === "short_hair") options = options.filter((option) => !option.includes("_ape"));
     traits[category] = pick(rand, options);
   }
-
   resolveTraitConflicts(rand, traits);
   return traits;
 }
@@ -281,6 +290,64 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
     traits.hat_under_headphones = "headband_blue_green";
     traits.shirt = "collared_turquoise";
     traits.watch = "sub_turquoise";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === "wearables-mfer") {
+    traits.type = pick(rand, ["plain", "based"]);
+    traits.eyes = "purple_shades";
+    traits.headphones = pick(rand, ["pink", "gold", "blue_square"]);
+    traits.hat_under_headphones = "cap_purple";
+    traits.shirt = "collared_pink";
+    traits.watch = "sub_rose";
+    traits.chain = "gold";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === "hogwatch-mfer") {
+    traits.type = pick(rand, ["plain", "charcoal"]);
+    traits.eyes = "shades";
+    traits.headphones = "black";
+    traits.hat_under_headphones = "bandana_dark_gray";
+    traits.shirt = "hoodie_down_gray";
+    traits.watch = "sub_black";
+    traits.smoke = "cig_black";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === "field-guide-mfer" || npc.id === "pen-keeper-mfer") {
+    traits.type = "plain";
+    traits.eyes = npc.id === "pen-keeper-mfer" ? "eye_mask" : "nerd";
+    traits.headphones = npc.id === "pen-keeper-mfer" ? "green" : "blue";
+    traits.hat_under_headphones = npc.id === "pen-keeper-mfer" ? "bandana_blue" : "cap_monochrome";
+    traits.shirt = npc.id === "pen-keeper-mfer" ? "hoodie_down_green" : "collared_green";
+    traits.watch = "sub_lantern_green";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === "ridge-guide-mfer" || npc.id === "beacon-keeper-mfer") {
+    traits.type = npc.id === "beacon-keeper-mfer" ? pick(rand, ["plain", "metal"]) : "plain";
+    traits.eyes = npc.id === "beacon-keeper-mfer" && traits.type === "metal" ? "metal" : "vr";
+    traits.headphones = npc.id === "beacon-keeper-mfer" ? "blue_square" : "blue";
+    traits.hat_under_headphones = npc.id === "beacon-keeper-mfer" ? "beanie_monochrome" : "headband_blue_white";
+    traits.shirt = npc.id === "beacon-keeper-mfer" ? "hoodie_down_blue" : "collared_turquoise";
+    traits.watch = npc.id === "beacon-keeper-mfer" ? "sub_turquoise" : "sub_blue";
+    if (npc.id === "beacon-keeper-mfer") traits.chain = "silver";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === "camp-merchant" || npc.id === "ridge-merchant") {
+    traits.type = npc.id === "ridge-merchant" ? pick(rand, ["plain", "metal"]) : pick(rand, ["plain", "based"]);
+    traits.eyes = npc.id === "ridge-merchant" ? (traits.type === "metal" ? "metal" : "matrix") : "purple_shades";
+    traits.headphones = npc.id === "ridge-merchant" ? "black_square" : "gold";
+    traits.hat_under_headphones = npc.id === "ridge-merchant" ? "beanie" : "cap_purple";
+    traits.shirt = npc.id === "ridge-merchant" ? "hoodie_down_blue" : "collared_pink";
+    traits.watch = npc.id === "ridge-merchant" ? "sub_black" : "sub_rose";
     delete traits.hat_over_headphones;
     return;
   }

@@ -1,0 +1,743 @@
+:root {
+  --mfer-ink: #14120d;
+  --mfer-ink-soft: #201d15;
+  --mfer-paper: #fff5cf;
+  --mfer-yellow: #f7cf3d;
+  --mfer-yellow-light: #ffe36a;
+  --mfer-blue: #39aee8;
+  --mfer-red: #ed4c3f;
+  --mfer-purple: #8352e8;
+  --mfer-green: #63df74;
+  --mfer-teal: #42d7bd;
+  --mfer-pink: #ff62a8;
+  --mfer-wash-panel:
+    linear-gradient(135deg, rgba(255, 228, 83, 0.34), rgba(66, 215, 189, 0.12)),
+    rgba(66, 51, 24, 0.7);
+  --mfer-wash-overlay:
+    linear-gradient(135deg, rgba(255, 239, 142, 0.24), rgba(131, 82, 232, 0.12)),
+    rgba(46, 38, 22, 0.72);
+  --mfer-wash-chat:
+    linear-gradient(135deg, rgba(78, 221, 191, 0.56), rgba(255, 227, 94, 0.3)),
+    rgba(43, 94, 71, 0.5);
+  --mfer-wash-nameplate:
+    linear-gradient(135deg, rgba(255, 229, 90, 0.7), rgba(255, 98, 168, 0.18)),
+    rgba(255, 248, 224, 0.28);
+  --mfer-wash-map:
+    linear-gradient(135deg, rgba(95, 231, 119, 0.28), rgba(247, 207, 61, 0.24)),
+    rgba(46, 59, 29, 0.7);
+  --mfer-marker-red:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='26' viewBox='0 0 112 26'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M-8 3c18-3 37-2 56 1 22 3 42 2 68-4' stroke='%23ff6254' stroke-width='8'/%3E%3Cpath d='M-6 9c22-4 43-3 65 0 18 3 35 1 57-4' stroke='%23f04a3e' stroke-width='9'/%3E%3Cpath d='M-5 15c22 4 43 3 64-1 18-3 35-2 58 2' stroke='%23d92f29' stroke-width='9'/%3E%3Cpath d='M-4 22c20-3 40-3 62-1 15 1 30 0 55-4' stroke='%23ff5a4e' stroke-width='8'/%3E%3Cpath d='M29 6l11 1M70 20l13-2M94 11l9-3' stroke='%238d1512' stroke-width='2' opacity='.28'/%3E%3C/g%3E%3C/svg%3E");
+  --mfer-marker-blue:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='26' viewBox='0 0 112 26'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M-8 3c18-3 37-2 56 1 22 3 42 2 68-4' stroke='%235bd0ff' stroke-width='8'/%3E%3Cpath d='M-6 9c22-4 43-3 65 0 18 3 35 1 57-4' stroke='%2339aee8' stroke-width='9'/%3E%3Cpath d='M-5 15c22 4 43 3 64-1 18-3 35-2 58 2' stroke='%231e89d0' stroke-width='9'/%3E%3Cpath d='M-4 22c20-3 40-3 62-1 15 1 30 0 55-4' stroke='%2347c2f4' stroke-width='8'/%3E%3Cpath d='M29 6l11 1M70 20l13-2M94 11l9-3' stroke='%230b4778' stroke-width='2' opacity='.28'/%3E%3C/g%3E%3C/svg%3E");
+  --mfer-marker-purple:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='26' viewBox='0 0 112 26'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M-8 3c18-3 37-2 56 1 22 3 42 2 68-4' stroke='%23a875ff' stroke-width='8'/%3E%3Cpath d='M-6 9c22-4 43-3 65 0 18 3 35 1 57-4' stroke='%238352e8' stroke-width='9'/%3E%3Cpath d='M-5 15c22 4 43 3 64-1 18-3 35-2 58 2' stroke='%236f3ada' stroke-width='9'/%3E%3Cpath d='M-4 22c20-3 40-3 62-1 15 1 30 0 55-4' stroke='%23955fff' stroke-width='8'/%3E%3Cpath d='M29 6l11 1M70 20l13-2M94 11l9-3' stroke='%23361b70' stroke-width='2' opacity='.28'/%3E%3C/g%3E%3C/svg%3E");
+  --mfer-marker-orange:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='26' viewBox='0 0 112 26'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M-8 3c18-3 37-2 56 1 22 3 42 2 68-4' stroke='%23ffe36a' stroke-width='8'/%3E%3Cpath d='M-6 9c22-4 43-3 65 0 18 3 35 1 57-4' stroke='%23ff8b34' stroke-width='9'/%3E%3Cpath d='M-5 15c22 4 43 3 64-1 18-3 35-2 58 2' stroke='%23f0bd35' stroke-width='9'/%3E%3Cpath d='M-4 22c20-3 40-3 62-1 15 1 30 0 55-4' stroke='%23ffb443' stroke-width='8'/%3E%3Cpath d='M29 6l11 1M70 20l13-2M94 11l9-3' stroke='%23834710' stroke-width='2' opacity='.28'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.quest-panel,
+.chat-panel,
+.player-card,
+.target-frame,
+.auth-title-lockup,
+.auth-connect-panel,
+.loot-panel,
+.quest-dialogue-panel,
+.world-map-panel,
+.quest-log-panel,
+.inventory-panel,
+.abilities-panel,
+.character-panel,
+.settings-panel,
+.death-panel,
+.hud-tooltip,
+.online-row {
+  isolation: isolate;
+}
+
+.quest-panel,
+.chat-panel,
+.player-card,
+.target-frame,
+.auth-title-lockup,
+.auth-connect-panel,
+.loot-panel,
+.quest-dialogue-panel,
+.world-map-panel,
+.quest-log-panel,
+.inventory-panel,
+.abilities-panel,
+.character-panel,
+.settings-panel,
+.death-panel {
+  border: 3px solid rgba(16, 14, 10, 0.95);
+  background: var(--mfer-wash-panel);
+  box-shadow:
+    0 0 0 2px rgba(255, 236, 116, 0.58),
+    inset 0 0 0 2px rgba(255, 248, 224, 0.05),
+    0 18px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: none;
+}
+
+.chat-panel {
+  background: var(--mfer-wash-chat);
+}
+
+.player-card,
+.target-frame {
+  padding: 8px 10px 8px 8px;
+  border-radius: 10px;
+  background: var(--mfer-wash-nameplate);
+}
+
+.quest-panel.compact {
+  background:
+    linear-gradient(135deg, rgba(95, 231, 119, 0.24), rgba(255, 239, 142, 0.24)),
+    rgba(45, 56, 25, 0.68);
+}
+
+.auth-title-lockup {
+  background: var(--mfer-wash-nameplate);
+}
+
+.auth-connect-panel,
+.inventory-panel,
+.abilities-panel,
+.character-panel,
+.settings-panel,
+.quest-log-panel {
+  background: var(--mfer-wash-overlay);
+}
+
+.world-map-panel {
+  background: var(--mfer-wash-map);
+}
+
+.inventory-panel {
+  background:
+    linear-gradient(135deg, rgba(66, 215, 189, 0.22), rgba(247, 207, 61, 0.18)),
+    rgba(40, 54, 40, 0.72);
+}
+
+.abilities-panel {
+  background:
+    linear-gradient(135deg, rgba(131, 82, 232, 0.24), rgba(255, 98, 168, 0.12)),
+    rgba(45, 34, 55, 0.72);
+}
+
+.character-panel {
+  background:
+    linear-gradient(135deg, rgba(247, 207, 61, 0.28), rgba(255, 98, 168, 0.12)),
+    rgba(57, 45, 25, 0.72);
+}
+
+.settings-panel {
+  background:
+    linear-gradient(135deg, rgba(57, 174, 232, 0.22), rgba(255, 245, 207, 0.14)),
+    rgba(34, 45, 53, 0.74);
+}
+
+.quest-dialogue-panel,
+.loot-panel,
+.death-panel {
+  border-color: rgba(15, 13, 9, 0.98);
+  background: rgba(34, 29, 18, 0.95);
+  box-shadow:
+    0 0 0 2px rgba(255, 216, 79, 0.72),
+    0 0 0 5px rgba(10, 9, 6, 0.36),
+    0 20px 50px rgba(0, 0, 0, 0.4);
+}
+
+.hud-tooltip {
+  border: 2px solid rgba(12, 11, 8, 0.95);
+  background: rgba(30, 27, 19, 0.98);
+  box-shadow:
+    0 0 0 2px rgba(255, 216, 79, 0.56),
+    0 14px 34px rgba(0, 0, 0, 0.45);
+}
+
+.quest-panel::before,
+.chat-panel::before,
+.player-card::before,
+.target-frame::before,
+.auth-title-lockup::before,
+.auth-connect-panel::before,
+.loot-panel::before,
+.quest-dialogue-panel::before,
+.world-map-panel::before,
+.quest-log-panel::before,
+.inventory-panel::before,
+.abilities-panel::before,
+.character-panel::before,
+.settings-panel::before,
+.death-panel::before,
+.hud-tooltip::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: 0;
+  border: 2px solid rgba(255, 238, 105, 0.34);
+  border-radius: inherit;
+  opacity: 0.7;
+  pointer-events: none;
+  transform: rotate(-0.35deg);
+}
+
+.quest-panel::after,
+.chat-panel::after,
+.player-card::after,
+.target-frame::after,
+.auth-title-lockup::after,
+.auth-connect-panel::after,
+.loot-panel::after,
+.quest-dialogue-panel::after,
+.world-map-panel::after,
+.quest-log-panel::after,
+.inventory-panel::after,
+.abilities-panel::after,
+.character-panel::after,
+.settings-panel::after,
+.death-panel::after,
+.hud-tooltip::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  z-index: 0;
+  border: 2px solid rgba(8, 7, 5, 0.38);
+  border-radius: inherit;
+  opacity: 0.82;
+  pointer-events: none;
+  transform: rotate(0.28deg);
+}
+
+.quest-panel > *,
+.chat-panel > *,
+.player-card > *,
+.target-frame > *,
+.auth-title-lockup > *,
+.auth-connect-panel > *,
+.loot-panel > *,
+.quest-dialogue-panel > *,
+.world-map-panel > *,
+.quest-log-panel > *,
+.inventory-panel > *,
+.abilities-panel > *,
+.character-panel > *,
+.settings-panel > *,
+.death-panel > *,
+.hud-tooltip > * {
+  position: relative;
+  z-index: 1;
+}
+
+.quest-panel h2,
+.minimap-panel h2,
+.auth-title-lockup h1,
+.world-map-header strong,
+.quest-dialogue-heading strong,
+.loot-panel > strong,
+.inventory-panel header strong,
+.abilities-panel header strong,
+.character-panel header strong,
+.settings-panel header strong,
+.death-panel strong {
+  color: var(--mfer-paper);
+  text-shadow:
+    1px 0 0 rgba(8, 8, 6, 0.95),
+    -1px 1px 0 rgba(8, 8, 6, 0.72),
+    0 2px 0 rgba(8, 8, 6, 0.95);
+}
+
+.auth-title-lockup p,
+.name-field span {
+  color: rgba(30, 24, 13, 0.84);
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.5);
+}
+
+.quest-panel h2::after {
+  content: "";
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--mfer-teal);
+  box-shadow: inset 0 -2px 0 rgba(7, 7, 6, 0.2);
+  transform: rotate(-2deg);
+}
+
+.quest-panel.compact h2::after {
+  display: none;
+}
+
+.quest-row,
+.quest-dialogue-detail,
+.quest-dialogue-rewards,
+.item-row,
+.ability-slot-row,
+.ability-book-row,
+.settings-toggle-row,
+.character-stat,
+.equipment-slot,
+.gear-row,
+.talent-tree-heading,
+.talent-row,
+.inventory-slot {
+  border: 2px solid rgba(11, 10, 7, 0.72);
+  background: rgba(13, 12, 9, 0.36);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 224, 0.06),
+    0 1px 0 rgba(255, 248, 224, 0.05);
+}
+
+.quest-row {
+  border-width: 2px 0 0;
+  border-color: rgba(255, 248, 224, 0.16);
+  background: transparent;
+  box-shadow: none;
+}
+
+.action-slot,
+.menu-dock button,
+.menu-tile,
+.quest-panel-header button,
+.minimap-header button,
+.world-map-header button,
+.quest-offer-close,
+.quest-secondary-btn,
+.quest-accept-btn,
+.item-use-btn,
+.talent-action,
+.death-panel button,
+.ability-slot-row button,
+.menu-tabs button,
+.primary-btn,
+.secondary-btn,
+.text-btn,
+.name-field input,
+.chat-panel input {
+  position: relative;
+  isolation: isolate;
+  border: 3px solid rgba(10, 9, 6, 0.9);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 248, 224, 0.06),
+    0 2px 0 rgba(9, 8, 6, 0.75),
+    0 7px 14px rgba(0, 0, 0, 0.2);
+}
+
+.action-slot,
+.menu-tile {
+  background: rgba(37, 33, 20, 0.94);
+}
+
+.menu-dock button,
+.quest-panel-header button,
+.minimap-header button,
+.world-map-header button,
+.quest-offer-close,
+.quest-secondary-btn,
+.ability-slot-row button,
+.menu-tabs button {
+  color: var(--mfer-paper);
+  background: #3b3320;
+}
+
+.menu-dock button {
+  --dock-wash:
+    linear-gradient(135deg, rgba(247, 207, 61, 0.72), rgba(255, 245, 207, 0.22)),
+    rgba(247, 207, 61, 0.4);
+  --dock-wash-hover:
+    linear-gradient(135deg, rgba(255, 227, 106, 0.92), rgba(255, 245, 207, 0.32)),
+    rgba(247, 207, 61, 0.55);
+  color: #171109;
+  background: var(--dock-wash);
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.42);
+}
+
+.menu-dock button:nth-of-type(2) {
+  --dock-wash:
+    linear-gradient(135deg, rgba(66, 215, 189, 0.74), rgba(255, 245, 207, 0.2)),
+    rgba(66, 215, 189, 0.38);
+  --dock-wash-hover:
+    linear-gradient(135deg, rgba(98, 238, 211, 0.94), rgba(255, 245, 207, 0.3)),
+    rgba(66, 215, 189, 0.5);
+}
+
+.menu-dock button:nth-of-type(3) {
+  --dock-wash:
+    linear-gradient(135deg, rgba(131, 82, 232, 0.78), rgba(255, 98, 168, 0.22)),
+    rgba(131, 82, 232, 0.42);
+  --dock-wash-hover:
+    linear-gradient(135deg, rgba(168, 117, 255, 0.94), rgba(255, 98, 168, 0.32)),
+    rgba(131, 82, 232, 0.55);
+  color: #fff8df;
+  text-shadow: 0 1px 0 rgba(14, 9, 28, 0.65);
+}
+
+.menu-dock button:nth-of-type(4) {
+  --dock-wash:
+    linear-gradient(135deg, rgba(99, 223, 116, 0.78), rgba(255, 245, 207, 0.2)),
+    rgba(99, 223, 116, 0.38);
+  --dock-wash-hover:
+    linear-gradient(135deg, rgba(126, 245, 141, 0.94), rgba(255, 245, 207, 0.28)),
+    rgba(99, 223, 116, 0.52);
+}
+
+.menu-dock button:nth-of-type(5) {
+  --dock-wash:
+    linear-gradient(135deg, rgba(57, 174, 232, 0.72), rgba(255, 245, 207, 0.2)),
+    rgba(57, 174, 232, 0.38);
+  --dock-wash-hover:
+    linear-gradient(135deg, rgba(91, 208, 255, 0.92), rgba(255, 245, 207, 0.28)),
+    rgba(57, 174, 232, 0.52);
+}
+
+.menu-dock button:nth-of-type(6) {
+  --dock-wash:
+    linear-gradient(135deg, rgba(255, 98, 168, 0.76), rgba(237, 76, 63, 0.28)),
+    rgba(255, 98, 168, 0.36);
+  --dock-wash-hover:
+    linear-gradient(135deg, rgba(255, 126, 188, 0.94), rgba(237, 76, 63, 0.38)),
+    rgba(255, 98, 168, 0.5);
+}
+
+.quest-panel-header button,
+.minimap-header button,
+.world-map-header button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 0;
+}
+
+.quest-panel-header button svg,
+.minimap-header button svg,
+.world-map-header button svg {
+  display: block;
+  margin: auto;
+}
+
+.primary-btn,
+.quest-accept-btn,
+.item-use-btn,
+.talent-action,
+.death-panel button,
+.menu-tabs button.active {
+  color: #141007;
+  background: var(--mfer-yellow);
+}
+
+.secondary-btn {
+  color: #fff8df;
+  background: var(--mfer-purple);
+}
+
+.primary-btn.wallet {
+  color: #101006;
+  background: var(--mfer-green);
+}
+
+.text-btn {
+  color: var(--mfer-paper);
+  background: transparent;
+  box-shadow: none;
+}
+
+.name-field input,
+.chat-panel input {
+  border-width: 2px;
+  color: #181208;
+  background: rgba(255, 248, 224, 0.64);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 224, 0.28),
+    0 2px 0 rgba(9, 8, 6, 0.62);
+}
+
+.chat-panel form {
+  background: rgba(255, 248, 224, 0.16);
+}
+
+.chat-panel input::placeholder,
+.name-field input::placeholder {
+  color: rgba(24, 18, 8, 0.56);
+}
+
+.chat-log p {
+  color: #181208;
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.38);
+}
+
+.chat-log strong {
+  color: #073f5d;
+}
+
+.chat-log .muted {
+  color: rgba(24, 18, 8, 0.58);
+}
+
+.action-slot::after,
+.menu-dock button::after,
+.menu-tile::after,
+.quest-panel-header button::after,
+.minimap-header button::after,
+.world-map-header button::after,
+.quest-offer-close::after,
+.quest-secondary-btn::after,
+.quest-accept-btn::after,
+.item-use-btn::after,
+.talent-action::after,
+.death-panel button::after,
+.ability-slot-row button::after,
+.menu-tabs button::after,
+.primary-btn::after,
+.secondary-btn::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: 4;
+  border: 2px solid rgba(9, 8, 6, 0.28);
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-radius: 5px;
+  pointer-events: none;
+  transform: rotate(-0.5deg);
+}
+
+.action-slot > *,
+.menu-dock button > *,
+.menu-tile > *,
+.quest-panel-header button > *,
+.minimap-header button > *,
+.world-map-header button > *,
+.quest-offer-close > *,
+.quest-secondary-btn > *,
+.quest-accept-btn > *,
+.item-use-btn > *,
+.talent-action > *,
+.death-panel button > *,
+.ability-slot-row button > *,
+.menu-tabs button > *,
+.primary-btn > *,
+.secondary-btn > *,
+.text-btn > * {
+  position: relative;
+  z-index: 1;
+}
+
+.menu-dock button:hover,
+.menu-dock button:focus-visible,
+.menu-tile:hover,
+.menu-tile:focus-visible,
+.action-slot.drop-target,
+button.inventory-slot:hover,
+.inventory-slot.consumable:hover,
+.equipment-slot:hover,
+.gear-row:hover,
+.talent-row:not(:disabled):hover {
+  border-color: rgba(12, 10, 7, 0.98);
+  background: rgba(55, 47, 26, 0.98);
+  box-shadow:
+    0 0 0 2px rgba(255, 224, 86, 0.7),
+    inset 0 0 0 2px rgba(255, 248, 224, 0.06),
+    0 8px 16px rgba(0, 0, 0, 0.24);
+}
+
+.menu-dock button:hover,
+.menu-dock button:focus-visible {
+  color: inherit;
+  background: var(--dock-wash-hover);
+  box-shadow:
+    0 0 0 2px rgba(255, 248, 224, 0.48),
+    inset 0 0 0 2px rgba(255, 248, 224, 0.14),
+    0 8px 16px rgba(0, 0, 0, 0.24);
+}
+
+.action-slot.filled > .item-icon,
+.action-slot.filled > .ability-icon,
+.menu-tile > .item-icon,
+.menu-tile > .ability-icon,
+.menu-tile > .category-icon {
+  filter: saturate(1.16) contrast(1.06);
+}
+
+.talent-node > .ability-icon,
+.talent-node > .category-icon {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.action-slot.filled strong {
+  display: none;
+}
+
+.action-slot.filled strong,
+.menu-tile strong,
+.item-count-label,
+.slot-key,
+.tile-count,
+.tile-state,
+.tile-key,
+.tile-rank,
+.tile-badge {
+  text-shadow:
+    1px 0 0 rgba(8, 8, 6, 0.95),
+    0 1px 0 rgba(8, 8, 6, 0.95),
+    -1px 0 0 rgba(8, 8, 6, 0.72);
+}
+
+.slot-key,
+.tile-key,
+.tile-state,
+.dock-badge {
+  color: #151006;
+  background: var(--mfer-yellow);
+  box-shadow:
+    inset 0 0 0 1px rgba(8, 8, 6, 0.28),
+    0 1px 0 rgba(255, 248, 224, 0.2);
+  transform: rotate(-2deg);
+}
+
+.cooldown-label {
+  border: 2px solid rgba(9, 8, 6, 0.9);
+  background: rgba(20, 18, 13, 0.86);
+  box-shadow: 0 0 0 2px rgba(255, 248, 224, 0.12);
+}
+
+.bar,
+.target-health,
+.cast-bar div {
+  position: relative;
+  overflow: hidden;
+  border: 3px solid rgba(9, 8, 6, 0.95);
+  border-radius: 7px;
+  background: rgba(255, 248, 224, 0.18);
+  box-shadow:
+    0 0 0 1px rgba(255, 248, 224, 0.22),
+    inset 0 0 0 1px rgba(9, 8, 6, 0.2);
+}
+
+.bar.xp {
+  height: 19px;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.bar.hp span,
+.bar.mp span,
+.bar.xp span,
+.target-health span,
+.cast-bar span {
+  overflow: visible;
+  background-color: var(--bar-base);
+  background-image: none;
+}
+
+.bar.hp span::before,
+.bar.mp span::before,
+.bar.xp span::before,
+.target-health span::before,
+.cast-bar span::before {
+  content: "";
+  position: absolute;
+  inset: -1px -4px -1px -1px;
+  background-image: var(--bar-marker);
+  background-repeat: repeat-x;
+  background-size: 112px calc(100% + 2px);
+  background-position: left center;
+  pointer-events: none;
+}
+
+.bar.hp span,
+.target-health span {
+  --bar-base: #e84238;
+  --bar-marker: var(--mfer-marker-red);
+}
+
+.bar.mp span {
+  --bar-base: #2ba7e5;
+  --bar-marker: var(--mfer-marker-blue);
+}
+
+.bar.xp span {
+  --bar-base: #8352e8;
+  --bar-marker: var(--mfer-marker-purple);
+}
+
+.cast-bar span {
+  --bar-base: #ffb743;
+  --bar-marker: var(--mfer-marker-orange);
+}
+
+.bar::after,
+.target-health::before,
+.cast-bar div::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  z-index: 1;
+  border: 1px solid rgba(9, 8, 6, 0.18);
+  border-radius: 4px;
+  background: linear-gradient(90deg, transparent 0 20%, rgba(255, 248, 224, 0.18) 22%, transparent 25% 68%, rgba(12, 10, 7, 0.16) 72%, transparent 76%);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.slot-key {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  left: 5px;
+  right: auto;
+  bottom: 5px;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 3px;
+  border: 1px solid rgba(9, 8, 6, 0.46);
+  border-radius: 5px;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.item-count-label {
+  position: absolute;
+  z-index: 6;
+  right: 5px;
+  left: auto;
+  bottom: 5px;
+}
+
+.bar em,
+.target-health em {
+  z-index: 2;
+}
+
+.minimap,
+.world-map {
+  overflow: hidden;
+  border: 0;
+  background-clip: padding-box;
+  box-shadow:
+    0 0 0 7px var(--mfer-yellow),
+    0 0 0 10px rgba(10, 9, 6, 0.92),
+    0 8px 18px rgba(0, 0, 0, 0.25);
+}
+
+.minimap::before,
+.world-map::before,
+.minimap::after,
+.world-map::after {
+  content: none;
+}
+
+.minimap-terrain,
+.world-map-terrain {
+  overflow: hidden;
+}

@@ -351,23 +351,18 @@ button {
   height: 64px;
   border-radius: 50%;
   padding: 6px;
-  background: #f0d355;
+  background: #ef8b36;
   box-shadow: inset 0 0 0 4px #161410;
+  overflow: hidden;
 }
 
-.brand-mark span {
-  display: grid;
-  place-items: center;
+.brand-mark .mfer-portrait-art {
+  display: block;
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: #f8f8ef;
-  color: #111;
-  font-family: var(--font-mfer-display);
-  font-size: 23px;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  overflow: hidden;
+  object-fit: cover;
 }
 
 .auth-title-lockup h1 {

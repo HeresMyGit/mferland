@@ -138,7 +138,7 @@ export function TrainingDummyAvatar({
   }
 }
 
-function createTrainingDummyModel(sourceScene: THREE.Group) {
+export function createTrainingDummyModel(sourceScene: THREE.Group) {
   const scene = sourceScene.clone(true);
   scene.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;

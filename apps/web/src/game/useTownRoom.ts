@@ -707,6 +707,7 @@ function createNpcSnapshot(npc: NpcSnapshot, id: string): NpcSnapshot {
     name: npc.name,
     role: npc.role,
     model: npc.model,
+    portraitImage: npc.portraitImage,
     avatarSeed: npc.avatarSeed,
     health: npc.health,
     maxHealth: npc.maxHealth,
@@ -733,6 +734,7 @@ function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
   changed = target.name !== npc.name || changed;
   changed = target.role !== npc.role || changed;
   changed = target.model !== npc.model || changed;
+  changed = target.portraitImage !== npc.portraitImage || changed;
   changed = target.avatarSeed !== npc.avatarSeed || changed;
   changed = target.health !== npc.health || changed;
   changed = target.maxHealth !== npc.maxHealth || changed;
@@ -755,6 +757,7 @@ function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
   target.name = npc.name;
   target.role = npc.role;
   target.model = npc.model;
+  target.portraitImage = npc.portraitImage;
   target.avatarSeed = npc.avatarSeed;
   target.health = npc.health;
   target.maxHealth = npc.maxHealth;

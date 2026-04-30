@@ -115,9 +115,10 @@ export function MferAvatar({
   const npc = isNpc && "role" in player ? player : null;
   const disposition = npc ? getNpcDisposition(npc) : "friendly";
   const isAgentPlayer = "identityType" in player && player.identityType === "agent";
+  const isWalletPlayer = "identityType" in player && player.identityType === "wallet";
   const nameplate = npc
     ? getNpcNameplate(npc, disposition)
-    : getPlayerNameplate(player.name, isLocal, isAgentPlayer);
+    : getPlayerNameplate(player.name, isLocal, isAgentPlayer, isWalletPlayer);
   const targetRingColor = TARGET_RING_COLORS[disposition];
   const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? "#f3d04e" : accent;
   const badgeColor = npc
@@ -836,17 +837,17 @@ function getCastOrbColors(variant: CastOrbVariant) {
   };
 }
 
-function getPlayerNameplate(name: string, isLocal: boolean, isAgentPlayer: boolean) {
+function getPlayerNameplate(name: string, isLocal: boolean, isAgentPlayer: boolean, isWalletPlayer: boolean) {
   return {
     title: name,
-    badge: isLocal ? undefined : isAgentPlayer ? "AI" : "PLAYER",
+    badge: isLocal ? undefined : isAgentPlayer ? "AGENT" : isWalletPlayer ? "VERIFIED" : "ANON",
   };
 }
 
 function getNpcNameplate(npc: NpcSnapshot, disposition: NpcDisposition) {
-  if (disposition === "hostile") return { title: npc.name, badge: "HOSTILE" };
-  if (disposition === "neutral") return { title: npc.name, badge: "ATTACKABLE" };
-  return { title: npc.name, badge: "NPC" };
+  if (disposition === "hostile") return { title: npc.name, badge: "RED EYE" };
+  if (disposition === "neutral") return { title: npc.name, badge: "WILD" };
+  return { title: npc.name, badge: "LOCAL" };
 }
 
 function formatBubbleText(text: string) {

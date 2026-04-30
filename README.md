@@ -15,6 +15,14 @@ Default local endpoints:
 - Web: `http://localhost:5173`
 - Server: `ws://localhost:2567`
 
+Local network play:
+
+- Start everything with `npm run dev`.
+- Other devices on the same Wi-Fi/LAN can join at `http://<your-computer-ip>:5173`.
+- The browser client automatically connects to `ws://<your-computer-ip>:2567`.
+- The server logs detected LAN join URLs on startup. If needed, set `HOST=0.0.0.0` and `PORT=2567` explicitly.
+- macOS may ask whether Node can accept incoming connections; allow it for LAN joins.
+
 Current controls:
 
 - `W/S`: move forward/back.

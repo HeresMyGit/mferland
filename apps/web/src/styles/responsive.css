@@ -10,7 +10,7 @@
 
 @media (max-width: 900px) {
   .quest-panel {
-    top: 112px;
+    top: 132px;
     left: 10px;
     width: min(300px, calc(100vw - 152px));
     padding: 10px;

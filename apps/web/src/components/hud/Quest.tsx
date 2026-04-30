@@ -10,11 +10,11 @@ export function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: bo
   const objectives = getQuestObjectives(quest.id);
   const repeatLabel = getQuestRepeatLabel(quest.id);
   const statusText = quest.status === "completed"
-    ? "Complete"
+    ? "handled"
     : quest.status === "ready"
       ? definition.turnInLabel
       : definition.objectiveLabel;
-  const progress = quest.status === "completed" ? "Done" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
+  const progress = quest.status === "completed" ? "handled" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
 
   return (
     <div className={`quest-row ${quest.status} ${full ? "full" : ""}`}>

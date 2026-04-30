@@ -47,9 +47,12 @@ const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
 const targetPosition = new THREE.Vector3();
 const hitGeometry = new THREE.CylinderGeometry(1.02, 1.02, 3.25, 16);
 const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-const labelColor = "#f0e9ff";
-const badgeColor = "#9b7dff";
-const antennaLightColor = new THREE.Color("#ff1616");
+const friendlyLabelColor = "#f0e9ff";
+const friendlyBadgeColor = "#9b7dff";
+const hostileLabelColor = "#ffe4df";
+const hostileBadgeColor = "#ff5a4f";
+const friendlyAntennaLightColor = new THREE.Color("#9b7dff");
+const hostileAntennaLightColor = new THREE.Color("#ff1616");
 const antennaLightBaseIntensity = 15;
 const antennaLightPulseIntensity = 18;
 
@@ -78,7 +81,10 @@ export function MferGptAvatar({
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGptGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const disposition = getNpcDisposition(npc);
-  const avatar = useMemo(() => createMferGptAvatar(gltf.scene), [gltf.scene]);
+  const isHostile = disposition === "hostile";
+  const labelColor = isHostile ? hostileLabelColor : friendlyLabelColor;
+  const badgeColor = isHostile ? hostileBadgeColor : friendlyBadgeColor;
+  const avatar = useMemo(() => createMferGptAvatar(gltf.scene, isHostile), [gltf.scene, isHostile]);
   const antennaLightMaterials = useMemo(() => getMferGptAntennaLightMaterials(avatar), [avatar]);
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
@@ -159,7 +165,7 @@ export function MferGptAvatar({
 
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
-      {!isDefeated && <MferGptSignalBeacon isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />}
+      {!isDefeated && <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />}
       <ActorBlobShadow scale={isDefeated ? [1.08, 0.58, 1.1] : [0.96, 0.58, 1.08]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={1.12} />}
       {isTargeted && <TargetRing color={badgeColor} disposition={disposition} radius={1.22} />}
@@ -180,7 +186,7 @@ export function MferGptAvatar({
           <Billboard position={[0, 3.45, 0]}>
             <ActorNameplate
               title={npc.name}
-              badge="AGENT"
+              badge={isHostile ? "RED EYE" : "AGENT"}
               color={labelColor}
               badgeColor={badgeColor}
               health={npc.isImmortal ? undefined : npc.health}
@@ -247,9 +253,12 @@ export function MferGptAvatar({
   }
 }
 
-function MferGptSignalBeacon({ isTargeted, showMention }: { isTargeted: boolean; showMention: boolean }) {
+function MferGptSignalBeacon({ isHostile, isTargeted, showMention }: { isHostile: boolean; isTargeted: boolean; showMention: boolean }) {
   const ringRef = useRef<THREE.Group>(null);
   const beamRef = useRef<THREE.Group>(null);
+  const core = isHostile ? hostileBadgeColor : friendlyBadgeColor;
+  const ring = isHostile ? "#ff9a7e" : "#79f7ff";
+  const center = isHostile ? "#fff0a8" : "#fff1a8";
 
   useFrame(({ clock }) => {
     const ring = ringRef.current;
@@ -271,21 +280,21 @@ function MferGptSignalBeacon({ isTargeted, showMention }: { isTargeted: boolean;
       <group ref={ringRef}>
         <mesh rotation-x={-Math.PI / 2} position={[0, 0.032, 0]} renderOrder={20}>
           <ringGeometry args={[1.22, 1.32, 72]} />
-          <meshBasicMaterial color="#9b7dff" depthWrite={false} opacity={0.64} side={THREE.DoubleSide} toneMapped={false} transparent />
+          <meshBasicMaterial color={core} depthWrite={false} opacity={0.64} side={THREE.DoubleSide} toneMapped={false} transparent />
         </mesh>
         <mesh rotation-x={-Math.PI / 2} position={[0, 0.028, 0]} renderOrder={19}>
           <ringGeometry args={[1.56, 1.6, 72]} />
-          <meshBasicMaterial color="#79f7ff" depthWrite={false} opacity={0.42} side={THREE.DoubleSide} toneMapped={false} transparent />
+          <meshBasicMaterial color={ring} depthWrite={false} opacity={0.42} side={THREE.DoubleSide} toneMapped={false} transparent />
         </mesh>
         <mesh rotation-x={-Math.PI / 2} position={[0, 0.024, 0]} renderOrder={18}>
           <ringGeometry args={[0.62, 0.68, 56]} />
-          <meshBasicMaterial color="#fff1a8" depthWrite={false} opacity={0.46} side={THREE.DoubleSide} toneMapped={false} transparent />
+          <meshBasicMaterial color={center} depthWrite={false} opacity={0.46} side={THREE.DoubleSide} toneMapped={false} transparent />
         </mesh>
       </group>
       <group ref={beamRef}>
         <mesh position={[0, 1.7, 0]} renderOrder={21}>
           <cylinderGeometry args={[0.18, 0.3, 3.35, 28, 1, true]} />
-          <meshBasicMaterial color="#9b7dff" depthWrite={false} opacity={0.16} side={THREE.DoubleSide} toneMapped={false} transparent />
+          <meshBasicMaterial color={core} depthWrite={false} opacity={0.16} side={THREE.DoubleSide} toneMapped={false} transparent />
         </mesh>
         {showMention && (
           <Billboard position={[0, 4.18, 0]}>
@@ -294,7 +303,7 @@ function MferGptSignalBeacon({ isTargeted, showMention }: { isTargeted: boolean;
               fontSize={0.48}
               anchorX="center"
               anchorY="middle"
-              color="#f0e9ff"
+              color={isHostile ? hostileLabelColor : friendlyLabelColor}
               outlineColor="#151018"
               outlineWidth={0.032}
             >
@@ -307,8 +316,9 @@ function MferGptSignalBeacon({ isTargeted, showMention }: { isTargeted: boolean;
   );
 }
 
-function createMferGptAvatar(sourceScene: THREE.Group) {
+export function createMferGptAvatar(sourceScene: THREE.Group, isHostile: boolean) {
   const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
+  const antennaColor = isHostile ? hostileAntennaLightColor : friendlyAntennaLightColor;
   scene.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     child.frustumCulled = false;
@@ -319,7 +329,7 @@ function createMferGptAvatar(sourceScene: THREE.Group) {
     const materials = sourceMaterials.map((material) => {
       const nextMaterial = material.clone();
       if (isMferGptAntennaLight(child.name, nextMaterial.name)) {
-        configureMferGptAntennaLightMaterial(nextMaterial);
+        configureMferGptAntennaLightMaterial(nextMaterial, antennaColor);
       }
       return nextMaterial;
     });
@@ -350,10 +360,10 @@ function getMferGptAntennaLightMaterials(scene: THREE.Group) {
   return materials;
 }
 
-function configureMferGptAntennaLightMaterial(material: THREE.Material) {
+function configureMferGptAntennaLightMaterial(material: THREE.Material, color: THREE.Color) {
   if (!(material instanceof THREE.MeshStandardMaterial)) return;
-  material.color.copy(antennaLightColor);
-  material.emissive.copy(antennaLightColor);
+  material.color.copy(color);
+  material.emissive.copy(color);
   material.emissiveIntensity = antennaLightBaseIntensity;
   material.toneMapped = false;
   material.map = null;
