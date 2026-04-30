@@ -50,6 +50,7 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
 }
 
 function roleLabel(npc: NpcSnapshot) {
+  if (npc.id === "mfergpt") return "agent";
   if (npc.id === "og-mfer") return "old head";
   if (npc.id === "dao-mfer") return "board";
   if (npc.id === "wearables-mfer") return "drip";

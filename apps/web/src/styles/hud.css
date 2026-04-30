@@ -339,7 +339,7 @@
 }
 
 .quest-panel {
-  top: 116px;
+  top: 148px;
   left: 16px;
   width: min(310px, calc(100vw - 32px));
   padding: 12px;
