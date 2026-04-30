@@ -101,6 +101,7 @@ type RuntimeNpc = {
   name: string;
   role: NpcRole;
   model: NpcModel;
+  portraitImage: string;
   avatarSeed: number;
   health: number;
   maxHealth: number;
@@ -220,6 +221,7 @@ class AgentCharacter {
           name: npc.name,
           role: npc.role,
           model: npc.model,
+          portraitImage: npc.portraitImage,
           avatarSeed: npc.avatarSeed,
           health: npc.health,
           maxHealth: npc.maxHealth,

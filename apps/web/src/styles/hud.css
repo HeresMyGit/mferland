@@ -85,6 +85,7 @@
 
 .portrait .mfer-portrait-art,
 .target-portrait .mfer-portrait-art,
+.target-portrait .npc-portrait-image,
 .model-portrait-canvas {
   border-radius: 50%;
   overflow: hidden;
@@ -212,6 +213,14 @@
   height: 100%;
   background: #1f1812;
   pointer-events: none;
+}
+
+.npc-portrait-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
 .target-vitals {

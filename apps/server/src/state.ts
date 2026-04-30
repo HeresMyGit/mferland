@@ -102,6 +102,7 @@ export class NpcState extends Schema {
   @type("string") name = "";
   @type("string") role: NpcRole = "wanderer";
   @type("string") model: NpcModel = "mfer";
+  @type("string") portraitImage = "";
   @type("number") avatarSeed = 0;
   @type("number") health = 100;
   @type("number") maxHealth = 100;

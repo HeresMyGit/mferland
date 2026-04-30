@@ -162,6 +162,7 @@ export type NpcSnapshot = {
   name: string;
   role: NpcRole;
   model: NpcModel;
+  portraitImage: string;
   avatarSeed: number;
   health: number;
   maxHealth: number;

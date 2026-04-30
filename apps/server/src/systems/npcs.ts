@@ -27,12 +27,14 @@ const HOG_COMBAT = {
 };
 
 const CASTER_RETREAT_RANGE = 7.2;
+const MFERGPT_PORTRAIT_IMAGE = "/portraits/npcs/mfergpt.png";
 
 export type NpcSpawnSpec = {
   id: string;
   name: string;
   role: NpcRole;
   model?: NpcModel;
+  portraitImage?: string;
   x: number;
   z: number;
   yaw: number;
@@ -252,6 +254,7 @@ export function spawnNpcFromSpec(npcs: MapSchema<NpcState>, spec: NpcSpawnSpec, 
   npc.name = spec.name;
   npc.role = spec.role;
   npc.model = spec.model ?? "mfer";
+  npc.portraitImage = spec.portraitImage ?? (npc.model === "mfergpt" ? MFERGPT_PORTRAIT_IMAGE : "");
   npc.avatarSeed = stableHash(`npc:${spec.id}`);
   npc.health = spec.health ?? 100;
   npc.maxHealth = spec.maxHealth ?? spec.health ?? 100;

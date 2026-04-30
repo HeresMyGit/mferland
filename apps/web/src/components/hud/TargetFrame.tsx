@@ -20,6 +20,7 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
   const label = npc ? roleLabel(npc) : playerLabel(unit as PlayerSnapshot);
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
   const showMferPortrait = !npc || npc.model === "mfer";
+  const portraitImage = npc?.portraitImage;
   const portraitTraits = useMemo(
     () => generateMferTraitsForActor(unit.avatarSeed, showMferPortrait && npc ? npc : null),
     [npc?.id, npc?.role, showMferPortrait, unit.avatarSeed],
@@ -28,7 +29,9 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
   return (
     <section className={`target-frame ${disposition}`}>
       <div className="target-portrait">
-        {showMferPortrait ? (
+        {portraitImage ? (
+          <img className="npc-portrait-image" src={portraitImage} alt={`${unit.name} portrait`} draggable={false} />
+        ) : showMferPortrait ? (
           <MferPortrait traits={portraitTraits} title={`${unit.name} mfer portrait`} />
         ) : (
           <ActorModelPortrait npc={npc} />
