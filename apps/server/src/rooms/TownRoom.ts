@@ -596,7 +596,7 @@ export class TownRoom extends Room<TownState> {
     const lastMferGpt = this.lastMferGptAt.get(client.sessionId) ?? 0;
     if (now - lastMferGpt < MFERGPT.commandCooldownMs) {
       const waitSeconds = Math.ceil((MFERGPT.commandCooldownMs - (now - lastMferGpt)) / 1000);
-      client.send("chat", makeMferGptChatMessage(`Signal cooling down. Try @mfergpt again in ${waitSeconds}s.`, Date.now()));
+      client.send("chat", makeMferGptChatMessage(`signal cooling off. try again in ${waitSeconds}s.`, Date.now()));
       this.logMferGptCommand(client.sessionId, player.name, "chat", false, "cooldown", 0, []);
       return;
     }
@@ -626,7 +626,7 @@ export class TownRoom extends Room<TownState> {
         result.temporaryNpcs.map((npc) => npc.id),
       );
     } catch (error) {
-      client.send("chat", makeMferGptChatMessage("mferGPT hit static. Try a simpler prompt in a moment.", Date.now()));
+      client.send("chat", makeMferGptChatMessage("signal ate that one. try again in a sec.", Date.now()));
       console.error("mfergpt.command_failed", {
         sessionId: client.sessionId,
         playerName: player.name,

@@ -87,7 +87,7 @@ function runMferGptTool(command: MferGptCommand, context: MferGptContext): ToolO
   if (command === "inspect") return inspectPublicState(context);
 
   return {
-    fallback: `gm ${context.player.name}. I can help with quest hints, town scans, and controlled arena tests.`,
+    fallback: `gm ${context.player.name}. i do hints, room scans, and small arena trouble.`,
     summary: "No special tool was invoked; reply as an in-world town assistant.",
   };
 }
@@ -105,7 +105,7 @@ function spawnArenaEnemies({ sessionId, npcs, now }: MferGptContext): ToolOutcom
   const count = Math.min(MFERGPT.temporaryEnemyCount, available);
   const expiresAt = now + MFERGPT.temporaryEnemyLifetimeMs;
   const temporaryNpcs: MferGptTemporaryNpc[] = [];
-  const badGuyNames = ["Arena echo", "Glitched farmhand", "Red-eye echo", "Static brawler"];
+  const badGuyNames = ["dummy trouble", "glitched farmhand", "red-eye echo", "static brawler"];
 
   for (let index = 0; index < count; index += 1) {
     const angle = (index / count) * Math.PI * 2 + (now % 6280) / 1000;
@@ -124,7 +124,7 @@ function spawnArenaEnemies({ sessionId, npcs, now }: MferGptContext): ToolOutcom
       health: 46,
       maxHealth: 46,
       combatStyle: "melee",
-      dialogue: "The temporary arena echo crackles and looks for a sparring partner.",
+      dialogue: "temporary trouble. clean dummy check.",
     }, now);
     npc.aggroTargetId = sessionId;
     npc.attackReadyAt = now + 1200;
@@ -132,7 +132,7 @@ function spawnArenaEnemies({ sessionId, npcs, now }: MferGptContext): ToolOutcom
   }
 
   return {
-    fallback: `Spawned ${temporaryNpcs.length} temporary arena echoes near the training dummies. They fade soon.`,
+    fallback: `spawned ${temporaryNpcs.length} small arena problems by the bonk dummies. they fade soon.`,
     summary: `Spawned ${temporaryNpcs.length} temporary arena enemies with controlled expiry.`,
     temporaryNpcs,
   };
@@ -149,8 +149,8 @@ function triggerTownEvent({ npcs, now }: MferGptContext): ToolOutcome {
   const expiresAt = now + MFERGPT.townEventLifetimeMs;
   const temporaryNpcs: MferGptTemporaryNpc[] = [];
   const eventNpcs = [
-    { name: "Signal mfer", x: -5.8, z: -3.7, yaw: 1.2 },
-    { name: "Town ping mfer", x: -2.4, z: -6.2, yaw: -0.4 },
+    { name: "signal mfer", x: -5.8, z: -3.7, yaw: 1.2 },
+    { name: "town ping mfer", x: -2.4, z: -6.2, yaw: -0.4 },
   ];
 
   for (let index = 0; index < eventNpcs.length; index += 1) {
@@ -172,7 +172,7 @@ function triggerTownEvent({ npcs, now }: MferGptContext): ToolOutcome {
   }
 
   return {
-    fallback: "Town signal is live. A couple of signal mfers are circling the fountain for a minute.",
+    fallback: "town signal is live. couple signal mfers are circling the fountain for a minute.",
     summary: "Triggered a limited town signal event with temporary friendly NPCs.",
     temporaryNpcs,
   };
@@ -192,13 +192,13 @@ function getQuestHint({ player, npcs, now }: MferGptContext): ToolOutcome {
   if (availableQuestId) {
     const quest = QUESTS[availableQuestId];
     return {
-      fallback: `Pick up ${quest.title} from ${getNpcName(npcs, quest.giverNpcId)}.`,
+      fallback: `pick up ${quest.title} from ${getNpcName(npcs, quest.giverNpcId)}.`,
       summary: `Found available quest ${availableQuestId}.`,
     };
   }
 
   return {
-    fallback: "No urgent quest is open. Check the field camp dailies later or ask for a town scan.",
+    fallback: "no urgent errand is open. check the route post dailies later or ask for a room scan.",
     summary: "No active, ready, or currently available quest found.",
   };
 }
@@ -249,7 +249,7 @@ function getActiveQuestHint(
   const turnInNpcName = getNpcName(npcs, getQuestTurnInNpcId(questId));
 
   if (status === "ready") {
-    return `${quest.title} is ready. Turn it in to ${turnInNpcName}.`;
+    return `${quest.title} is ready. turn it in to ${turnInNpcName}.`;
   }
 
   if (questId === "feral-farmers" && "objectives" in quest) {
@@ -258,35 +258,35 @@ function getActiveQuestHint(
       .filter((objective) => !completed.has(objective.id))
       .map((objective) => objective.label.replace("Defeat ", ""));
     return missing.length > 0
-      ? `For ${quest.title}, head to the farm and defeat ${missing.join(", ")}.`
-      : `${quest.title} is effectively done. Check back with ${turnInNpcName}.`;
+      ? `for ${quest.title}, head to red-eye farm and handle ${missing.join(", ")}.`
+      : `${quest.title} is basically done. check back with ${turnInNpcName}.`;
   }
 
   if (questId === "hog-livers") {
-    return `For ${quest.title}, keep clearing wild hogs near the farm loop. You have ${progress}/${required} hog livers.`;
+    return `for ${quest.title}, keep clearing wild hogs near the loop. you have ${progress}/${required} hog livers.`;
   }
 
   if (questId === "field-camp-delivery") {
-    return `Follow the dirt route past the farm to Field Camp, then talk to ${turnInNpcName}.`;
+    return `follow the dirt route past red-eye farm to route post, then talk to ${turnInNpcName}.`;
   }
 
   if (questId === "ridge-dispatch") {
-    return `Take the east road out of town, follow the cyan RIDGE markers north, then talk to ${turnInNpcName}.`;
+    return `take the east cut, follow 0.069 mile and 4:20 turn, then talk to ${turnInNpcName}.`;
   }
 
   if (questId === "route-patrol-daily") {
-    return `For ${quest.title}, clear hogs or hostile farmers along the farm road. Progress is ${progress}/${required}.`;
+    return `for ${quest.title}, clear hogs or red-eyes along the road. progress is ${progress}/${required}.`;
   }
 
   if (questId === "hog-loop") {
-    return `For ${quest.title}, sweep wild hogs around the busted farm and Field Camp route. Progress is ${progress}/${required}.`;
+    return `for ${quest.title}, sweep wild hogs around red-eye farm and route post. progress is ${progress}/${required}.`;
   }
 
   if ("requiredItemId" in quest) {
-    return `For ${quest.title}, collect ${progress}/${required} ${String(quest.requiredItemId).replace(/-/g, " ")}.`;
+    return `for ${quest.title}, collect ${progress}/${required} ${String(quest.requiredItemId).replace(/-/g, " ")}.`;
   }
 
-  return `For ${quest.title}, complete: ${quest.objectiveLabel}. Progress is ${progress}/${required}.`;
+  return `for ${quest.title}, handle: ${quest.objectiveLabel}. progress is ${progress}/${required}.`;
 }
 
 function describeSafePublicState({ player, players, npcs }: MferGptContext) {
@@ -314,7 +314,7 @@ function describeSafePublicState({ player, players, npcs }: MferGptContext) {
     ? `${QUESTS[currentQuest.id].title} (${currentQuest.status}, ${Math.min(currentQuest.progress, currentQuest.required)}/${currentQuest.required})`
     : "none tracked";
 
-  return `Room scan: ${alivePlayers}/${playerCount} players standing, ${hostileNpcs} hostile NPCs active, ${temporaryNpcs} temporary mferGPT NPCs, your level ${player.level}, HP ${Math.ceil(player.health)}/${player.maxHealth}, current quest ${questText}.`;
+  return `room scan: ${alivePlayers}/${playerCount} mfers standing, ${hostileNpcs} hostiles active, ${temporaryNpcs} temporary mferGPT npcs, your level ${player.level}, HP ${Math.ceil(player.health)}/${player.maxHealth}, current errand ${questText}.`;
 }
 
 function countNpcsWithPrefix(npcs: MapSchema<NpcState>, prefix: string) {
@@ -462,6 +462,6 @@ function cleanResponse(text: string) {
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!cleaned) return "mferGPT is listening, but the signal came back empty.";
+  if (!cleaned) return "signal ate that one. try again in a sec.";
   return cleaned.slice(0, MFERGPT.responseMaxLength);
 }

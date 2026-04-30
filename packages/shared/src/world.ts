@@ -60,18 +60,18 @@ export const WORLD_ROADS: WorldRoad[] = [
 ];
 
 export const WORLD_HUBS: WorldHub[] = [
-  { id: "starter-plaza", name: "Starter Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
-  { id: "busted-farm", name: "Busted Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
-  { id: "field-camp", name: "Field Camp", x: -118, z: 136, diameter: 28, kind: "hub" },
+  { id: "starter-plaza", name: "Fountain Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
+  { id: "busted-farm", name: "Red-Eye Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
+  { id: "field-camp", name: "Route Post", x: -118, z: 136, diameter: 28, kind: "hub" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
-  { id: "static-field", name: "Static Field", x: 150, z: -104, diameter: 22, kind: "farm" },
+  { id: "static-field", name: "Static Lot", x: 150, z: -104, diameter: 22, kind: "farm" },
 ];
 
 export const WORLD_LANDMARKS: WorldLandmark[] = [
-  { id: "ridge-gate-marker", name: "Ridge Gate", label: "RIDGE", x: 55.5, z: -5.5, kind: "route" },
-  { id: "relay-milepost-marker", name: "Relay Milepost", label: "MILE", x: 92, z: -18.2, kind: "route" },
-  { id: "switchback-lantern-marker", name: "Switchback Lantern", label: "TURN", x: 124.4, z: -58, kind: "route" },
-  { id: "signal-approach-marker", name: "Signal Approach", label: "SIGNAL", x: 116.6, z: -90, kind: "relay" },
+  { id: "ridge-gate-marker", name: "East Cut", label: "CUT", x: 55.5, z: -5.5, kind: "route" },
+  { id: "relay-milepost-marker", name: "0.069 Mile", label: "0.069", x: 92, z: -18.2, kind: "route" },
+  { id: "switchback-lantern-marker", name: "4:20 Turn", label: "4:20", x: 124.4, z: -58, kind: "route" },
+  { id: "signal-approach-marker", name: "Relay Uptrail", label: "RELAY", x: 116.6, z: -90, kind: "relay" },
 ];
 
 export type SolidObstacle =

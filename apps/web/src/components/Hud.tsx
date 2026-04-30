@@ -636,15 +636,15 @@ export function Hud({
 
       <section className={hasTrackedQuests ? "quest-panel" : "quest-panel compact"}>
         <div className="quest-panel-header">
-          <h2>{hasTrackedQuests ? "Quest Tracker" : "Quests"}</h2>
-          <button type="button" title="Quest log" aria-label="Open quest log" onClick={() => setIsQuestLogOpen(true)}>
+          <h2>{hasTrackedQuests ? "errands" : "errands"}</h2>
+          <button type="button" title="errand log" aria-label="Open errand log" onClick={() => setIsQuestLogOpen(true)}>
             <BookOpen size={17} />
           </button>
         </div>
         {hasTrackedQuests ? trackedQuests.map((quest) => (
           <Quest key={quest.id} quest={quest} />
         )) : (
-          <p className="quest-empty">No active quests</p>
+          <p className="quest-empty">nothing running</p>
         )}
       </section>
 
@@ -695,7 +695,7 @@ export function Hud({
           </div>
           <button className="quest-accept-btn" type="button" onClick={() => onLootCorpse({ npcId: lootWindow.npcId })}>
             <Package size={17} />
-            Loot all
+            grab all
           </button>
         </section>
       )}
@@ -709,7 +709,7 @@ export function Hud({
 
       <section className="minimap-panel">
         <div className="minimap-header">
-          <h2>Mfer Town</h2>
+          <h2>mferland</h2>
           <button type="button" title="Map (M)" aria-label="Open map" onClick={() => setIsMapOpen(true)}>
             <MapIcon size={18} />
           </button>
@@ -768,7 +768,7 @@ export function Hud({
           ))}
         </div>
         <div className="online-row">
-          <span>Online: {playerCount}</span>
+          <span>mfers: {playerCount}</span>
           <span>{clockLabel}</span>
         </div>
       </section>
@@ -778,8 +778,8 @@ export function Hud({
           <div className="world-map-panel">
             <div className="world-map-header">
               <div>
-                <strong>Mferland</strong>
-                <span>{exploredCells.size} areas uncovered</span>
+                <strong>mferland</strong>
+                <span>{exploredCells.size} spots seen</span>
               </div>
               <button type="button" title="Close map" aria-label="Close map" onClick={() => setIsMapOpen(false)}>
                 <X size={22} />
@@ -842,14 +842,14 @@ export function Hud({
       )}
 
       {isQuestLogOpen && (
-        <section className="floating-menu-overlay quest-log-anchor" role="dialog" aria-label="Quest log">
+        <section className="floating-menu-overlay quest-log-anchor" role="dialog" aria-label="errand log">
           <div className="quest-log-panel">
             <div className="world-map-header">
               <div>
-                <strong>Quest Log</strong>
-                <span>{questLog.length} quests</span>
+                <strong>errand log</strong>
+                <span>{questLog.length} errands</span>
               </div>
-              <button type="button" title="Close quest log" aria-label="Close quest log" onClick={() => setIsQuestLogOpen(false)}>
+              <button type="button" title="Close errand log" aria-label="Close errand log" onClick={() => setIsQuestLogOpen(false)}>
                 <X size={22} />
               </button>
             </div>
@@ -857,7 +857,7 @@ export function Hud({
               {questLog.length > 0 ? questLog.map((quest) => (
                 <Quest key={quest.id} quest={quest} full />
               )) : (
-                <p className="quest-empty">No accepted quests yet</p>
+                <p className="quest-empty">no errands yet</p>
               )}
             </div>
           </div>
@@ -930,14 +930,14 @@ export function Hud({
       )}
 
       {isAbilitiesOpen && (
-        <section className="floating-menu-overlay abilities-anchor" role="dialog" aria-label="Abilities">
+        <section className="floating-menu-overlay abilities-anchor" role="dialog" aria-label="moves">
           <div className="abilities-panel">
             <div className="world-map-header">
               <div>
-                <strong>Abilities</strong>
-                <span>Spellbook and talents</span>
+                <strong>moves</strong>
+                <span>moves and points</span>
               </div>
-              <button type="button" title="Close abilities" aria-label="Close abilities" onClick={() => setIsAbilitiesOpen(false)}>
+              <button type="button" title="Close moves" aria-label="Close moves" onClick={() => setIsAbilitiesOpen(false)}>
                 <X size={22} />
               </button>
             </div>
@@ -954,14 +954,14 @@ export function Hud({
       )}
 
       {isInventoryOpen && (
-        <section className="floating-menu-overlay inventory-anchor" role="dialog" aria-label="Inventory">
+        <section className="floating-menu-overlay inventory-anchor" role="dialog" aria-label="stash">
           <div className="inventory-panel">
             <div className="world-map-header">
               <div>
-                <strong>Inventory</strong>
+                <strong>stash</strong>
                 <span>{localPlayer?.inventory.length ?? 0} stacks</span>
               </div>
-              <button type="button" title="Close inventory" aria-label="Close inventory" onClick={() => setIsInventoryOpen(false)}>
+              <button type="button" title="Close stash" aria-label="Close stash" onClick={() => setIsInventoryOpen(false)}>
                 <X size={22} />
               </button>
             </div>
@@ -1017,7 +1017,7 @@ export function Hud({
                   </div>
                 );
               }) : (
-                <p className="quest-empty">Inventory empty</p>
+                <p className="quest-empty">stash is empty</p>
               )}
             </div>
           </div>
@@ -1053,7 +1053,7 @@ export function Hud({
             ref={chatInputRef}
             value={draft}
             maxLength={CHAT.maxLength}
-            placeholder="Say gm..."
+            placeholder="post to plaza..."
             onKeyDown={handleChatKeyDown}
             onChange={(event) => setDraft(event.target.value)}
           />
@@ -1094,17 +1094,17 @@ export function Hud({
           <span>Character</span>
           {(localPlayer?.talentPoints ?? 0) > 0 && <em className="dock-badge">{localPlayer?.talentPoints}</em>}
         </button>
-        <button type="button" title="Inventory (B/I)" onClick={() => setIsInventoryOpen((open) => !open)}>
+        <button type="button" title="stash (B/I)" onClick={() => setIsInventoryOpen((open) => !open)}>
           <Package size={25} />
-          <span>Inventory</span>
+          <span>stash</span>
         </button>
-        <button type="button" title="Abilities (N)" onClick={() => setIsAbilitiesOpen((open) => !open)}>
+        <button type="button" title="moves (N)" onClick={() => setIsAbilitiesOpen((open) => !open)}>
           <Sparkles size={25} />
-          <span>Abilities</span>
+          <span>moves</span>
         </button>
-        <button type="button" title="Quest log (L)" onClick={() => setIsQuestLogOpen((open) => !open)}>
+        <button type="button" title="errand log (L)" onClick={() => setIsQuestLogOpen((open) => !open)}>
           <BookOpen size={25} />
-          <span>Quests</span>
+          <span>errands</span>
         </button>
         <button type="button" title="Settings" onClick={() => setIsSettingsOpen((open) => !open)}>
           <Settings size={25} />
@@ -1397,18 +1397,18 @@ function QuestOfferPanel({
       <div className="quest-dialogue-detail">
         <ListChecks size={17} />
         <span>
-          <b>Objective</b>
+          <b>job</b>
           <em>{offer.objectiveLabel}: 0/{offer.required}</em>
         </span>
       </div>
       <QuestRewardList rewards={offer.rewardPreview} />
       <div className="quest-dialogue-actions">
         <button className="quest-secondary-btn" type="button" onClick={onDismiss} data-testid="quest-deny-button">
-          Deny
+          nah
         </button>
         <button className="quest-accept-btn" type="button" onClick={onAccept} data-testid="quest-accept-button">
           <Check size={17} />
-          Accept
+          i'm in
         </button>
       </div>
     </section>
@@ -1437,7 +1437,7 @@ function QuestTurnInPanel({
       <div className="quest-dialogue-detail">
         <ListChecks size={17} />
         <span>
-          <b>Completed</b>
+          <b>handled</b>
           <em>{turnIn.completedTaskSummary}</em>
         </span>
       </div>
@@ -1448,7 +1448,7 @@ function QuestTurnInPanel({
         </button>
         <button className="quest-accept-btn" type="button" onClick={onComplete} data-testid="quest-complete-button">
           <Check size={17} />
-          Complete
+          done
         </button>
       </div>
     </section>
@@ -1475,7 +1475,7 @@ function QuestStatusPanel({
       <div className="quest-dialogue-detail">
         <ListChecks size={17} />
         <span>
-          <b>Objective</b>
+          <b>job</b>
           <em>{notice.objectiveLabel}: {notice.progress}/{notice.required}</em>
         </span>
       </div>
@@ -1494,8 +1494,8 @@ function QuestRewardList({ rewards }: { rewards: string[] }) {
     <div className="quest-dialogue-rewards">
       <Gift size={17} />
       <span>
-        <b>Rewards</b>
-        <em>{rewards.length > 0 ? rewards.join(" / ") : "Town standing"}</em>
+        <b>loot</b>
+        <em>{rewards.length > 0 ? rewards.join(" / ") : "town standing"}</em>
       </span>
     </div>
   );

@@ -10,7 +10,7 @@ export const COMBAT = {
   stationaryInputThreshold: 0.05,
   actions: {
     attack: {
-      label: "Attack",
+      label: "bonk",
       damage: 4,
       cooldownMs: 1500,
       minRange: 0,
@@ -20,7 +20,7 @@ export const COMBAT = {
       requiresStationary: false,
     },
     shoot: {
-      label: "Shoot",
+      label: "peg",
       damage: 10,
       cooldownMs: 2000,
       minRange: 4.0,
@@ -30,7 +30,7 @@ export const COMBAT = {
       requiresStationary: true,
     },
     signalShot: {
-      label: "Signal Shot",
+      label: "ping",
       damage: 12,
       cooldownMs: 6000,
       minRange: 4.0,
@@ -40,7 +40,7 @@ export const COMBAT = {
       requiresStationary: false,
     },
     fireblast: {
-      label: "Fireblast",
+      label: "burn post",
       damage: 20,
       cooldownMs: 0,
       minRange: 0,
@@ -50,7 +50,7 @@ export const COMBAT = {
       requiresStationary: true,
     },
     frostNova: {
-      label: "Frost Nova",
+      label: "cold take",
       damage: 5,
       cooldownMs: 12000,
       minRange: 0,
@@ -61,7 +61,7 @@ export const COMBAT = {
       freezeMs: 3000,
     },
     heal: {
-      label: "Heal",
+      label: "patch up",
       damage: 0,
       healing: 34,
       cooldownMs: 5000,
@@ -74,7 +74,7 @@ export const COMBAT = {
       threatRadius: 20,
     },
     taunt: {
-      label: "Taunt",
+      label: "talk shit",
       damage: 0,
       cooldownMs: 10000,
       minRange: 0,
@@ -86,7 +86,7 @@ export const COMBAT = {
       threat: 140,
     },
     whirlwind: {
-      label: "Whirlwind",
+      label: "spin out",
       damage: 9,
       cooldownMs: 9000,
       minRange: 0,
@@ -97,7 +97,7 @@ export const COMBAT = {
       threatBonus: 22,
     },
     multishot: {
-      label: "Multishot",
+      label: "thread spray",
       damage: 9,
       cooldownMs: 10000,
       minRange: 4,
@@ -109,7 +109,7 @@ export const COMBAT = {
       splashRadius: 8,
     },
     iceBlast: {
-      label: "Ice Blast",
+      label: "freeze post",
       damage: 14,
       cooldownMs: 0,
       minRange: 0,

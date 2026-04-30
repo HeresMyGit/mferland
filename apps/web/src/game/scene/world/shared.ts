@@ -159,24 +159,24 @@ export const BUILDING_BLUEPRINTS: Record<BuildingBlueprintId, BuildingBlueprint>
 };
 
 export const TOWN_BUILDINGS: TownBuildingPlacement[] = [
-  { id: "mfers", blueprint: "shop", position: [-18, 0, -8], rotation: 0.4, sign: "MFERS", accent: "#9b45ff" },
-  { id: "dao", blueprint: "shop", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO", accent: "#52d64f" },
-  { id: "wearables", blueprint: "shop", position: [-18, 0, 11], rotation: -0.2, sign: "WEARABLES", accent: "#e754d8" },
-  { id: "shop", blueprint: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SHOP", accent: "#f5c344" },
-  { id: "barracks", blueprint: "shop", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BARRACKS", accent: "#3ba464" },
-  { id: "keep", blueprint: "shop", position: [25.5, 0, -33.8], rotation: -1.28, sign: "KEEP", accent: "#477fe7" },
-  { id: "gallery", blueprint: "shop", position: [-36, 0, 17.5], rotation: 1.5, sign: "GALLERY", accent: "#ef7741" },
+  { id: "mfers", blueprint: "shop", position: [-18, 0, -8], rotation: 0.4, sign: "UNOFFICIAL", accent: "#9b45ff" },
+  { id: "dao", blueprint: "shop", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO HALL", accent: "#52d64f" },
+  { id: "wearables", blueprint: "shop", position: [-18, 0, 11], rotation: -0.2, sign: "DRIP", accent: "#e754d8" },
+  { id: "shop", blueprint: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SMOKE", accent: "#f5c344" },
+  { id: "barracks", blueprint: "shop", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BUILDERS", accent: "#3ba464" },
+  { id: "keep", blueprint: "shop", position: [25.5, 0, -33.8], rotation: -1.28, sign: "VAULT", accent: "#477fe7" },
+  { id: "gallery", blueprint: "shop", position: [-36, 0, 17.5], rotation: 1.5, sign: "CC0", accent: "#ef7741" },
   { id: "arcade", blueprint: "shop", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: "#36b7c9" },
-  { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "INN", accent: "#d56565" },
-  { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "FORGE", accent: "#e18b35" },
+  { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "POSTING", accent: "#d56565" },
+  { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "DEPLOY", accent: "#e18b35" },
 ];
 export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = [
-  { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "FIELD", accent: "#52d64f" },
-  { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "TRAIL", accent: "#f5c344" },
-  { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "WATCH", accent: "#477fe7" },
+  { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "ROADPOST", accent: "#52d64f" },
+  { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "STASH", accent: "#f5c344" },
+  { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "CAMP", accent: "#477fe7" },
   { id: "ridge-post", blueprint: "shop", position: [112, 0, -101.5], rotation: -1.2, sign: "RIDGE", accent: "#36b7c9" },
-  { id: "signal-shed", blueprint: "shop", position: [128.5, 0, -97.5], rotation: 2.68, sign: "SIGNAL", accent: "#9b45ff" },
-  { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "RELAY", accent: "#e18b35" },
+  { id: "signal-shed", blueprint: "shop", position: [128.5, 0, -97.5], rotation: 2.68, sign: "STATIC", accent: "#9b45ff" },
+  { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "BEACON", accent: "#e18b35" },
 ];
 export const MARKET_STALLS: MarketStallSpec[] = [
   { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: "#9b45ff" },

@@ -44,7 +44,7 @@ const server = createServer((req, res) => {
   }
 
   res.writeHead(200, { "content-type": "text/plain" });
-  res.end("mferland server\n");
+  res.end("mferland is up\n");
 });
 
 const gameServer = new Server({ server });

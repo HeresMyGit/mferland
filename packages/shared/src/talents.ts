@@ -5,16 +5,16 @@ type CombatActionId = keyof typeof COMBAT.actions;
 
 export const TALENT_TREES = {
   brawler: {
-    label: "Brawler",
-    description: "Harder hits, more HP, faster melee pressure.",
+    label: "brawler",
+    description: "harder bonks, more HP, faster close pressure.",
   },
   caster: {
-    label: "Caster",
-    description: "More MP, stronger spells, faster mana recovery.",
+    label: "caster",
+    description: "more MP, stronger posts, faster mana recovery.",
   },
   utility: {
-    label: "Utility",
-    description: "Movement, quest flow, and steady recovery.",
+    label: "utility",
+    description: "movement, errands, and steady recovery.",
   },
 } as const;
 
@@ -53,8 +53,8 @@ export const TALENTS = {
   "brawler:street-tough": {
     tree: "brawler",
     nodeId: "street-tough",
-    name: "Street Tough",
-    description: "A little extra padding for farm trouble.",
+    name: "built different",
+    description: "a little extra padding for farm trouble.",
     maxRank: 3,
     effectText: "+10 HP per rank",
     effectPerRank: {
@@ -66,11 +66,11 @@ export const TALENTS = {
   "brawler:heavy-hands": {
     tree: "brawler",
     nodeId: "heavy-hands",
-    name: "Heavy Hands",
-    description: "Your basic swing lands with more weight.",
+    name: "heavy hands",
+    description: "your basic bonk lands with more weight.",
     maxRank: 3,
     requires: [{ talentId: "brawler:street-tough", rank: 1 }],
-    effectText: "+2 Attack damage per rank",
+    effectText: "+2 bonk damage per rank",
     effectPerRank: {
       actionDamage: {
         attack: 2,
@@ -80,12 +80,12 @@ export const TALENTS = {
   "brawler:snap-swing": {
     tree: "brawler",
     nodeId: "snap-swing",
-    name: "Snap Swing",
-    description: "Less windup between close-range hits.",
+    name: "quick bonk",
+    description: "less windup between close-range hits.",
     maxRank: 2,
     minLevel: 4,
     requires: [{ talentId: "brawler:heavy-hands", rank: 2 }],
-    effectText: "-120 ms Attack cooldown per rank",
+    effectText: "-120 ms bonk cooldown per rank",
     effectPerRank: {
       actionCooldownMs: {
         attack: -120,
@@ -95,20 +95,20 @@ export const TALENTS = {
   "brawler:whirlwind": {
     tree: "brawler",
     nodeId: "whirlwind",
-    name: "Whirlwind",
-    description: "Spin through nearby enemies and hold their attention.",
+    name: "spin out",
+    description: "spin through nearby enemies and hold their attention.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "brawler:snap-swing", rank: 1 }],
-    effectText: "Unlocks Whirlwind",
+    effectText: "unlocks spin out",
     effectPerRank: {},
     unlockAction: "whirlwind",
   },
   "caster:deep-pockets": {
     tree: "caster",
     nodeId: "deep-pockets",
-    name: "Deep Pockets",
-    description: "More room for casts before you run dry.",
+    name: "deep reserves",
+    description: "more room for casts before you run dry.",
     maxRank: 3,
     effectText: "+8 MP per rank",
     effectPerRank: {
@@ -120,11 +120,11 @@ export const TALENTS = {
   "caster:sticker-sparks": {
     tree: "caster",
     nodeId: "sticker-sparks",
-    name: "Sticker Sparks",
-    description: "Fireblast and Frost Nova hit harder.",
+    name: "sticker sparks",
+    description: "burn post and cold take hit harder.",
     maxRank: 3,
     requires: [{ talentId: "caster:deep-pockets", rank: 1 }],
-    effectText: "+3 Fireblast and +1 Frost Nova damage per rank",
+    effectText: "+3 burn post and +1 cold take damage per rank",
     effectPerRank: {
       actionDamage: {
         fireblast: 3,
@@ -135,8 +135,8 @@ export const TALENTS = {
   "caster:flow-state": {
     tree: "caster",
     nodeId: "flow-state",
-    name: "Flow State",
-    description: "Mana returns faster once casting quiets down.",
+    name: "flow state",
+    description: "mana returns faster once casting quiets down.",
     maxRank: 2,
     minLevel: 4,
     requires: [{ talentId: "caster:sticker-sparks", rank: 2 }],
@@ -148,20 +148,20 @@ export const TALENTS = {
   "caster:ice-blast": {
     tree: "caster",
     nodeId: "ice-blast",
-    name: "Ice Blast",
-    description: "A fast cold bolt that slows instead of freezing solid.",
+    name: "freeze post",
+    description: "a fast cold bolt that slows instead of freezing solid.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "caster:flow-state", rank: 1 }],
-    effectText: "Unlocks Ice Blast",
+    effectText: "unlocks freeze post",
     effectPerRank: {},
     unlockAction: "iceBlast",
   },
   "utility:light-step": {
     tree: "utility",
     nodeId: "light-step",
-    name: "Light Step",
-    description: "Move faster while crossing the plaza and farm road.",
+    name: "light step",
+    description: "move faster while crossing the plaza and farm road.",
     maxRank: 3,
     effectText: "+0.2 walk and +0.3 run speed per rank",
     effectPerRank: {
@@ -172,8 +172,8 @@ export const TALENTS = {
   "utility:errand-brain": {
     tree: "utility",
     nodeId: "errand-brain",
-    name: "Errand Brain",
-    description: "Quest turn-ins teach a little more.",
+    name: "errand brain",
+    description: "errand turn-ins teach a little more.",
     maxRank: 3,
     requires: [{ talentId: "utility:light-step", rank: 1 }],
     effectText: "+5% quest XP per rank",
@@ -184,7 +184,7 @@ export const TALENTS = {
   "utility:recovery-loop": {
     tree: "utility",
     nodeId: "recovery-loop",
-    name: "Recovery Loop",
+    name: "recovery loop",
     description: "HP and MP tick back more steadily outside pressure.",
     maxRank: 2,
     minLevel: 4,
@@ -198,12 +198,12 @@ export const TALENTS = {
   "utility:multishot": {
     tree: "utility",
     nodeId: "multishot",
-    name: "Multishot",
-    description: "Loose one shot that splits across up to three nearby enemies.",
+    name: "thread spray",
+    description: "loose one shot that splits across up to three nearby enemies.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "utility:recovery-loop", rank: 1 }],
-    effectText: "Unlocks Multishot",
+    effectText: "unlocks thread spray",
     effectPerRank: {},
     unlockAction: "multishot",
   },

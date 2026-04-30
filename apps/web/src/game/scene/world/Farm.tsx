@@ -56,7 +56,7 @@ function FarmEntranceSign({ barkTexture }: { barkTexture: THREE.Texture }) {
         <meshBasicMaterial map={barkTexture} color="#4b2d18" />
       </mesh>
       <group position={[0, 1.62, -0.02]} rotation-y={Math.PI} scale={[0.62, 0.62, 0.62]}>
-        <HangingSign label="OLD FARM" color="#b46e34" fontSize={0.56} />
+        <HangingSign label="RED EYE" color="#b46e34" fontSize={0.56} />
       </group>
     </group>
   );

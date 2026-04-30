@@ -95,19 +95,19 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   }
 
   if (questId === "hog-livers") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog livers collected. They do not always drop, so keep hunting.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog livers in the bag. ugly drop rate, normal town problem.`;
   }
 
   if (questId === "route-patrol-daily") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} farm-road threats cleared.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} route problems cleared.`;
   }
 
   if (questId === "hog-loop") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild hogs cleared from the loop.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hogs cleared from the loop.`;
   }
 
   if (questId === "signal-scraps") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} signal scraps collected. The raiders do not always drop clean parts.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} static scraps collected. still buzzing, unfortunately.`;
   }
 
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
@@ -130,91 +130,91 @@ export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): 
 
 function getQuestCompletionResponse(questId: QuestId) {
   if (questId === "mfer-beginnings") {
-    return "DAO mfer logs your name and points you toward the fountain route.";
+    return "dao board mfer writes your name somewhere probably official.";
   }
 
   if (questId === "sealed-note") {
-    return "Wearables mfer tucks the note away and starts pulling fabric scraps.";
+    return "drip mfer tucks the note away. zero questions. healthy town behavior.";
   }
 
   if (questId === "farmhand-bandanas") {
-    return "These scraps will make warning flags for the farm road.";
+    return "these rags will make ugly little warning flags for red-eye farm.";
   }
 
   if (questId === "dao-tour") {
-    return "Fountain mfer marks the plaza route complete and sends the vibe back to OG.";
+    return "fountain mfer confirms the plaza loop. this is how government works here.";
   }
 
   if (questId === "fountain-vibes") {
-    return "OG mfer sees you made the loop. Now the real errand starts.";
+    return "old head mfer sees you made the loop. town accepts this as enough.";
   }
 
   if (questId === "feral-farmers") {
-    return "Good work. The farm road should be safer for now.";
+    return "good. fewer fried airdrop brains on the road.";
   }
 
   if (questId === "hog-livers") {
-    return "This brew smells awful, but it should keep the road clear.";
+    return "the hog charm smells illegal. hogwatch says it works.";
   }
 
   if (questId === "field-camp-delivery") {
-    return "Field Camp marks the road open and lights the route lantern.";
+    return "route post marks the road open. one less thing to argue about.";
   }
 
   if (questId === "route-patrol-daily") {
-    return "Daily patrol logged. The route has room to breathe.";
+    return "route sweep logged. board looks slightly less embarrassing.";
   }
 
   if (questId === "hog-loop") {
-    return "That pass through the hog loop bought the camp more quiet.";
+    return "another hog loop handled. nobody is shocked it will come back.";
   }
 
   if (questId === "ridge-dispatch") {
-    return "Ridge Guide mfer pins the dispatch to the signal board and points at the static uptrail.";
+    return "ridge post mfer pins the ping to the board and points uptrail.";
   }
 
   if (questId === "signal-scraps") {
-    return "These scraps still buzz. Enough to tune the ridge relay.";
+    return "these scraps still buzz. enough for relay mfer to make it someone else's problem.";
   }
 
   if (questId === "cut-the-static") {
-    return "The scout crew is down. Only the named relay boss is still holding the signal.";
+    return "the crew is down. only the big pile of bad signal is still up.";
   }
 
   if (questId === "baron-of-static") {
-    return "Static Baron Nox is off the relay. The ridge can now overcharge the signal for bigger daily raids.";
+    return "static baron mfer is offline. the relay can now do the daily stupid thing.";
   }
 
   if (questId === "ogre-raid-daily") {
-    return "The huge mfer ogre is down. Beacon Keeper mfer cuts the relay before it calls anything worse.";
+    return "the huge mfer ogre is down. relay mfer cuts the signal before it gets ideas.";
   }
 
-  return "Quest complete.";
+  return "errand handled.";
 }
 
 function getFinishedQuestDialogue(npcId: string) {
-  if (npcId === "og-mfer") return "you made the town loop. The farm road is where the next trouble starts.";
-  if (npcId === "wearables-mfer") return "the red-eye scraps are enough for a few road flags.";
-  if (npcId === "dao-mfer") return "the DAO hall is on the map now. Fountain mfer keeps the town route moving.";
-  if (npcId === "fountain-mfer") return "fountain vibes are handled. OG has the next thing.";
-  if (npcId === "hogwatch-mfer") return "the farm is quieter already. Town owes you one.";
-  if (npcId === "field-guide-mfer") return "the road is marked. Daily patrols will stay posted.";
-  if (npcId === "pen-keeper-mfer") return "the hog loop always needs another sweep.";
-  if (npcId === "ridge-guide-mfer") return "Signal Ridge is marked. Keep an ear out for static.";
-  if (npcId === "beacon-keeper-mfer") return "the ridge relay is quiet for now.";
+  if (npcId === "og-mfer") return "town's still standing. good enough.";
+  if (npcId === "wearables-mfer") return "good town. better hats.";
+  if (npcId === "dao-mfer") return "nothing here is that organized.";
+  if (npcId === "fountain-mfer") return "good fountain. good smoke. good enough.";
+  if (npcId === "hogwatch-mfer") return "farm smells awful. still gotta clear it.";
+  if (npcId === "field-guide-mfer") return "camp stays up if the road stays quiet.";
+  if (npcId === "pen-keeper-mfer") return "hog loop never ends.";
+  if (npcId === "ridge-guide-mfer") return "static's louder uptrail.";
+  if (npcId === "beacon-keeper-mfer") return "if the baron's still up, we're not done.";
   return "nothing else for now.";
 }
 
 function getNpcDisplayName(npcId: string) {
-  if (npcId === "og-mfer") return "OG mfer";
-  if (npcId === "wearables-mfer") return "Wearables mfer";
-  if (npcId === "dao-mfer") return "DAO mfer";
-  if (npcId === "fountain-mfer") return "Fountain mfer";
-  if (npcId === "hogwatch-mfer") return "Hogwatch mfer";
-  if (npcId === "field-guide-mfer") return "Field Guide mfer";
-  if (npcId === "pen-keeper-mfer") return "Pen Keeper mfer";
-  if (npcId === "ridge-guide-mfer") return "Ridge Guide mfer";
-  if (npcId === "beacon-keeper-mfer") return "Beacon Keeper mfer";
+  if (npcId === "og-mfer") return "old head mfer";
+  if (npcId === "wearables-mfer") return "drip mfer";
+  if (npcId === "dao-mfer") return "dao board mfer";
+  if (npcId === "fountain-mfer") return "fountain mfer";
+  if (npcId === "hogwatch-mfer") return "hogwatch mfer";
+  if (npcId === "field-guide-mfer") return "route post mfer";
+  if (npcId === "pen-keeper-mfer") return "hog loop mfer";
+  if (npcId === "ridge-guide-mfer") return "ridge post mfer";
+  if (npcId === "beacon-keeper-mfer") return "relay mfer";
   return "the right mfer";
 }
 
@@ -286,7 +286,7 @@ function getQuestTurnInLabel(questId: QuestId) {
 
 function getQuestRewardPreview(questId: QuestId) {
   const quest = QUESTS[questId];
-  const rewards = [`${quest.xpReward} XP`, "Town standing"];
+  const rewards = [`${quest.xpReward} XP`, "town standing"];
   for (const itemId of getQuestRewardItemIds(questId)) {
     rewards.push(ITEMS[itemId].name);
   }

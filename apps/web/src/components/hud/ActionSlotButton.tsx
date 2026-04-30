@@ -139,66 +139,10 @@ export function getActionMeta(actionId: ActionId) {
       label: "Interact",
     };
   }
-  if (actionId === "attack") {
-    return {
-      id: actionId,
-      label: "Attack",
-    };
-  }
-  if (actionId === "shoot") {
-    return {
-      id: actionId,
-      label: "Shoot",
-    };
-  }
-  if (actionId === "signalShot") {
-    return {
-      id: actionId,
-      label: "Signal Shot",
-    };
-  }
-  if (actionId === "fireblast") {
-    return {
-      id: actionId,
-      label: "Fireblast",
-    };
-  }
-  if (actionId === "frostNova") {
-    return {
-      id: actionId,
-      label: "Frost Nova",
-    };
-  }
-  if (actionId === "heal") {
-    return {
-      id: actionId,
-      label: "Heal",
-    };
-  }
-  if (actionId === "taunt") {
-    return {
-      id: actionId,
-      label: "Taunt",
-    };
-  }
-  if (actionId === "whirlwind") {
-    return {
-      id: actionId,
-      label: "Whirlwind",
-    };
-  }
-  if (actionId === "multishot") {
-    return {
-      id: actionId,
-      label: "Multishot",
-    };
-  }
-  if (actionId === "iceBlast") {
-    return {
-      id: actionId,
-      label: "Ice Blast",
-    };
-  }
+  return {
+    id: actionId,
+    label: COMBAT.actions[actionId].label,
+  };
 }
 
 export function getActionReadyAt(player: PlayerSnapshot | null, actionId: CombatActionId) {

@@ -14,7 +14,7 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
   const maxHealth = npc?.maxHealth ?? player?.maxHealth ?? 100;
   const health = npc?.health ?? player?.health ?? 100;
   const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
-  const label = npc ? roleLabel(npc.role) : playerLabel(unit as PlayerSnapshot);
+  const label = npc ? roleLabel(npc) : playerLabel(unit as PlayerSnapshot);
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
 
   return (
@@ -34,19 +34,28 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
   );
 }
 
-function roleLabel(role: NpcSnapshot["role"]) {
-  if (role === "quest_giver") return "Quest giver";
-  if (role === "merchant") return "Merchant";
-  if (role === "guard") return "Guard";
-  if (role === "enemy") return "Training";
-  if (role === "critter") return "Critter";
-  if (role === "beast") return "Beast";
-  if (role === "farmer") return "Hostile farmer";
-  return "Town NPC";
+function roleLabel(npc: NpcSnapshot) {
+  if (npc.id === "og-mfer") return "old head";
+  if (npc.id === "dao-mfer") return "board";
+  if (npc.id === "wearables-mfer") return "drip";
+  if (npc.id === "gate-guard") return "watch";
+  if (npc.id === "fountain-mfer") return "plaza";
+  if (npc.id === "hogwatch-mfer") return "hogwatch";
+  if (npc.id === "field-guide-mfer") return "route post";
+  if (npc.id === "pen-keeper-mfer") return "hog loop";
+  if (npc.id === "ridge-guide-mfer") return "ridge post";
+  if (npc.id === "beacon-keeper-mfer") return "beacon";
+  if (npc.role === "merchant") return "stash";
+  if (npc.role === "quest_giver" || npc.role === "guard" || npc.role === "wanderer") return "local";
+  if (npc.role === "enemy") return "bonk test";
+  if (npc.role === "farmer") return "red eye";
+  if (npc.role === "beast") return "wild";
+  if (npc.role === "critter") return "critter";
+  return "local";
 }
 
 function playerLabel(player: PlayerSnapshot) {
-  if (player.identityType === "agent") return "Agent";
-  if (player.identityType === "wallet") return "Wallet player";
-  return "Player";
+  if (player.identityType === "agent") return "agent mfer";
+  if (player.identityType === "wallet") return "verified mfer";
+  return "anon mfer";
 }

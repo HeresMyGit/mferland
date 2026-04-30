@@ -33,6 +33,8 @@ type Point = {
   z: number;
 };
 
+type AmbientStyle = "lurker" | "builder" | "drifter";
+
 type RuntimePlayer = {
   name: string;
   identityType: IdentityType;
@@ -126,6 +128,7 @@ class AgentCharacter {
   private readonly name: string;
   private readonly avatarSeed: number;
   private readonly chatEnabled: boolean;
+  private readonly style: AmbientStyle;
   private room: Room | null = null;
   private players = new Map<string, PlayerSnapshot>();
   private npcs = new Map<string, NpcSnapshot>();
@@ -144,6 +147,7 @@ class AgentCharacter {
     this.name = config.name;
     this.avatarSeed = config.avatarSeed;
     this.chatEnabled = config.chatEnabled;
+    this.style = getAgentStyle(config.avatarSeed);
   }
 
   async connect() {
@@ -364,18 +368,87 @@ class AgentCharacter {
     if (!this.chatEnabled || !this.room) return;
     if (now < this.nextChatAt) return;
 
-    const prompts = [
-      "gm mfers",
-      "checking the plaza",
-      "nice roof upgrade",
-      nearbyName ? `gm ${nearbyName}` : "patrolling town",
-      observation.nearbyPlayers.length > 1 ? "busy town today" : "quiet vibes",
-      observation.nearbyNpcs.length > 0 ? `checking in with ${observation.nearbyNpcs[0].name}` : "looking for quests",
-    ];
-    const text = prompts[Math.floor(Math.random() * prompts.length)].slice(0, CHAT.maxLength);
+    const text = chooseAmbientLine(observation, this.style, nearbyName).slice(0, CHAT.maxLength);
     this.room.send("chat", { text });
     this.nextChatAt = now + 12000 + randomRange(0, 10000);
   }
+}
+
+const GLOBAL_LINES = [
+  "gm mfers",
+  "coffee's cold",
+  "just posting",
+  "cc0 town still standing",
+  "mfers do what they want",
+] as const;
+const PLAZA_LINES = [
+  "fountain's still the spot",
+  "quiet plaza today",
+  "someone left a mug by the chairs",
+] as const;
+const MARKET_LINES = [
+  "drip check",
+  "good hats today",
+  "market's awake",
+] as const;
+const FARM_LINES = [
+  "road's open but it still smells like hogs",
+  "red-eye farm again",
+  "hog loop never ends",
+] as const;
+const RIDGE_LINES = [
+  "ridge is buzzing",
+  "relay sounds wrong",
+  "static's loud uptrail",
+] as const;
+const BUILDER_LINES = [
+  "ship it",
+  "deploy shed looks busy",
+  "ai agents are mfers",
+] as const;
+const LURKER_LINES = [
+  "late posts",
+  "no roadmap",
+  "officially unofficial",
+] as const;
+
+function chooseAmbientLine(observation: AgentObservation, style: AmbientStyle, nearbyName?: string) {
+  if (nearbyName) {
+    const nearbyLines = [
+      `gm ${nearbyName}`,
+      `${nearbyName} made it out here`,
+      "good to see a live mfer",
+    ];
+    return pickLine(nearbyLines);
+  }
+
+  const zoneLines = getZoneLines(observation.self);
+  const styleLines = style === "builder" ? BUILDER_LINES : style === "lurker" ? LURKER_LINES : GLOBAL_LINES;
+  const pool = [
+    ...GLOBAL_LINES,
+    ...zoneLines,
+    ...styleLines,
+    observation.nearbyPlayers.length > 1 ? "plaza's got bodies today" : "",
+    observation.nearbyNpcs.length > 0 ? `checking in with ${observation.nearbyNpcs[0].name}` : "",
+  ].filter(Boolean);
+  return pickLine(pool);
+}
+
+function getZoneLines(point: Point) {
+  if (point.x < -58 && point.z > 58) return FARM_LINES;
+  if (point.x > 86 && point.z < -42) return RIDGE_LINES;
+  if (Math.abs(point.x) < 24 && point.z > 18) return MARKET_LINES;
+  if (Math.hypot(point.x, point.z) < 28) return PLAZA_LINES;
+  return GLOBAL_LINES;
+}
+
+function getAgentStyle(seed: number): AmbientStyle {
+  const styles: AmbientStyle[] = ["lurker", "builder", "drifter"];
+  return styles[Math.abs(seed) % styles.length] ?? "drifter";
+}
+
+function pickLine(lines: readonly string[]) {
+  return lines[Math.floor(Math.random() * lines.length)] || "gm mfers";
 }
 
 function readConfig(): AgentConfig {
