@@ -1,6 +1,6 @@
 # mferland Icon Assets
 
-Generated with the built-in ChatGPT Images 2.0 image workflow on 2026-04-28, then cropped into normalized `256x256` PNGs.
+Generated with the built-in ChatGPT Images 2.0 image workflow, then cropped into normalized `256x256` PNGs.
 
 ## Naming
 
@@ -44,4 +44,4 @@ Use stable game ids for item filenames. Use kebab case for camel-case ability id
 
 ## Style
 
-Keep future icons as square low-poly 3D object icons on a dark warm charcoal background with the same frame, padding, and golden rim light. Avoid text inside the image.
+Keep future ability and item icons in the hand-drawn mferland marker style introduced on 2026-04-30: flat `2D` doodles on clean solid-color square backgrounds, thick black iPad-marker line work, simple stick-figure mentality, and a little human unevenness. Icons should be readable at hotbar size and can include small scribbled details, but should avoid polished fantasy rendering, ornate loot frames, realistic metal, heavy glow effects, text, labels, or `3D` object lighting.
