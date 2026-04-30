@@ -33,6 +33,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
+import { type AudioSettings } from "../game/audio";
 import { type GameSettings, type NameplateVisibility } from "../game/settings";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
 import { AbilitiesPanel } from "./hud/AbilitiesPanel";
@@ -1148,6 +1149,16 @@ function SettingsPanel({
     onChange({ ...settings, [key]: value });
   }
 
+  function updateAudioSetting(key: keyof AudioSettings, value: boolean | number) {
+    onChange({
+      ...settings,
+      audio: {
+        ...settings.audio,
+        [key]: value,
+      },
+    });
+  }
+
   function updateNameplateSetting(key: keyof NameplateVisibility, value: boolean) {
     onChange({
       ...settings,
@@ -1169,6 +1180,24 @@ function SettingsPanel({
           <X size={22} />
         </button>
       </div>
+
+      <section className="settings-section">
+        <strong>Audio</strong>
+        <SettingsToggle
+          label="Sound effects"
+          checked={settings.audio.enabled}
+          onChange={(checked) => updateAudioSetting("enabled", checked)}
+        />
+        <SettingsSlider
+          label="Volume"
+          value={settings.audio.volume}
+          min={0}
+          max={1}
+          step={0.05}
+          disabled={!settings.audio.enabled}
+          onChange={(value) => updateAudioSetting("volume", value)}
+        />
+      </section>
 
       {debugToolsAvailable && (
         <section className="settings-section">
@@ -1227,6 +1256,40 @@ function SettingsToggle({
       <span>{label}</span>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <i aria-hidden="true" />
+    </label>
+  );
+}
+
+function SettingsSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className={disabled ? "settings-slider-row disabled" : "settings-slider-row"}>
+      <span>{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <strong>{Math.round(value * 100)}</strong>
     </label>
   );
 }

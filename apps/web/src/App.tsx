@@ -13,7 +13,16 @@ import {
   isCombatActionUnlocked,
   setWorldCollisionPlacementOverrides,
   type ActionId,
+  type ClientAcceptQuest,
+  type ClientCompleteQuest,
+  type ClientEquipItem,
+  type ClientLootCorpse,
+  type ClientSelectTalent,
+  type ClientUnequipItem,
+  type ClientUseItem,
   type CombatActionId,
+  type CombatEvent,
+  type ExperienceEvent,
   type JoinOptions,
   type ItemId,
   type NpcSnapshot,
@@ -36,6 +45,13 @@ import {
   makeNpcDebugPlacementTargets,
 } from "./game/debugPlacement";
 import { DEFAULT_GAME_SETTINGS, normalizeGameSettings, type GameSettings } from "./game/settings";
+import {
+  GameAudio,
+  getCombatImpactCue,
+  getCombatSpatialVolume,
+  getCombatStartCue,
+  getExperienceSpatialVolume,
+} from "./game/audio";
 
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
@@ -253,6 +269,12 @@ function GameShell({
     placements: DebugPlacementOverrides;
     sourceDefaults: DebugPlacementStoredRecordMap;
   } | null>(null);
+  const audio = useMemo(() => new GameAudio(), []);
+  const playedCombatEventIdsRef = useRef(new Set<string>());
+  const playedExperienceEventIdsRef = useRef(new Set<string>());
+  const lastQuestNoticeIdRef = useRef("");
+  const lastLootNoticeIdRef = useRef("");
+  const combatAudioTimeoutsRef = useRef<number[]>([]);
   const debugToolsAvailable = import.meta.env.DEV;
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
@@ -285,6 +307,17 @@ function GameShell({
   }, [initialSavedDebugPlacementDefaults]);
 
   useEffect(() => {
+    audio.configure(settings.audio);
+  }, [audio, settings.audio.enabled, settings.audio.volume]);
+
+  useEffect(() => {
+    audio.preload(["uiClick", "uiOpen", "uiClose", "uiConfirm", "uiError", "attackSwing", "attackImpact"]);
+    return () => audio.dispose();
+  }, [audio]);
+
+  useEffect(() => bindGlobalButtonAudio(audio), [audio]);
+
+  useEffect(() => {
     setWorldCollisionPlacementOverrides(effectiveDebugPlacementOverrides);
     return () => setWorldCollisionPlacementOverrides(initialSavedDebugPlacementDefaults);
   }, [effectiveDebugPlacementOverrides, initialSavedDebugPlacementDefaults]);
@@ -296,12 +329,14 @@ function GameShell({
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const nearestNpc = findNearestNpc(localPlayer, room.npcs);
+    if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [localPlayer, room.npcs, room.sendInteract]);
+  }, [audio, localPlayer, room.npcs, room.sendInteract]);
   const showActionError = useCallback((text: string) => {
+    audio.play("uiError");
     actionErrorIdRef.current += 1;
     setActionError({ id: actionErrorIdRef.current, text });
-  }, []);
+  }, [audio]);
   const performAction = useCallback((slot: ActionSlot) => {
     if (!slot) return;
     if (slot === "interact") performInteract();
@@ -311,6 +346,7 @@ function GameShell({
         showActionError(blockMessage);
         return;
       }
+      audio.play("itemUse");
       room.sendUseItem({ itemId: slot.itemId, chainTokenId: slot.chainTokenId });
     } else {
       const blockMessage = getCombatActionBlockMessage(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit);
@@ -323,11 +359,12 @@ function GameShell({
         target: selectedTarget,
       });
     }
-  }, [localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, showActionError]);
+  }, [audio, localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, showActionError]);
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
   const performDebugTravel = useCallback((destination: DebugTravelDestination) => {
+    audio.play("uiToggle");
     room.sendDebugTeleport(destination);
     setSelectedTarget(null);
     setDebugTravelView({
@@ -336,7 +373,43 @@ function GameShell({
       yaw: destination.yaw,
       nonce: Date.now(),
     });
-  }, [room.sendDebugTeleport]);
+  }, [audio, room.sendDebugTeleport]);
+  const acceptQuest = useCallback((message: ClientAcceptQuest) => {
+    audio.play("uiConfirm");
+    room.sendAcceptQuest(message);
+  }, [audio, room.sendAcceptQuest]);
+  const completeQuest = useCallback((message: ClientCompleteQuest) => {
+    audio.play("questComplete");
+    room.sendCompleteQuest(message);
+  }, [audio, room.sendCompleteQuest]);
+  const lootCorpse = useCallback((message: ClientLootCorpse) => {
+    audio.play("inventoryLoot");
+    room.sendLootCorpse(message);
+  }, [audio, room.sendLootCorpse]);
+  const equipItem = useCallback((message: ClientEquipItem) => {
+    audio.play("inventoryEquip");
+    room.sendEquipItem(message);
+  }, [audio, room.sendEquipItem]);
+  const unequipItem = useCallback((message: ClientUnequipItem) => {
+    audio.play("inventoryEquip");
+    room.sendUnequipItem(message);
+  }, [audio, room.sendUnequipItem]);
+  const useItem = useCallback((message: ClientUseItem) => {
+    audio.play("itemUse");
+    room.sendUseItem(message);
+  }, [audio, room.sendUseItem]);
+  const selectTalent = useCallback((message: ClientSelectTalent) => {
+    audio.play("uiConfirm");
+    room.sendSelectTalent(message);
+  }, [audio, room.sendSelectTalent]);
+  const sendChat = useCallback((text: string) => {
+    audio.play("chatSend");
+    room.sendChat(text);
+  }, [audio, room.sendChat]);
+  const respawn = useCallback(() => {
+    audio.play("respawn");
+    room.sendRespawn();
+  }, [audio, room.sendRespawn]);
   const updateDebugPlacement = useCallback((target: DebugPlacementTarget, value: DebugPlacementValue, commit: boolean) => {
     const nextValue = normalizeDebugPlacementValue(value);
     setDebugPlacementSaveStatus({ state: "idle", message: "Unsaved local draft." });
@@ -524,6 +597,48 @@ function GameShell({
   }, [actionError]);
 
   useEffect(() => {
+    for (const event of room.combatEvents) {
+      if (playedCombatEventIdsRef.current.has(event.id)) continue;
+      playedCombatEventIdsRef.current.add(event.id);
+      playCombatEventAudio(audio, event, localPlayer ?? null, combatAudioTimeoutsRef);
+    }
+    prunePlayedIds(playedCombatEventIdsRef.current, room.combatEvents);
+  }, [audio, localPlayer, room.combatEvents]);
+
+  useEffect(() => {
+    for (const event of room.experienceEvents) {
+      if (playedExperienceEventIdsRef.current.has(event.id)) continue;
+      playedExperienceEventIdsRef.current.add(event.id);
+      audio.play("xpGain", { volume: getExperienceSpatialVolume(event, localPlayer ?? null) });
+    }
+    prunePlayedIds(playedExperienceEventIdsRef.current, room.experienceEvents);
+  }, [audio, localPlayer, room.experienceEvents]);
+
+  useEffect(() => {
+    const noticeId = room.questOffer
+      ? `offer:${room.questOffer.questId}:${room.questOffer.npcId}`
+      : room.questTurnIn
+        ? `turnIn:${room.questTurnIn.questId}:${room.questTurnIn.npcId}`
+        : room.questStatus
+          ? `status:${room.questStatus.questId}:${room.questStatus.npcId}`
+          : "";
+    if (!noticeId || noticeId === lastQuestNoticeIdRef.current) return;
+    lastQuestNoticeIdRef.current = noticeId;
+    audio.play("questNotice");
+  }, [audio, room.questOffer, room.questStatus, room.questTurnIn]);
+
+  useEffect(() => {
+    const noticeId = room.lootWindow ? `${room.lootWindow.npcId}:${room.lootWindow.items.length}` : "";
+    if (!noticeId || noticeId === lastLootNoticeIdRef.current) return;
+    lastLootNoticeIdRef.current = noticeId;
+    audio.play("inventoryLoot", { volume: 0.55 });
+  }, [audio, room.lootWindow]);
+
+  useEffect(() => () => {
+    clearAudioTimeouts(combatAudioTimeoutsRef);
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || isTypingTarget(event.target)) return;
       const slotIndex = numberKeyToSlotIndex(event);
@@ -587,19 +702,19 @@ function GameShell({
         actionSlots={actionSlots}
         onAction={performAction}
         onReplaceActionSlots={replaceActionSlots}
-        onAcceptQuest={room.sendAcceptQuest}
-        onCompleteQuest={room.sendCompleteQuest}
+        onAcceptQuest={acceptQuest}
+        onCompleteQuest={completeQuest}
         onDismissQuestOffer={room.dismissQuestOffer}
         onDismissQuestTurnIn={room.dismissQuestTurnIn}
         onDismissQuestStatus={room.dismissQuestStatus}
-        onLootCorpse={room.sendLootCorpse}
-        onEquipItem={room.sendEquipItem}
-        onUnequipItem={room.sendUnequipItem}
-        onUseItem={room.sendUseItem}
-        onSelectTalent={room.sendSelectTalent}
+        onLootCorpse={lootCorpse}
+        onEquipItem={equipItem}
+        onUnequipItem={unequipItem}
+        onUseItem={useItem}
+        onSelectTalent={selectTalent}
         onCloseLootWindow={room.closeLootWindow}
-        onSendChat={room.sendChat}
-        onRespawn={room.sendRespawn}
+        onSendChat={sendChat}
+        onRespawn={respawn}
         onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
         onExit={onExit}
         settings={settings}
@@ -653,6 +768,81 @@ function DebugTravelPanel({
       ))}
     </div>
   );
+}
+
+function bindGlobalButtonAudio(audio: GameAudio) {
+  const onPointerUp = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest("button,[role='button']");
+    if (!(button instanceof HTMLElement) || !document.body.contains(button)) return;
+    if (button.closest(".action-slot,.item-row,.inventory-slot,.equipment-slot,.quest-accept-btn,.debug-travel-panel")) return;
+
+    const disabled = button instanceof HTMLButtonElement
+      ? button.disabled || button.getAttribute("aria-disabled") === "true"
+      : button.getAttribute("aria-disabled") === "true";
+    if (disabled) {
+      audio.play("uiError");
+      return;
+    }
+
+    const label = `${button.getAttribute("aria-label") ?? ""} ${button.getAttribute("title") ?? ""}`.toLowerCase();
+    if (label.includes("close") || label.includes("leave")) {
+      audio.play("uiClose");
+      return;
+    }
+    if (button.classList.contains("primary-btn") || button.classList.contains("secondary-btn")) {
+      audio.play("uiConfirm");
+      return;
+    }
+    audio.play("uiClick");
+  };
+
+  window.addEventListener("pointerup", onPointerUp, true);
+  return () => window.removeEventListener("pointerup", onPointerUp, true);
+}
+
+function playCombatEventAudio(
+  audio: GameAudio,
+  event: CombatEvent,
+  listener: PlayerSnapshot | null,
+  timeoutRef: { current: number[] },
+) {
+  const startCue = getCombatStartCue(event.actionId, event.amount);
+  const spatialVolume = getCombatSpatialVolume(event, listener);
+  if (startCue) audio.play(startCue, { volume: spatialVolume });
+
+  const impactCue = getCombatImpactCue(event);
+  if (!impactCue && !event.defeated) return;
+
+  const delay = Math.max(0, event.impactAt - Date.now());
+  const timeoutId = window.setTimeout(() => {
+    timeoutRef.current = timeoutRef.current.filter((id) => id !== timeoutId);
+    const impactVolume = getCombatSpatialVolume(event, listener);
+    if (impactCue) audio.play(impactCue, { volume: impactVolume });
+    if (event.defeated) audio.play("defeat", { volume: impactVolume * 0.85 });
+  }, delay);
+  timeoutRef.current.push(timeoutId);
+}
+
+function prunePlayedIds(ids: Set<string>, events: Array<CombatEvent | ExperienceEvent>) {
+  if (ids.size < 128) return;
+  const liveIds = new Set(events.map((event) => event.id));
+  for (const id of ids) {
+    if (!liveIds.has(id)) ids.delete(id);
+  }
+}
+
+function clearAudioTimeouts(timeoutRef: { current: number[] }) {
+  for (const timeout of timeoutRef.current) {
+    window.clearTimeout(timeout);
+  }
+  timeoutRef.current = [];
+}
+
+function getNpcInteractionCue(npc: NpcSnapshot) {
+  if (!npc.isImmortal && npc.health <= 0 && npc.hasLoot) return "inventoryLoot";
+  return "interact";
 }
 
 function getSelectedTargetUnit(

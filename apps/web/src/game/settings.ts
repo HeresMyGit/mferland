@@ -1,3 +1,5 @@
+import { DEFAULT_AUDIO_SETTINGS, normalizeAudioSettings, type AudioSettings } from "./audio";
+
 export type NameplateVisibility = {
   localPlayer: boolean;
   otherPlayers: boolean;
@@ -6,12 +8,14 @@ export type NameplateVisibility = {
 };
 
 export type GameSettings = {
+  audio: AudioSettings;
   debugPlacementEditor: boolean;
   debugTravelPanel: boolean;
   nameplates: NameplateVisibility;
 };
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
+  audio: DEFAULT_AUDIO_SETTINGS,
   debugPlacementEditor: false,
   debugTravelPanel: false,
   nameplates: {
@@ -27,6 +31,7 @@ export function normalizeGameSettings(value: unknown): GameSettings {
   const candidate = value as Partial<GameSettings> & { nameplates?: Partial<NameplateVisibility> };
 
   return {
+    audio: normalizeAudioSettings(candidate.audio),
     debugPlacementEditor: Boolean(candidate.debugPlacementEditor),
     debugTravelPanel: Boolean(candidate.debugTravelPanel),
     nameplates: {
