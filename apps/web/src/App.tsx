@@ -6,6 +6,7 @@ import { useAccount, useConnect, useDisconnect } from "wagmi";
 import {
   COMBAT,
   ITEMS,
+  LOOT,
   getInventoryItemKey,
   getItemConsumable,
   getNpcDisposition,
@@ -326,12 +327,25 @@ function GameShell({
     setSelectedDebugPlacementId(targetId);
     if (targetId) setDebugPlacementPanelOpen(true);
   }, []);
+  const selectNpcTarget = useCallback((npcId: string) => {
+    setSelectedTarget({ kind: "npc", id: npcId });
+    audio.play("targetSelect");
+    if (!localPlayer || localPlayer.health <= 0) return;
+    const selectedNpc = findInteractableNpcInRange(localPlayer, room.npcs, npcId);
+    if (selectedNpc) {
+      audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
+      room.sendInteract({ npcId: selectedNpc.id });
+    }
+  }, [audio, localPlayer, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
-    const nearestNpc = findNearestNpc(localPlayer, room.npcs);
+    const selectedNpc = selectedTarget?.kind === "npc"
+      ? findInteractableNpcInRange(localPlayer, room.npcs, selectedTarget.id)
+      : null;
+    const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, localPlayer, room.npcs, room.sendInteract]);
+  }, [audio, localPlayer, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -669,6 +683,7 @@ function GameShell({
           experienceEvents={room.experienceEvents}
           chatBubbles={room.chatBubbles}
           onSelectTarget={setSelectedTarget}
+          onSelectNpcTarget={selectNpcTarget}
           onInteractAction={performInteract}
           sendInput={room.sendInput}
           debugTravelView={debugTravelView}
@@ -1142,7 +1157,7 @@ function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>):
   let nearest: NpcSnapshot | null = null;
   let nearestDistance = Infinity;
   for (const npc of npcs.values()) {
-    if (isAttackableNpcRole(npc.role) && !npc.isImmortal && npc.health <= 0 && !npc.hasLoot) continue;
+    if (!isInteractableNpc(npc)) continue;
     const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
     if (distance < nearestDistance) {
       nearest = npc;
@@ -1150,6 +1165,18 @@ function findNearestNpc(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>):
     }
   }
 
-  if (nearest && nearestDistance <= 3.25) return nearest;
+  if (nearest && nearestDistance <= LOOT.interactRange) return nearest;
   return null;
+}
+
+function findInteractableNpcInRange(player: PlayerSnapshot, npcs: Map<string, NpcSnapshot>, npcId: string) {
+  const npc = npcs.get(npcId);
+  if (!npc || !isInteractableNpc(npc)) return null;
+
+  const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
+  return distance <= LOOT.interactRange ? npc : null;
+}
+
+function isInteractableNpc(npc: NpcSnapshot) {
+  return npc.isImmortal || npc.health > 0 || npc.hasLoot;
 }

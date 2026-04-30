@@ -47,6 +47,7 @@ type TownSceneProps = {
   experienceEvents: ExperienceEvent[];
   chatBubbles: ChatBubble[];
   onSelectTarget: (target: TargetSelection | null) => void;
+  onSelectNpcTarget?: (npcId: string) => void;
   onInteractAction: () => void;
   sendInput: (input: ClientInput) => void;
   debugTravelView?: {
@@ -93,6 +94,7 @@ function TownSceneComponent({
   experienceEvents,
   chatBubbles,
   onSelectTarget,
+  onSelectNpcTarget,
   onInteractAction,
   sendInput,
   debugTravelView = null,
@@ -534,7 +536,10 @@ function TownSceneComponent({
         })}
         {Array.from(npcs.values()).filter(isVisibleNpc).map((npc) => {
           const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
-          const onTarget = () => onSelectTarget({ kind: "npc", id: npc.id });
+          const onTarget = () => {
+            if (onSelectNpcTarget) onSelectNpcTarget(npc.id);
+            else onSelectTarget({ kind: "npc", id: npc.id });
+          };
           const questMarker = getNpcQuestMarker(npc, localQuestState);
           const showNameplate = shouldShowNpcNameplate(npc, nameplateVisibility);
           if (npc.model === "mfergpt") {
@@ -629,6 +634,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.experienceEvents === next.experienceEvents
     && previous.chatBubbles === next.chatBubbles
     && previous.onSelectTarget === next.onSelectTarget
+    && previous.onSelectNpcTarget === next.onSelectNpcTarget
     && previous.onInteractAction === next.onInteractAction
     && previous.sendInput === next.sendInput
     && previous.debugTravelView === next.debugTravelView
