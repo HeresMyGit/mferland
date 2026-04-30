@@ -6,10 +6,12 @@ Generated with the built-in ChatGPT Images 2.0 image workflow, then cropped into
 
 - Item icons: `items/<item-id>.png`
 - Ability icons: `abilities/<kebab-action-id>.png`
+- Talent icons: `talents/<tree-id>-<node-id>.png`
 - Category icons: `categories/<category-id>.png`
 - Placeholder icons: `placeholders/<placeholder-id>.png`
 
 Use stable game ids for item filenames. Use kebab case for camel-case ability ids, for example `signalShot` -> `signal-shot.png` and `iceBlast` -> `ice-blast.png`.
+Use the talent tree and node id for talent filenames, for example `brawler:street-tough` -> `talents/brawler-street-tough.png`.
 
 ## Placeholder Set
 

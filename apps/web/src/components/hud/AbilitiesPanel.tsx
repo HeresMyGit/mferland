@@ -18,7 +18,7 @@ import {
   type TalentId,
 } from "@mferland/shared";
 import { getActionMeta } from "./ActionSlotButton";
-import { AbilityIcon, TalentTreeIcon } from "./GameIcon";
+import { AbilityIcon, TalentIcon, TalentTreeIcon } from "./GameIcon";
 import { type ActionSlot } from "./types";
 import { formatTooltipLabel } from "./utils";
 
@@ -125,8 +125,6 @@ function AbilityBookTile({
     >
       <AbilityIcon actionId={actionId} />
       <strong>{meta.label}</strong>
-      {assignedIndex >= 0 && <span className="tile-state">{assignedIndex + 1}</span>}
-      {locked && <span className="tile-state">locked</span>}
     </div>
   );
 }
@@ -216,6 +214,7 @@ function TalentNode({
   const status = getTalentRankStatus(talents, player?.level ?? 1, player?.talentPoints ?? 0, talentId);
   const rank = getTalentRank(talents, talentId);
   const title = getTalentTitle(talentId, rank, status.reason);
+  const unlockAction = "unlockAction" in definition ? definition.unlockAction : null;
   const className = [
     "menu-tile",
     "talent-node",
@@ -232,7 +231,7 @@ function TalentNode({
       aria-label={formatTooltipLabel(title)}
       onClick={() => status.canRank && onSelectTalent({ talentId })}
     >
-      <TalentTreeIcon treeId={definition.tree} />
+      {unlockAction ? <AbilityIcon actionId={unlockAction} /> : <TalentIcon talentId={talentId} />}
       <strong>{definition.name}</strong>
       <span className="tile-rank">{rank}/{definition.maxRank}</span>
       {status.canRank && <BadgePlus className="tile-plus" size={12} />}

@@ -117,7 +117,6 @@ export function ActionSlotButton({
       }}
     >
       {itemSlot ? <ItemIcon itemId={itemSlot.itemId} /> : action ? <AbilityIcon actionId={action.id} /> : null}
-      <strong>{action?.label ?? item?.name}</strong>
       {itemSlot && (
         <em className="item-count-label">x{Math.max(0, usability.count ?? 0)}</em>
       )}
