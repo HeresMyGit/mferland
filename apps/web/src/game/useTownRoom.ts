@@ -737,6 +737,11 @@ function updateNpcSnapshot(target: NpcSnapshot, npc: NpcSnapshot, id: string) {
   changed = target.health !== npc.health || changed;
   changed = target.maxHealth !== npc.maxHealth || changed;
   changed = target.isImmortal !== npc.isImmortal || changed;
+  changed = target.x !== npc.x || changed;
+  changed = target.y !== npc.y || changed;
+  changed = target.z !== npc.z || changed;
+  changed = target.yaw !== npc.yaw || changed;
+  changed = target.animation !== npc.animation || changed;
   changed = target.dialogue !== npc.dialogue || changed;
   changed = target.questId !== npc.questId || changed;
   changed = target.defeatedAt !== npc.defeatedAt || changed;

@@ -24,7 +24,6 @@ import {
   type DebugPlacementOverrides,
   type DebugPlacementTarget,
   getDebugPlacementValue,
-  getNpcDebugPlacementId,
 } from "./debugPlacement";
 import { type NameplateVisibility } from "./settings";
 import {
@@ -534,16 +533,15 @@ function TownSceneComponent({
           );
         })}
         {Array.from(npcs.values()).filter(isVisibleNpc).map((npc) => {
-          const renderedNpc = applyNpcDebugPlacementOverride(npc, debugPlacementOverrides);
           const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
           const onTarget = () => onSelectTarget({ kind: "npc", id: npc.id });
-          const questMarker = getNpcQuestMarker(renderedNpc, localQuestState);
-          const showNameplate = shouldShowNpcNameplate(renderedNpc, nameplateVisibility);
-          if (renderedNpc.model === "mfergpt") {
+          const questMarker = getNpcQuestMarker(npc, localQuestState);
+          const showNameplate = shouldShowNpcNameplate(npc, nameplateVisibility);
+          if (npc.model === "mfergpt") {
             return (
               <MferGptAvatar
                 key={npc.id}
-                npc={renderedNpc}
+                npc={npc}
                 showNameplate={showNameplate}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
@@ -556,11 +554,11 @@ function TownSceneComponent({
             );
           }
 
-          if (renderedNpc.model === "training-dummy") {
+          if (npc.model === "training-dummy") {
             return (
               <TrainingDummyAvatar
                 key={npc.id}
-                npc={renderedNpc}
+                npc={npc}
                 showNameplate={showNameplate}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
@@ -573,11 +571,11 @@ function TownSceneComponent({
             );
           }
 
-          if (renderedNpc.model !== "mfer") {
+          if (npc.model !== "mfer") {
             return (
               <CreatureAvatar
                 key={npc.id}
-                npc={renderedNpc}
+                npc={npc}
                 showNameplate={showNameplate}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
@@ -593,12 +591,12 @@ function TownSceneComponent({
           return (
             <MferAvatar
               key={npc.id}
-              player={renderedNpc}
+              player={npc}
               isNpc
               showNameplate={showNameplate}
               questMarker={questMarker}
               hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
-              actorScale={getNpcActorScale(renderedNpc)}
+              actorScale={getNpcActorScale(npc)}
               isTargeted={isTargeted}
               isDefeated={!npc.isImmortal && npc.health <= 0}
               chatBubble={chatBubbleBySessionId.get(npc.id)}
@@ -658,17 +656,6 @@ function getNpcActorScale(npc: NpcSnapshot) {
 function shouldShowNpcNameplate(npc: NpcSnapshot, visibility: NameplateVisibility) {
   const disposition = getNpcDisposition(npc);
   return disposition === "friendly" ? visibility.friendlyNpcs : visibility.unfriendlyNpcs;
-}
-
-function applyNpcDebugPlacementOverride(npc: NpcSnapshot, overrides: DebugPlacementOverrides): NpcSnapshot {
-  const override = overrides[getNpcDebugPlacementId(npc.id)];
-  if (!override) return npc;
-  return {
-    ...npc,
-    x: override.x,
-    z: override.z,
-    yaw: override.rotation,
-  };
 }
 
 function DebugPlacementGizmos({

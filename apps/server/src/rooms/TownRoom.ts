@@ -524,7 +524,7 @@ export class TownRoom extends Room<TownState> {
       };
       await mkdir(dirname(DEBUG_PLACEMENT_MAP_PATH), { recursive: true });
       await writeFile(DEBUG_PLACEMENT_MAP_PATH, `${JSON.stringify(document, null, 2)}\n`, "utf8");
-      this.debugWorldPlacementOverrides = placements;
+      this.debugWorldPlacementOverrides = filterWorldDebugPlacements(placements);
       setWorldCollisionPlacementOverrides(this.debugWorldPlacementOverrides);
       this.broadcast("debugPlacementMap", {
         placements,
@@ -546,7 +546,7 @@ export class TownRoom extends Room<TownState> {
 
   private async loadSavedDebugPlacementMap() {
     const saved = await readDebugPlacementMap();
-    this.debugWorldPlacementOverrides = saved.placements;
+    this.debugWorldPlacementOverrides = filterWorldDebugPlacements(saved.placements);
     setWorldCollisionPlacementOverrides(this.debugWorldPlacementOverrides);
     applySavedDebugNpcPlacements(this.state.npcs, saved.placements);
   }
@@ -1416,6 +1416,14 @@ function applySavedDebugNpcPlacements(npcs: TownState["npcs"], placements: Recor
     npc.targetX = placement.x;
     npc.targetZ = placement.z;
   }
+}
+
+function filterWorldDebugPlacements(placements: Record<string, DebugPlacementRecord>) {
+  const worldPlacements: Record<string, DebugPlacementRecord> = {};
+  for (const [id, placement] of Object.entries(placements)) {
+    if (!id.startsWith("npc:")) worldPlacements[id] = placement;
+  }
+  return worldPlacements;
 }
 
 export async function readDebugPlacementMap() {
