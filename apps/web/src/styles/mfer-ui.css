@@ -1,0 +1,391 @@
+:root {
+  --mfer-ink: rgba(7, 7, 6, 0.72);
+  --mfer-paper: rgba(255, 248, 221, 0.08);
+  --mfer-marker-yellow: #f3d04e;
+  --mfer-marker-teal: #56dcc2;
+  --mfer-marker-pink: #ff5ea8;
+  --mfer-marker-blue: #4fc6ff;
+  --mfer-marker-grain:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cg fill='none' stroke='%23fff8dc' stroke-linecap='round' opacity='.42'%3E%3Cpath d='M9 14c15-3 30-2 46 1' stroke-width='1.5'/%3E%3Cpath d='M18 38c11 3 24 2 37-1' stroke-width='1.1'/%3E%3Cpath d='M57 63c7-3 15-4 24-2' stroke-width='1.3'/%3E%3Cpath d='M10 78c18 2 35 1 52-4' stroke-width='.9'/%3E%3Cpath d='M72 18l10-3M76 22l8 1M18 58l-7 4' stroke-width='1.6'/%3E%3C/g%3E%3Cg fill='%23fff8dc' opacity='.28'%3E%3Ccircle cx='82' cy='42' r='1.2'/%3E%3Ccircle cx='31' cy='69' r='1'/%3E%3Ccircle cx='64' cy='27' r='.8'/%3E%3C/g%3E%3C/svg%3E");
+  --mfer-ink-scratch:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='80' viewBox='0 0 120 80'%3E%3Cg fill='none' stroke='%230b0b09' stroke-linecap='round' opacity='.34'%3E%3Cpath d='M8 7c23-4 44-2 69 3 11 2 22 1 34-3' stroke-width='2.1'/%3E%3Cpath d='M12 72c26 4 49 2 72-1 10-1 18 0 28 3' stroke-width='1.7'/%3E%3Cpath d='M5 14c2 18 2 33 0 55' stroke-width='1.5'/%3E%3Cpath d='M114 10c-3 17-2 38 1 58' stroke-width='1.4'/%3E%3Cpath d='M25 20l9-4M89 19l13 3M42 62l18 2M73 53l9-4' stroke-width='1.5'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.quest-panel,
+.chat-panel,
+.auth-title-lockup,
+.auth-connect-panel,
+.loot-panel,
+.quest-dialogue-panel,
+.world-map-panel,
+.quest-log-panel,
+.inventory-panel,
+.abilities-panel,
+.character-panel,
+.settings-panel,
+.death-panel,
+.hud-tooltip,
+.online-row {
+  isolation: isolate;
+}
+
+.quest-panel::before,
+.chat-panel::before,
+.auth-title-lockup::before,
+.auth-connect-panel::before,
+.loot-panel::before,
+.quest-dialogue-panel::before,
+.world-map-panel::before,
+.quest-log-panel::before,
+.inventory-panel::before,
+.abilities-panel::before,
+.character-panel::before,
+.settings-panel::before,
+.death-panel::before,
+.hud-tooltip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    var(--mfer-marker-grain),
+    linear-gradient(135deg, rgba(255, 248, 221, 0.09), transparent 34% 72%, rgba(86, 220, 194, 0.05));
+  background-size: 96px 96px, auto;
+  mix-blend-mode: screen;
+  opacity: 0.24;
+  pointer-events: none;
+}
+
+.quest-panel::after,
+.chat-panel::after,
+.auth-title-lockup::after,
+.auth-connect-panel::after,
+.loot-panel::after,
+.quest-dialogue-panel::after,
+.world-map-panel::after,
+.quest-log-panel::after,
+.inventory-panel::after,
+.abilities-panel::after,
+.character-panel::after,
+.settings-panel::after,
+.death-panel::after,
+.hud-tooltip::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--mfer-ink-scratch);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.quest-panel > *,
+.chat-panel > *,
+.auth-title-lockup > *,
+.auth-connect-panel > *,
+.loot-panel > *,
+.quest-dialogue-panel > *,
+.world-map-panel > *,
+.quest-log-panel > *,
+.inventory-panel > *,
+.abilities-panel > *,
+.character-panel > *,
+.settings-panel > *,
+.death-panel > *,
+.hud-tooltip > * {
+  position: relative;
+  z-index: 1;
+}
+
+.quest-panel,
+.chat-panel,
+.auth-title-lockup,
+.auth-connect-panel,
+.loot-panel,
+.quest-dialogue-panel,
+.world-map-panel,
+.quest-log-panel,
+.inventory-panel,
+.abilities-panel,
+.character-panel,
+.settings-panel,
+.death-panel {
+  border-color: rgba(255, 248, 224, 0.22);
+  box-shadow:
+    inset 0 0 0 1px rgba(11, 11, 9, 0.34),
+    inset 0 0 0 2px rgba(255, 248, 224, 0.05),
+    0 18px 44px rgba(0, 0, 0, 0.34);
+}
+
+.quest-panel h2,
+.minimap-panel h2,
+.auth-title-lockup h1,
+.world-map-header strong,
+.quest-dialogue-heading strong,
+.loot-panel > strong,
+.inventory-panel header strong,
+.abilities-panel header strong,
+.character-panel header strong,
+.settings-panel header strong,
+.death-panel strong {
+  text-shadow:
+    1px 0 0 rgba(7, 7, 6, 0.9),
+    -1px 1px 0 rgba(7, 7, 6, 0.55),
+    0 2px 0 rgba(7, 7, 6, 0.88);
+}
+
+.quest-panel h2::after,
+.menu-section-header::after,
+.talent-panel-header::after {
+  content: "";
+  display: block;
+  width: 34px;
+  height: 5px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent 0 8%, var(--mfer-marker-teal) 8% 72%, transparent 72%),
+    linear-gradient(90deg, transparent 0 18%, rgba(255, 255, 255, 0.5) 18% 28%, transparent 28%);
+  transform: rotate(-2deg);
+}
+
+.menu-section-header::after,
+.talent-panel-header::after {
+  width: 28px;
+  margin: 0 0 4px;
+  background:
+    linear-gradient(90deg, transparent 0 10%, var(--mfer-marker-pink) 10% 76%, transparent 76%);
+  opacity: 0.9;
+}
+
+.quest-panel.compact h2::after {
+  display: none;
+}
+
+.quest-row,
+.quest-dialogue-detail,
+.quest-dialogue-rewards,
+.item-row,
+.ability-slot-row,
+.ability-book-row,
+.settings-toggle-row,
+.character-stat,
+.equipment-slot,
+.gear-row,
+.talent-tree-heading,
+.talent-row,
+.inventory-slot {
+  border-color: rgba(255, 248, 224, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(7, 7, 6, 0.24),
+    inset 0 1px 0 rgba(255, 248, 224, 0.07);
+}
+
+.action-slot,
+.menu-dock button,
+.menu-tile,
+.quest-panel-header button,
+.minimap-header button,
+.world-map-header button,
+.quest-offer-close,
+.quest-secondary-btn,
+.quest-accept-btn,
+.item-use-btn,
+.talent-action,
+.death-panel button,
+.ability-slot-row button,
+.menu-tabs button,
+.primary-btn,
+.secondary-btn,
+.text-btn,
+.name-field input,
+.chat-panel input {
+  position: relative;
+  isolation: isolate;
+  border-color: rgba(255, 248, 224, 0.22);
+  box-shadow:
+    inset 0 0 0 1px rgba(8, 8, 6, 0.44),
+    0 7px 16px rgba(0, 0, 0, 0.22);
+}
+
+.action-slot::before,
+.menu-dock button::before,
+.menu-tile::before,
+.quest-panel-header button::before,
+.minimap-header button::before,
+.world-map-header button::before,
+.quest-offer-close::before,
+.quest-secondary-btn::before,
+.quest-accept-btn::before,
+.item-use-btn::before,
+.talent-action::before,
+.death-panel button::before,
+.ability-slot-row button::before,
+.menu-tabs button::before,
+.primary-btn::before,
+.secondary-btn::before,
+.text-btn::before,
+.name-field input::before,
+.chat-panel input::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    var(--mfer-marker-grain),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 52%);
+  background-size: 72px 72px, auto;
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.action-slot::after,
+.menu-dock button::after,
+.menu-tile::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  z-index: 4;
+  border: 2px solid rgba(8, 8, 6, 0.36);
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-radius: 6px;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.action-slot > *,
+.menu-dock button > *,
+.menu-tile > *,
+.quest-panel-header button > *,
+.minimap-header button > *,
+.world-map-header button > *,
+.quest-offer-close > *,
+.quest-secondary-btn > *,
+.quest-accept-btn > *,
+.item-use-btn > *,
+.talent-action > *,
+.death-panel button > *,
+.ability-slot-row button > *,
+.menu-tabs button > *,
+.primary-btn > *,
+.secondary-btn > *,
+.text-btn > * {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-title-lockup {
+  border-color: rgba(255, 248, 224, 0.26);
+}
+
+.auth-title-lockup p,
+.name-field span {
+  color: rgba(255, 248, 224, 0.78);
+  text-shadow: 0 1px 0 rgba(7, 7, 6, 0.84);
+}
+
+.auth-connect-panel {
+  border-color: rgba(255, 248, 224, 0.22);
+}
+
+.name-field input,
+.chat-panel input {
+  border-color: rgba(255, 248, 224, 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgba(7, 7, 6, 0.44),
+    inset 0 1px 0 rgba(255, 248, 224, 0.08);
+}
+
+.action-slot.filled > .item-icon,
+.action-slot.filled > .ability-icon,
+.menu-tile > .item-icon,
+.menu-tile > .ability-icon,
+.menu-tile > .category-icon {
+  filter: saturate(1.12) contrast(1.03);
+}
+
+.action-slot.filled strong,
+.menu-tile strong,
+.item-count-label,
+.slot-key,
+.tile-count,
+.tile-state,
+.tile-key,
+.tile-rank,
+.tile-badge {
+  text-shadow:
+    1px 0 0 rgba(8, 8, 6, 0.95),
+    0 1px 0 rgba(8, 8, 6, 0.95),
+    -1px 0 0 rgba(8, 8, 6, 0.72);
+}
+
+.slot-key,
+.tile-key,
+.tile-state,
+.dock-badge {
+  box-shadow:
+    inset 0 0 0 1px rgba(8, 8, 6, 0.3),
+    0 1px 0 rgba(255, 248, 224, 0.2);
+  transform: rotate(-2deg);
+}
+
+.cooldown-label {
+  border: 1px solid rgba(255, 248, 224, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(8, 8, 6, 0.48);
+}
+
+.bar,
+.target-health {
+  border-color: rgba(8, 8, 6, 0.64);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 224, 0.1),
+    inset 0 -2px 0 rgba(8, 8, 6, 0.3);
+}
+
+.bar::after,
+.target-health::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: 1;
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, transparent 0 9%, rgba(255, 248, 224, 0.16) 9% 11%, transparent 11% 48%, rgba(8, 8, 6, 0.18) 48% 50%, transparent 50%),
+    var(--mfer-marker-grain);
+  background-size: auto, 80px 80px;
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+.bar em,
+.target-health em {
+  z-index: 2;
+}
+
+.minimap,
+.world-map {
+  border-color: #efd85d;
+  box-shadow:
+    inset 0 0 0 2px rgba(8, 8, 6, 0.38),
+    0 6px 18px rgba(0, 0, 0, 0.24);
+}
+
+.minimap::after,
+.world-map::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  z-index: 12;
+  border: 2px solid rgba(8, 8, 6, 0.28);
+  border-radius: inherit;
+  background: var(--mfer-marker-grain);
+  background-size: 86px 86px;
+  opacity: 0.18;
+  pointer-events: none;
+}
