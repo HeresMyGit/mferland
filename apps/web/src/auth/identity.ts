@@ -7,7 +7,7 @@ export function getOrCreateGuestId(): string {
   const existing = localStorage.getItem(GUEST_ID_KEY);
   if (existing) return existing;
 
-  const id = crypto.randomUUID();
+  const id = makeGuestId();
   localStorage.setItem(GUEST_ID_KEY, id);
   return id;
 }
@@ -37,4 +37,17 @@ export function makeWalletIdentity(name: string, walletAddress: string): JoinOpt
     walletAddress,
     avatarSeed: stableHash(`${walletAddress}:${name}`),
   };
+}
+
+function makeGuestId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const values = crypto.getRandomValues(new Uint32Array(4));
+    return Array.from(values, (value) => value.toString(16).padStart(8, "0")).join("-");
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

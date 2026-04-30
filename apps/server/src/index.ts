@@ -1,4 +1,5 @@
 import { createServer, type ServerResponse } from "node:http";
+import { networkInterfaces } from "node:os";
 import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
@@ -10,6 +11,7 @@ const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
 Encoder.BUFFER_SIZE = ROOM_STATE_ENCODER_BUFFER_BYTES;
 
 const port = Number(process.env.PORT ?? 2567);
+const host = process.env.HOST ?? "0.0.0.0";
 const server = createServer((req, res) => {
   const url = req.url?.split("?")[0] ?? "/";
   if (req.method === "OPTIONS") {
@@ -50,8 +52,16 @@ const server = createServer((req, res) => {
 const gameServer = new Server({ server });
 gameServer.define(ROOM_NAME, TownRoom);
 
-server.listen(port, () => {
+server.listen(port, host, () => {
   console.log(`mferland server listening on ws://localhost:${port}`);
+  if (isLanHost(host)) {
+    for (const address of getLanAddresses()) {
+      console.log(`mferland LAN join: http://${address}:5173`);
+      console.log(`mferland LAN server: ws://${address}:${port}`);
+    }
+  } else {
+    console.log(`mferland server host: ${host}`);
+  }
 });
 
 async function shutdown() {
@@ -69,6 +79,21 @@ process.on("SIGTERM", () => {
 
 function writeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");
-  res.setHeader("access-control-allow-methods", "GET,OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type");
+}
+
+function isLanHost(value: string) {
+  return value === "0.0.0.0" || value === "::" || value === "";
+}
+
+function getLanAddresses() {
+  const addresses = new Set<string>();
+  for (const interfaces of Object.values(networkInterfaces())) {
+    for (const network of interfaces ?? []) {
+      if (network.internal || network.family !== "IPv4") continue;
+      addresses.add(network.address);
+    }
+  }
+  return [...addresses];
 }
