@@ -7,6 +7,7 @@ import {
   COMBAT,
   ITEMS,
   LOOT,
+  getUnlockedCombatActions,
   getInventoryItemKey,
   getItemConsumable,
   getNpcDisposition,
@@ -58,8 +59,8 @@ import {
 import { SARTOSHI_MFER_TRAITS } from "./game/mferTraits";
 
 const ACTION_SLOT_COUNT = 8;
-const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
-const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v3";
+const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["attack", null, null, null, null, null, null, null];
+const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v4";
 const GAME_SETTINGS_STORAGE_KEY = "mferland:settings:v1";
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
@@ -87,6 +88,13 @@ type DebugPlacementSaveStatus = {
   state: "idle" | "saving" | "saved" | "error";
   message: string;
 };
+type MoveUnlockNotice = {
+  id: number;
+  actionId: CombatActionId;
+  level: number;
+  buttonIndex: number | null;
+};
+type QueuedMoveUnlockNotice = Omit<MoveUnlockNotice, "id">;
 
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
@@ -281,6 +289,7 @@ function GameShell({
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
+  const [moveUnlockNotices, setMoveUnlockNotices] = useState<MoveUnlockNotice[]>([]);
   const [debugTravelView, setDebugTravelView] = useState<DebugTravelView | null>(null);
   const [settings, setSettings] = useState<GameSettings>(() => readStoredGameSettings());
   const [debugPlacementOverrides, setDebugPlacementOverrides] = useState<DebugPlacementOverrides>(() => readStoredDebugPlacementOverrides());
@@ -290,6 +299,8 @@ function GameShell({
   const [debugPlacementPanelOpen, setDebugPlacementPanelOpen] = useState(false);
   const [debugPlacementSaveStatus, setDebugPlacementSaveStatus] = useState<DebugPlacementSaveStatus>({ state: "idle", message: "" });
   const actionErrorIdRef = useRef(0);
+  const moveUnlockNoticeIdRef = useRef(0);
+  const unlockedActionKeyRef = useRef("");
   const pendingDebugPlacementSaveRef = useRef<{
     placements: DebugPlacementOverrides;
     sourceDefaults: DebugPlacementStoredRecordMap;
@@ -395,7 +406,8 @@ function GameShell({
       audio.play("itemUse");
       room.sendUseItem({ itemId: slot.itemId, chainTokenId: slot.chainTokenId });
     } else {
-      const blockMessage = getCombatActionBlockMessage(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit);
+      const debugUnlockAllMoves = debugToolsAvailable && settings.debugUnlockAllMoves;
+      const blockMessage = getCombatActionBlockMessage(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit, debugUnlockAllMoves);
       if (blockMessage) {
         showActionError(blockMessage);
         return;
@@ -403,9 +415,10 @@ function GameShell({
       room.sendCombatAction({
         actionId: slot,
         target: selectedTarget,
+        debugUnlockAllMoves,
       });
     }
-  }, [audio, localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, showActionError]);
+  }, [audio, debugToolsAvailable, localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, settings.debugUnlockAllMoves, showActionError]);
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
@@ -608,21 +621,48 @@ function GameShell({
   }, [debugPlacementSaveStatus.state]);
 
   useEffect(() => {
-    if (!localPlayer) return;
-    setActionSlots((current) => {
-      const next = normalizeActionSlots(current).map((slot) => {
-        if (!slot || slot === "interact") return slot;
-        if (isItemActionSlot(slot)) {
-          const inventoryKey = getInventoryItemKey(slot.itemId, slot.chainTokenId);
-          return localPlayer.inventory.some((item) => getInventoryItemKey(item.id, item.chainTokenId) === inventoryKey && item.count > 0)
-            ? slot
-            : null;
-        }
-        return isCombatActionUnlocked(slot, localPlayer.talents) ? slot : null;
-      });
-      return slotsEqual(current, next) ? current : next;
+    if (!localPlayer) {
+      unlockedActionKeyRef.current = "";
+      return;
+    }
+    const debugUnlockAllMoves = debugToolsAvailable && settings.debugUnlockAllMoves;
+    const unlockedActions = getUnlockedCombatActions(localPlayer.level, debugUnlockAllMoves) as CombatActionId[];
+    const unlockedActionKey = unlockedActions.join("|");
+    const previousUnlockedActionKey = unlockedActionKeyRef.current;
+    const previousUnlockedActions = new Set(previousUnlockedActionKey ? previousUnlockedActionKey.split("|") as CombatActionId[] : []);
+    const newlyUnlockedActions = previousUnlockedActionKey
+      ? unlockedActions.filter((actionId) => !previousUnlockedActions.has(actionId))
+      : [];
+    unlockedActionKeyRef.current = unlockedActionKey;
+
+    const result = reconcileActionSlots({
+      current: actionSlots,
+      debugUnlockAllMoves,
+      newlyUnlockedActions,
+      player: localPlayer,
+      shouldNotify: newlyUnlockedActions.length > 0 && !debugUnlockAllMoves,
+      unlockedActions,
     });
-  }, [localPlayer?.inventory, localPlayer?.talents, room.snapshotRevision]);
+    if (!slotsEqual(actionSlots, result.slots)) setActionSlots(result.slots);
+    if (result.notices.length > 0) {
+      audio.play("uiConfirm");
+      setMoveUnlockNotices((current) => [
+        ...current,
+        ...result.notices.map((notice) => ({
+          ...notice,
+          id: ++moveUnlockNoticeIdRef.current,
+        })),
+      ]);
+    }
+  }, [actionSlots, audio, debugToolsAvailable, localPlayer, room.snapshotRevision, settings.debugUnlockAllMoves]);
+
+  useEffect(() => {
+    if (moveUnlockNotices.length === 0) return;
+    const timeout = window.setTimeout(() => {
+      setMoveUnlockNotices((current) => current.slice(1));
+    }, 2800);
+    return () => window.clearTimeout(timeout);
+  }, [moveUnlockNotices]);
 
   useEffect(() => {
     window.localStorage.setItem(ACTION_SLOT_STORAGE_KEY, JSON.stringify(actionSlots));
@@ -747,6 +787,7 @@ function GameShell({
         questStatus={room.questStatus}
         lootWindow={room.lootWindow}
         actionError={actionError}
+        moveUnlockNotice={moveUnlockNotices[0] ?? null}
         actionSlots={actionSlots}
         onAction={performAction}
         onReplaceActionSlots={replaceActionSlots}
@@ -929,6 +970,7 @@ function getCombatActionBlockMessage(
   player: PlayerSnapshot | null,
   selectedTarget: TargetSelection | null,
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
+  debugUnlockAllMoves: boolean,
 ) {
   if (!player) return "Not ready";
   if (player.health <= 0) return "You are dead";
@@ -956,7 +998,7 @@ function getCombatActionBlockMessage(
                   : player.iceBlastReadyAt;
   if (readyAt > now) return "Ability is not ready";
   if (player.mana < action.manaCost) return "Not enough mana";
-  if (!isCombatActionUnlocked(actionId, player.talents)) return "Ability is locked";
+  if (!isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves)) return "Ability is locked";
   if (actionId === "frostNova" || actionId === "whirlwind") return null;
   if (actionId === "heal") {
     const targetUnit = selectedTarget ? selectedTargetUnit : player;
@@ -1146,6 +1188,66 @@ function normalizeActionSlots(slots: unknown[]) {
   return next;
 }
 
+function reconcileActionSlots({
+  current,
+  debugUnlockAllMoves,
+  newlyUnlockedActions,
+  player,
+  shouldNotify,
+  unlockedActions,
+}: {
+  current: ActionSlot[];
+  debugUnlockAllMoves: boolean;
+  newlyUnlockedActions: CombatActionId[];
+  player: PlayerSnapshot;
+  shouldNotify: boolean;
+  unlockedActions: CombatActionId[];
+}) {
+  const unlockedActionSet = new Set(unlockedActions);
+  const newlyUnlockedActionSet = new Set(newlyUnlockedActions);
+  const notices: QueuedMoveUnlockNotice[] = [];
+  const next = normalizeActionSlots(current).map((slot) => {
+    if (!slot || slot === "interact") return slot;
+    if (isItemActionSlot(slot)) {
+      const inventoryKey = getInventoryItemKey(slot.itemId, slot.chainTokenId);
+      return player.inventory.some((item) => getInventoryItemKey(item.id, item.chainTokenId) === inventoryKey && item.count > 0)
+        ? slot
+        : null;
+    }
+    return unlockedActionSet.has(slot) ? slot : null;
+  });
+  const assignedActions = new Set(next.filter(isCombatActionSlot));
+
+  for (const actionId of unlockedActions) {
+    if (assignedActions.has(actionId)) {
+      const buttonIndex = next.findIndex((slot) => slot === actionId);
+      if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
+        notices.push({ actionId, buttonIndex: buttonIndex >= 0 ? buttonIndex : null, level: player.level });
+      }
+      continue;
+    }
+
+    const emptyIndex = next.findIndex((slot) => !slot);
+    if (emptyIndex === -1) {
+      if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
+        notices.push({ actionId, buttonIndex: null, level: player.level });
+      }
+      continue;
+    }
+
+    next[emptyIndex] = actionId;
+    assignedActions.add(actionId);
+    if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
+      notices.push({ actionId, buttonIndex: emptyIndex, level: player.level });
+    }
+  }
+
+  return {
+    slots: debugUnlockAllMoves ? next : next.map((slot) => isLockedCombatActionSlot(slot, player.level) ? null : slot),
+    notices,
+  };
+}
+
 function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {
   const assignedActions = slots.filter((slot): slot is ActionId => Boolean(slot && !isItemActionSlot(slot)));
   const needsStarterLoadout = assignedActions.length === 0 || (
@@ -1166,6 +1268,14 @@ function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {
 
 function isActionId(value: unknown): value is ActionId {
   return value === "interact" || (typeof value === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, value));
+}
+
+function isCombatActionSlot(slot: ActionSlot): slot is CombatActionId {
+  return Boolean(slot && typeof slot === "string" && slot !== "interact");
+}
+
+function isLockedCombatActionSlot(slot: ActionSlot, playerLevel: number) {
+  return isCombatActionSlot(slot) && !isCombatActionUnlocked(slot, playerLevel);
 }
 
 function isStoredItemSlot(value: unknown): value is { type: "item"; itemId: ItemId; chainTokenId?: string } {

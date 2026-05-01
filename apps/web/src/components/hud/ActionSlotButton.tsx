@@ -5,6 +5,7 @@ import {
   getInventoryItemKey,
   getItemConsumable,
   getNpcDisposition,
+  getTalentActionBaseDamage,
   getTalentActionCooldownMs,
   isAttackableNpcRole,
   isCombatActionUnlocked,
@@ -40,6 +41,7 @@ export function ActionSlotButton({
   selectedTarget,
   selectedTargetUnit,
   now,
+  debugUnlockAllMoves,
 }: {
   actionId: ActionSlot;
   index: number;
@@ -53,6 +55,7 @@ export function ActionSlotButton({
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   now: number;
+  debugUnlockAllMoves: boolean;
 }) {
   const itemSlot = isItemActionSlot(actionId) ? actionId : null;
   const abilitySlot = typeof actionId === "string" ? actionId : null;
@@ -66,7 +69,7 @@ export function ActionSlotButton({
   const usability: SlotUsability = itemSlot
     ? getItemUsability(itemSlot, localPlayer)
     : combatActionId
-    ? getCombatUsability(combatActionId, localPlayer, selectedTarget, selectedTargetUnit, now)
+    ? getCombatUsability(combatActionId, localPlayer, selectedTarget, selectedTargetUnit, now, debugUnlockAllMoves)
     : { usable: true, reason: "" };
   const filled = Boolean(action || itemSlot);
   const tooltip = getActionSlotTooltip(actionId, index, localPlayer, usability, cooldown);
@@ -183,13 +186,12 @@ function getItemUsability(slot: ItemActionSlot, player: PlayerSnapshot | null) {
 
 function getActionSlotTooltip(
   slot: ActionSlot,
-  index: number,
+  _index: number,
   player: PlayerSnapshot | null,
   usability: SlotUsability,
   cooldown: ReturnType<typeof getCooldownState> | null,
 ) {
-  const slotLabel = `Slot ${index + 1}`;
-  if (!slot) return `${slotLabel}\nEmpty`;
+  if (!slot) return "Empty";
 
   if (isItemActionSlot(slot)) {
     const item = ITEMS[slot.itemId];
@@ -201,7 +203,6 @@ function getActionSlotTooltip(
 
     return [
       item.name,
-      slotLabel,
       item.description,
       usability.count !== undefined ? `Count: ${usability.count}` : "",
       effects,
@@ -214,17 +215,13 @@ function getActionSlotTooltip(
   if (slot === "interact") {
     return [
       meta?.label ?? "Interact",
-      slotLabel,
       "Talk, loot, and use nearby objects.",
     ].join("\n");
   }
 
   const action = COMBAT.actions[slot];
-  const effect = action.damage > 0
-    ? `${action.damage} base damage`
-    : slot === "heal"
-      ? `${COMBAT.actions.heal.healing} healing`
-      : "Utility";
+  const damage = player ? getTalentActionBaseDamage(slot, player.talents) : action.damage;
+  const effect = getCombatEffectLine(slot, damage);
   const range = action.maxRange > 0
     ? action.minRange > 0 ? `${action.minRange}-${action.maxRange}m range` : `${action.maxRange}m range`
     : "Self/nearby";
@@ -232,13 +229,24 @@ function getActionSlotTooltip(
 
   return [
     meta?.label ?? "Ability",
-    slotLabel,
+    action.description,
     `${effect} / ${range}`,
     action.manaCost > 0 ? `${action.manaCost} MP` : "No mana cost",
     cooldownMs > 0 ? `Cooldown: ${formatTooltipDuration(cooldownMs)}` : "No cooldown",
     cooldown && cooldown.remainingMs > 0 ? `Ready in ${formatTooltipDuration(cooldown.remainingMs)}` : "",
     usability.reason ? `Status: ${usability.reason}` : "",
   ].filter(Boolean).join("\n");
+}
+
+function getCombatEffectLine(actionId: CombatActionId, damage: number) {
+  if (actionId === "attack") return `${damage} damage / +${COMBAT.actions.attack.threatBonus} threat`;
+  if (actionId === "taunt") return `Forces target to attack you for ${formatTooltipDuration(COMBAT.actions.taunt.forceMs)}`;
+  if (actionId === "heal") return `${COMBAT.actions.heal.healing} healing`;
+  if (actionId === "frostNova") return `${damage} damage / freezes ${formatTooltipDuration(COMBAT.actions.frostNova.freezeMs)}`;
+  if (actionId === "whirlwind") return `${damage} damage nearby / +${COMBAT.actions.whirlwind.threatBonus} threat`;
+  if (actionId === "multishot") return `${damage} damage / up to ${COMBAT.actions.multishot.maxTargets} targets`;
+  if (actionId === "iceBlast") return `${damage} damage / slows ${formatTooltipDuration(COMBAT.actions.iceBlast.slowMs)}`;
+  return damage > 0 ? `${damage} damage` : "Utility";
 }
 
 function getInventoryItemCount(inventory: InventoryItemSnapshot[], itemId: ItemId, chainTokenId = "") {
@@ -262,10 +270,11 @@ function getCombatUsability(
   selectedTarget: TargetSelection | null,
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
   now: number,
+  debugUnlockAllMoves: boolean,
 ) {
   if (!player) return { usable: false, reason: "" };
   if (player.castingAction) return { usable: false, reason: "Casting" };
-  if (!isCombatActionUnlocked(actionId, player.talents)) return { usable: false, reason: "Locked" };
+  if (!isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves)) return { usable: false, reason: "Locked" };
 
   const action = COMBAT.actions[actionId];
   if (getActionReadyAt(player, actionId) > now) return { usable: false, reason: "" };

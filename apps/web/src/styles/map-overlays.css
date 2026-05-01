@@ -434,6 +434,30 @@
   display: block;
 }
 
+.hud-tooltip .tooltip-line.effect {
+  color: #ffe260;
+}
+
+.hud-tooltip .tooltip-line.control {
+  color: #ff967c;
+}
+
+.hud-tooltip .tooltip-line.resource {
+  color: #75d8ff;
+}
+
+.hud-tooltip .tooltip-line.timing {
+  color: #b69aff;
+}
+
+.hud-tooltip .tooltip-line.range {
+  color: #b7ff6d;
+}
+
+.hud-tooltip .tooltip-line.status {
+  color: #ff7278;
+}
+
 .item-count-label {
   position: absolute;
   z-index: 3;

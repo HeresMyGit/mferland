@@ -11,6 +11,7 @@ export const COMBAT = {
   actions: {
     attack: {
       label: "bonk",
+      description: "A close hit that builds extra threat.",
       damage: 4,
       cooldownMs: 1500,
       minRange: 0,
@@ -18,9 +19,11 @@ export const COMBAT = {
       manaCost: 0,
       castTimeMs: 0,
       requiresStationary: false,
+      threatBonus: 24,
     },
     shoot: {
       label: "peg",
+      description: "A longer-range shot for enemies that are not in your face.",
       damage: 10,
       cooldownMs: 2000,
       minRange: 4.0,
@@ -31,6 +34,7 @@ export const COMBAT = {
     },
     signalShot: {
       label: "ping",
+      description: "A quick signal shot you can fire while moving.",
       damage: 12,
       cooldownMs: 6000,
       minRange: 4.0,
@@ -41,6 +45,7 @@ export const COMBAT = {
     },
     fireblast: {
       label: "burn post",
+      description: "A heavy casted hit that asks you to stand still.",
       damage: 20,
       cooldownMs: 0,
       minRange: 0,
@@ -51,6 +56,7 @@ export const COMBAT = {
     },
     frostNova: {
       label: "cold take",
+      description: "A close burst that freezes nearby enemies.",
       damage: 5,
       cooldownMs: 12000,
       minRange: 0,
@@ -62,6 +68,7 @@ export const COMBAT = {
     },
     heal: {
       label: "patch up",
+      description: "A casted heal for yourself or a friendly target.",
       damage: 0,
       healing: 34,
       cooldownMs: 5000,
@@ -75,6 +82,7 @@ export const COMBAT = {
     },
     taunt: {
       label: "talk shit",
+      description: "Forces your target to attack you and adds snap threat.",
       damage: 0,
       cooldownMs: 10000,
       minRange: 0,
@@ -87,6 +95,7 @@ export const COMBAT = {
     },
     whirlwind: {
       label: "spin out",
+      description: "Hit nearby enemies and keep their attention.",
       damage: 9,
       cooldownMs: 9000,
       minRange: 0,
@@ -98,6 +107,7 @@ export const COMBAT = {
     },
     multishot: {
       label: "thread spray",
+      description: "A shot that splits across enemies near your target.",
       damage: 9,
       cooldownMs: 10000,
       minRange: 4,
@@ -110,6 +120,7 @@ export const COMBAT = {
     },
     iceBlast: {
       label: "freeze post",
+      description: "A casted cold bolt that slows the target.",
       damage: 14,
       cooldownMs: 0,
       minRange: 0,
@@ -122,3 +133,35 @@ export const COMBAT = {
     },
   },
 } as const;
+
+export const COMBAT_ACTION_UNLOCKS = [
+  { actionId: "attack", level: 1 },
+  { actionId: "shoot", level: 2 },
+  { actionId: "signalShot", level: 3 },
+  { actionId: "fireblast", level: 4 },
+  { actionId: "frostNova", level: 5 },
+  { actionId: "heal", level: 6 },
+  { actionId: "taunt", level: 7 },
+  { actionId: "whirlwind", level: 8 },
+  { actionId: "multishot", level: 9 },
+  { actionId: "iceBlast", level: 10 },
+] as const satisfies readonly { actionId: keyof typeof COMBAT.actions; level: number }[];
+
+export function getCombatActionUnlockLevel(actionId: keyof typeof COMBAT.actions) {
+  return COMBAT_ACTION_UNLOCKS.find((unlock) => unlock.actionId === actionId)?.level ?? 1;
+}
+
+export function getUnlockedCombatActions(playerLevel: number, debugUnlockAllMoves = false) {
+  const level = Math.max(1, Math.floor(playerLevel));
+  return COMBAT_ACTION_UNLOCKS
+    .filter((unlock) => debugUnlockAllMoves || level >= unlock.level)
+    .map((unlock) => unlock.actionId);
+}
+
+export function isCombatActionUnlockedByLevel(
+  actionId: keyof typeof COMBAT.actions,
+  playerLevel: number,
+  debugUnlockAllMoves = false,
+) {
+  return debugUnlockAllMoves || Math.max(1, Math.floor(playerLevel)) >= getCombatActionUnlockLevel(actionId);
+}

@@ -6,7 +6,7 @@ import {
   TALENT_IDS,
   TALENT_TREES,
   TALENT_TREE_IDS,
-  getCombatActionUnlockTalent,
+  getCombatActionUnlockLevel,
   getTalentPointsSpent,
   getTalentRank,
   getTalentRankStatus,
@@ -33,6 +33,7 @@ export function AbilitiesPanel({
   onPointerMove,
   onPointerEnd,
   onSelectTalent,
+  debugUnlockAllMoves,
 }: {
   player: PlayerSnapshot | null;
   actionSlots: ActionSlot[];
@@ -40,6 +41,7 @@ export function AbilitiesPanel({
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
   onSelectTalent: (message: ClientSelectTalent) => void;
+  debugUnlockAllMoves: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<"spellbook" | "talents">("spellbook");
 
@@ -75,6 +77,7 @@ export function AbilitiesPanel({
                 actionId={actionId}
                 player={player}
                 actionSlots={actionSlots}
+                debugUnlockAllMoves={debugUnlockAllMoves}
                 onBeginDrag={onBeginDrag}
                 onPointerMove={onPointerMove}
                 onPointerEnd={onPointerEnd}
@@ -93,6 +96,7 @@ function AbilityBookTile({
   actionId,
   player,
   actionSlots,
+  debugUnlockAllMoves,
   onBeginDrag,
   onPointerMove,
   onPointerEnd,
@@ -100,6 +104,7 @@ function AbilityBookTile({
   actionId: ActionId;
   player: PlayerSnapshot | null;
   actionSlots: ActionSlot[];
+  debugUnlockAllMoves: boolean;
   onBeginDrag: (slot: NonNullable<ActionSlot>, event: PointerEvent<HTMLElement>, fromIndex?: number) => void;
   onPointerMove: (event: PointerEvent<HTMLElement>) => void;
   onPointerEnd: (event: PointerEvent<HTMLElement>) => void;
@@ -108,10 +113,10 @@ function AbilityBookTile({
   if (!meta) return null;
 
   const isCombat = actionId !== "interact";
-  const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.talents));
-  const unlockTalentId = isCombat ? getCombatActionUnlockTalent(actionId) : null;
+  const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves));
+  const unlockLevel = isCombat ? getCombatActionUnlockLevel(actionId) : 1;
   const assignedIndex = actionSlots.findIndex((slot) => slot === actionId);
-  const title = getAbilityTitle(actionId, unlockTalentId, assignedIndex, locked);
+  const title = getAbilityTitle(actionId, unlockLevel, assignedIndex, locked);
 
   return (
     <div
@@ -129,18 +134,18 @@ function AbilityBookTile({
   );
 }
 
-function getAbilityTitle(actionId: ActionId, unlockTalentId: TalentId | null, assignedIndex: number, locked: boolean) {
+function getAbilityTitle(actionId: ActionId, unlockLevel: number, assignedIndex: number, locked: boolean) {
   const meta = getActionMeta(actionId);
-  const state = locked ? "locked" : assignedIndex >= 0 ? `slot ${assignedIndex + 1}` : "ready";
+  const state = locked ? "Locked" : assignedIndex >= 0 ? "Assigned" : "Ready";
   return [
     meta?.label ?? "Ability",
-    getAbilityDescription(actionId, unlockTalentId),
+    getAbilityDescription(actionId),
     state,
-    locked && unlockTalentId ? `Requires ${TALENTS[unlockTalentId].name}` : "",
+    locked ? `Unlocks at level ${unlockLevel}` : "",
   ].filter(Boolean).join("\n");
 }
 
-function getAbilityDescription(actionId: ActionId, unlockTalentId: TalentId | null) {
+function getAbilityDescription(actionId: ActionId) {
   if (actionId === "interact") return "talk, loot, and use nearby objects.";
   const action = COMBAT.actions[actionId];
   const range = action.maxRange > 0
@@ -148,7 +153,7 @@ function getAbilityDescription(actionId: ActionId, unlockTalentId: TalentId | nu
     : "self";
   const mana = action.manaCost > 0 ? ` / ${action.manaCost} MP` : "";
   const detail = `${action.damage > 0 ? `${action.damage} base` : actionId === "heal" ? `${COMBAT.actions.heal.healing} heal` : "Utility"} / ${range}${mana}`;
-  return unlockTalentId ? `Talent: ${TALENTS[unlockTalentId].name} / ${detail}` : detail;
+  return `${action.description} / ${detail}`;
 }
 
 function TalentTreePanel({
@@ -214,7 +219,6 @@ function TalentNode({
   const status = getTalentRankStatus(talents, player?.level ?? 1, player?.talentPoints ?? 0, talentId);
   const rank = getTalentRank(talents, talentId);
   const title = getTalentTitle(talentId, rank, status.reason);
-  const unlockAction = "unlockAction" in definition ? definition.unlockAction : null;
   const className = [
     "menu-tile",
     "talent-node",
@@ -231,7 +235,7 @@ function TalentNode({
       aria-label={formatTooltipLabel(title)}
       onClick={() => status.canRank && onSelectTalent({ talentId })}
     >
-      {unlockAction ? <AbilityIcon actionId={unlockAction} /> : <TalentIcon talentId={talentId} />}
+      <TalentIcon talentId={talentId} />
       <strong>{definition.name}</strong>
       <span className="tile-rank">{rank}/{definition.maxRank}</span>
       {status.canRank && <BadgePlus className="tile-plus" size={12} />}

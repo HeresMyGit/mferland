@@ -72,6 +72,13 @@ type HudTooltipState = {
   y: number;
 };
 
+type MoveUnlockNotice = {
+  id: number;
+  actionId: CombatActionId;
+  level: number;
+  buttonIndex: number | null;
+};
+
 type HudProps = {
   identity: {
     name: string;
@@ -92,6 +99,7 @@ type HudProps = {
   questStatus: QuestStatusNotice | null;
   lootWindow: LootWindow | null;
   actionError: { id: number; text: string } | null;
+  moveUnlockNotice: MoveUnlockNotice | null;
   actionSlots: ActionSlot[];
   onAction: (slot: NonNullable<ActionSlot>) => void;
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
@@ -132,6 +140,7 @@ export function Hud({
   questStatus,
   lootWindow,
   actionError,
+  moveUnlockNotice,
   actionSlots,
   onAction,
   onReplaceActionSlots,
@@ -950,6 +959,7 @@ export function Hud({
             <AbilitiesPanel
               player={localPlayer}
               actionSlots={actionSlots}
+              debugUnlockAllMoves={debugToolsAvailable && settings.debugUnlockAllMoves}
               onBeginDrag={beginSlotDrag}
               onPointerMove={updateActionDrag}
               onPointerEnd={endActionDrag}
@@ -1078,6 +1088,7 @@ export function Hud({
             selectedTarget={selectedTarget}
             selectedTargetUnit={selectedTargetUnit}
             now={now}
+            debugUnlockAllMoves={debugToolsAvailable && settings.debugUnlockAllMoves}
             onAction={onAction}
             onPointerStart={beginActionDrag}
             onPointerMove={updateActionDrag}
@@ -1134,6 +1145,7 @@ export function Hud({
       )}
 
       {actionError && <HudErrorText key={actionError.id} text={actionError.text} />}
+      {moveUnlockNotice && <MoveUnlockToast key={moveUnlockNotice.id} notice={moveUnlockNotice} />}
       {tooltip && <HudTooltip tooltip={tooltip} />}
     </div>
   );
@@ -1150,7 +1162,7 @@ function SettingsPanel({
   onChange: (settings: GameSettings) => void;
   onClose: () => void;
 }) {
-  function updateDebugSetting(key: "debugPlacementEditor" | "debugTravelPanel", value: boolean) {
+  function updateDebugSetting(key: "debugPlacementEditor" | "debugTravelPanel" | "debugUnlockAllMoves", value: boolean) {
     onChange({ ...settings, [key]: value });
   }
 
@@ -1216,6 +1228,11 @@ function SettingsPanel({
             label="Teleport panel"
             checked={settings.debugTravelPanel}
             onChange={(checked) => updateDebugSetting("debugTravelPanel", checked)}
+          />
+          <SettingsToggle
+            label="Unlock all moves"
+            checked={settings.debugUnlockAllMoves}
+            onChange={(checked) => updateDebugSetting("debugUnlockAllMoves", checked)}
           />
         </section>
       )}
@@ -1354,10 +1371,38 @@ function HudTooltip({ tooltip }: { tooltip: HudTooltipState }) {
     <div className="hud-tooltip" role="tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
       <strong>{title}</strong>
       {lines.map((line, index) => (
-        <span key={`${line}-${index}`}>{line}</span>
+        <span key={`${line}-${index}`} className={getTooltipLineClass(line)}>{line}</span>
       ))}
     </div>
   );
+}
+
+function MoveUnlockToast({ notice }: { notice: MoveUnlockNotice }) {
+  const meta = getActionMeta(notice.actionId);
+  const location = notice.buttonIndex === null
+    ? "Open moves to place it on a button"
+    : `Button ${notice.buttonIndex + 1}`;
+
+  return (
+    <section className="move-unlock-toast" aria-label={`${meta?.label ?? "Move"} unlocked`}>
+      <AbilityIcon actionId={notice.actionId} />
+      <span>
+        <strong>{meta?.label ?? "Move"} unlocked</strong>
+        <em>Level {notice.level} / {location}</em>
+      </span>
+    </section>
+  );
+}
+
+function getTooltipLineClass(line: string) {
+  const normalized = line.toLowerCase();
+  if (normalized.includes("status:") || normalized.includes("locked") || normalized.includes("unlock") || normalized.includes("out of range") || normalized.includes("requires")) return "tooltip-line status";
+  if (normalized.includes("cooldown") || normalized.includes("ready in") || normalized.includes("stand still") || normalized.includes("casting")) return "tooltip-line timing";
+  if (normalized.includes("mp") || normalized.includes("mana")) return "tooltip-line resource";
+  if (normalized.includes("damage") || normalized.includes("healing") || normalized.includes("restores")) return "tooltip-line effect";
+  if (normalized.includes("threat") || normalized.includes("forces") || normalized.includes("freezes") || normalized.includes("slows")) return "tooltip-line control";
+  if (normalized.includes("range") || /\d+(\.\d+)?-\d+(\.\d+)?m/.test(normalized) || /\d+(\.\d+)?m/.test(normalized)) return "tooltip-line range";
+  return "tooltip-line";
 }
 
 function isChatShortcutTarget(target: EventTarget | null) {

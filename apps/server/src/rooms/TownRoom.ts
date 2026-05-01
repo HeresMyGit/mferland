@@ -111,7 +111,6 @@ import {
 } from "../systems/utils.js";
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
-const PLAYER_ATTACK_THREAT_BONUS = 24;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 
 type DebugTeleportMessage = {
@@ -643,7 +642,8 @@ export class TownRoom extends Room<TownState> {
 
     const actionId = normalizeCombatActionId(message?.actionId);
     if (!actionId) return;
-    if (!isPlayerActionUnlocked(player, actionId)) return;
+    const debugUnlockAllMoves = process.env.NODE_ENV !== "production" && message?.debugUnlockAllMoves === true;
+    if (!isPlayerActionUnlocked(player, actionId, debugUnlockAllMoves)) return;
 
     const action = getPlayerActionConfig(player, actionId);
     const now = Date.now();
@@ -866,7 +866,7 @@ export class TownRoom extends Room<TownState> {
   }
 
   private getThreatValue(actionId: CombatActionId, amount: number) {
-    if (actionId === "attack") return amount + PLAYER_ATTACK_THREAT_BONUS;
+    if (actionId === "attack") return amount + COMBAT.actions.attack.threatBonus;
     if (actionId === "whirlwind") return amount + COMBAT.actions.whirlwind.threatBonus;
     if (actionId === "taunt") return COMBAT.actions.taunt.threat;
     return Math.max(0, amount);

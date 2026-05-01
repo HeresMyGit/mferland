@@ -1,4 +1,4 @@
-import { COMBAT } from "./combat.js";
+import { COMBAT, isCombatActionUnlockedByLevel } from "./combat.js";
 import type { StatKey } from "./items.js";
 
 type CombatActionId = keyof typeof COMBAT.actions;
@@ -95,14 +95,17 @@ export const TALENTS = {
   "brawler:whirlwind": {
     tree: "brawler",
     nodeId: "whirlwind",
-    name: "spin out",
-    description: "spin through nearby enemies and hold their attention.",
+    name: "spin out control",
+    description: "spin through nearby enemies with more snap.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "brawler:snap-swing", rank: 1 }],
-    effectText: "unlocks spin out",
-    effectPerRank: {},
-    unlockAction: "whirlwind",
+    effectText: "+3 spin out damage",
+    effectPerRank: {
+      actionDamage: {
+        whirlwind: 3,
+      },
+    },
   },
   "caster:deep-pockets": {
     tree: "caster",
@@ -148,14 +151,17 @@ export const TALENTS = {
   "caster:ice-blast": {
     tree: "caster",
     nodeId: "ice-blast",
-    name: "freeze post",
-    description: "a fast cold bolt that slows instead of freezing solid.",
+    name: "freeze post bite",
+    description: "put more bite behind your cold bolt.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "caster:flow-state", rank: 1 }],
-    effectText: "unlocks freeze post",
-    effectPerRank: {},
-    unlockAction: "iceBlast",
+    effectText: "+3 freeze post damage",
+    effectPerRank: {
+      actionDamage: {
+        iceBlast: 3,
+      },
+    },
   },
   "utility:light-step": {
     tree: "utility",
@@ -198,14 +204,17 @@ export const TALENTS = {
   "utility:multishot": {
     tree: "utility",
     nodeId: "multishot",
-    name: "thread spray",
-    description: "loose one shot that splits across up to three nearby enemies.",
+    name: "thread spray rhythm",
+    description: "recover faster after spraying nearby enemies.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "utility:recovery-loop", rank: 1 }],
-    effectText: "unlocks thread spray",
-    effectPerRank: {},
-    unlockAction: "multishot",
+    effectText: "-1500 ms thread spray cooldown",
+    effectPerRank: {
+      actionCooldownMs: {
+        multishot: -1500,
+      },
+    },
   },
 } as const satisfies Record<string, TalentDefinition>;
 
@@ -308,9 +317,8 @@ export function getCombatActionUnlockTalent(actionId: CombatActionId): TalentId 
   return null;
 }
 
-export function isCombatActionUnlocked(actionId: CombatActionId, talents: Iterable<TalentRankLike> | undefined) {
-  const unlockTalentId = getCombatActionUnlockTalent(actionId);
-  return !unlockTalentId || getTalentRank(talents, unlockTalentId) > 0;
+export function isCombatActionUnlocked(actionId: CombatActionId, playerLevel: number, debugUnlockAllMoves = false) {
+  return isCombatActionUnlockedByLevel(actionId, playerLevel, debugUnlockAllMoves);
 }
 
 export function isTalentUnlocked(talents: Iterable<TalentRankLike> | undefined, playerLevel: number, talentId: TalentId) {

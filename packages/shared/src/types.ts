@@ -279,6 +279,7 @@ export type ClientSelectTalent = {
 export type ClientCombatAction = {
   actionId: CombatActionId;
   target?: TargetSelection | null;
+  debugUnlockAllMoves?: boolean;
 };
 
 export type ClientRespawn = Record<string, never>;

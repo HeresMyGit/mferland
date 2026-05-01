@@ -113,8 +113,8 @@ export function getPlayerActionConfig(player: PlayerState, actionId: CombatActio
   };
 }
 
-export function isPlayerActionUnlocked(player: PlayerState, actionId: CombatActionId) {
-  return isCombatActionUnlocked(actionId, getPlayerTalentRanks(player));
+export function isPlayerActionUnlocked(player: PlayerState, actionId: CombatActionId, debugUnlockAllMoves = false) {
+  return isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves);
 }
 
 export function getPlayerQuestXpReward(player: PlayerState, baseXp: number) {
