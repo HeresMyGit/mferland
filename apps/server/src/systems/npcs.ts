@@ -51,7 +51,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
   const specs: NpcSpawnSpec[] = [
     {
       id: "og-mfer",
-      name: "old head mfer",
+      name: "OG mfer",
       role: "quest_giver",
       x: -4.2,
       z: 3.9,

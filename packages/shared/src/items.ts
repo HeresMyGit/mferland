@@ -52,7 +52,7 @@ export const ITEMS = {
   "sealed-note": {
     id: "sealed-note",
     name: "folded note",
-    description: "folded by old head mfer. not your business.",
+    description: "folded by OG mfer. not your business.",
     quality: "quest",
     iconColor: "#f2d067",
     stackable: false,

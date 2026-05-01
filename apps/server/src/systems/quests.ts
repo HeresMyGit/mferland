@@ -146,7 +146,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "fountain-vibes") {
-    return "old head mfer sees you made the loop. town accepts this as enough.";
+    return "OG mfer sees you made the loop. town accepts this as enough.";
   }
 
   if (questId === "feral-farmers") {
@@ -206,7 +206,7 @@ function getFinishedQuestDialogue(npcId: string) {
 }
 
 function getNpcDisplayName(npcId: string) {
-  if (npcId === "og-mfer") return "old head mfer";
+  if (npcId === "og-mfer") return "OG mfer";
   if (npcId === "wearables-mfer") return "drip mfer";
   if (npcId === "dao-mfer") return "dao board mfer";
   if (npcId === "fountain-mfer") return "fountain mfer";
