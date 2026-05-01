@@ -20,6 +20,7 @@ import { TrainingDummyAvatar } from "../components/TrainingDummyAvatar";
 import { type ChatBubble } from "./chatBubbles";
 import { CombatFeedbackLayer } from "./scene/CombatFeedbackLayer";
 import { Skybox, TownWorld } from "./scene/TownWorld";
+import { MFER_COLORS } from "./mferPalette";
 import {
   type DebugPlacementOverrides,
   type DebugPlacementTarget,
@@ -862,7 +863,7 @@ function DebugPlacementAura({
           <cylinderGeometry args={[radius + 0.45, radius + 0.45, auraHeight, 36]} />
         )}
         <meshBasicMaterial
-          color="#f3d04e"
+          color={MFER_COLORS.local}
           transparent
           opacity={0.16}
           depthWrite={false}
@@ -1020,11 +1021,11 @@ function wrapDebugAngle(value: number) {
 }
 
 function getDebugPlacementColor(target: DebugPlacementTarget, selected: boolean) {
-  if (selected) return "#f3d04e";
-  if (target.kind === "npc") return "#66d9ff";
-  if (target.kind === "building") return "#f38f4d";
-  if (target.kind === "model") return "#a982ff";
-  return "#5fe777";
+  if (selected) return MFER_COLORS.local;
+  if (target.kind === "npc") return MFER_COLORS.signal;
+  if (target.kind === "building") return MFER_COLORS.debugBuilding;
+  if (target.kind === "model") return MFER_COLORS.debugModel;
+  return MFER_COLORS.friendly;
 }
 
 function blurActiveTextField() {

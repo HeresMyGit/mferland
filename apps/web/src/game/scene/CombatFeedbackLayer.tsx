@@ -11,6 +11,7 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
 } from "@mferland/shared";
+import { MFER_COLORS } from "../mferPalette";
 
 type Vec3Tuple = [number, number, number];
 export function CombatFeedbackLayer({
@@ -249,11 +250,11 @@ function WhirlwindBurst({ refGroup, position }: { refGroup: RefObject<THREE.Grou
     <group ref={refGroup} position={[position[0], position[1] - 0.46, position[2]]} visible={false}>
       <mesh rotation-x={Math.PI / 2}>
         <torusGeometry args={[1.02, 0.026, 8, 80]} />
-        <meshBasicMaterial color="#fff08a" depthWrite={false} opacity={0.45} toneMapped={false} transparent />
+        <meshBasicMaterial color={MFER_COLORS.lootHighlight} depthWrite={false} opacity={0.45} toneMapped={false} transparent />
       </mesh>
       <mesh rotation-x={Math.PI / 2} rotation-z={0.7}>
         <ringGeometry args={[0.72, 1.3, 72]} />
-        <meshBasicMaterial color="#f3d04e" depthWrite={false} opacity={0.18} toneMapped={false} transparent />
+        <meshBasicMaterial color={MFER_COLORS.local} depthWrite={false} opacity={0.18} toneMapped={false} transparent />
       </mesh>
       {swordAngles.map((angle) => (
         <group
@@ -291,7 +292,7 @@ function TauntSourceMark({ refGroup, position }: { refGroup: RefObject<THREE.Gro
           fontSize={0.72}
           anchorX="center"
           anchorY="middle"
-          color="#ffdd55"
+          color={MFER_COLORS.local}
           outlineColor="#330806"
           outlineWidth={0.085}
           renderOrder={78}
@@ -308,18 +309,18 @@ function TauntPulse({ refGroup, position }: { refGroup: RefObject<THREE.Group | 
     <group ref={refGroup} position={position} visible={false}>
       <mesh rotation-x={Math.PI / 2}>
         <ringGeometry args={[0.42, 0.76, 36]} />
-        <meshBasicMaterial color="#ff4f42" depthWrite={false} opacity={0.45} toneMapped={false} transparent />
+        <meshBasicMaterial color={MFER_COLORS.hostile} depthWrite={false} opacity={0.45} toneMapped={false} transparent />
       </mesh>
       <mesh position={[0, 0.28, 0]}>
         <sphereGeometry args={[0.2, 12, 8]} />
-        <meshBasicMaterial color="#ff4f42" depthWrite={false} opacity={0.36} toneMapped={false} transparent />
+        <meshBasicMaterial color={MFER_COLORS.hostile} depthWrite={false} opacity={0.36} toneMapped={false} transparent />
       </mesh>
       <Billboard position={[0, 0.72, 0]}>
         <Text
           fontSize={0.58}
           anchorX="center"
           anchorY="middle"
-          color="#ff4f42"
+          color={MFER_COLORS.hostile}
           outlineColor="#260403"
           outlineWidth={0.07}
           renderOrder={78}
@@ -336,18 +337,18 @@ function HealBloom({ refGroup, position }: { refGroup: RefObject<THREE.Group | n
     <group ref={refGroup} position={position} visible={false}>
       <mesh rotation-x={Math.PI / 2}>
         <ringGeometry args={[0.34, 0.74, 36]} />
-        <meshBasicMaterial color="#5fe777" depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+        <meshBasicMaterial color={MFER_COLORS.heal} depthWrite={false} opacity={0.34} toneMapped={false} transparent />
       </mesh>
       <mesh rotation-x={Math.PI / 2} rotation-z={Math.PI / 4}>
         <torusGeometry args={[0.42, 0.022, 8, 36]} />
-        <meshBasicMaterial color="#b9ffc4" depthWrite={false} opacity={0.78} toneMapped={false} transparent />
+        <meshBasicMaterial color={MFER_COLORS.friendly} depthWrite={false} opacity={0.78} toneMapped={false} transparent />
       </mesh>
       <Billboard position={[0, 0.34, 0]}>
         <Text
           fontSize={0.38}
           anchorX="center"
           anchorY="middle"
-          color="#8dff9c"
+          color={MFER_COLORS.heal}
           outlineColor="#09230f"
           outlineWidth={0.052}
           renderOrder={78}
@@ -430,11 +431,11 @@ function LinearProjectile({
       <group ref={refGroup} position={start} visible={false}>
         <mesh>
           <sphereGeometry args={[0.22, 14, 10]} />
-          <meshBasicMaterial color="#d67bff" depthTest={false} toneMapped={false} />
+          <meshBasicMaterial color={MFER_COLORS.relay} depthTest={false} toneMapped={false} />
         </mesh>
         <mesh rotation-x={Math.PI / 2}>
           <torusGeometry args={[0.3, 0.018, 8, 24]} />
-          <meshBasicMaterial color="#f3d04e" depthWrite={false} opacity={0.76} toneMapped={false} transparent />
+          <meshBasicMaterial color={MFER_COLORS.local} depthWrite={false} opacity={0.76} toneMapped={false} transparent />
         </mesh>
       </group>
     );
@@ -445,31 +446,31 @@ function LinearProjectile({
     <group ref={refGroup} position={start} visible={false}>
       <mesh position={[0, 0.16, 0]} renderOrder={36}>
         <sphereGeometry args={[0.34, 18, 12]} />
-        <meshBasicMaterial color={isIce ? "#ecfdff" : "#fff08a"} depthTest={false} toneMapped={false} />
+        <meshBasicMaterial color={isIce ? "#ecfdff" : MFER_COLORS.lootHighlight} depthTest={false} toneMapped={false} />
       </mesh>
       <mesh>
         <sphereGeometry args={[0.58, 18, 12]} />
-        <meshBasicMaterial color={isIce ? "#7ee7ff" : "#ff6a28"} depthWrite={false} opacity={0.34} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#7ee7ff" : MFER_COLORS.fireHot} depthWrite={false} opacity={0.34} toneMapped={false} transparent />
       </mesh>
       <mesh rotation-x={Math.PI / 2}>
         <torusGeometry args={[0.46, 0.025, 8, 28]} />
-        <meshBasicMaterial color={isIce ? "#b7f4ff" : "#ffd35b"} depthWrite={false} opacity={0.72} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#b7f4ff" : MFER_COLORS.local} depthWrite={false} opacity={0.72} toneMapped={false} transparent />
       </mesh>
       <mesh position={[0, -0.34, 0]} rotation-x={Math.PI}>
         <coneGeometry args={[0.32, 0.72, 8]} />
-        <meshBasicMaterial color={isIce ? "#9eefff" : "#ff7a2c"} depthWrite={false} opacity={0.78} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#9eefff" : MFER_COLORS.fire} depthWrite={false} opacity={0.78} toneMapped={false} transparent />
       </mesh>
       <mesh position={[0, -0.7, 0]} rotation-x={Math.PI}>
         <coneGeometry args={[0.2, 0.52, 7]} />
-        <meshBasicMaterial color={isIce ? "#dffbff" : "#ff382e"} depthWrite={false} opacity={0.55} toneMapped={false} transparent />
+        <meshBasicMaterial color={isIce ? "#dffbff" : MFER_COLORS.fireHot} depthWrite={false} opacity={0.55} toneMapped={false} transparent />
       </mesh>
     </group>
   );
 }
 
 function SpellImpactBurst({ refGroup, position, variant = "fire" }: { refGroup: RefObject<THREE.Group | null>; position: Vec3Tuple; variant?: "fire" | "signal" | "ice" }) {
-  const color = variant === "ice" ? "#b7f4ff" : variant === "signal" ? "#d67bff" : "#ffb34d";
-  const glow = variant === "ice" ? "#ecfdff" : variant === "signal" ? "#f3d04e" : "#fff08a";
+  const color = variant === "ice" ? "#b7f4ff" : variant === "signal" ? MFER_COLORS.relay : MFER_COLORS.fire;
+  const glow = variant === "ice" ? "#ecfdff" : variant === "signal" ? MFER_COLORS.local : MFER_COLORS.lootHighlight;
   return (
     <group ref={refGroup} position={position} visible={false}>
       <mesh rotation-x={Math.PI / 2}>
@@ -551,7 +552,7 @@ function ExperienceEventVisual({ event }: { event: ExperienceEvent }) {
           fontSize={0.34}
           anchorX="center"
           anchorY="middle"
-          color="#c084fc"
+          color={MFER_COLORS.xp}
           outlineColor="#1f0f34"
           outlineWidth={0.042}
         >
@@ -563,11 +564,11 @@ function ExperienceEventVisual({ event }: { event: ExperienceEvent }) {
 }
 
 function getDamageNumberStyle(actionId: CombatActionId) {
-  if (actionId === "heal") return { color: "#5fe777", outlineColor: "#0d2c16" };
-  if (actionId === "fireblast") return { color: "#ffb34d", outlineColor: "#2a0d05" };
+  if (actionId === "heal") return { color: MFER_COLORS.heal, outlineColor: "#0d2c16" };
+  if (actionId === "fireblast") return { color: MFER_COLORS.fire, outlineColor: "#2a0d05" };
   if (actionId === "frostNova" || actionId === "iceBlast") return { color: "#c8f7ff", outlineColor: "#052331" };
   if (actionId === "signalShot") return { color: "#d7a7ff", outlineColor: "#25103b" };
-  return { color: "#ffd35b", outlineColor: "#15100c" };
+  return { color: MFER_COLORS.local, outlineColor: "#15100c" };
 }
 
 function getEventOffset(id: string): [number, number] {

@@ -87,6 +87,7 @@ Add raw new notes here before triage.
 
 ## Reference Docs
 
+- Mfer color palette and art direction reference: [docs/mfer-color-reference.md](docs/mfer-color-reference.md)
 - DB handoff and migration notes: [docs/db-handoff.md](docs/db-handoff.md)
 - Completed work and verification log: [docs/AGENT_LOG.md](docs/AGENT_LOG.md)
 - Ability/threat design reference: [docs/plans/ability-threat.md](docs/plans/ability-threat.md)

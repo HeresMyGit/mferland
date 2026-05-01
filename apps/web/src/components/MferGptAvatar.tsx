@@ -7,6 +7,7 @@ import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getNpcDisposition, type AnimationState, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
 import { type ChatBubble } from "../game/chatBubbles";
+import { MFER_COLORS } from "../game/mferPalette";
 import {
   ActorBlobShadow,
   ActorChatBubble,
@@ -50,7 +51,7 @@ const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0,
 const friendlyLabelColor = "#f0e9ff";
 const friendlyBadgeColor = "#9b7dff";
 const hostileLabelColor = "#ffe4df";
-const hostileBadgeColor = "#ff5a4f";
+const hostileBadgeColor = MFER_COLORS.hostile;
 const friendlyAntennaLightColor = new THREE.Color("#9b7dff");
 const hostileAntennaLightColor = new THREE.Color("#ff1616");
 const antennaLightBaseIntensity = 15;

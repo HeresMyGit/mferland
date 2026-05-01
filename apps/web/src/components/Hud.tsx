@@ -34,6 +34,7 @@ import {
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
 import { type AudioSettings } from "../game/audio";
+import { MFER_COLORS } from "../game/mferPalette";
 import { generateMferTraitsForActor } from "../game/mferTraits";
 import { type GameSettings, type NameplateVisibility } from "../game/settings";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
@@ -756,7 +757,7 @@ export function Hud({
               className={id === localSessionId ? "map-dot local" : "map-dot"}
               style={{
                 ...getMinimapPointStyle(localPlayer, player.x, player.z),
-                backgroundColor: id === localSessionId ? "#f3d04e" : colorFromSeed(player.avatarSeed),
+                backgroundColor: id === localSessionId ? MFER_COLORS.local : colorFromSeed(player.avatarSeed),
               }}
             />
           ))}

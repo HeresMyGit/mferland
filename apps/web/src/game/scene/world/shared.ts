@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { MFER_BACKGROUND_COLORS, MFER_COLORS } from "../../mferPalette";
 
 export type Vec3Tuple = [number, number, number];
 export type TreeSpec = {
@@ -159,35 +160,35 @@ export const BUILDING_BLUEPRINTS: Record<BuildingBlueprintId, BuildingBlueprint>
 };
 
 export const TOWN_BUILDINGS: TownBuildingPlacement[] = [
-  { id: "mfers", blueprint: "shop", position: [-18, 0, -8], rotation: 0.4, sign: "UNOFFICIAL", accent: "#9b45ff" },
-  { id: "dao", blueprint: "shop", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO HALL", accent: "#52d64f" },
-  { id: "wearables", blueprint: "shop", position: [-18, 0, 11], rotation: -0.2, sign: "DRIP", accent: "#e754d8" },
-  { id: "shop", blueprint: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SMOKE", accent: "#f5c344" },
-  { id: "barracks", blueprint: "shop", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BUILDERS", accent: "#3ba464" },
-  { id: "keep", blueprint: "shop", position: [25.5, 0, -33.8], rotation: -1.28, sign: "VAULT", accent: "#477fe7" },
-  { id: "gallery", blueprint: "shop", position: [-36, 0, 17.5], rotation: 1.5, sign: "CC0", accent: "#ef7741" },
-  { id: "arcade", blueprint: "shop", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: "#36b7c9" },
-  { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "POSTING", accent: "#d56565" },
-  { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "DEPLOY", accent: "#e18b35" },
+  { id: "mfers", blueprint: "shop", position: [-18, 0, -8], rotation: 0.4, sign: "UNOFFICIAL", accent: MFER_COLORS.relay },
+  { id: "dao", blueprint: "shop", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO HALL", accent: MFER_COLORS.friendly },
+  { id: "wearables", blueprint: "shop", position: [-18, 0, 11], rotation: -0.2, sign: "DRIP", accent: MFER_COLORS.pink },
+  { id: "shop", blueprint: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SMOKE", accent: MFER_COLORS.local },
+  { id: "barracks", blueprint: "shop", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BUILDERS", accent: MFER_COLORS.friendly },
+  { id: "keep", blueprint: "shop", position: [25.5, 0, -33.8], rotation: -1.28, sign: "VAULT", accent: MFER_COLORS.player },
+  { id: "gallery", blueprint: "shop", position: [-36, 0, 17.5], rotation: 1.5, sign: "CC0", accent: MFER_BACKGROUND_COLORS.orange },
+  { id: "arcade", blueprint: "shop", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: MFER_COLORS.signal },
+  { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "POSTING", accent: MFER_COLORS.hostile },
+  { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "DEPLOY", accent: MFER_COLORS.fire },
 ];
 export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = [
-  { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "ROADPOST", accent: "#52d64f" },
-  { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "STASH", accent: "#f5c344" },
-  { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "CAMP", accent: "#477fe7" },
-  { id: "ridge-post", blueprint: "shop", position: [112, 0, -101.5], rotation: -1.2, sign: "RIDGE", accent: "#36b7c9" },
-  { id: "signal-shed", blueprint: "shop", position: [128.5, 0, -97.5], rotation: 2.68, sign: "STATIC", accent: "#9b45ff" },
-  { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "BEACON", accent: "#e18b35" },
+  { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "ROADPOST", accent: MFER_COLORS.friendly },
+  { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "STASH", accent: MFER_COLORS.local },
+  { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "CAMP", accent: MFER_COLORS.player },
+  { id: "ridge-post", blueprint: "shop", position: [112, 0, -101.5], rotation: -1.2, sign: "RIDGE", accent: MFER_COLORS.signal },
+  { id: "signal-shed", blueprint: "shop", position: [128.5, 0, -97.5], rotation: 2.68, sign: "STATIC", accent: MFER_COLORS.relay },
+  { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "BEACON", accent: MFER_COLORS.fire },
 ];
 export const MARKET_STALLS: MarketStallSpec[] = [
-  { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: "#9b45ff" },
-  { id: "center-market", position: [0, 0, 31.4], rotation: Math.PI, color: "#52d64f" },
-  { id: "right-market", position: [6.4, 0, 29.2], rotation: Math.PI, color: "#e754d8" },
+  { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: MFER_COLORS.relay },
+  { id: "center-market", position: [0, 0, 31.4], rotation: Math.PI, color: MFER_COLORS.friendly },
+  { id: "right-market", position: [6.4, 0, 29.2], rotation: Math.PI, color: MFER_COLORS.pink },
 ];
 export const OUTPOST_MARKET_STALLS: MarketStallSpec[] = [
-  { id: "field-camp-left-stall", position: [-123, 0, 129.8], rotation: 0.18, color: "#52d64f" },
-  { id: "field-camp-right-stall", position: [-114, 0, 132.2], rotation: -0.26, color: "#e18b35" },
-  { id: "ridge-left-stall", position: [111.4, 0, -93.4], rotation: -0.18, color: "#36b7c9" },
-  { id: "ridge-right-stall", position: [121.8, 0, -91.8], rotation: 0.32, color: "#9b45ff" },
+  { id: "field-camp-left-stall", position: [-123, 0, 129.8], rotation: 0.18, color: MFER_COLORS.friendly },
+  { id: "field-camp-right-stall", position: [-114, 0, 132.2], rotation: -0.26, color: MFER_COLORS.fire },
+  { id: "ridge-left-stall", position: [111.4, 0, -93.4], rotation: -0.18, color: MFER_COLORS.signal },
+  { id: "ridge-right-stall", position: [121.8, 0, -91.8], rotation: 0.32, color: MFER_COLORS.relay },
 ];
 export const ROAD_EDGE_DECALS: GroundRectDecalSpec[] = [
   { position: [-4.65, 0.024, -34], size: [0.76, 42], color: "#5f6f37" },

@@ -18,6 +18,7 @@ import {
   getDebugPlacementTransform,
   type DebugPlacementOverrides,
 } from "../debugPlacement";
+import { MFER_COLORS } from "../mferPalette";
 export { Skybox } from "./world/Skybox";
 
 const GROUND_MARGIN = 110;
@@ -152,19 +153,19 @@ export function TownWorld({
         );
       })}
       <SpawnRing position={purpleSpawnPlacement.position} rotation={purpleSpawnPlacement.rotation} />
-      <SpawnRing position={blueSpawnPlacement.position} rotation={blueSpawnPlacement.rotation} color="#59ccff" />
-      <DebugBannerPost id="prop:banner-gate-left" position={[-7.2, 0, -19.8]} color="#328346" overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-gate-right" position={[7.2, 0, -19.8]} color="#328346" overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-west-road" position={[-23.5, 0, -39]} color="#395da8" rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-east-road" position={[23.5, 0, -39]} color="#395da8" rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-inn" position={[-7.2, 0, 39]} color="#9b45ff" rotation={Math.PI} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-forge" position={[7.2, 0, 39]} color="#e18b35" rotation={Math.PI} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-farm-route" position={[-83.8, 0, 59.6]} color="#9b45ff" rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-field-camp" position={[-112, 0, 126]} color="#52d64f" rotation={Math.PI} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-ridge-route" position={[94, 0, -22]} color="#36b7c9" rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-ridge-entry" position={[123, 0, -91]} color="#9b45ff" overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color="#d9453d" overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color="#d9453d" rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <SpawnRing position={blueSpawnPlacement.position} rotation={blueSpawnPlacement.rotation} color={MFER_COLORS.signal} />
+      <DebugBannerPost id="prop:banner-gate-left" position={[-7.2, 0, -19.8]} color={MFER_COLORS.friendly} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-gate-right" position={[7.2, 0, -19.8]} color={MFER_COLORS.friendly} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-west-road" position={[-23.5, 0, -39]} color={MFER_COLORS.player} rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-east-road" position={[23.5, 0, -39]} color={MFER_COLORS.player} rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-inn" position={[-7.2, 0, 39]} color={MFER_COLORS.relay} rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-forge" position={[7.2, 0, 39]} color={MFER_COLORS.fire} rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-farm-route" position={[-83.8, 0, 59.6]} color={MFER_COLORS.relay} rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-field-camp" position={[-112, 0, 126]} color={MFER_COLORS.friendly} rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-ridge-route" position={[94, 0, -22]} color={MFER_COLORS.signal} rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-ridge-entry" position={[123, 0, -91]} color={MFER_COLORS.relay} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color={MFER_COLORS.hostile} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color={MFER_COLORS.hostile} rotation={Math.PI} overrides={debugPlacementOverrides} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );
@@ -179,7 +180,7 @@ function SignalRouteMarker({
   position: [number, number, number];
   rotation: number;
 }) {
-  const accent = landmark.kind === "relay" ? "#b38cff" : "#7ddcff";
+  const accent = landmark.kind === "relay" ? MFER_COLORS.relay : MFER_COLORS.signal;
   const trim = landmark.kind === "relay" ? "#5c3aa8" : "#16798a";
   const labelSize = landmark.label.length > 4 ? 0.7 : 0.86;
 
@@ -218,17 +219,17 @@ function SignalRelay({ position, rotation }: { position: [number, number, number
     <group position={position} rotation-y={rotation}>
       <mesh position={[0, 0.08, 0]} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[2.4, 2.65, 64]} />
-        <meshBasicMaterial color="#7ddcff" transparent opacity={0.52} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={MFER_COLORS.signal} transparent opacity={0.52} side={THREE.DoubleSide} />
       </mesh>
       <primitive object={bodyModel} dispose={null} />
       <mesh position={[0, 5.75, 0]}>
         <octahedronGeometry args={[0.72, 0]} />
-        <meshBasicMaterial color="#7ddcff" transparent opacity={0.9} />
+        <meshBasicMaterial color={MFER_COLORS.signal} transparent opacity={0.9} />
       </mesh>
       {[0, 1, 2].map((index) => (
         <mesh key={index} position={[0, 4.25 - index * 0.78, 0]} rotation-y={(index * Math.PI) / 3}>
           <torusGeometry args={[0.82 + index * 0.26, 0.035, 8, 40]} />
-          <meshBasicMaterial color={index % 2 === 0 ? "#7ddcff" : "#b38cff"} transparent opacity={0.72} />
+          <meshBasicMaterial color={index % 2 === 0 ? MFER_COLORS.signal : MFER_COLORS.relay} transparent opacity={0.72} />
         </mesh>
       ))}
     </group>

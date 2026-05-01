@@ -1,3 +1,5 @@
+import { MFER_BACKGROUND_COLORS, MFER_COLORS } from "./mferPalette";
+
 export function seeded(seed: number) {
   let state = seed >>> 0;
   return () => {
@@ -14,6 +16,14 @@ export function pickSeeded<T>(items: readonly T[], seed: number): T {
 }
 
 export function colorFromSeed(seed: number): string {
-  const colors = ["#f1c84b", "#54d66a", "#51a7ff", "#ef4f61", "#a767ff", "#35d9d0", "#f68b3c"];
+  const colors = [
+    MFER_BACKGROUND_COLORS.yellow,
+    MFER_BACKGROUND_COLORS.green,
+    MFER_BACKGROUND_COLORS.blue,
+    MFER_BACKGROUND_COLORS.red,
+    MFER_COLORS.agent,
+    MFER_COLORS.signal,
+    MFER_BACKGROUND_COLORS.orange,
+  ];
   return pickSeeded(colors, seed);
 }

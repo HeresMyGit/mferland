@@ -15,6 +15,7 @@ import {
   type QuestMarkerType,
 } from "@mferland/shared";
 import { type ChatBubble } from "../game/chatBubbles";
+import { MFER_COLORS } from "../game/mferPalette";
 import { generateMferTraitsForActor, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
 
@@ -49,22 +50,22 @@ export const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.An
   jump: { file: "Forward_Running_Jump", loop: THREE.LoopOnce, timeScale: 1 },
 };
 export const TARGET_RING_COLORS: Record<NpcDisposition, string> = {
-  friendly: "#46ff7b",
-  neutral: "#ffd84f",
-  hostile: "#ff453f",
+  friendly: MFER_COLORS.friendly,
+  neutral: MFER_COLORS.neutral,
+  hostile: MFER_COLORS.hostile,
 };
 export const TARGET_LABEL_COLORS: Record<NpcDisposition, string> = {
-  friendly: "#8eff75",
-  neutral: "#ffd84f",
-  hostile: "#ff6258",
+  friendly: MFER_COLORS.friendly,
+  neutral: MFER_COLORS.neutral,
+  hostile: MFER_COLORS.hostile,
 };
 const TARGET_BADGE_COLORS: Record<NpcDisposition | "player" | "local" | "agent", string> = {
-  friendly: "#7dfc8f",
-  neutral: "#ffd84f",
-  hostile: "#ff5a4f",
-  player: "#6ec8ff",
-  local: "#f3d04e",
-  agent: "#b38cff",
+  friendly: MFER_COLORS.friendly,
+  neutral: MFER_COLORS.neutral,
+  hostile: MFER_COLORS.hostile,
+  player: MFER_COLORS.player,
+  local: MFER_COLORS.local,
+  agent: MFER_COLORS.agent,
 };
 export const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
@@ -120,7 +121,7 @@ export function MferAvatar({
     ? getNpcNameplate(npc, disposition)
     : getPlayerNameplate(player.name, isLocal, isAgentPlayer, isWalletPlayer);
   const targetRingColor = TARGET_RING_COLORS[disposition];
-  const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? "#f3d04e" : accent;
+  const labelColor = npc ? TARGET_LABEL_COLORS[disposition] : isLocal ? MFER_COLORS.local : accent;
   const badgeColor = npc
     ? TARGET_BADGE_COLORS[disposition]
     : isLocal ? TARGET_BADGE_COLORS.local : isAgentPlayer ? TARGET_BADGE_COLORS.agent : TARGET_BADGE_COLORS.player;
@@ -392,7 +393,7 @@ export function DispositionBaseMarker({
   questMarker?: QuestMarkerType | null;
   radius?: number;
 }) {
-  const color = questMarker ? (questMarker === "turnIn" ? "#7dff8c" : "#ffd84f") : TARGET_RING_COLORS[disposition];
+  const color = questMarker ? (questMarker === "turnIn" ? MFER_COLORS.questTurnIn : MFER_COLORS.questAvailable) : TARGET_RING_COLORS[disposition];
 
   return (
     <group position={[0, 0.045, 0]}>
@@ -548,7 +549,7 @@ export function ActorNameplate({
           {healthPercent > 0 && (
             <mesh position={[-(healthWidth * (1 - healthPercent)) / 2, 0, 0.008]} renderOrder={58}>
               <planeGeometry args={[healthWidth * healthPercent, 0.105]} />
-              <meshBasicMaterial color="#d9453d" depthWrite={false} opacity={1} transparent toneMapped={false} />
+              <meshBasicMaterial color={MFER_COLORS.health} depthWrite={false} opacity={1} transparent toneMapped={false} />
             </mesh>
           )}
         </group>
@@ -629,7 +630,7 @@ export function LootSparkles({ y }: { y: number }) {
       {points.map(([x, py, z], index) => (
         <mesh key={index} position={[x, py, z]}>
           <sphereGeometry args={[index === 4 ? 0.065 : 0.045, 8, 6]} />
-          <meshBasicMaterial color={index === 4 ? "#fff3a3" : "#ffd84f"} transparent opacity={0.86} />
+          <meshBasicMaterial color={index === 4 ? MFER_COLORS.lootHighlight : MFER_COLORS.loot} transparent opacity={0.86} />
         </mesh>
       ))}
     </group>
@@ -822,18 +823,18 @@ function getCastOrbColors(variant: CastOrbVariant) {
   if (variant === "heal") {
     return {
       core: "#eaffd9",
-      glow: "#5fe777",
+      glow: MFER_COLORS.heal,
       ring: "#9cff9f",
       sparkA: "#d8ff7a",
       sparkB: "#48d96a",
     };
   }
   return {
-    core: "#fff08a",
-    glow: "#ff6a28",
-    ring: "#ffb34d",
-    sparkA: "#ffd35b",
-    sparkB: "#ff382e",
+    core: MFER_COLORS.lootHighlight,
+    glow: MFER_COLORS.fireHot,
+    ring: MFER_COLORS.fire,
+    sparkA: MFER_COLORS.local,
+    sparkB: MFER_COLORS.fireHot,
   };
 }
 

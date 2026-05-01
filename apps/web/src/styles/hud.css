@@ -4,13 +4,13 @@
   --hud-panel: rgba(19, 22, 16, 0.5);
   --hud-panel-strong: rgba(14, 16, 12, 0.68);
   --hud-border: rgba(255, 248, 224, 0.14);
-  --hud-border-strong: rgba(243, 208, 78, 0.36);
+  --hud-border-strong: rgba(255, 226, 96, 0.36);
   --hud-muted: rgba(255, 248, 224, 0.64);
-  --hud-accent: #f3d04e;
-  --hud-danger: #d9453d;
-  --hud-mana: #3697d8;
-  --hud-xp: #9b45ff;
-  --hud-good: #5fe777;
+  --hud-accent: var(--mfer-yellow);
+  --hud-danger: var(--mfer-red);
+  --hud-mana: var(--mfer-blue);
+  --hud-xp: var(--mfer-purple);
+  --hud-good: var(--mfer-green);
   pointer-events: none;
 }
 
@@ -72,7 +72,7 @@
 
 .portrait:hover,
 .portrait:focus-visible {
-  box-shadow: inset 0 0 0 4px #121212, 0 0 0 3px rgba(243, 208, 78, 0.55), 0 6px 16px rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 0 0 4px #121212, 0 0 0 3px rgba(255, 226, 96, 0.55), 0 6px 16px rgba(0, 0, 0, 0.22);
 }
 
 .mfer-portrait-art {
@@ -137,7 +137,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, #ff6a36, #ffd35b);
+  background: linear-gradient(90deg, var(--mfer-red), var(--mfer-orange), var(--mfer-yellow));
   transform: scaleX(0);
   transform-origin: left center;
   will-change: transform;
@@ -403,7 +403,7 @@
   width: 26px;
   height: 2px;
   margin-top: 5px;
-  background: #72e7c1;
+  background: var(--mfer-teal);
 }
 
 .quest-panel.compact h2::after {
@@ -514,7 +514,7 @@
   gap: 10px;
   width: min(390px, calc(100vw - 36px));
   padding: 16px;
-  border: 1px solid rgba(255, 216, 79, 0.34);
+  border: 1px solid rgba(255, 226, 96, 0.34);
   border-radius: 8px;
   color: #fff8e0;
   background: rgba(18, 14, 10, 0.86);
@@ -538,7 +538,7 @@
 }
 
 .quest-dialogue-heading strong {
-  color: #ffd84f;
+  color: var(--mfer-yellow);
   font-size: 19px;
   font-weight: 1000;
   line-height: 1.1;
@@ -568,7 +568,7 @@
 .quest-dialogue-detail svg,
 .quest-dialogue-rewards svg {
   margin-top: 1px;
-  color: #ffd84f;
+  color: var(--mfer-yellow);
 }
 
 .quest-dialogue-detail span,
@@ -624,7 +624,7 @@
 
 .quest-offer-panel strong {
   padding-right: 32px;
-  color: #ffd84f;
+  color: var(--mfer-yellow);
   font-size: 18px;
   font-weight: 1000;
   text-transform: uppercase;
@@ -664,7 +664,7 @@
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 6px;
   color: #16110a;
-  background: #ffd84f;
+  background: var(--mfer-yellow);
   font-size: 12px;
   font-weight: 1000;
   text-transform: uppercase;
@@ -683,7 +683,7 @@
   gap: 10px;
   width: min(280px, calc(100vw - 36px));
   padding: 14px;
-  border: 1px solid rgba(255, 216, 79, 0.3);
+  border: 1px solid rgba(255, 226, 96, 0.3);
   border-radius: 8px;
   color: #fff8e0;
   background: rgba(18, 14, 10, 0.9);
@@ -693,7 +693,7 @@
 
 .loot-panel > strong {
   padding-right: 32px;
-  color: #ffd84f;
+  color: var(--mfer-yellow);
   font-size: 16px;
   font-weight: 1000;
   text-transform: uppercase;
@@ -774,7 +774,7 @@
 }
 
 .item-icon.quest {
-  border-color: #ffd84f;
+  border-color: var(--mfer-yellow);
 }
 
 .item-icon.rare {
