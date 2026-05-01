@@ -36,6 +36,7 @@ import { TownScene } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
+import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 import {
@@ -131,6 +132,11 @@ function AuthGate({
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const injected = connectors[0];
+  const [previewReady, setPreviewReady] = useState(false);
+  const [loaderReachedCap, setLoaderReachedCap] = useState(false);
+  const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
+  const handleLoaderReachedCap = useCallback(() => setLoaderReachedCap(true), []);
+  const showAuthLoader = !previewReady || !loaderReachedCap;
 
   const cleanName = name.trim() || getStoredName();
 
@@ -153,10 +159,11 @@ function AuthGate({
           dpr={[1, 1.35]}
           camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
         >
-          <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} />
+          <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} onReady={handlePreviewReady} />
         </Canvas>
         <div className="auth-scene-vignette" />
       </div>
+      {showAuthLoader && <MferHeadLoader onCappedProgressComplete={handleLoaderReachedCap} />}
       <section className="auth-title-lockup" aria-label="mferland">
         <div className="brand-mark">
           <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
@@ -210,7 +217,13 @@ function AuthGate({
   );
 }
 
-function AuthTownPreview({ debugPlacementOverrides }: { debugPlacementOverrides: DebugPlacementOverrides }) {
+function AuthTownPreview({
+  debugPlacementOverrides,
+  onReady,
+}: {
+  debugPlacementOverrides: DebugPlacementOverrides;
+  onReady: () => void;
+}) {
   return (
     <>
       <fog attach="fog" args={["#b7dce9", 32, 92]} />
@@ -220,10 +233,19 @@ function AuthTownPreview({ debugPlacementOverrides }: { debugPlacementOverrides:
       <Skybox />
       <Suspense fallback={null}>
         <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
+        <SceneReadySignal onReady={onReady} />
       </Suspense>
       <AuthPreviewCamera />
     </>
   );
+}
+
+function SceneReadySignal({ onReady }: { onReady: () => void }) {
+  useEffect(() => {
+    onReady();
+  }, [onReady]);
+
+  return null;
 }
 
 function AuthPreviewCamera() {
@@ -304,10 +326,18 @@ function GameShell({
     }),
     [debugPlacementOverrides, savedDebugPlacementDefaults],
   );
+  const showGameLoader = room.status === "connecting" || (room.status === "connected" && !localPlayer);
+  const [gameLoaderReachedCap, setGameLoaderReachedCap] = useState(false);
+  const handleGameLoaderReachedCap = useCallback(() => setGameLoaderReachedCap(true), []);
+  const renderGameLoader = showGameLoader || !gameLoaderReachedCap;
 
   useEffect(() => {
     setSavedDebugPlacementDefaults(initialSavedDebugPlacementDefaults);
   }, [initialSavedDebugPlacementDefaults]);
+
+  useEffect(() => {
+    if (showGameLoader) setGameLoaderReachedCap(false);
+  }, [showGameLoader]);
 
   useEffect(() => {
     audio.configure(settings.audio);
@@ -698,6 +728,7 @@ function GameShell({
           onChangeDebugPlacement={updateDebugPlacement}
         />
       </Canvas>
+      {renderGameLoader && <MferHeadLoader onCappedProgressComplete={handleGameLoaderReachedCap} />}
 
       <Hud
         identity={hudIdentity}

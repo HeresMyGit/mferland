@@ -319,6 +319,43 @@ button {
   pointer-events: none;
 }
 
+.mfer-loading-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  color: #fff8d8;
+  background: var(--mfer-blue);
+  pointer-events: auto;
+}
+
+.mfer-loading-head {
+  width: 200px;
+  height: 200px;
+  transform: translateY(-22px);
+}
+
+.mfer-loading-canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.mfer-loading-text {
+  margin-top: -58px;
+  font-family: var(--font-mfer-display);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  text-transform: lowercase;
+}
+
 .auth-title-lockup,
 .auth-connect-panel {
   position: absolute;
