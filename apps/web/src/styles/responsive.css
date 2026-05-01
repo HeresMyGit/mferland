@@ -74,6 +74,12 @@
     height: 52px;
   }
 
+  .mobile-controls {
+    left: max(12px, calc(env(safe-area-inset-left) + 10px));
+    width: 112px;
+    height: 112px;
+  }
+
   .action-slot.filled strong {
     display: none;
   }
@@ -244,6 +250,17 @@
   .action-slot {
     width: 42px;
     height: 48px;
+  }
+
+  .mobile-controls {
+    top: 58%;
+    width: 104px;
+    height: 104px;
+  }
+
+  .mobile-touch-stick-knob {
+    width: 46px;
+    height: 46px;
   }
 
   .menu-tile {

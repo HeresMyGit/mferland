@@ -33,10 +33,11 @@ import {
 } from "@mferland/shared";
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
-import { TownScene } from "./game/TownScene";
+import { TownScene, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
+import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
@@ -301,6 +302,7 @@ function GameShell({
   const actionErrorIdRef = useRef(0);
   const moveUnlockNoticeIdRef = useRef(0);
   const unlockedActionKeyRef = useRef("");
+  const mobileMoveInputRef = useRef<MobileMoveInput>({ active: false, forward: 0, right: 0, sprint: false });
   const pendingDebugPlacementSaveRef = useRef<{
     placements: DebugPlacementOverrides;
     sourceDefaults: DebugPlacementStoredRecordMap;
@@ -764,6 +766,7 @@ function GameShell({
           debugPlacementTargets={debugPlacementTargets}
           debugPlacementOverrides={effectiveDebugPlacementOverrides}
           selectedDebugPlacementId={selectedDebugPlacementId}
+          mobileMoveInputRef={mobileMoveInputRef}
           onSelectDebugPlacement={selectDebugPlacement}
           onChangeDebugPlacement={updateDebugPlacement}
         />
@@ -809,6 +812,10 @@ function GameShell({
         settings={settings}
         debugToolsAvailable={debugToolsAvailable}
         onSettingsChange={setSettings}
+      />
+      <MobileControls
+        inputRef={mobileMoveInputRef}
+        disabled={debugPlacementMode || renderGameLoader || !localPlayer || localPlayer.health <= 0}
       />
 
       {debugToolsAvailable && settings.debugTravelPanel && (

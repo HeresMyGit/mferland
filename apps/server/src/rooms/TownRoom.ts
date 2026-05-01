@@ -1221,7 +1221,7 @@ export class TownRoom extends Room<TownState> {
 
       const nx = activeInput.x / length;
       const nz = activeInput.z / length;
-      const speed = activeInput.sprint ? player.runSpeed : player.walkSpeed;
+      const speed = (activeInput.sprint ? player.runSpeed : player.walkSpeed) * Math.min(length, 1);
       const nextPosition = resolveWorldCollision(
         player.x + nx * speed * delta,
         player.z + nz * speed * delta,

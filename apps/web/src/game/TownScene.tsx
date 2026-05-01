@@ -38,6 +38,17 @@ import {
   wrapAngle,
 } from "./scene/sceneControls";
 
+export type MobileMoveInput = {
+  active: boolean;
+  forward: number;
+  right: number;
+  sprint: boolean;
+};
+
+type MobileMoveInputRef = {
+  current: MobileMoveInput;
+};
+
 type TownSceneProps = {
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
@@ -62,6 +73,7 @@ type TownSceneProps = {
   debugPlacementTargets?: DebugPlacementTarget[];
   debugPlacementOverrides?: DebugPlacementOverrides;
   selectedDebugPlacementId?: string | null;
+  mobileMoveInputRef?: MobileMoveInputRef;
   onSelectDebugPlacement?: (targetId: string | null) => void;
   onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
 };
@@ -84,6 +96,7 @@ const DEBUG_CAMERA_MAX_HEIGHT = 310;
 const DEBUG_CAMERA_WHEEL_ZOOM_SCALE = 0.16;
 const DEBUG_CAMERA_TURN_SPEED = 2.8;
 const DEBUG_PLACEMENT_CLICK_Y = 18;
+const EMPTY_MOBILE_MOVE_INPUT: MobileMoveInput = { active: false, forward: 0, right: 0, sprint: false };
 
 function TownSceneComponent({
   players,
@@ -104,6 +117,7 @@ function TownSceneComponent({
   debugPlacementTargets = [],
   debugPlacementOverrides = EMPTY_DEBUG_PLACEMENT_OVERRIDES,
   selectedDebugPlacementId = null,
+  mobileMoveInputRef,
   onSelectDebugPlacement,
   onChangeDebugPlacement,
 }: TownSceneProps) {
@@ -176,6 +190,7 @@ function TownSceneComponent({
   useEffect(() => {
     const resetControls = () => {
       keyState.current.clear();
+      clearMobileMoveInput(mobileMoveInputRef);
       pointerState.current.left = false;
       pointerState.current.right = false;
       inputTimer.current = 0;
@@ -239,6 +254,7 @@ function TownSceneComponent({
     if (debugPlacementMode) {
       const canvas = gl.domElement;
       keyState.current.clear();
+      clearMobileMoveInput(mobileMoveInputRef);
       pointerState.current.left = false;
       pointerState.current.right = false;
       inputTimer.current = 0;
@@ -303,7 +319,7 @@ function TownSceneComponent({
 
       cameraYaw.current = wrapAngle(cameraYaw.current - dx * 0.0042);
       cameraPitch.current = clamp(cameraPitch.current + dy * 0.0032, -0.08, 1.08);
-      if (state.right) facingYaw.current = cameraYaw.current;
+      if (state.right || event.pointerType === "touch") facingYaw.current = cameraYaw.current;
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -357,7 +373,7 @@ function TownSceneComponent({
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("contextmenu", onContextMenu);
     };
-  }, [debugPlacementMode, gl, sendInput]);
+  }, [debugPlacementMode, gl, mobileMoveInputRef, sendInput]);
 
   useFrame(({ camera }, delta) => {
     if (debugPlacementMode) {
@@ -415,6 +431,7 @@ function TownSceneComponent({
     const controlDelta = Math.min(delta, CONTROL_DELTA_CAP);
     const keys = keyState.current;
     const pointer = pointerState.current;
+    const mobileMove = mobileMoveInputRef?.current ?? EMPTY_MOBILE_MOVE_INPUT;
     const localIsDead = Boolean(localPlayer && localPlayer.health <= 0);
     const turnLeft = keys.has("a") || keys.has("arrowleft");
     const turnRight = keys.has("d") || keys.has("arrowright");
@@ -426,19 +443,22 @@ function TownSceneComponent({
     if (pointer.right) facingYaw.current = cameraYaw.current;
 
     const mouseForward = !localIsDead && pointer.left && pointer.right;
-    const forwardIntent = localIsDead ? 0 : (keys.has("w") || keys.has("arrowup") || mouseForward ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+    const keyboardForwardIntent = (keys.has("w") || keys.has("arrowup") || mouseForward ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+    const mobileForwardIntent = mobileMove.active ? mobileMove.forward : 0;
+    const forwardIntent = localIsDead ? 0 : keyboardForwardIntent + mobileForwardIntent;
     const strafeLeft = !localIsDead && (keys.has("q") || (pointer.right && turnLeft));
     const strafeRight = !localIsDead && (keys.has("e") || (pointer.right && turnRight));
-    const rightIntent = (strafeLeft ? 1 : 0) - (strafeRight ? 1 : 0);
+    const keyboardLeftIntent = (strafeLeft ? 1 : 0) - (strafeRight ? 1 : 0);
+    const mobileLeftIntent = mobileMove.active ? -mobileMove.right : 0;
     frameForward.set(Math.sin(facingYaw.current), 0, Math.cos(facingYaw.current));
     frameRight.set(Math.cos(facingYaw.current), 0, -Math.sin(facingYaw.current));
     frameMove
       .copy(frameForward)
       .multiplyScalar(forwardIntent)
-      .addScaledVector(frameRight, rightIntent);
+      .addScaledVector(frameRight, keyboardLeftIntent + mobileLeftIntent);
     const moveLength = frameMove.length();
     if (moveLength > 1) frameMove.normalize();
-    const isSprinting = !localIsDead && keys.has("shift");
+    const isSprinting = !localIsDead && (keys.has("shift") || (mobileMove.active && mobileMove.sprint));
     const isJumping = !localIsDead && (keys.has(" ") || keys.has("space") || keys.has("spacebar"));
 
     const interactPressed = keys.has("f") || keys.has("keyf");
@@ -644,8 +664,17 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.debugPlacementTargets === next.debugPlacementTargets
     && previous.debugPlacementOverrides === next.debugPlacementOverrides
     && previous.selectedDebugPlacementId === next.selectedDebugPlacementId
+    && previous.mobileMoveInputRef === next.mobileMoveInputRef
     && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
     && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;
+}
+
+function clearMobileMoveInput(inputRef: MobileMoveInputRef | undefined) {
+  if (!inputRef) return;
+  inputRef.current.active = false;
+  inputRef.current.forward = 0;
+  inputRef.current.right = 0;
+  inputRef.current.sprint = false;
 }
 
 function targetsEqual(previous: TargetSelection | null, next: TargetSelection | null) {
