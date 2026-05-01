@@ -3,6 +3,7 @@ import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { getClientRenderPerformanceProfile } from "../game/performance";
 
 type MferHeadLoaderProps = {
   label?: string;
@@ -16,6 +17,7 @@ const MFER_HEAD_MODEL_URL = "/models/sartoshi-head.glb";
 
 export function MferHeadLoader({ label = "loading mfer", onCappedProgressComplete }: MferHeadLoaderProps) {
   const [headReady, setHeadReady] = useState(false);
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
   const handleHeadReady = useCallback(() => setHeadReady(true), []);
   const progress = useCappedMferLoadingProgress(headReady, onCappedProgressComplete);
   const statusText = `${label}... ${progress}%`;
@@ -25,9 +27,9 @@ export function MferHeadLoader({ label = "loading mfer", onCappedProgressComplet
       <div className="mfer-loading-head" aria-hidden="true">
         <Canvas
           className="mfer-loading-canvas"
-          dpr={[1, 2]}
+          dpr={renderProfile.loaderDpr}
           camera={{ position: [0, 1, 2.5], fov: 40, near: 0.1, far: 10 }}
-          gl={{ alpha: true, antialias: true }}
+          gl={{ alpha: true, antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
           onCreated={({ camera }) => camera.lookAt(0, 0.8, 0)}
         >
           <ambientLight intensity={0.8} />

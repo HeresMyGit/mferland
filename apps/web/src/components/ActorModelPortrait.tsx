@@ -3,6 +3,7 @@ import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { getNpcDisposition, type NpcSnapshot } from "@mferland/shared";
+import { getClientRenderPerformanceProfile } from "../game/performance";
 import { DeerModel, HogModel, RabbitModel } from "./CreatureAvatar";
 import { createMferGptAvatar } from "./MferGptAvatar";
 import { createTrainingDummyModel } from "./TrainingDummyAvatar";
@@ -35,13 +36,14 @@ const PORTRAIT_CONFIG: Record<NpcSnapshot["model"], PortraitConfig> = {
 
 export function ActorModelPortrait({ npc }: { npc: NpcSnapshot }) {
   const config = PORTRAIT_CONFIG[npc.model] ?? PORTRAIT_CONFIG.hog;
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
 
   return (
     <Canvas
       className="model-portrait-canvas"
-      dpr={[1, 1.5]}
+      dpr={renderProfile.portraitDpr}
       camera={{ position: [0, config.cameraY, config.cameraZ], fov: 27, near: 0.1, far: 30 }}
-      gl={{ antialias: true, alpha: true }}
+      gl={{ antialias: renderProfile.antialias, alpha: true, powerPreference: renderProfile.powerPreference }}
       aria-label={`${npc.name} model portrait`}
       role="img"
     >

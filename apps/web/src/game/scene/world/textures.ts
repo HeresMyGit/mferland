@@ -1,8 +1,10 @@
 import * as THREE from "three";
+import { getClientRenderPerformanceProfile } from "../../performance";
 import { noise01 } from "./shared";
 
 export function createSkyTexture() {
-  const texture = createCanvasTexture(2048, 1024, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(2048, 1024);
+  const texture = createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const skyGradient = context.createLinearGradient(0, 0, 0, height);
     skyGradient.addColorStop(0, "#2b79c8");
     skyGradient.addColorStop(0.2, "#5aa8e3");
@@ -54,7 +56,8 @@ export function createSkyTexture() {
 }
 
 export function createCloudTexture() {
-  const texture = createCanvasTexture(768, 256, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(768, 256);
+  const texture = createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     for (let layer = 0; layer < 4; layer += 1) {
       for (let i = 0; i < 80; i += 1) {
         const seed = i + layer * 91.7;
@@ -90,7 +93,8 @@ export function createCloudTexture() {
 }
 
 export function createSunGlowTexture() {
-  const texture = createCanvasTexture(512, 512, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(512, 512);
+  const texture = createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const center = width / 2;
     const glow = context.createRadialGradient(center, center, 0, center, center, width / 2);
     glow.addColorStop(0, "rgba(255, 255, 236, 1)");
@@ -210,7 +214,7 @@ export function configureTile(texture: THREE.Texture, repeatX: number, repeatY: 
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
   texture.needsUpdate = true;
 }
 
@@ -307,7 +311,8 @@ export function createGrassTuftTexture() {
 }
 
 export function createDirtPathTexture() {
-  return createCanvasTexture(512, 512, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(512, 512);
+  return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const base = context.createLinearGradient(0, 0, width, height);
     base.addColorStop(0, "#6f5334");
     base.addColorStop(0.42, "#8a6840");
@@ -357,7 +362,8 @@ export function createDirtPathTexture() {
 }
 
 export function createWaterTexture() {
-  return createCanvasTexture(256, 256, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(256, 256);
+  return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const gradient = context.createRadialGradient(width / 2, height / 2, 8, width / 2, height / 2, width / 2);
     gradient.addColorStop(0, "#bdf8ff");
     gradient.addColorStop(0.42, "#5bd4ed");
@@ -411,7 +417,15 @@ function createCanvasTexture(
   texture.repeat.set(repeatX, repeatY);
   texture.center.set(0.5, 0.5);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
   texture.needsUpdate = true;
   return texture;
+}
+
+function getProceduralTextureSize(width: number, height: number): [number, number] {
+  const scale = getClientRenderPerformanceProfile().proceduralTextureScale;
+  return [
+    Math.max(64, Math.round(width * scale)),
+    Math.max(64, Math.round(height * scale)),
+  ];
 }

@@ -21,6 +21,7 @@ import { type ChatBubble } from "./chatBubbles";
 import { CombatFeedbackLayer } from "./scene/CombatFeedbackLayer";
 import { Skybox, TownWorld } from "./scene/TownWorld";
 import { MFER_COLORS } from "./mferPalette";
+import { getClientRenderPerformanceProfile, type RenderPerformanceProfile } from "./performance";
 import {
   type DebugPlacementOverrides,
   type DebugPlacementTarget,
@@ -74,6 +75,7 @@ type TownSceneProps = {
   debugPlacementOverrides?: DebugPlacementOverrides;
   selectedDebugPlacementId?: string | null;
   mobileMoveInputRef?: MobileMoveInputRef;
+  renderProfile?: RenderPerformanceProfile;
   onSelectDebugPlacement?: (targetId: string | null) => void;
   onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
 };
@@ -118,10 +120,12 @@ function TownSceneComponent({
   debugPlacementOverrides = EMPTY_DEBUG_PLACEMENT_OVERRIDES,
   selectedDebugPlacementId = null,
   mobileMoveInputRef,
+  renderProfile,
   onSelectDebugPlacement,
   onChangeDebugPlacement,
 }: TownSceneProps) {
   const { gl } = useThree();
+  const resolvedRenderProfile = useMemo(() => renderProfile ?? getClientRenderPerformanceProfile(), [renderProfile]);
   const keyState = useRef(new Set<string>());
   const pointerState = useRef({
     left: false,
@@ -166,6 +170,18 @@ function TownSceneComponent({
     ? localVisualPlayer.current
     : localPlayer;
   const viewerPosition = viewerPlayer ? { x: viewerPlayer.x, z: viewerPlayer.z } : null;
+  const renderedPlayers = useMemo(
+    () => debugPlacementMode
+      ? Array.from(players.entries())
+      : getRenderablePlayers(players, localSessionId, viewerPosition, selectedTarget, resolvedRenderProfile),
+    [players, _sceneRevision, debugPlacementMode, localSessionId, selectedTarget, resolvedRenderProfile, viewerPosition?.x, viewerPosition?.z],
+  );
+  const renderedNpcs = useMemo(
+    () => debugPlacementMode
+      ? Array.from(npcs.values()).filter(isVisibleNpc)
+      : getRenderableNpcs(npcs, viewerPosition, selectedTarget, resolvedRenderProfile),
+    [npcs, _sceneRevision, debugPlacementMode, selectedTarget, resolvedRenderProfile, viewerPosition?.x, viewerPosition?.z],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -535,7 +551,7 @@ function TownSceneComponent({
         />
       )}
       <Suspense fallback={null}>
-        {Array.from(players.entries()).map(([sessionId, player]) => {
+        {renderedPlayers.map(([sessionId, player]) => {
           const isLocalPlayer = sessionId === localSessionId;
           const renderedPlayer = isLocalPlayer && localVisualPlayer.current?.sessionId === sessionId
             ? localVisualPlayer.current
@@ -555,7 +571,7 @@ function TownSceneComponent({
             />
           );
         })}
-        {Array.from(npcs.values()).filter(isVisibleNpc).map((npc) => {
+        {renderedNpcs.map((npc) => {
           const isTargeted = isTargetSelected(selectedTarget, "npc", npc.id);
           const onTarget = () => {
             if (onSelectNpcTarget) onSelectNpcTarget(npc.id);
@@ -665,6 +681,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.debugPlacementOverrides === next.debugPlacementOverrides
     && previous.selectedDebugPlacementId === next.selectedDebugPlacementId
     && previous.mobileMoveInputRef === next.mobileMoveInputRef
+    && previous.renderProfile === next.renderProfile
     && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
     && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;
 }
@@ -692,6 +709,75 @@ function getNpcActorScale(npc: NpcSnapshot) {
 function shouldShowNpcNameplate(npc: NpcSnapshot, visibility: NameplateVisibility) {
   const disposition = getNpcDisposition(npc);
   return disposition === "friendly" ? visibility.friendlyNpcs : visibility.unfriendlyNpcs;
+}
+
+function getRenderablePlayers(
+  players: Map<string, PlayerSnapshot>,
+  localSessionId: string | null,
+  viewerPosition: { x: number; z: number } | null,
+  selectedTarget: TargetSelection | null,
+  renderProfile: RenderPerformanceProfile,
+) {
+  const entries = Array.from(players.entries());
+  if (!viewerPosition) {
+    return localSessionId ? entries.filter(([sessionId]) => sessionId === localSessionId) : [];
+  }
+
+  const radiusSq = renderProfile.actorRenderRadius ** 2;
+  return entries.filter(([sessionId, player]) => (
+    sessionId === localSessionId
+    || isTargetSelected(selectedTarget, "player", sessionId)
+    || distanceSq2d(viewerPosition, player.x, player.z) <= radiusSq
+  ));
+}
+
+function getRenderableNpcs(
+  npcs: Map<string, NpcSnapshot>,
+  viewerPosition: { x: number; z: number } | null,
+  selectedTarget: TargetSelection | null,
+  renderProfile: RenderPerformanceProfile,
+) {
+  if (!viewerPosition) return [];
+
+  const selectedNpcId = selectedTarget?.kind === "npc" ? selectedTarget.id : null;
+  const candidates = Array.from(npcs.values())
+    .filter(isVisibleNpc)
+    .map((npc) => ({
+      npc,
+      distanceSq: distanceSq2d(viewerPosition, npc.x, npc.z),
+      selected: npc.id === selectedNpcId,
+    }))
+    .filter(({ npc, distanceSq, selected }) => {
+      if (selected) return true;
+      const radius = getNpcRenderRadius(npc, renderProfile);
+      return distanceSq <= radius * radius;
+    })
+    .sort((a, b) => a.distanceSq - b.distanceSq);
+
+  if (candidates.length <= renderProfile.actorRenderBudget) {
+    return candidates.map(({ npc }) => npc);
+  }
+
+  const selectedCandidates = candidates.filter(({ selected }) => selected);
+  const unselectedBudget = Math.max(0, renderProfile.actorRenderBudget - selectedCandidates.length);
+  return [
+    ...selectedCandidates,
+    ...candidates.filter(({ selected }) => !selected).slice(0, unselectedBudget),
+  ].map(({ npc }) => npc);
+}
+
+function getNpcRenderRadius(npc: NpcSnapshot, renderProfile: RenderPerformanceProfile) {
+  return isHeavyNpcModel(npc.model)
+    ? renderProfile.heavyActorRenderRadius
+    : renderProfile.actorRenderRadius;
+}
+
+function isHeavyNpcModel(model: NpcSnapshot["model"]) {
+  return model === "mfer" || model === "mfergpt" || model === "training-dummy";
+}
+
+function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
+  return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
 
 function DebugPlacementGizmos({

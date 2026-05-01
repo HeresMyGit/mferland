@@ -50,6 +50,7 @@ import {
   makeNpcDebugPlacementTargets,
 } from "./game/debugPlacement";
 import { DEFAULT_GAME_SETTINGS, normalizeGameSettings, type GameSettings } from "./game/settings";
+import { getClientRenderPerformanceProfile } from "./game/performance";
 import {
   GameAudio,
   getCombatImpactCue,
@@ -143,6 +144,7 @@ function AuthGate({
   const injected = connectors[0];
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderReachedCap, setLoaderReachedCap] = useState(false);
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
   const handleLoaderReachedCap = useCallback(() => setLoaderReachedCap(true), []);
   const showAuthLoader = !previewReady || !loaderReachedCap;
@@ -165,8 +167,9 @@ function AuthGate({
       <div className="auth-bg" aria-hidden="true">
         <Canvas
           className="auth-town-canvas"
-          dpr={[1, 1.35]}
+          dpr={renderProfile.previewDpr}
           camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
+          gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
         >
           <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} onReady={handlePreviewReady} />
         </Canvas>
@@ -308,6 +311,7 @@ function GameShell({
     sourceDefaults: DebugPlacementStoredRecordMap;
   } | null>(null);
   const audio = useMemo(() => new GameAudio(), []);
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
   const playedCombatEventIdsRef = useRef(new Set<string>());
   const playedExperienceEventIdsRef = useRef(new Set<string>());
   const lastQuestNoticeIdRef = useRef("");
@@ -744,8 +748,9 @@ function GameShell({
   return (
     <main className="game-shell">
       <Canvas
-        dpr={[1, 1.5]}
+        dpr={renderProfile.gameDpr}
         camera={{ position: [0, 6, 10], fov: 54, near: 0.1, far: 140 }}
+        gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
       >
         <TownScene
           players={room.players}
@@ -769,6 +774,7 @@ function GameShell({
           mobileMoveInputRef={mobileMoveInputRef}
           onSelectDebugPlacement={selectDebugPlacement}
           onChangeDebugPlacement={updateDebugPlacement}
+          renderProfile={renderProfile}
         />
       </Canvas>
       {renderGameLoader && <MferHeadLoader onCappedProgressComplete={handleGameLoaderReachedCap} />}
