@@ -502,7 +502,7 @@ export function getEquippedCharacterStats(itemIds: Iterable<keyof typeof ITEMS |
 }
 
 export const LOOT = {
-  interactRange: 3.25,
+  interactRange: 13,
   corpseDespawnMs: 180000,
   lootedDespawnMs: 6500,
 } as const;
