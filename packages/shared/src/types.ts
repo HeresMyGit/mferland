@@ -1,4 +1,5 @@
 import type { COMBAT } from "./combat.js";
+import type { EMOTES } from "./config.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
@@ -7,6 +8,7 @@ import type { PLAZA_BOUNDS } from "./world.js";
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
 export type AnimationState = "idle" | "walk" | "run" | "jump";
+export type EmoteId = keyof typeof EMOTES;
 export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast" | "farmer";
 export type NpcModel = "mfer" | "mfergpt" | "rabbit" | "deer" | "hog" | "training-dummy";
 export type TargetKind = "player" | "npc";
@@ -110,6 +112,10 @@ export type ClientInput = {
   jump?: boolean;
 };
 
+export type ClientEmote = {
+  emoteId: EmoteId;
+};
+
 export type PlayerSnapshot = {
   sessionId: string;
   name: string;
@@ -135,6 +141,9 @@ export type PlayerSnapshot = {
   z: number;
   yaw: number;
   animation: AnimationState;
+  emote: EmoteId | "";
+  emoteStartedAt: number;
+  emoteEndsAt: number;
   lastSeq: number;
   attackReadyAt: number;
   shootReadyAt: number;
@@ -193,6 +202,7 @@ export type ChatMessage = {
   identityType: SpeakerType;
   text: string;
   sentAt: number;
+  kind?: "say" | "emote";
 };
 
 export type CombatEvent = {

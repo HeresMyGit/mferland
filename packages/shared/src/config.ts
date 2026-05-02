@@ -100,6 +100,39 @@ export const CHAT = {
   minIntervalMs: 1200,
 };
 
+export const EMOTES = {
+  wave: {
+    label: "wave",
+    chatText: "waves like a mfer",
+    durationMs: 0,
+  },
+  dance: {
+    label: "dance",
+    chatText: "dances like a mfer",
+    durationMs: 4200,
+  },
+  laugh: {
+    label: "laugh",
+    chatText: "laughs like a mfer",
+    durationMs: 2600,
+  },
+  cheer: {
+    label: "cheer",
+    chatText: "cheers like a mfer",
+    durationMs: 3000,
+  },
+  flex: {
+    label: "flex",
+    chatText: "flexes like a mfer",
+    durationMs: 2800,
+  },
+  shrug: {
+    label: "shrug",
+    chatText: "shrugs like a mfer",
+    durationMs: 2400,
+  },
+} as const;
+
 export const MFERGPT = {
   npcId: "mfergpt",
   mention: "@mfergpt",

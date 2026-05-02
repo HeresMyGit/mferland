@@ -5,6 +5,7 @@ import { Room, type Client } from "colyseus";
 import {
   CHAT,
   COMBAT,
+  EMOTES,
   LOOT,
   MAX_PLAYERS,
   MFERGPT,
@@ -25,6 +26,7 @@ import {
   type ClientAcceptQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
+  type ClientEmote,
   type ClientEquipItem,
   type ClientInteract,
   type ClientInput,
@@ -33,6 +35,7 @@ import {
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatActionId,
+  type EmoteId,
   type ExperienceEvent,
   type IdentityType,
   type ItemId,
@@ -111,6 +114,7 @@ import {
 } from "../systems/utils.js";
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
+const EMOTE_MIN_INTERVAL_MS = 900;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 
 type DebugTeleportMessage = {
@@ -177,6 +181,7 @@ export class TownRoom extends Room<TownState> {
   private readonly inputs = new Map<string, TrackedInput>();
   private readonly jumpHeld = new Map<string, boolean>();
   private readonly lastChatAt = new Map<string, number>();
+  private readonly lastEmoteAt = new Map<string, number>();
   private readonly lastMferGptAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
   private readonly persistentCharacterIds = new Map<string, string>();
@@ -240,6 +245,7 @@ export class TownRoom extends Room<TownState> {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.health > 0) return;
       respawnPlayerAtFountain(player);
+      clearPlayerEmote(player);
       this.inputs.delete(client.sessionId);
       this.jumpHeld.set(client.sessionId, false);
     });
@@ -261,6 +267,7 @@ export class TownRoom extends Room<TownState> {
         player.mana = player.maxMana;
         player.verticalVelocity = 0;
         player.animation = "idle";
+        clearPlayerEmote(player);
         if (Number.isFinite(Number(message.yaw))) player.yaw = Number(message.yaw);
         clearPlayerCast(player);
         this.removePlayerThreat(client.sessionId);
@@ -320,6 +327,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("chat", (client, message: { text?: string }) => {
       void this.handleChatMessage(client, message);
+    });
+
+    this.onMessage("emote", (client, message: Partial<ClientEmote> = {}) => {
+      this.handleEmote(client, message);
     });
 
     this.onMessage("interact", (client, message: ClientInteract = {}) => {
@@ -426,6 +437,7 @@ export class TownRoom extends Room<TownState> {
     this.inputs.delete(client.sessionId);
     this.jumpHeld.delete(client.sessionId);
     this.lastChatAt.delete(client.sessionId);
+    this.lastEmoteAt.delete(client.sessionId);
     this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
@@ -635,10 +647,38 @@ export class TownRoom extends Room<TownState> {
     }
   }
 
+  private handleEmote(client: Client, message: Partial<ClientEmote>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0 || player.castingAction) return;
+
+    const emoteId = normalizeEmoteId(message?.emoteId);
+    if (!emoteId) return;
+
+    const now = Date.now();
+    const lastEmote = this.lastEmoteAt.get(client.sessionId) ?? 0;
+    if (now - lastEmote < EMOTE_MIN_INTERVAL_MS) return;
+    this.lastEmoteAt.set(client.sessionId, now);
+
+    const emote = EMOTES[emoteId];
+    player.emote = emoteId;
+    player.emoteStartedAt = now;
+    player.emoteEndsAt = emote.durationMs > 0 ? now + emote.durationMs : 0;
+
+    this.broadcast("chat", {
+      sessionId: client.sessionId,
+      name: player.name,
+      identityType: player.identityType,
+      text: emote.chatText,
+      sentAt: now,
+      kind: "emote",
+    } satisfies ChatMessage);
+  }
+
   private handleCombatAction(client: Client, message: Partial<ClientCombatAction>) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
     if (player.health <= 0) return;
+    clearPlayerEmote(player);
 
     const actionId = normalizeCombatActionId(message?.actionId);
     if (!actionId) return;
@@ -1168,8 +1208,12 @@ export class TownRoom extends Room<TownState> {
       if (player.health <= 0) {
         player.verticalVelocity = 0;
         player.animation = "idle";
+        clearPlayerEmote(player);
         clearPlayerCast(player);
         return;
+      }
+      if (player.emote && player.emoteEndsAt > 0 && now >= player.emoteEndsAt) {
+        clearPlayerEmote(player);
       }
       if (player.castingAction === "heal") {
         this.updatePlayerHealCast(sessionId, player, activeInput, now);
@@ -1194,6 +1238,9 @@ export class TownRoom extends Room<TownState> {
         grounded = false;
       }
       this.jumpHeld.set(sessionId, Boolean(activeInput?.jump));
+      if (activeInput?.jump) {
+        clearPlayerEmote(player);
+      }
 
       if (!grounded || Math.abs(player.verticalVelocity) > 0.001) {
         player.verticalVelocity -= PLAYER.gravity * delta;
@@ -1219,6 +1266,7 @@ export class TownRoom extends Room<TownState> {
         return;
       }
 
+      clearPlayerEmote(player);
       const nx = activeInput.x / length;
       const nz = activeInput.z / length;
       const speed = (activeInput.sprint ? player.runSpeed : player.walkSpeed) * Math.min(length, 1);
@@ -1482,6 +1530,17 @@ function normalizeDebugPlacementChunkNumber(value: unknown, min: number, max: nu
   const number = Number(value);
   if (!Number.isInteger(number) || number < min || number > max) return null;
   return number;
+}
+
+function normalizeEmoteId(value: unknown): EmoteId | null {
+  if (typeof value !== "string") return null;
+  return Object.prototype.hasOwnProperty.call(EMOTES, value) ? value as EmoteId : null;
+}
+
+function clearPlayerEmote(player: PlayerState) {
+  player.emote = "";
+  player.emoteStartedAt = 0;
+  player.emoteEndsAt = 0;
 }
 
 function makePersistableCharacterState(characterId: string, player: PlayerState): PersistableCharacterState {

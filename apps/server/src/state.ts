@@ -3,6 +3,7 @@ import {
   PLAYER,
   type AnimationState,
   type CombatActionId,
+  type EmoteId,
   type EquipmentSlotId,
   type IdentityType,
   type ItemId,
@@ -73,6 +74,9 @@ export class PlayerState extends Schema {
   @type("number") yaw = 0;
   @type("number") verticalVelocity = 0;
   @type("string") animation: AnimationState = "idle";
+  @type("string") emote: EmoteId | "" = "";
+  @type("number") emoteStartedAt = 0;
+  @type("number") emoteEndsAt = 0;
   @type("number") lastSeq = 0;
   @type("number") attackReadyAt = 0;
   @type("number") shootReadyAt = 0;

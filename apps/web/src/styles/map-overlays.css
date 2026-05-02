@@ -230,6 +230,10 @@
   color: #49d8ff;
 }
 
+.chat-log .chat-emote {
+  font-style: italic;
+}
+
 .chat-log .muted {
   color: rgba(255, 255, 255, 0.48);
 }
@@ -567,6 +571,47 @@
   font-style: normal;
   font-weight: 1000;
   line-height: 1;
+}
+
+.emote-popout {
+  position: absolute;
+  z-index: 74;
+  right: 100px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.emote-popout-button {
+  display: grid;
+  grid-template-rows: 26px 12px;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  width: 76px;
+  height: 58px;
+  padding: 6px 5px;
+  border: 3px solid rgba(10, 9, 6, 0.9);
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.emote-popout-button span {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.emote-popout-button svg {
+  display: block;
 }
 
 .world-map-overlay {

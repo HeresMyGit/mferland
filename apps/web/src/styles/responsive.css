@@ -65,6 +65,24 @@
     font-size: 7px;
   }
 
+  .emote-popout {
+    right: 86px;
+    bottom: 102px;
+    gap: 8px;
+  }
+
+  .emote-popout-button {
+    grid-template-rows: 23px 10px;
+    gap: 3px;
+    width: 68px;
+    height: 52px;
+    padding: 5px 4px;
+  }
+
+  .emote-popout-button span {
+    font-size: 7px;
+  }
+
   .hotbar {
     bottom: 16px;
   }

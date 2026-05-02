@@ -104,6 +104,14 @@ export function updateLocalVisualPlayer(
   visual.x = resolvedPosition.x;
   visual.z = resolvedPosition.z;
   visual.yaw = yaw;
+  visual.emote = authoritative.emote;
+  visual.emoteStartedAt = authoritative.emoteStartedAt;
+  visual.emoteEndsAt = authoritative.emoteEndsAt;
+  if (moveLength > 0.01 || jump) {
+    visual.emote = "";
+    visual.emoteStartedAt = 0;
+    visual.emoteEndsAt = 0;
+  }
 
   const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
   visual.animation = airborne ? "jump" : moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";

@@ -59,6 +59,9 @@ type RuntimePlayer = {
   z: number;
   yaw: number;
   animation: PlayerSnapshot["animation"];
+  emote: PlayerSnapshot["emote"];
+  emoteStartedAt: number;
+  emoteEndsAt: number;
   lastSeq: number;
   attackReadyAt: number;
   shootReadyAt: number;
@@ -190,6 +193,9 @@ class AgentCharacter {
           z: player.z,
           yaw: player.yaw,
           animation: player.animation,
+          emote: player.emote,
+          emoteStartedAt: player.emoteStartedAt,
+          emoteEndsAt: player.emoteEndsAt,
           lastSeq: player.lastSeq,
           attackReadyAt: player.attackReadyAt,
           shootReadyAt: player.shootReadyAt,

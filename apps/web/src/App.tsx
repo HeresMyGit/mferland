@@ -17,12 +17,14 @@ import {
   type ActionId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
+  type ClientEmote,
   type ClientEquipItem,
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatActionId,
+  type EmoteId,
   type CombatEvent,
   type ExperienceEvent,
   type JoinOptions,
@@ -471,6 +473,10 @@ function GameShell({
     audio.play("chatSend");
     room.sendChat(text);
   }, [audio, room.sendChat]);
+  const performEmote = useCallback((emoteId: EmoteId) => {
+    audio.play("uiToggle");
+    room.sendEmote({ emoteId } satisfies ClientEmote);
+  }, [audio, room.sendEmote]);
   const respawn = useCallback(() => {
     audio.play("respawn");
     room.sendRespawn();
@@ -812,6 +818,7 @@ function GameShell({
         onSelectTalent={selectTalent}
         onCloseLootWindow={room.closeLootWindow}
         onSendChat={sendChat}
+        onEmote={performEmote}
         onRespawn={respawn}
         onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
         onExit={onExit}

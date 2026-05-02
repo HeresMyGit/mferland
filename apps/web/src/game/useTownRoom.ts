@@ -6,6 +6,7 @@ import {
   type ClientAcceptQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
+  type ClientEmote,
   type ClientEquipItem,
   type ClientInteract,
   type ClientInput,
@@ -339,6 +340,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("chat", { text });
   }, []);
 
+  const sendEmote = useCallback((message: ClientEmote) => {
+    roomRef.current?.send("emote", message);
+  }, []);
+
   const sendInteract = useCallback((message: ClientInteract = {}) => {
     roomRef.current?.send("interact", message);
   }, []);
@@ -454,6 +459,7 @@ export function useTownRoom(identity: JoinOptions) {
     debugPlacementMap,
     sendInput,
     sendChat,
+    sendEmote,
     sendInteract,
     sendAcceptQuest,
     sendCompleteQuest,
@@ -553,6 +559,9 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     z: player.z,
     yaw: player.yaw,
     animation: player.animation,
+    emote: player.emote,
+    emoteStartedAt: player.emoteStartedAt,
+    emoteEndsAt: player.emoteEndsAt,
     lastSeq: player.lastSeq,
     attackReadyAt: player.attackReadyAt,
     shootReadyAt: player.shootReadyAt,
@@ -597,6 +606,9 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.strength !== player.strength || changed;
   changed = target.dexterity !== player.dexterity || changed;
   changed = target.magic !== player.magic || changed;
+  changed = target.emote !== player.emote || changed;
+  changed = target.emoteStartedAt !== player.emoteStartedAt || changed;
+  changed = target.emoteEndsAt !== player.emoteEndsAt || changed;
   changed = target.attackReadyAt !== player.attackReadyAt || changed;
   changed = target.shootReadyAt !== player.shootReadyAt || changed;
   changed = target.signalShotReadyAt !== player.signalShotReadyAt || changed;
@@ -637,6 +649,9 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.z = player.z;
   target.yaw = player.yaw;
   target.animation = player.animation;
+  target.emote = player.emote;
+  target.emoteStartedAt = player.emoteStartedAt;
+  target.emoteEndsAt = player.emoteEndsAt;
   target.lastSeq = player.lastSeq;
   target.attackReadyAt = player.attackReadyAt;
   target.shootReadyAt = player.shootReadyAt;

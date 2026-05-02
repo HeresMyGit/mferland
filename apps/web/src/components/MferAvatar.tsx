@@ -9,6 +9,7 @@ import {
   getNpcDisposition,
   type AnimationState,
   type CombatActionId,
+  type EmoteId,
   type NpcDisposition,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -35,6 +36,8 @@ type MferAvatarProps = {
 };
 type ShadowScale = [number, number, number];
 type CastOrbVariant = "fire" | "ice" | "heal";
+type MferAnimationKey = AnimationState | EmoteId;
+type MferClipConfig = { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number };
 
 type LoadedMferGltf = {
   scene: THREE.Group;
@@ -48,6 +51,18 @@ export const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.An
   walk: { file: "Walking_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1 },
   run: { file: "Slow_Run_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1.08 },
   jump: { file: "Forward_Running_Jump", loop: THREE.LoopOnce, timeScale: 1 },
+};
+export const EMOTE_MIXAMO_CLIPS: Record<EmoteId, MferClipConfig> = {
+  wave: { file: "emotes/Waving", loop: THREE.LoopRepeat, timeScale: 1 },
+  dance: { file: "emotes/Hip_Hop_Dance_Moonwalk", loop: THREE.LoopRepeat, timeScale: 1 },
+  laugh: { file: "emotes/Laughing_Standing", loop: THREE.LoopOnce, timeScale: 1 },
+  cheer: { file: "emotes/Male_Cheering_With_Two_Fists_Pump", loop: THREE.LoopOnce, timeScale: 1 },
+  flex: { file: "emotes/Flexing_Muscles", loop: THREE.LoopOnce, timeScale: 1 },
+  shrug: { file: "emotes/Shoulder_Shrug", loop: THREE.LoopOnce, timeScale: 1 },
+};
+const MFER_ANIMATION_CLIPS: Record<MferAnimationKey, MferClipConfig> = {
+  ...MIXAMO_CLIPS,
+  ...EMOTE_MIXAMO_CLIPS,
 };
 export const TARGET_RING_COLORS: Record<NpcDisposition, string> = {
   friendly: MFER_COLORS.friendly,
@@ -68,8 +83,9 @@ const TARGET_BADGE_COLORS: Record<NpcDisposition | "player" | "local" | "agent",
   agent: MFER_COLORS.agent,
 };
 export const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
+const MFER_AVATAR_ANIMATION_URLS = Object.values(MFER_ANIMATION_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
-const animationClipCache = new WeakMap<THREE.AnimationClip, Map<AnimationState, THREE.AnimationClip>>();
+const animationClipCache = new WeakMap<THREE.AnimationClip, Map<MferAnimationKey, THREE.AnimationClip>>();
 const avatarTemplateCache = new WeakMap<THREE.Group, Map<string, THREE.Group>>();
 const avatarHitGeometry = new THREE.CylinderGeometry(0.72, 0.72, 2.7, 12);
 const invisibleHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -107,11 +123,11 @@ export function MferAvatar({
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
   const currentClipNameRef = useRef<string | null>(null);
-  const currentAnimationStateRef = useRef<AnimationState | null>(null);
+  const currentAnimationKeyRef = useRef<MferAnimationKey | null>(null);
   const deathAgeRef = useRef(0);
   const wasDefeatedRef = useRef(false);
   const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGltf;
-  const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
+  const fbxAnimations = useLoader(FBXLoader, MFER_AVATAR_ANIMATION_URLS) as THREE.Group[];
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
   const npc = isNpc && "role" in player ? player : null;
   const disposition = npc ? getNpcDisposition(npc) : "friendly";
@@ -125,6 +141,9 @@ export function MferAvatar({
   const badgeColor = npc
     ? TARGET_BADGE_COLORS[disposition]
     : isLocal ? TARGET_BADGE_COLORS.local : isAgentPlayer ? TARGET_BADGE_COLORS.agent : TARGET_BADGE_COLORS.player;
+  const playerEmote = "emote" in player ? player.emote : "";
+  const playerEmoteStartedAt = "emoteStartedAt" in player ? player.emoteStartedAt : 0;
+  const playerEmoteEndsAt = "emoteEndsAt" in player ? player.emoteEndsAt : 0;
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, player.x, player.z) : 0;
   const showNameplate = canShowNameplate && !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
@@ -149,7 +168,7 @@ export function MferAvatar({
     mixerRef.current = null;
     currentActionRef.current = null;
     currentClipNameRef.current = null;
-    currentAnimationStateRef.current = null;
+    currentAnimationKeyRef.current = null;
 
     const mixer = new THREE.AnimationMixer(avatar);
     mixerRef.current = mixer;
@@ -160,14 +179,15 @@ export function MferAvatar({
       mixerRef.current = null;
       currentActionRef.current = null;
       currentClipNameRef.current = null;
-      currentAnimationStateRef.current = null;
+      currentAnimationKeyRef.current = null;
     };
   }, [avatar, clips]);
 
   useEffect(() => {
     if (isDefeated) return;
-    playClip(player.animation);
-  }, [isDefeated, player.animation, clips]);
+    const animationKey = getMferAnimationKey(player);
+    playClip(animationKey, { forceRestart: animationKey === playerEmote });
+  }, [isDefeated, player.animation, playerEmote, playerEmoteStartedAt, playerEmoteEndsAt, clips]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -187,8 +207,9 @@ export function MferAvatar({
       deathAgeRef.current += delta;
       updateMferDeathPose(poseRef.current, deathAgeRef.current);
     } else {
-      if (currentAnimationStateRef.current !== player.animation) {
-        playClip(player.animation);
+      const animationKey = getMferAnimationKey(player);
+      if (currentAnimationKeyRef.current !== animationKey) {
+        playClip(animationKey);
       }
       mixerRef.current?.update(delta);
     }
@@ -257,12 +278,12 @@ export function MferAvatar({
     onTarget();
   }
 
-  function playClip(state: AnimationState, options: { fadeDuration?: number; forceRestart?: boolean } = {}) {
+  function playClip(state: MferAnimationKey, options: { fadeDuration?: number; forceRestart?: boolean } = {}) {
     const mixer = mixerRef.current;
     const clip = clips.get(state);
     if (!mixer || !clip) return;
 
-    const config = MIXAMO_CLIPS[state];
+    const config = MFER_ANIMATION_CLIPS[state];
     const clipName = clip.name;
     const forceRestart = options.forceRestart ?? false;
     if (!forceRestart && currentClipNameRef.current === clipName && currentActionRef.current) {
@@ -287,14 +308,14 @@ export function MferAvatar({
 
     const previousAction = currentActionRef.current;
     if (previousAction && previousAction !== nextAction) {
-      const fadeDuration = options.fadeDuration ?? (state === "jump" ? 0.08 : 0.18);
+      const fadeDuration = options.fadeDuration ?? (state === "jump" || isEmoteAnimationKey(state) ? 0.08 : 0.18);
       if (fadeDuration > 0) nextAction.crossFadeFrom(previousAction, fadeDuration, false);
       else previousAction.stop();
     }
 
     currentActionRef.current = nextAction;
     currentClipNameRef.current = clipName;
-    currentAnimationStateRef.current = state;
+    currentAnimationKeyRef.current = state;
     mixer.update(0);
   }
 }
@@ -874,6 +895,15 @@ function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
   return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
 
+function getMferAnimationKey(player: PlayerSnapshot | NpcSnapshot): MferAnimationKey {
+  if ("emote" in player && player.emote && (player.emoteEndsAt <= 0 || Date.now() < player.emoteEndsAt)) return player.emote;
+  return player.animation;
+}
+
+function isEmoteAnimationKey(key: MferAnimationKey): key is EmoteId {
+  return Object.prototype.hasOwnProperty.call(EMOTE_MIXAMO_CLIPS, key);
+}
+
 export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
   const cacheKey = fbxAnimations[0]?.animations?.[0];
   if (cacheKey) {
@@ -881,8 +911,8 @@ export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
     if (cached) return cached;
   }
 
-  const clips = new Map<AnimationState, THREE.AnimationClip>();
-  const entries = Object.entries(MIXAMO_CLIPS) as Array<[AnimationState, typeof MIXAMO_CLIPS[AnimationState]]>;
+  const clips = new Map<MferAnimationKey, THREE.AnimationClip>();
+  const entries = Object.entries(MFER_ANIMATION_CLIPS) as Array<[MferAnimationKey, MferClipConfig]>;
   for (let index = 0; index < entries.length; index += 1) {
     const [state, config] = entries[index];
     const sourceClip = fbxAnimations[index]?.animations?.[0];

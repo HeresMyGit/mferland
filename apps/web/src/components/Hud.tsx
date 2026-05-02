@@ -1,7 +1,8 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Gift, ListChecks, LogOut, Map as MapIcon, Package, Settings, Sparkles, UserRound, X } from "lucide-react";
+import { BookOpen, Check, Dumbbell, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
+  EMOTES,
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
@@ -14,6 +15,7 @@ import {
   type ActionId,
   type ChatMessage,
   type CombatActionId,
+  type EmoteId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
   type ClientEquipItem,
@@ -65,6 +67,14 @@ const IDLE_HUD_TICK_MIN_MS = 1000;
 const TOOLTIP_MAX_WIDTH = 280;
 const TOOLTIP_MAX_HEIGHT = 220;
 const TOOLTIP_OFFSET = 16;
+const EMOTE_OPTIONS: Array<{ id: EmoteId; Icon: LucideIcon }> = [
+  { id: "wave", Icon: Hand },
+  { id: "dance", Icon: Music },
+  { id: "laugh", Icon: Laugh },
+  { id: "cheer", Icon: PartyPopper },
+  { id: "flex", Icon: Dumbbell },
+  { id: "shrug", Icon: Meh },
+];
 
 type HudTooltipState = {
   text: string;
@@ -115,6 +125,7 @@ type HudProps = {
   onSelectTalent: (message: ClientSelectTalent) => void;
   onCloseLootWindow: () => void;
   onSendChat: (text: string) => void;
+  onEmote: (emoteId: EmoteId) => void;
   onRespawn: () => void;
   onSelectSelfTarget: () => void;
   onExit: () => void;
@@ -156,6 +167,7 @@ export function Hud({
   onSelectTalent,
   onCloseLootWindow,
   onSendChat,
+  onEmote,
   onRespawn,
   onSelectSelfTarget,
   onExit,
@@ -178,6 +190,7 @@ export function Hud({
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
+  const [isEmotesOpen, setIsEmotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const exploredCellKeyRef = useRef("");
@@ -315,6 +328,7 @@ export function Hud({
     isInventoryOpen,
     isCharacterOpen,
     isAbilitiesOpen,
+    isEmotesOpen,
     isSettingsOpen,
     lootWindow,
     questOffer,
@@ -354,6 +368,10 @@ export function Hud({
     }
     if (isAbilitiesOpen) {
       setIsAbilitiesOpen(false);
+      return true;
+    }
+    if (isEmotesOpen) {
+      setIsEmotesOpen(false);
       return true;
     }
     if (isCharacterOpen) {
@@ -437,6 +455,11 @@ export function Hud({
     if (event.key !== "Escape") return;
     event.preventDefault();
     event.currentTarget.blur();
+  }
+
+  function triggerEmote(emoteId: EmoteId) {
+    onEmote(emoteId);
+    setIsEmotesOpen(false);
   }
 
   function showTooltip(text: string | undefined, clientX: number, clientY: number) {
@@ -1055,7 +1078,12 @@ export function Hud({
         <div className="chat-log">
           {chat.length === 0 ? (
             <p className="muted">gm mfers</p>
-          ) : chat.map((message, index) => (
+          ) : chat.map((message, index) => message.kind === "emote" ? (
+            <p key={`${message.sentAt}-${index}`} className="chat-emote">
+              <strong>{message.name} </strong>
+              {message.text}
+            </p>
+          ) : (
             <p key={`${message.sentAt}-${index}`}>
               <strong>{message.name}: </strong>
               {message.identityType === "agent" && <em>agent </em>}
@@ -1105,6 +1133,25 @@ export function Hud({
         />
       )}
 
+      {isEmotesOpen && (
+        <section className="emote-popout" role="menu" aria-label="emotes">
+          {EMOTE_OPTIONS.map(({ id, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="menuitem"
+              title={EMOTES[id].label}
+              aria-label={EMOTES[id].label}
+              className="emote-popout-button"
+              onClick={() => triggerEmote(id)}
+            >
+              <Icon size={19} />
+              <span>{EMOTES[id].label}</span>
+            </button>
+          ))}
+        </section>
+      )}
+
       <section className="menu-dock">
         <button type="button" title="Character (C)" onClick={() => setIsCharacterOpen((open) => !open)}>
           <UserRound size={25} />
@@ -1118,6 +1165,10 @@ export function Hud({
         <button type="button" title="moves (N)" onClick={() => setIsAbilitiesOpen((open) => !open)}>
           <Sparkles size={25} />
           <span>moves</span>
+        </button>
+        <button type="button" title="Emotes" onClick={() => setIsEmotesOpen((open) => !open)}>
+          <PartyPopper size={25} />
+          <span>emotes</span>
         </button>
         <button type="button" title="errand log (L)" onClick={() => setIsQuestLogOpen((open) => !open)}>
           <BookOpen size={25} />
