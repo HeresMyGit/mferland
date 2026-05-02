@@ -44,7 +44,7 @@ Guest mode does not persist yet.
 
 ## Later DB/Auth Work
 
-- Add Privy auth and map Privy users to `accounts.privy_user_id`.
+- Keep tester auth wallet-only for now. Privy and `accounts.privy_user_id` mapping are deferred until wallet-only testing proves they are needed.
 - Decide final character progression tables for XP, talent trees, and gear.
 - Keep rare/onchain items separate later; current character/account/quest/inventory state is regular DB.
 - Add admin/debug tooling for looking up a wallet character without exposing secrets.

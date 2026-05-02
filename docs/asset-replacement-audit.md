@@ -4,6 +4,10 @@ Date: 2026-04-29
 
 This audit covers the objects and models currently rendered into the town scene and nearby NPC layer. The codebase is mostly using procedural Three.js geometry, generated canvas textures, five static world textures, one local GLB, one remote mfer GLB, and four local FBX animation clips.
 
+## Visual Target Reference
+
+Use [reference/original-mfertown-reference.png](reference/original-mfertown-reference.png) as the current world-art north star. The starter town should read as a dense, bright, social mfer plaza: cobblestone square, central fountain, many visible mfers/NPCs, warm clustered buildings, fuller tree canopy, and a castle/gate backdrop. The farm/field/wilderness areas can stay rougher, but the first read of town should not feel sparse, rural, or western.
+
 Priority key:
 
 - P0: Replace first once the Blender MCP workflow is available.

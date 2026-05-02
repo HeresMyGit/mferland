@@ -14,6 +14,8 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Candidate fix 2026-04-28: Reduced idle HUD timer churn by making the HUD timer sleep until the next clock minute unless a cast/cooldown is active.
 - Candidate fix 2026-04-28: Stopped room position/yaw-only patches from forcing React renders; actors now consume movement/animation changes in-frame, while UI renders still occur for health, quests, inventory, cooldowns, membership, and coarse local minimap movement.
 - Candidate fix 2026-04-28: Added a deadzone to local player prediction reconciliation so tiny server/client drift while actively moving no longer creates constant camera/player rubber-banding; large drift still snaps and idle drift still corrects normally.
+- Confirmed 2026-04-30: Josh manually verified that the recurring movement/camera hitch is resolved.
+- Direction 2026-04-30: Treat the old Colyseus schema buffer warning as non-blocking unless it reappears; the buffer was already increased and verified in normal guest entry.
 - Done 2026-04-28: Fix fountain-area rendering order so cobblestone near the fountain sits below character shadows, and improve dirt paths with a darker textured surface instead of the pale translucent overlay.
 - Done 2026-04-28: Reduce the quest log HUD footprint by collapsing the idle/no-active-quest tracker into a compact panel while keeping the full quest log button.
 - Done 2026-04-28: Fix right-side HUD button alignment so icon and label content stays centered and unclipped on Character, Inventory, Quests, and Leave buttons, including narrow/mobile viewports.
@@ -52,6 +54,7 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 ### mferGPT
 
 - Done 2026-04-28: Added a Codex CLI LLM provider for mferGPT that uses the machine's logged-in Codex/ChatGPT auth, runs in an isolated temp workdir, strips app secrets from the subprocess environment, and keeps the old HTTP endpoint provider available as an override.
+- Direction 2026-04-30: Josh's real mferGPT agent is now part of the path. Future game work should keep the in-game API/tool surface bounded, useful, and explicit before personality polish.
 
 ### Consumables And Hotbar
 
@@ -135,6 +138,13 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Rare/onchain item behavior is later; only add schema support now.
 
 ## Verification Notes
+
+### 2026-04-30 09:50 PDT - Direction Update
+
+- Saved Josh's original MFERS TOWN visual reference at [reference/original-mfertown-reference.png](reference/original-mfertown-reference.png).
+- Updated [../NEXT_STEPS.md](../NEXT_STEPS.md) around the current path: wallet-only tester auth, production DB cutover paused until Josh is on the Mac mini, Blender MCP available, Privy deferred, current questline/deep itemization deprioritized, and visual town density/mferGPT agent work moved up.
+- Visual target from the reference: dense cobblestone social plaza, central fountain, packed visible mfers/NPCs, warm buildings, fuller trees, and castle/gate backdrop. Avoid a sparse rural/western first read for the starter town.
+- Keep current crypto/AI/generation work bounded: regular character state stays DB-backed, rare/onchain behavior is later, and image/model generation should start as a reviewed asset pipeline that feeds the normal Blender/GLB workflow.
 
 ### 2026-04-29 16:56 PDT - Creature GLB Source Bank
 
