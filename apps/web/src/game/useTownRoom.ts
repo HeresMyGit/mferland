@@ -289,10 +289,6 @@ export function useTownRoom(identity: JoinOptions) {
           setDebugPlacementMap(message);
         });
 
-        if (import.meta.env.DEV) {
-          room.send("debugRequestPlacementMap", {});
-        }
-
         room.onLeave(() => {
           if (!disposed) {
             playersRef.current.clear();

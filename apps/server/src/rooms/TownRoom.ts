@@ -353,12 +353,13 @@ export class TownRoom extends Room<TownState> {
         void this.handleDebugPlacementSaveChunk(client, message);
       });
 
-      this.onMessage("debugRequestPlacementMap", (client) => {
-        void readDebugPlacementMap().then((document) => {
-          client.send("debugPlacementMap", document);
-        });
-      });
     }
+
+    this.onMessage("debugRequestPlacementMap", (client) => {
+      void readDebugPlacementMap().then((document) => {
+        client.send("debugPlacementMap", document);
+      });
+    });
 
     this.onMessage("chat", (client, message: { text?: string }) => {
       void this.handleChatMessage(client, message);
