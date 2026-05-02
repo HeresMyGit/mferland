@@ -727,7 +727,7 @@ function moveNpcAwayFrom(npc: NpcState, x: number, z: number, delta: number, spe
   );
   npc.x = nextPosition.x;
   npc.z = nextPosition.z;
-  npc.yaw = Math.atan2(-dx, -dz);
+  npc.yaw = Math.atan2(dx, dz);
   npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "run" : "idle";
 }
 

@@ -76,6 +76,26 @@ type DebugPlacementSavePayload = {
   placements: Record<string, unknown>;
   sourceDefaults: Record<string, unknown>;
 };
+type DebugBoostPlayerMessage = {
+  level?: number;
+  maxTalents?: boolean;
+};
+type DebugNpcSetupMessage = {
+  npcId: string;
+  name?: string;
+  role?: string;
+  model?: string;
+  x: number;
+  z: number;
+  yaw?: number;
+  health?: number;
+  maxHealth?: number;
+  leashRadius?: number;
+  isImmortal?: boolean;
+  combatStyle?: string;
+  dialogue?: string;
+  aggroTargetId?: string;
+};
 type DebugPlacementSaveResult = {
   ok: boolean;
   path?: string;
@@ -417,6 +437,16 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("debugSetWorldPlacement", placement);
   }, []);
 
+  const sendDebugBoostPlayer = useCallback((message: DebugBoostPlayerMessage = {}) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugBoostPlayer", message);
+  }, []);
+
+  const sendDebugNpcSetup = useCallback((message: DebugNpcSetupMessage) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugSetupNpc", message);
+  }, []);
+
   const sendDebugPlacementSave = useCallback((payload: DebugPlacementSavePayload) => {
     if (!import.meta.env.DEV) return;
     const room = roomRef.current;
@@ -477,6 +507,8 @@ export function useTownRoom(identity: JoinOptions) {
     sendDebugTeleport,
     sendDebugNpcPlacement,
     sendDebugWorldPlacement,
+    sendDebugBoostPlayer,
+    sendDebugNpcSetup,
     sendDebugPlacementSave,
   };
 }

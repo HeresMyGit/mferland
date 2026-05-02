@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.log
 smoke-*.png
+captures/
 .tmp/
 *.blend1
 .DS_Store

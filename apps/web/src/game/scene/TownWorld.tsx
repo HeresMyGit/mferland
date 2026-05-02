@@ -211,7 +211,7 @@ function SignalRouteMarker({
   );
 }
 
-function SignalRelay({ position, rotation }: { position: [number, number, number]; rotation: number }) {
+export function SignalRelay({ position, rotation }: { position: [number, number, number]; rotation: number }) {
   const gltf = useLoader(GLTFLoader, "/models/signal-relay-body.glb") as { scene: THREE.Group };
   const bodyModel = useMemo(() => createSignalRelayBodyModel(gltf.scene), [gltf.scene]);
 

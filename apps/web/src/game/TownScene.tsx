@@ -70,6 +70,7 @@ type TownSceneProps = {
     nonce: number;
   } | null;
   nameplateVisibility: NameplateVisibility;
+  hideWorldOverlays?: boolean;
   debugPlacementMode?: boolean;
   debugPlacementTargets?: DebugPlacementTarget[];
   debugPlacementOverrides?: DebugPlacementOverrides;
@@ -115,6 +116,7 @@ function TownSceneComponent({
   sendInput,
   debugTravelView = null,
   nameplateVisibility = DEFAULT_NAMEPLATE_VISIBILITY,
+  hideWorldOverlays = false,
   debugPlacementMode = false,
   debugPlacementTargets = [],
   debugPlacementOverrides = EMPTY_DEBUG_PLACEMENT_OVERRIDES,
@@ -577,7 +579,7 @@ function TownSceneComponent({
             if (onSelectNpcTarget) onSelectNpcTarget(npc.id);
             else onSelectTarget({ kind: "npc", id: npc.id });
           };
-          const questMarker = getNpcQuestMarker(npc, localQuestState);
+          const questMarker = hideWorldOverlays ? null : getNpcQuestMarker(npc, localQuestState);
           const showNameplate = shouldShowNpcNameplate(npc, nameplateVisibility);
           if (npc.model === "mfergpt") {
             return (
@@ -676,6 +678,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.sendInput === next.sendInput
     && previous.debugTravelView === next.debugTravelView
     && previous.nameplateVisibility === next.nameplateVisibility
+    && previous.hideWorldOverlays === next.hideWorldOverlays
     && previous.debugPlacementMode === next.debugPlacementMode
     && previous.debugPlacementTargets === next.debugPlacementTargets
     && previous.debugPlacementOverrides === next.debugPlacementOverrides

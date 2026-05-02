@@ -4,7 +4,7 @@ import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { closeDatabase } from "./db/client.js";
-import { readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
+import { areDebugMessagesEnabled, readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
 
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
 
@@ -23,7 +23,12 @@ const server = createServer((req, res) => {
 
   if (url === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, room: ROOM_NAME, maxPlayers: MAX_PLAYERS }));
+    res.end(JSON.stringify({
+      ok: true,
+      room: ROOM_NAME,
+      maxPlayers: MAX_PLAYERS,
+      debugMessagesEnabled: areDebugMessagesEnabled(),
+    }));
     return;
   }
 

@@ -13,6 +13,7 @@ import {
   PROGRESSION,
   QUESTS,
   SERVER_TICK_RATE,
+  TALENTS,
   clamp,
   getNpcDisposition,
   getInventoryItemKey,
@@ -117,6 +118,10 @@ const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const EMOTE_MIN_INTERVAL_MS = 900;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 
+export function areDebugMessagesEnabled() {
+  return process.env.NODE_ENV === "development" && process.env.MFERLAND_ENABLE_DEBUG_MESSAGES === "1";
+}
+
 type DebugTeleportMessage = {
   x?: unknown;
   z?: unknown;
@@ -152,6 +157,28 @@ type DebugPlacementSaveChunkMessage = DebugPlacementSaveBeginMessage & {
   chunkIndex?: unknown;
   placements?: unknown;
   sourceDefaults?: unknown;
+};
+
+type DebugBoostPlayerMessage = {
+  level?: unknown;
+  maxTalents?: unknown;
+};
+
+type DebugNpcSetupMessage = {
+  npcId?: unknown;
+  name?: unknown;
+  role?: unknown;
+  model?: unknown;
+  x?: unknown;
+  z?: unknown;
+  yaw?: unknown;
+  health?: unknown;
+  maxHealth?: unknown;
+  leashRadius?: unknown;
+  isImmortal?: unknown;
+  combatStyle?: unknown;
+  dialogue?: unknown;
+  aggroTargetId?: unknown;
 };
 
 type DebugPlacementRecord = {
@@ -250,7 +277,7 @@ export class TownRoom extends Room<TownState> {
       this.jumpHeld.set(client.sessionId, false);
     });
 
-    if (process.env.NODE_ENV !== "production") {
+    if (areDebugMessagesEnabled()) {
       this.onMessage("debugTeleport", (client, message: DebugTeleportMessage = {}) => {
         const player = this.state.players.get(client.sessionId);
         if (!player) return;
@@ -304,6 +331,14 @@ export class TownRoom extends Room<TownState> {
 
       this.onMessage("debugSetWorldPlacement", (_client, message: DebugWorldPlacementMessage = {}) => {
         this.handleDebugSetWorldPlacement(message);
+      });
+
+      this.onMessage("debugBoostPlayer", (client, message: DebugBoostPlayerMessage = {}) => {
+        this.handleDebugBoostPlayer(client, message);
+      });
+
+      this.onMessage("debugSetupNpc", (_client, message: DebugNpcSetupMessage = {}) => {
+        this.handleDebugSetupNpc(message);
       });
 
       this.onMessage("debugSavePlacements", (client, message: DebugPlacementSaveMessage = {}) => {
@@ -578,6 +613,121 @@ export class TownRoom extends Room<TownState> {
       [targetId]: placement,
     };
     setWorldCollisionPlacementOverrides(this.debugWorldPlacementOverrides);
+  }
+
+  private handleDebugBoostPlayer(client: Client, message: DebugBoostPlayerMessage) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const requestedLevel = Number(message.level);
+    player.level = Number.isFinite(requestedLevel) ? clamp(Math.round(requestedLevel), 1, 40) : 12;
+    player.xp = Math.max(player.xp, 0);
+    player.talentPoints = 0;
+
+    if (message.maxTalents !== false) {
+      player.talents.clear();
+      for (const [talentId, definition] of Object.entries(TALENTS)) {
+        const talent = new TalentState();
+        talent.id = talentId as keyof typeof TALENTS;
+        talent.tree = definition.tree;
+        talent.nodeId = definition.nodeId;
+        talent.rank = definition.maxRank;
+        player.talents.set(talent.id, talent);
+      }
+    }
+
+    normalizePlayerTalents(player);
+    recalculatePlayerStats(player);
+    player.maxHealth = Math.max(player.maxHealth, 1800);
+    player.maxMana = Math.max(player.maxMana, 260);
+    player.strength = Math.max(player.strength, 44);
+    player.dexterity = Math.max(player.dexterity, 44);
+    player.magic = Math.max(player.magic, 44);
+    player.walkSpeed = Math.max(player.walkSpeed, PLAYER.walkSpeed + 0.8);
+    player.runSpeed = Math.max(player.runSpeed, PLAYER.runSpeed + 1.2);
+    player.health = player.maxHealth;
+    player.mana = player.maxMana;
+    player.attackReadyAt = 0;
+    player.shootReadyAt = 0;
+    player.signalShotReadyAt = 0;
+    player.fireblastReadyAt = 0;
+    player.frostNovaReadyAt = 0;
+    player.healReadyAt = 0;
+    player.tauntReadyAt = 0;
+    player.whirlwindReadyAt = 0;
+    player.multishotReadyAt = 0;
+    player.iceBlastReadyAt = 0;
+    clearPlayerCast(player);
+  }
+
+  private handleDebugSetupNpc(message: DebugNpcSetupMessage) {
+    const npcId = typeof message.npcId === "string" ? message.npcId.trim().slice(0, 80) : "";
+    if (!npcId || !/^[a-z0-9:_-]+$/i.test(npcId)) return;
+
+    const x = Number(message.x);
+    const z = Number(message.z);
+    const yaw = Number(message.yaw);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+
+    const health = normalizePositiveNumber(message.health);
+    const maxHealth = normalizePositiveNumber(message.maxHealth) ?? health;
+    const leashRadius = normalizePositiveNumber(message.leashRadius) ?? 14;
+    const role = normalizeDebugNpcRole(message.role);
+    const model = normalizeDebugNpcModel(message.model);
+    const combatStyle = normalizeDebugNpcCombatStyle(message.combatStyle);
+    const name = typeof message.name === "string" && message.name.trim()
+      ? message.name.trim().slice(0, 48)
+      : npcId.replace(/[-_:]+/g, " ");
+    const dialogue = typeof message.dialogue === "string" && message.dialogue.trim()
+      ? message.dialogue.trim().slice(0, 160)
+      : "capture target";
+
+    const existing = this.state.npcs.get(npcId);
+    const npc = existing ?? spawnNpcFromSpec(this.state.npcs, {
+      id: npcId,
+      name,
+      role,
+      model,
+      x,
+      z,
+      yaw: Number.isFinite(yaw) ? yaw : 0,
+      leashRadius,
+      health: maxHealth ?? health ?? 100,
+      maxHealth: maxHealth ?? health ?? 100,
+      isImmortal: Boolean(message.isImmortal),
+      combatStyle,
+      dialogue,
+    });
+
+    npc.name = name;
+    npc.role = role;
+    npc.model = model;
+    npc.x = x;
+    npc.y = 0;
+    npc.z = z;
+    npc.homeX = x;
+    npc.homeZ = z;
+    npc.targetX = x;
+    npc.targetZ = z;
+    npc.yaw = Number.isFinite(yaw) ? yaw : npc.yaw;
+    npc.leashRadius = leashRadius;
+    npc.dialogue = dialogue;
+    npc.combatStyle = combatStyle;
+    npc.isImmortal = Boolean(message.isImmortal);
+    npc.maxHealth = maxHealth ?? health ?? npc.maxHealth;
+    npc.health = health ?? npc.maxHealth;
+    npc.defeatedAt = 0;
+    npc.despawnAt = 0;
+    npc.respawnAt = 0;
+    npc.attackReadyAt = 0;
+    npc.frozenUntil = 0;
+    npc.slowedUntil = 0;
+    npc.hasLoot = false;
+    npc.loot.clear();
+    npc.animation = "idle";
+    npc.aggroTargetId = typeof message.aggroTargetId === "string" ? message.aggroTargetId : "";
+    this.npcThreat.delete(npc.id);
+    this.forcedNpcTargets.delete(npc.id);
   }
 
   private async handleChatMessage(client: Client, message: { text?: string }) {
@@ -1472,6 +1622,46 @@ function filterWorldDebugPlacements(placements: Record<string, DebugPlacementRec
     if (!id.startsWith("npc:")) worldPlacements[id] = placement;
   }
   return worldPlacements;
+}
+
+function normalizePositiveNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function normalizeDebugNpcRole(value: unknown) {
+  if (
+    value === "wanderer"
+    || value === "quest_giver"
+    || value === "merchant"
+    || value === "guard"
+    || value === "enemy"
+    || value === "critter"
+    || value === "beast"
+    || value === "farmer"
+  ) {
+    return value;
+  }
+  return "farmer";
+}
+
+function normalizeDebugNpcModel(value: unknown) {
+  if (
+    value === "mfer"
+    || value === "mfergpt"
+    || value === "rabbit"
+    || value === "deer"
+    || value === "hog"
+    || value === "training-dummy"
+  ) {
+    return value;
+  }
+  return "mfer";
+}
+
+function normalizeDebugNpcCombatStyle(value: unknown) {
+  if (value === "melee" || value === "caster") return value;
+  return "melee";
 }
 
 export async function readDebugPlacementMap() {

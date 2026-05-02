@@ -66,6 +66,14 @@ const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["attack", null, null, null, null, null, null, null];
 const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v4";
 const GAME_SETTINGS_STORAGE_KEY = "mferland:settings:v1";
+const HIDDEN_CAPTURE_NAMEPLATES = {
+  localPlayer: false,
+  otherPlayers: false,
+  friendlyNpcs: false,
+  unfriendlyNpcs: false,
+};
+const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
+const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -100,9 +108,22 @@ type MoveUnlockNotice = {
 };
 type QueuedMoveUnlockNotice = Omit<MoveUnlockNotice, "id">;
 
+function isRealCaptureMode() {
+  if (!REAL_CAPTURE_ENABLED) return false;
+  return new URLSearchParams(window.location.search).get("realCapture") === "1";
+}
+
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
   const [savedDebugPlacementDefaults, setSavedDebugPlacementDefaults] = useState<DebugPlacementOverrides>({});
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || identity) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!isRealCaptureMode()) return;
+    const name = params.get("name")?.trim() || "capture mfer";
+    setIdentity(makeGuestIdentity(name));
+  }, [identity]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -319,6 +340,8 @@ function GameShell({
   const lastQuestNoticeIdRef = useRef("");
   const lastLootNoticeIdRef = useRef("");
   const combatAudioTimeoutsRef = useRef<number[]>([]);
+  const realCaptureRoomRef = useRef(room);
+  const realCaptureSelectedTargetRef = useRef<TargetSelection | null>(null);
   const debugToolsAvailable = import.meta.env.DEV;
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
@@ -338,6 +361,9 @@ function GameShell({
     [room.npcs, room.snapshotRevision],
   );
   const debugPlacementMode = debugToolsAvailable && settings.debugPlacementEditor;
+  const hideCaptureHud = isRealCaptureMode()
+    && new URLSearchParams(window.location.search).get("realCaptureHud") === "0";
+  const visibleSelectedTarget = hideCaptureHud ? null : selectedTarget;
   const effectiveDebugPlacementOverrides = useMemo(
     () => ({
       ...savedDebugPlacementDefaults,
@@ -349,6 +375,8 @@ function GameShell({
   const [gameLoaderReachedCap, setGameLoaderReachedCap] = useState(false);
   const handleGameLoaderReachedCap = useCallback(() => setGameLoaderReachedCap(true), []);
   const renderGameLoader = showGameLoader || !gameLoaderReachedCap;
+  realCaptureRoomRef.current = room;
+  realCaptureSelectedTargetRef.current = selectedTarget;
 
   useEffect(() => {
     setSavedDebugPlacementDefaults(initialSavedDebugPlacementDefaults);
@@ -737,6 +765,27 @@ function GameShell({
   }, []);
 
   useEffect(() => {
+    if (!isRealCaptureMode()) return;
+    let disposeCaptureBridge: (() => void) | null = null;
+    let cancelled = false;
+    const captureBridgeModuleUrl = new URL("./game/realGameCaptureBridge.ts", import.meta.url).href;
+    void import(/* @vite-ignore */ captureBridgeModuleUrl).then((captureModule) => {
+      if (cancelled) return;
+      const { installRealGameCaptureBridge } = captureModule as typeof import("./game/realGameCaptureBridge");
+      disposeCaptureBridge = installRealGameCaptureBridge({
+        roomRef: realCaptureRoomRef,
+        selectedTargetRef: realCaptureSelectedTargetRef,
+        setSelectedTarget,
+        setDebugTravelView,
+      });
+    });
+    return () => {
+      cancelled = true;
+      disposeCaptureBridge?.();
+    };
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || isTypingTarget(event.target)) return;
       const slotIndex = numberKeyToSlotIndex(event);
@@ -763,16 +812,17 @@ function GameShell({
           npcs={room.npcs}
           sceneRevision={room.sceneRevision}
           localSessionId={room.sessionId}
-          selectedTarget={selectedTarget}
+          selectedTarget={visibleSelectedTarget}
           combatEvents={room.combatEvents}
           experienceEvents={room.experienceEvents}
-          chatBubbles={room.chatBubbles}
+          chatBubbles={hideCaptureHud ? EMPTY_CAPTURE_CHAT_BUBBLES : room.chatBubbles}
           onSelectTarget={setSelectedTarget}
           onSelectNpcTarget={selectNpcTarget}
           onInteractAction={performInteract}
           sendInput={room.sendInput}
           debugTravelView={debugTravelView}
-          nameplateVisibility={settings.nameplates}
+          nameplateVisibility={hideCaptureHud ? HIDDEN_CAPTURE_NAMEPLATES : settings.nameplates}
+          hideWorldOverlays={hideCaptureHud}
           debugPlacementMode={debugPlacementMode}
           debugPlacementTargets={debugPlacementTargets}
           debugPlacementOverrides={effectiveDebugPlacementOverrides}
@@ -785,56 +835,60 @@ function GameShell({
       </Canvas>
       {renderGameLoader && <MferHeadLoader onCappedProgressComplete={handleGameLoaderReachedCap} />}
 
-      <Hud
-        identity={hudIdentity}
-        playerCount={playerCount}
-        connectionStatus={room.status}
-        connectionError={room.error}
-        chat={room.chat}
-        players={room.players}
-        npcs={room.npcs}
-        selectedTarget={selectedTarget}
-        selectedTargetUnit={selectedTargetUnit}
-        localSessionId={room.sessionId}
-        localPlayer={localPlayer ?? null}
-        questOffer={room.questOffer}
-        questTurnIn={room.questTurnIn}
-        questStatus={room.questStatus}
-        lootWindow={room.lootWindow}
-        actionError={actionError}
-        moveUnlockNotice={moveUnlockNotices[0] ?? null}
-        actionSlots={actionSlots}
-        onAction={performAction}
-        onReplaceActionSlots={replaceActionSlots}
-        onAcceptQuest={acceptQuest}
-        onCompleteQuest={completeQuest}
-        onDismissQuestOffer={room.dismissQuestOffer}
-        onDismissQuestTurnIn={room.dismissQuestTurnIn}
-        onDismissQuestStatus={room.dismissQuestStatus}
-        onLootCorpse={lootCorpse}
-        onEquipItem={equipItem}
-        onUnequipItem={unequipItem}
-        onUseItem={useItem}
-        onSelectTalent={selectTalent}
-        onCloseLootWindow={room.closeLootWindow}
-        onSendChat={sendChat}
-        onEmote={performEmote}
-        onRespawn={respawn}
-        onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
-        onExit={onExit}
-        settings={settings}
-        debugToolsAvailable={debugToolsAvailable}
-        onSettingsChange={setSettings}
-      />
-      <MobileControls
-        inputRef={mobileMoveInputRef}
-        disabled={debugPlacementMode || renderGameLoader || !localPlayer || localPlayer.health <= 0}
-      />
+      {!hideCaptureHud && (
+        <>
+          <Hud
+            identity={hudIdentity}
+            playerCount={playerCount}
+            connectionStatus={room.status}
+            connectionError={room.error}
+            chat={room.chat}
+            players={room.players}
+            npcs={room.npcs}
+            selectedTarget={selectedTarget}
+            selectedTargetUnit={selectedTargetUnit}
+            localSessionId={room.sessionId}
+            localPlayer={localPlayer ?? null}
+            questOffer={room.questOffer}
+            questTurnIn={room.questTurnIn}
+            questStatus={room.questStatus}
+            lootWindow={room.lootWindow}
+            actionError={actionError}
+            moveUnlockNotice={moveUnlockNotices[0] ?? null}
+            actionSlots={actionSlots}
+            onAction={performAction}
+            onReplaceActionSlots={replaceActionSlots}
+            onAcceptQuest={acceptQuest}
+            onCompleteQuest={completeQuest}
+            onDismissQuestOffer={room.dismissQuestOffer}
+            onDismissQuestTurnIn={room.dismissQuestTurnIn}
+            onDismissQuestStatus={room.dismissQuestStatus}
+            onLootCorpse={lootCorpse}
+            onEquipItem={equipItem}
+            onUnequipItem={unequipItem}
+            onUseItem={useItem}
+            onSelectTalent={selectTalent}
+            onCloseLootWindow={room.closeLootWindow}
+            onSendChat={sendChat}
+            onEmote={performEmote}
+            onRespawn={respawn}
+            onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
+            onExit={onExit}
+            settings={settings}
+            debugToolsAvailable={debugToolsAvailable}
+            onSettingsChange={setSettings}
+          />
+          <MobileControls
+            inputRef={mobileMoveInputRef}
+            disabled={debugPlacementMode || renderGameLoader || !localPlayer || localPlayer.health <= 0}
+          />
+        </>
+      )}
 
-      {debugToolsAvailable && settings.debugTravelPanel && (
+      {!hideCaptureHud && debugToolsAvailable && settings.debugTravelPanel && (
         <DebugTravelPanel localPlayer={localPlayer ?? null} onTravel={performDebugTravel} />
       )}
-      {debugPlacementMode && debugPlacementPanelOpen && (
+      {!hideCaptureHud && debugPlacementMode && debugPlacementPanelOpen && (
         <DebugPlacementEditor
           targets={debugPlacementTargets}
           overrides={effectiveDebugPlacementOverrides}
