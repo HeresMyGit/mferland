@@ -44,6 +44,7 @@ export function AbilitiesPanel({
   debugUnlockAllMoves: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<"spellbook" | "talents">("spellbook");
+  const talentPointCount = player?.talentPoints ?? 0;
 
   return (
     <div className="abilities-layout">
@@ -61,6 +62,7 @@ export function AbilitiesPanel({
           onClick={() => setActiveTab("talents")}
         >
           points
+          {talentPointCount > 0 && <em className="tab-badge">{talentPointCount}</em>}
         </button>
       </div>
 

@@ -364,14 +364,16 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
   }
 
   if (npc.role === "guard") {
-    traits.type = pick(rand, ["plain", "metal"]);
-    traits.eyes = traits.type === "metal" ? "metal" : "shades";
-    traits.headphones = "black_square";
-    traits.hat_under_headphones = "cap_monochrome";
+    traits.type = "plain";
+    traits.eyes = "shades";
+    traits.headphones = "black";
     traits.shirt = "collared_blue";
     traits.watch = "sub_black";
     traits.mouth = "flat";
     delete traits.hat_over_headphones;
+    delete traits.hat_under_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
     return;
   }
 

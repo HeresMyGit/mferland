@@ -205,6 +205,7 @@ export function Hud({
   const portraitSeed = localPlayer?.avatarSeed ?? identity.avatarSeed;
   const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
+  const talentPointCount = localPlayer?.talentPoints ?? 0;
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
   const trackedQuests = useMemo(
     () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
@@ -1156,7 +1157,6 @@ export function Hud({
         <button type="button" title="Character (C)" onClick={() => setIsCharacterOpen((open) => !open)}>
           <UserRound size={25} />
           <span>Character</span>
-          {(localPlayer?.talentPoints ?? 0) > 0 && <em className="dock-badge">{localPlayer?.talentPoints}</em>}
         </button>
         <button type="button" title="stash (B/I)" onClick={() => setIsInventoryOpen((open) => !open)}>
           <Package size={25} />
@@ -1165,6 +1165,7 @@ export function Hud({
         <button type="button" title="moves (N)" onClick={() => setIsAbilitiesOpen((open) => !open)}>
           <Sparkles size={25} />
           <span>moves</span>
+          {talentPointCount > 0 && <em className="dock-badge">{talentPointCount}</em>}
         </button>
         <button type="button" title="Emotes" onClick={() => setIsEmotesOpen((open) => !open)}>
           <PartyPopper size={25} />

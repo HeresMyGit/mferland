@@ -532,7 +532,7 @@
   align-content: center;
   justify-items: center;
   gap: 3px;
-  width: 76px;
+  width: 84px;
   height: 58px;
   padding: 6px 5px;
   font-size: 10px;
@@ -554,10 +554,9 @@
   white-space: nowrap;
 }
 
-.dock-badge {
+.dock-badge,
+.tab-badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
   display: grid;
   place-items: center;
   min-width: 20px;
@@ -571,6 +570,21 @@
   font-style: normal;
   font-weight: 1000;
   line-height: 1;
+  z-index: 6;
+}
+
+.dock-badge {
+  top: -5px;
+  right: -5px;
+}
+
+.tab-badge {
+  top: -9px;
+  right: -8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
 }
 
 .emote-popout {

@@ -383,8 +383,6 @@
   --dock-wash-hover:
     linear-gradient(135deg, rgba(204, 185, 255, 0.94), rgba(255, 114, 120, 0.32)),
     rgba(182, 154, 255, 0.55);
-  color: #fff8df;
-  text-shadow: 0 1px 0 rgba(14, 9, 28, 0.65);
 }
 
 .menu-dock button:nth-of-type(4) {
@@ -542,7 +540,7 @@
 }
 
 .action-slot > *,
-.menu-dock button > *,
+.menu-dock button > :not(.dock-badge),
 .emote-popout-button > *,
 .menu-tile > *,
 .quest-panel-header button > *,
@@ -555,7 +553,7 @@
 .talent-action > *,
 .death-panel button > *,
 .ability-slot-row button > *,
-.menu-tabs button > *,
+.menu-tabs button > :not(.tab-badge),
 .primary-btn > *,
 .secondary-btn > *,
 .text-btn > * {
@@ -643,7 +641,8 @@ button.inventory-slot:hover,
 .slot-key,
 .tile-key,
 .tile-state,
-.dock-badge {
+.dock-badge,
+.tab-badge {
   color: #151006;
   background: var(--mfer-yellow);
   box-shadow:
