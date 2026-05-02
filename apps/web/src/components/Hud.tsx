@@ -93,6 +93,7 @@ type HudProps = {
   identity: {
     name: string;
     avatarSeed: number;
+    walletAddress?: string;
   };
   playerCount: number;
   connectionStatus: string;
@@ -204,6 +205,7 @@ export function Hud({
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const portraitSeed = localPlayer?.avatarSeed ?? identity.avatarSeed;
   const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
+  const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
@@ -922,6 +924,12 @@ export function Hud({
                   <MferPortrait traits={playerPortraitTraits} variant="full" title="your mfer portrait" />
                 </div>
                 <div className="character-stats">
+                  {characterWalletAddress && (
+                    <div className="character-stat character-wallet-stat" title={characterWalletAddress}>
+                      <span>wallet</span>
+                      <code>{characterWalletAddress}</code>
+                    </div>
+                  )}
                   {getCharacterStatRows(localPlayer).map((stat) => (
                     <div key={stat.label} className="character-stat">
                       <span>{stat.label}</span>

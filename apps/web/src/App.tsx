@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Gem, LogOut, MapPin, Sparkles, UserRound } from "lucide-react";
+import { Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import {
@@ -162,9 +162,11 @@ function AuthGate({
 }) {
   const [name, setName] = useState(() => getStoredName());
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { connect, connectAsync, connectors, isPending: isConnectPending } = useConnect();
+  const { disconnect, disconnectAsync, isPending: isDisconnectPending } = useDisconnect();
   const injected = connectors[0];
+  const [isSwitchingWallet, setIsSwitchingWallet] = useState(false);
+  const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderReachedCap, setLoaderReachedCap] = useState(false);
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
@@ -183,6 +185,31 @@ function AuthGate({
     if (!address) return;
     rememberName(cleanName);
     onEnter(makeWalletIdentity(cleanName, address));
+  }
+
+  async function switchWallet() {
+    if (!injected || isSwitchingWallet) return;
+
+    setIsSwitchingWallet(true);
+    setWalletActionError(null);
+    try {
+      const promptedAccountPicker = await requestInjectedAccountSelection();
+      if (!promptedAccountPicker) {
+        await disconnectAsync().catch(() => undefined);
+        await connectAsync({ connector: injected });
+      }
+    } catch (error) {
+      if (!isUserRejectedWalletRequest(error)) {
+        setWalletActionError("wallet switch failed");
+      }
+    } finally {
+      setIsSwitchingWallet(false);
+    }
+  }
+
+  function disconnectWallet() {
+    setWalletActionError(null);
+    disconnect();
   }
 
   return (
@@ -219,37 +246,101 @@ function AuthGate({
           />
         </label>
 
+        {isConnected && address && (
+          <div className="connected-wallet-card" title={address}>
+            <span>connected wallet</span>
+            <code>{address}</code>
+          </div>
+        )}
+
         <div className="auth-actions">
           <button className="primary-btn" type="button" onClick={enterGuest}>
             <UserRound size={18} />
             enter as anon mfer
           </button>
           {isConnected && address ? (
-            <button className="primary-btn wallet" type="button" onClick={enterWallet}>
-              <Gem size={18} />
-              enter as verified mfer
-            </button>
+            <>
+              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending}>
+                <Gem size={18} />
+                enter as verified mfer
+              </button>
+              <button
+                className="secondary-btn"
+                type="button"
+                disabled={!injected || isConnectPending || isDisconnectPending || isSwitchingWallet}
+                onClick={() => void switchWallet()}
+              >
+                <RefreshCw size={18} />
+                {isSwitchingWallet ? "switching wallet" : "switch wallet"}
+              </button>
+              <button className="text-btn" type="button" disabled={isDisconnectPending} onClick={disconnectWallet}>
+                <LogOut size={16} />
+                disconnect
+              </button>
+            </>
           ) : (
             <button
               className="secondary-btn"
               type="button"
-              disabled={!injected || isPending}
+              disabled={!injected || isConnectPending}
               onClick={() => injected && connect({ connector: injected })}
             >
               <Sparkles size={18} />
               connect wallet
             </button>
           )}
-          {isConnected && (
-            <button className="text-btn" type="button" onClick={() => disconnect()}>
-              <LogOut size={16} />
-              disconnect
-            </button>
-          )}
         </div>
+        {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>
     </main>
   );
+}
+
+type EthereumRequestProvider = {
+  request: (request: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
+
+async function requestInjectedAccountSelection() {
+  const ethereum = getInjectedEthereumProvider();
+  if (!ethereum) return false;
+
+  try {
+    await ethereum.request({
+      method: "wallet_requestPermissions",
+      params: [{ eth_accounts: {} }],
+    });
+  } catch (error) {
+    if (isUnsupportedWalletPermissionRequest(error)) return false;
+    throw error;
+  }
+  return true;
+}
+
+function getInjectedEthereumProvider(): EthereumRequestProvider | null {
+  if (typeof window === "undefined") return null;
+
+  const maybeWindow = window as Window & { ethereum?: Partial<EthereumRequestProvider> };
+  if (typeof maybeWindow.ethereum?.request !== "function") return null;
+  return maybeWindow.ethereum as EthereumRequestProvider;
+}
+
+function isUserRejectedWalletRequest(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; cause?: unknown; name?: unknown; shortMessage?: unknown; message?: unknown };
+  if (maybeError.code === 4001) return true;
+  if (typeof maybeError.name === "string" && maybeError.name.includes("UserRejected")) return true;
+  if (isUserRejectedWalletRequest(maybeError.cause)) return true;
+
+  const message = typeof maybeError.shortMessage === "string" ? maybeError.shortMessage : maybeError.message;
+  return typeof message === "string" && /user rejected|user denied|request rejected/i.test(message);
+}
+
+function isUnsupportedWalletPermissionRequest(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; cause?: unknown; message?: unknown };
+  if (maybeError.code === -32601 || maybeError.code === 4200) return true;
+  if (isUnsupportedWalletPermissionRequest(maybeError.cause)) return true;
+  return typeof maybeError.message === "string" && /unsupported|not supported|method not found/i.test(maybeError.message);
 }
 
 function AuthTownPreview({
@@ -348,7 +439,15 @@ function GameShell({
   const hudIdentity = useMemo(() => ({
     name: localPlayer?.name || identity.name || "mfer",
     avatarSeed: localPlayer?.avatarSeed || identity.avatarSeed || 1,
-  }), [identity.avatarSeed, identity.name, localPlayer?.avatarSeed, localPlayer?.name]);
+    walletAddress: localPlayer?.walletAddress || identity.walletAddress || "",
+  }), [
+    identity.avatarSeed,
+    identity.name,
+    identity.walletAddress,
+    localPlayer?.avatarSeed,
+    localPlayer?.name,
+    localPlayer?.walletAddress,
+  ]);
   const selectedTargetUnit = useMemo(
     () => getSelectedTargetUnit(selectedTarget, room.players, room.npcs),
     [room.npcs, room.players, room.snapshotRevision, selectedTarget],
