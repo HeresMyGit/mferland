@@ -27,6 +27,7 @@ export class QuestState extends Schema {
 export class InventoryItemState extends Schema {
   @type("string") id: ItemId = "hog-liver";
   @type("string") chainTokenId = "";
+  @type("number") chainTier = 1;
   @type("number") count = 0;
 }
 
@@ -40,6 +41,7 @@ export class EquipmentSlotState extends Schema {
   @type("string") slot: EquipmentSlotId = "mainHand";
   @type("string") itemId: ItemId | "" = "";
   @type("string") chainTokenId = "";
+  @type("number") chainTier = 1;
 }
 
 export class TalentState extends Schema {

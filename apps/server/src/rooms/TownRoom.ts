@@ -19,6 +19,7 @@ import {
   getInventoryItemKey,
   getQuestTurnInNpcId,
   normalizeChainTokenId,
+  normalizeChainGearTier,
   resolveWorldCollision,
   setWorldCollisionPlacementOverrides,
   stableHash,
@@ -27,6 +28,8 @@ import {
   type ClientAcceptQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
+  type ClientDebugRegisterChainGear,
+  type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
   type ClientInteract,
@@ -77,7 +80,9 @@ import {
   initializeCharacterEquipment,
   normalizeEquipmentSlotId,
   recalculatePlayerStats,
+  registerChainGearItem,
   unequipPlayerSlot,
+  updateChainGearTier,
 } from "../systems/equipment.js";
 import { findInteractNpc } from "../systems/interactions.js";
 import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../systems/loot.js";
@@ -335,6 +340,14 @@ export class TownRoom extends Room<TownState> {
 
       this.onMessage("debugBoostPlayer", (client, message: DebugBoostPlayerMessage = {}) => {
         this.handleDebugBoostPlayer(client, message);
+      });
+
+      this.onMessage("debugRegisterChainGear", (client, message: Partial<ClientDebugRegisterChainGear> = {}) => {
+        this.handleDebugRegisterChainGear(client, message);
+      });
+
+      this.onMessage("debugUpdateChainGearTier", (client, message: Partial<ClientDebugUpdateChainGearTier> = {}) => {
+        this.handleDebugUpdateChainGearTier(client, message);
       });
 
       this.onMessage("debugSetupNpc", (_client, message: DebugNpcSetupMessage = {}) => {
@@ -1175,6 +1188,28 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
   }
 
+  private handleDebugRegisterChainGear(client: Client, message: Partial<ClientDebugRegisterChainGear>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const gearType = Number(message.gearType);
+    const tokenId = typeof message.tokenId === "string" ? message.tokenId : "";
+    if (!Number.isInteger(gearType)) return;
+    if (!registerChainGearItem(player, gearType, tokenId, normalizeChainGearTier(message.tier))) return;
+
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private handleDebugUpdateChainGearTier(client: Client, message: Partial<ClientDebugUpdateChainGearTier>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const tokenId = typeof message.tokenId === "string" ? message.tokenId : "";
+    if (!updateChainGearTier(player, tokenId, normalizeChainGearTier(message.tier))) return;
+
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
   private handleUseItem(client: Client, message: Partial<ClientUseItem>) {
     const player = this.state.players.get(client.sessionId);
     if (!player || player.health <= 0) return;
@@ -1577,6 +1612,7 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     const item = new InventoryItemState();
     item.id = savedItem.id;
     item.chainTokenId = normalizeChainTokenId(savedItem.chainTokenId);
+    item.chainTier = normalizeChainGearTier(savedItem.chainTier);
     item.count = savedItem.count;
     player.inventory.set(getInventoryItemKey(savedItem.id, item.chainTokenId), item);
   }
@@ -1587,6 +1623,7 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     slot.slot = savedSlot.slot;
     slot.itemId = savedSlot.itemId;
     slot.chainTokenId = normalizeChainTokenId(savedSlot.chainTokenId);
+    slot.chainTier = normalizeChainGearTier(savedSlot.chainTier);
     player.equipment.set(savedSlot.slot, slot);
   }
 
@@ -1752,6 +1789,7 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     inventory.push({
       id: (item.id || id) as ItemId,
       chainTokenId: normalizeChainTokenId(item.chainTokenId),
+      chainTier: normalizeChainGearTier(item.chainTier),
       count: item.count,
     });
   });
@@ -1762,6 +1800,7 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
       slot: (slot.slot || id) as PersistableCharacterState["equipment"][number]["slot"],
       itemId: slot.itemId,
       chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+      chainTier: normalizeChainGearTier(slot.chainTier),
     });
   });
 

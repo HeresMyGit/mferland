@@ -1,4 +1,5 @@
 import { PLAYER } from "./config.js";
+import { clamp } from "./utils.js";
 
 export const STAT_LABELS = {
   maxHealth: "HP",
@@ -26,6 +27,11 @@ export type EquipmentDefinition = {
   slot: EquipmentSlotId;
   build: string;
   stats: Partial<Record<StatKey, number>>;
+};
+
+export type EquippedItemRef = {
+  itemId: keyof typeof ITEMS | "" | null | undefined;
+  chainTier?: number | null;
 };
 
 export type ConsumableDefinition = {
@@ -430,6 +436,18 @@ export const STARTER_GEAR_IDS = [
   "lucky-lighter",
 ] as const satisfies readonly (keyof typeof ITEMS)[];
 
+export const CHAIN_GEAR_TIERS = {
+  min: 1,
+  max: 3,
+  statBonusPerTier: 0.33,
+} as const;
+
+export const CHAIN_GEAR_ITEM_IDS = {
+  1: "rusty-skate-deck",
+  2: "road-sign-lid",
+  3: "lucky-lighter",
+} as const satisfies Record<number, keyof typeof ITEMS>;
+
 export const DEFAULT_EQUIPMENT = {
   head: "frayed-cap",
   chest: "plaza-hoodie",
@@ -450,8 +468,46 @@ export function getBaseCharacterStats(): CharacterStats {
   return { ...BASE_CHARACTER_STATS };
 }
 
-export function getItemEquipment(itemId: keyof typeof ITEMS): EquipmentDefinition | null {
-  return (ITEMS[itemId] as ItemDefinition).equipment ?? null;
+export function getChainGearItemId(gearType: number): keyof typeof ITEMS | null {
+  return CHAIN_GEAR_ITEM_IDS[gearType as keyof typeof CHAIN_GEAR_ITEM_IDS] ?? null;
+}
+
+export function normalizeChainGearTier(value: number | string | null | undefined) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return CHAIN_GEAR_TIERS.min;
+  return clamp(Math.floor(parsed), CHAIN_GEAR_TIERS.min, CHAIN_GEAR_TIERS.max);
+}
+
+export function getChainGearTierMultiplier(chainTier: number | string | null | undefined) {
+  const tier = normalizeChainGearTier(chainTier);
+  return roundScaledStat(1 + (tier - 1) * CHAIN_GEAR_TIERS.statBonusPerTier);
+}
+
+export function scaleEquipmentStats(
+  stats: Partial<Record<StatKey, number>>,
+  chainTier: number | string | null | undefined,
+): Partial<Record<StatKey, number>> {
+  const multiplier = getChainGearTierMultiplier(chainTier);
+  if (multiplier === 1) return { ...stats };
+
+  const scaled: Partial<Record<StatKey, number>> = {};
+  for (const statKey of Object.keys(stats) as StatKey[]) {
+    scaled[statKey] = roundScaledStat((stats[statKey] ?? 0) * multiplier);
+  }
+  return scaled;
+}
+
+export function getItemEquipment(itemId: keyof typeof ITEMS, chainTier: number | string | null | undefined = 1): EquipmentDefinition | null {
+  const equipment = (ITEMS[itemId] as ItemDefinition).equipment ?? null;
+  if (!equipment) return null;
+
+  const tier = normalizeChainGearTier(chainTier);
+  if (tier <= CHAIN_GEAR_TIERS.min) return equipment;
+
+  return {
+    ...equipment,
+    stats: scaleEquipmentStats(equipment.stats, tier),
+  };
 }
 
 export function getItemConsumable(itemId: keyof typeof ITEMS): ConsumableDefinition | null {
@@ -487,11 +543,13 @@ export function getInventoryItemKey(itemId: keyof typeof ITEMS, chainTokenId?: s
   return normalizedToken ? `${itemId}:${normalizedToken}` : itemId;
 }
 
-export function getEquippedCharacterStats(itemIds: Iterable<keyof typeof ITEMS | "" | null | undefined>): CharacterStats {
+export function getEquippedCharacterStats(itemRefs: Iterable<keyof typeof ITEMS | "" | null | undefined | EquippedItemRef>): CharacterStats {
   const stats = getBaseCharacterStats();
-  for (const itemId of itemIds) {
+  for (const itemRef of itemRefs) {
+    const itemId = typeof itemRef === "object" && itemRef !== null ? itemRef.itemId : itemRef;
+    const chainTier = typeof itemRef === "object" && itemRef !== null ? itemRef.chainTier : 1;
     if (!itemId) continue;
-    const equipment = getItemEquipment(itemId);
+    const equipment = getItemEquipment(itemId, chainTier);
     if (!equipment) continue;
 
     for (const statKey of Object.keys(equipment.stats) as StatKey[]) {
@@ -499,6 +557,10 @@ export function getEquippedCharacterStats(itemIds: Iterable<keyof typeof ITEMS |
     }
   }
   return stats;
+}
+
+function roundScaledStat(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 export const LOOT = {

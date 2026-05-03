@@ -4,6 +4,10 @@ dist/
 smoke-*.png
 captures/
 .tmp/
+packages/chain/cache/
+packages/chain/out/
+packages/chain/broadcast/
+apps/web/public/crypto/local-contracts.json
 *.blend1
 .DS_Store
 .env

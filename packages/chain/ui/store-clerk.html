@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mferland local store clerk</title>
+    <style>
+      :root {
+        color: #18130a;
+        background: #f5e372;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+
+      main {
+        display: grid;
+        gap: 16px;
+        max-width: 820px;
+        margin: 0 auto;
+      }
+
+      section {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        border: 2px solid #15100a;
+        border-radius: 8px;
+        background: rgba(255, 248, 224, 0.72);
+        box-shadow: 0 10px 0 rgba(20, 16, 7, 0.16);
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 28px;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+
+      h2 {
+        font-size: 16px;
+        text-transform: uppercase;
+      }
+
+      label {
+        display: grid;
+        gap: 5px;
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      input {
+        min-height: 38px;
+        padding: 0 10px;
+        border: 2px solid #15100a;
+        border-radius: 6px;
+        color: #18130a;
+        background: #fff8dc;
+        font: inherit;
+        font-size: 13px;
+        text-transform: none;
+      }
+
+      button {
+        min-height: 40px;
+        border: 2px solid #15100a;
+        border-radius: 6px;
+        color: #18130a;
+        background: #7dd36f;
+        font-weight: 1000;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: #9f7dff;
+      }
+
+      button.warn {
+        background: #ff8a6f;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        filter: grayscale(0.6);
+        opacity: 0.62;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+      }
+
+      code,
+      output {
+        overflow-wrap: anywhere;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      output {
+        min-height: 76px;
+        padding: 10px;
+        border: 2px solid #15100a;
+        border-radius: 6px;
+        color: #fff8dc;
+        background: #18130a;
+        white-space: pre-wrap;
+      }
+
+      @media (max-width: 680px) {
+        body {
+          padding: 14px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>store clerk</h1>
+        <p>local Anvil-only helper for minting gear and testing payment paths.</p>
+        <button id="connect" type="button">connect wallet</button>
+        <code id="account">not connected</code>
+      </section>
+
+      <section>
+        <h2>contracts</h2>
+        <div class="grid">
+          <label>store<input id="store" placeholder="0x..." /></label>
+          <label>gold<input id="gold" placeholder="0x..." /></label>
+          <label>$mfer<input id="mfer" placeholder="0x..." /></label>
+          <label>$mfergpt<input id="mfergpt" placeholder="0x..." /></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>buy gear nft</h2>
+        <div class="grid">
+          <label>gear type<input id="gearType" value="1" /></label>
+          <label>eth price<input id="ethPrice" value="0.01" /></label>
+        </div>
+        <div class="actions">
+          <button id="buyEth" type="button">buy with eth</button>
+          <button id="buyMfer" class="secondary" type="button">buy with $mfer</button>
+          <button id="buyMferGpt" class="warn" type="button">buy with $mfergpt</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>upgrade gear</h2>
+        <label>token id<input id="tokenId" value="1" /></label>
+        <button id="upgrade" type="button">burn gold to upgrade</button>
+      </section>
+
+      <section>
+        <h2>log</h2>
+        <output id="log">ready</output>
+      </section>
+    </main>
+
+    <script type="module">
+      const selectors = {
+        approve: "0x095ea7b3",
+        buyWithEth: "0x91b019a6",
+        buyWithMfer: "0x78f753c6",
+        buyWithMferGpt: "0x42cebb36",
+        discountedTokenPrice: "0xbb6505a5",
+        upgradeWithGold: "0x36327c6c",
+      };
+      const discountBps = {
+        mfer: 1000n,
+        mfergpt: 2500n,
+      };
+      let account = "";
+
+      const $ = (id) => document.getElementById(id);
+      const log = (message) => {
+        $("log").textContent = `${new Date().toLocaleTimeString()} ${message}\n${$("log").textContent}`;
+      };
+      const ethereum = () => window.ethereum;
+      const value = (id) => $(id).value.trim();
+      const uint256 = (input) => BigInt(input).toString(16).padStart(64, "0");
+      const addressArg = (address) => address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+      const callData = (selector, ...args) => selector + args.join("");
+      const gearTypeArg = () => uint256(value("gearType") || "1");
+      const parseEther = (input) => {
+        const [whole, fraction = ""] = String(input).split(".");
+        return BigInt(whole || "0") * 10n ** 18n + BigInt(fraction.padEnd(18, "0").slice(0, 18) || "0");
+      };
+
+      async function connect() {
+        if (!ethereum()) throw new Error("No injected wallet found.");
+        const accounts = await ethereum().request({ method: "eth_requestAccounts" });
+        account = accounts[0];
+        $("account").textContent = account;
+        log(`connected ${account}`);
+      }
+
+      async function send(to, data, txValue = 0n) {
+        if (!account) await connect();
+        const txHash = await ethereum().request({
+          method: "eth_sendTransaction",
+          params: [{ from: account, to, data, value: `0x${txValue.toString(16)}` }],
+        });
+        log(`tx ${txHash}`);
+      }
+
+      async function read(to, data) {
+        const result = await ethereum().request({ method: "eth_call", params: [{ to, data }, "latest"] });
+        return BigInt(result);
+      }
+
+      async function approve(tokenAddress, spender, amount) {
+        await send(tokenAddress, callData(selectors.approve, addressArg(spender), uint256(amount)));
+      }
+
+      async function discountedPrice(discount) {
+        return read(value("store"), callData(selectors.discountedTokenPrice, gearTypeArg(), uint256(discount)));
+      }
+
+      $("connect").addEventListener("click", () => connect().catch((error) => log(error.message)));
+      $("buyEth").addEventListener("click", () => {
+        send(value("store"), callData(selectors.buyWithEth, gearTypeArg()), parseEther(value("ethPrice") || "0.01"))
+          .catch((error) => log(error.message));
+      });
+      $("buyMfer").addEventListener("click", async () => {
+        try {
+          const price = await discountedPrice(discountBps.mfer);
+          await approve(value("mfer"), value("store"), price);
+          await send(value("store"), callData(selectors.buyWithMfer, gearTypeArg()));
+        } catch (error) {
+          log(error.message);
+        }
+      });
+      $("buyMferGpt").addEventListener("click", async () => {
+        try {
+          const price = await discountedPrice(discountBps.mfergpt);
+          await approve(value("mfergpt"), value("store"), price);
+          await send(value("store"), callData(selectors.buyWithMferGpt, gearTypeArg()));
+        } catch (error) {
+          log(error.message);
+        }
+      });
+      $("upgrade").addEventListener("click", async () => {
+        try {
+          await approve(value("gold"), value("store"), 1000000000000000000000000n);
+          await send(value("store"), callData(selectors.upgradeWithGold, uint256(value("tokenId") || "1")));
+        } catch (error) {
+          log(error.message);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -104,3 +104,4 @@ Add raw new notes here before triage.
 - Completed work and verification log: [docs/AGENT_LOG.md](docs/AGENT_LOG.md)
 - Ability/threat design reference: [docs/plans/ability-threat.md](docs/plans/ability-threat.md)
 - Original mfer town visual target: [docs/reference/original-mfertown-reference.png](docs/reference/original-mfertown-reference.png)
+- mferGPT daily quest digester/API spec: [docs/mfergpt-daily-quest-api-spec.md](docs/mfergpt-daily-quest-api-spec.md)
