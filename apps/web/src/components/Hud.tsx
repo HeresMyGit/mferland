@@ -6,6 +6,8 @@ import {
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
+  SEASON_0_DAILY_POINT_CAP,
+  SEASON_0_TOTAL_POINT_CAP,
   STAT_LABELS,
   getLevelProgress,
   getInventoryItemKey,
@@ -220,6 +222,7 @@ export function Hud({
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const talentPointCount = localPlayer?.talentPoints ?? 0;
+  const showSeasonGold = localPlayer?.identityType === "wallet";
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
   const trackedQuests = useMemo(
     () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
@@ -952,6 +955,18 @@ export function Hud({
                       <span>wallet</span>
                       <code>{characterWalletAddress}</code>
                     </div>
+                  )}
+                  {showSeasonGold && (
+                    <>
+                      <div className="character-stat">
+                        <span>Season Gold</span>
+                        <strong>{localPlayer?.season0Points ?? 0}/{SEASON_0_TOTAL_POINT_CAP}</strong>
+                      </div>
+                      <div className="character-stat">
+                        <span>Today</span>
+                        <strong>{localPlayer?.season0DailyPoints ?? 0}/{SEASON_0_DAILY_POINT_CAP}</strong>
+                      </div>
+                    </>
                   )}
                   {getCharacterStatRows(localPlayer).map((stat) => (
                     <div key={stat.label} className="character-stat">

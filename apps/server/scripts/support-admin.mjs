@@ -19,7 +19,12 @@ const { positionals, values } = parseArgs({
     note: { type: "string", default: "" },
     "payment-amount": { type: "string", default: "0" },
     "payment-token": { type: "string", default: "" },
+    pool: { type: "string", default: "" },
+    "pool-wei": { type: "string", default: "" },
     product: { type: "string", default: DEFAULT_PRODUCT_ID },
+    "minimum-points": { type: "string", default: "0" },
+    "per-wallet-cap": { type: "string", default: "" },
+    "per-wallet-cap-wei": { type: "string", default: "" },
     "require-product": { type: "string" },
     season: { type: "string", default: DEFAULT_SEASON_ID },
     status: { type: "string" },
@@ -63,6 +68,26 @@ try {
     case "season-export":
       await exportSeasonRewards({
         requiredProduct: values["require-product"] ? normalizeProduct(values["require-product"]) : "",
+        seasonId: values.season,
+        status: values.status ?? "approved",
+      });
+      break;
+    case "season-payout-export":
+      await exportSeasonPayouts({
+        minimumPoints: parseNonNegativeInt(values["minimum-points"], "minimum-points"),
+        perWalletCapWei: parseTokenAmountOption({
+          decimalAmount: values["per-wallet-cap"],
+          integerAmount: values["per-wallet-cap-wei"],
+          label: "per-wallet-cap",
+          required: false,
+        }),
+        poolWei: parseTokenAmountOption({
+          decimalAmount: values.pool,
+          integerAmount: values["pool-wei"],
+          label: "pool",
+          required: true,
+        }),
+        requiredProduct: values["require-product"] ? normalizeProduct(values["require-product"]) : DEFAULT_PRODUCT_ID,
         seasonId: values.season,
         status: values.status ?? "approved",
       });
@@ -264,6 +289,57 @@ async function exportSeasonRewards({ requiredProduct, seasonId, status }) {
   console.log("wallet_address,points");
   for (const row of rows) {
     console.log(`${escapeCsv(row.wallet_address)},${row.points}`);
+  }
+}
+
+async function exportSeasonPayouts({ minimumPoints, perWalletCapWei, poolWei, requiredProduct, seasonId, status }) {
+  if (!VALID_REWARD_STATUSES.has(status)) fail(`Invalid status: ${status}`);
+  if (poolWei <= 0n) fail("Pass --pool <tokens> or --pool-wei <wei> greater than zero");
+
+  const rows = await sql`
+    SELECT wallet_address, sum(points)::int AS points
+    FROM season_reward_events
+    WHERE season_id = ${seasonId}
+      AND status = ${status}
+      AND (
+        ${requiredProduct} = ''
+        OR EXISTS (
+          SELECT 1
+          FROM crypto_purchase_events purchase
+          WHERE purchase.wallet_address = season_reward_events.wallet_address
+            AND purchase.product_id = ${requiredProduct}
+            AND purchase.status = 'confirmed'
+        )
+      )
+    GROUP BY wallet_address
+    HAVING sum(points)::int >= ${minimumPoints}
+    ORDER BY points DESC, wallet_address ASC
+  `;
+
+  const allocations = allocatePayouts({
+    rows: rows.map((row) => ({
+      walletAddress: row.wallet_address,
+      points: Number(row.points),
+    })),
+    poolWei,
+    perWalletCapWei,
+  });
+
+  console.log("wallet_address,points,payout_wei,payout_mfergpt,capped,season_id,status,required_product,pool_wei,per_wallet_cap_wei,minimum_points");
+  for (const allocation of allocations) {
+    console.log([
+      allocation.walletAddress,
+      allocation.points,
+      allocation.payoutWei.toString(),
+      formatTokenAmount(allocation.payoutWei),
+      allocation.capped ? "true" : "false",
+      seasonId,
+      status,
+      requiredProduct,
+      poolWei.toString(),
+      perWalletCapWei.toString(),
+      minimumPoints,
+    ].map(escapeCsv).join(","));
   }
 }
 
@@ -607,6 +683,93 @@ function parseNonNegativeInt(value, label) {
   return parsed;
 }
 
+function parseTokenAmountOption({ decimalAmount, integerAmount, label, required }) {
+  const hasDecimal = String(decimalAmount ?? "").trim() !== "";
+  const hasInteger = String(integerAmount ?? "").trim() !== "";
+  if (hasDecimal && hasInteger) fail(`Pass either --${label} or --${label}-wei, not both`);
+  if (hasInteger) return BigInt(normalizePaymentAmount(integerAmount));
+  if (hasDecimal) return parseTokenAmount(decimalAmount, label);
+  if (required) fail(`Pass --${label} <token_amount> or --${label}-wei <wei>`);
+  return 0n;
+}
+
+function parseTokenAmount(value, label) {
+  const normalized = String(value ?? "").trim();
+  if (!/^[0-9]+(\.[0-9]{1,18})?$/.test(normalized)) {
+    fail(`Pass --${label} as a positive decimal with up to 18 fractional digits`);
+  }
+  const [whole, fraction = ""] = normalized.split(".");
+  return BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, "0"));
+}
+
+function allocatePayouts({ rows, poolWei, perWalletCapWei }) {
+  if (rows.length === 0) return [];
+
+  const allocations = new Map(rows.map((row) => [row.walletAddress, 0n]));
+  const cappedWallets = new Set();
+  let remainingRows = [...rows];
+  let remainingPool = poolWei;
+
+  while (remainingRows.length > 0 && remainingPool > 0n) {
+    const totalPoints = remainingRows.reduce((total, row) => total + BigInt(row.points), 0n);
+    if (totalPoints <= 0n) break;
+
+    const round = remainingRows.map((row) => ({
+      ...row,
+      payoutWei: remainingPool * BigInt(row.points) / totalPoints,
+    }));
+    const capped = perWalletCapWei > 0n
+      ? round.filter((row) => (allocations.get(row.walletAddress) ?? 0n) + row.payoutWei > perWalletCapWei)
+      : [];
+
+    if (capped.length === 0) {
+      for (const row of round) {
+        allocations.set(row.walletAddress, (allocations.get(row.walletAddress) ?? 0n) + row.payoutWei);
+      }
+      break;
+    }
+
+    for (const row of capped) {
+      const current = allocations.get(row.walletAddress) ?? 0n;
+      const available = perWalletCapWei - current;
+      if (available > 0n) {
+        allocations.set(row.walletAddress, current + available);
+        remainingPool -= available;
+      }
+      cappedWallets.add(row.walletAddress);
+    }
+    remainingRows = remainingRows.filter((row) => !cappedWallets.has(row.walletAddress));
+  }
+
+  const allocated = [...allocations.values()].reduce((total, value) => total + value, 0n);
+  let dust = poolWei - allocated;
+  for (const row of rows) {
+    if (dust <= 0n) break;
+    const current = allocations.get(row.walletAddress) ?? 0n;
+    if (perWalletCapWei > 0n && current >= perWalletCapWei) continue;
+    allocations.set(row.walletAddress, current + 1n);
+    dust -= 1n;
+  }
+
+  return rows.map((row) => {
+    const payoutWei = allocations.get(row.walletAddress) ?? 0n;
+    return {
+      ...row,
+      payoutWei,
+      capped: perWalletCapWei > 0n && payoutWei >= perWalletCapWei,
+    };
+  }).filter((row) => row.payoutWei > 0n);
+}
+
+function formatTokenAmount(value, decimals = 18) {
+  const base = 10n ** BigInt(decimals);
+  const whole = value / base;
+  const fraction = value % base;
+  if (fraction === 0n) return whole.toString();
+  const fractionText = fraction.toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${whole}.${fractionText}`;
+}
+
 function normalizeAddress(value) {
   if (!value) return "";
   const normalized = value.toLowerCase().trim();
@@ -665,6 +828,7 @@ function printHelp() {
   npm run support:admin -- season-summary [--season season-0]
   npm run support:admin -- season-list [--status pending] [--wallet 0x...] [--limit 50]
   npm run support:admin -- season-export [--status approved] [--require-product season0-pass]
+  npm run support:admin -- season-payout-export --pool 1000 [--status approved] [--require-product season0-pass] [--per-wallet-cap 100] [--minimum-points 1]
   npm run support:admin -- season-set-status --id <id> --status approved|rejected|distributed [--note "..."]
   npm run support:admin -- purchase-summary [--product season0-pass]
   npm run support:admin -- purchase-list [--product season0-pass] [--status confirmed] [--wallet 0x...] [--limit 50]

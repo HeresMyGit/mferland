@@ -127,10 +127,11 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 4. Season 0 reward mechanics: initial capped offchain quest-point ledger implemented.
 5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; local in-game pass purchase UI exists with ETH, discounted `$mfer` to treasury, and `$mfergpt` burn paths. Production deployment still pending, and manual reconciliation tooling is available.
 6. Admin/support tooling: wallet lookup, Season 0 reward review/export, purchase reconciliation, and manual pass grant/revoke are available through `npm run support:admin`.
-7. Abuse testing: pending after Season 0 mechanics exist.
-8. First-10-minute polish: partially covered by current queue; needs focused verification.
-9. Internal rehearsal: pending after gates 1-4.
-10. Invite-only soft launch: pending.
+7. Season Gold visibility and payout tooling: wallet players see Season Gold totals in the Character panel, and `season-payout-export` can convert approved pass-gated points into proposed `$mfergpt` payouts under a fixed pool and per-wallet cap.
+8. Abuse testing: pending after Season 0 mechanics exist.
+9. First-10-minute polish: partially covered by current queue; needs focused verification.
+10. Internal rehearsal: pending after gates 1-4.
+11. Invite-only soft launch: pending.
 
 ## Verification Log
 
@@ -166,12 +167,17 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run typecheck`, `npm run build`, and `npm run build:agent`: passed after the pass eligibility update.
 - `npm run crypto:test:local`: passed after adding discounted `$mfer` pass mint, including treasury balance checks and a second `$mfergpt` pass mint.
 - `npm run typecheck`, `npm run build`, `npm run build:agent`, `git diff --check`, and secret scan: passed after the discounted `$mfer` pass update.
+- `npm run support:admin -- --help`: passed after adding `season-payout-export`.
+- `npm run support:admin -- season-payout-export --pool 1000 --per-wallet-cap 100 --minimum-points 1`: smoke-tested against disposable approved reward rows and a manual pass grant; output was capped and pass-gated, then smoke rows were deleted.
+- `npm run typecheck`, `npm run build`, `npm run build:agent`, and `npm run crypto:browser:local`: passed after adding Character panel Season Gold totals, payout export, and production pricing docs.
+- `npm run pricing:quote:mfer-pass -- --mfer-eth 0.00001`: passed and returned `621` `$mfer` / `621000000000000000000` wei for the current local assumption.
 
 ## Remaining Launch Gates
 
 - Production Neon branch layout and cutover from the launch machine.
 - Production deployer wallet, RPC provider, and Season 0 pass deployment.
 - Production address config for the deployed pass.
+- Production `$mfer` pass quote from [docs/crypto/production-pricing.md](crypto/production-pricing.md); local `621 $mfer` is only the current test assumption.
 - Final production launch gate after the production DB and pass deployment are live.
 - Optional Base Sepolia rehearsal is documented in [docs/crypto/base-sepolia-dry-run.md](crypto/base-sepolia-dry-run.md), but local remains the stronger full-path `$mfergpt` test until a public-testnet mock token is needed.
 

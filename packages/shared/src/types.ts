@@ -127,6 +127,8 @@ export type PlayerSnapshot = {
   level: number;
   xp: number;
   talentPoints: number;
+  season0Points: number;
+  season0DailyPoints: number;
   health: number;
   maxHealth: number;
   healthRegenPer5: number;

@@ -59,6 +59,8 @@ export class PlayerState extends Schema {
   @type("number") level = 1;
   @type("number") xp = 0;
   @type("number") talentPoints = 0;
+  @type("number") season0Points = 0;
+  @type("number") season0DailyPoints = 0;
   @type("number") health = PLAYER.maxHealth;
   @type("number") maxHealth = PLAYER.maxHealth;
   @type("number") healthRegenPer5 = PLAYER.healthRegenPer5;

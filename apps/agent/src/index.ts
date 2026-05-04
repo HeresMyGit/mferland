@@ -43,6 +43,8 @@ type RuntimePlayer = {
   level: number;
   xp: number;
   talentPoints: number;
+  season0Points?: number;
+  season0DailyPoints?: number;
   health: number;
   maxHealth: number;
   healthRegenPer5: number;
@@ -177,6 +179,8 @@ class AgentCharacter {
           level: player.level,
           xp: player.xp,
           talentPoints: player.talentPoints,
+          season0Points: player.season0Points ?? 0,
+          season0DailyPoints: player.season0DailyPoints ?? 0,
           health: player.health,
           maxHealth: player.maxHealth,
           healthRegenPer5: player.healthRegenPer5,

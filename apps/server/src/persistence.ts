@@ -46,6 +46,8 @@ export type PersistedCharacter = {
   level: number;
   xp: number;
   talentPoints: number;
+  season0Points: number;
+  season0DailyPoints: number;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
@@ -144,11 +146,12 @@ export async function loadOrCreateWalletCharacter({
       character = updated;
     }
 
-    const [questRows, inventoryRows, equipmentRows, talentRows] = await Promise.all([
+    const [questRows, inventoryRows, equipmentRows, talentRows, seasonRewardTotals] = await Promise.all([
       tx.select().from(characterQuests).where(eq(characterQuests.characterId, character.id)),
       tx.select().from(characterInventory).where(eq(characterInventory.characterId, character.id)),
       tx.select().from(characterEquipment).where(eq(characterEquipment.characterId, character.id)),
       tx.select().from(characterTalents).where(eq(characterTalents.characterId, character.id)),
+      getSeasonRewardTotals(tx, normalizedWallet, now),
     ]);
 
     const inventory = inventoryRows
@@ -181,6 +184,8 @@ export async function loadOrCreateWalletCharacter({
       level: character.level,
       xp: character.xp,
       talentPoints: character.talentPoints,
+      season0Points: seasonRewardTotals.seasonTotal,
+      season0DailyPoints: seasonRewardTotals.dailyTotal,
       quests: questRows
         .filter((quest) => isKnownQuestId(quest.questId) && isQuestStatus(quest.status))
         .map((quest) => ({

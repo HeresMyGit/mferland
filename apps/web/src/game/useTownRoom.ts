@@ -586,6 +586,8 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     level: player.level,
     xp: player.xp,
     talentPoints: player.talentPoints,
+    season0Points: player.season0Points,
+    season0DailyPoints: player.season0DailyPoints,
     health: player.health,
     maxHealth: player.maxHealth,
     healthRegenPer5: player.healthRegenPer5,
@@ -638,6 +640,8 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.level !== player.level || changed;
   changed = target.xp !== player.xp || changed;
   changed = target.talentPoints !== player.talentPoints || changed;
+  changed = target.season0Points !== player.season0Points || changed;
+  changed = target.season0DailyPoints !== player.season0DailyPoints || changed;
   changed = target.health !== player.health || changed;
   changed = target.maxHealth !== player.maxHealth || changed;
   changed = target.healthRegenPer5 !== player.healthRegenPer5 || changed;
@@ -676,6 +680,8 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.level = player.level;
   target.xp = player.xp;
   target.talentPoints = player.talentPoints;
+  target.season0Points = player.season0Points;
+  target.season0DailyPoints = player.season0DailyPoints;
   target.health = player.health;
   target.maxHealth = player.maxHealth;
   target.healthRegenPer5 = player.healthRegenPer5;

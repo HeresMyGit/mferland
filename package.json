@@ -22,6 +22,7 @@
     "chain:deploy:local": "npm run deploy:local -w @mferland/chain",
     "chain:export:local": "npm run export:local -w @mferland/chain",
     "wallets:create:test": "node scripts/create-disposable-wallets.mjs",
+    "pricing:quote:mfer-pass": "node scripts/quote-mfer-pass-price.mjs",
     "support:admin": "npm run support:admin -w @mferland/server --",
     "build": "npm run build -w @mferland/shared && npm run build -w @mferland/server && npm run build -w @mferland/web",
     "build:agent": "npm run build -w @mferland/agent",

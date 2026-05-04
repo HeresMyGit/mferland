@@ -462,6 +462,8 @@ export class TownRoom extends Room<TownState> {
     player.level = persistedCharacter?.level ?? 1;
     player.xp = persistedCharacter?.xp ?? 0;
     player.talentPoints = persistedCharacter?.talentPoints ?? 0;
+    player.season0Points = persistedCharacter?.season0Points ?? 0;
+    player.season0DailyPoints = persistedCharacter?.season0DailyPoints ?? 0;
     normalizePlayerProgression(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
@@ -1367,6 +1369,8 @@ export class TownRoom extends Room<TownState> {
         walletAddress: player.walletAddress,
         questId,
       });
+      player.season0Points = result.seasonTotal;
+      player.season0DailyPoints = result.dailyTotal;
       if (result.status !== "awarded") return;
 
       client.send("chat", {
