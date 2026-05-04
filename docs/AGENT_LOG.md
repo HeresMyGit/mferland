@@ -10,6 +10,13 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Verified with `npm run chain:test`, covering the new contract behavior and the local address export tests.
 - Verified the updated deploy/export path with `npm run crypto:test:local`, including the local browser merchant smoke after the pass contract was added to the suite.
 
+### 2026-05-04 13:58 PDT - Purchase Reconciliation Tooling
+
+- Added `crypto_purchase_events` as the support ledger for launch-pass purchases, manual grants, rejects, and revocations.
+- Extended `npm run support:admin` with purchase summary, list, export, chain receipt record, manual grant, revoke, and status update commands.
+- Applied `0006_crypto_purchase_events.sql` to the configured local/test database.
+- Smoke-tested manual grant, chain purchase record, summary, list, export, and wallet revoke against a disposable wallet, then removed the smoke rows from the test database.
+
 ## Completed Build Plan Items
 
 ### Stabilization

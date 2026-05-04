@@ -103,3 +103,26 @@ export const seasonRewardEvents = pgTable("season_reward_events", {
   index("season_reward_events_wallet_idx").on(table.seasonId, table.walletAddress, table.createdAt),
   index("season_reward_events_status_idx").on(table.seasonId, table.status, table.createdAt),
 ]);
+
+export const cryptoPurchaseEvents = pgTable("crypto_purchase_events", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  characterId: text("character_id").references(() => characters.id, { onDelete: "set null" }),
+  source: text("source").notNull().default("chain"),
+  chainId: integer("chain_id").notNull().default(0),
+  contractAddress: text("contract_address").notNull().default(""),
+  txHash: text("tx_hash").notNull().default(""),
+  logIndex: integer("log_index").notNull().default(0),
+  tokenId: text("token_id").notNull().default(""),
+  paymentToken: text("payment_token").notNull().default(""),
+  paymentAmountWei: text("payment_amount_wei").notNull().default("0"),
+  status: text("status").notNull().default("pending"),
+  note: text("note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => [
+  index("crypto_purchase_events_wallet_idx").on(table.walletAddress, table.productId, table.createdAt),
+  index("crypto_purchase_events_status_idx").on(table.productId, table.status, table.createdAt),
+]);

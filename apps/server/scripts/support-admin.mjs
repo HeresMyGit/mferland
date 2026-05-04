@@ -1,18 +1,29 @@
+import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import postgres from "postgres";
 
 const DEFAULT_SEASON_ID = "season-0";
+const DEFAULT_PRODUCT_ID = "season0-pass";
+const VALID_PURCHASE_STATUSES = new Set(["pending", "confirmed", "rejected", "revoked"]);
 const VALID_REWARD_STATUSES = new Set(["pending", "approved", "rejected", "distributed"]);
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
+    chain: { type: "string", default: "0" },
+    contract: { type: "string" },
     help: { type: "boolean", short: "h" },
     id: { type: "string" },
     limit: { type: "string", default: "50" },
+    "log-index": { type: "string", default: "0" },
     note: { type: "string", default: "" },
+    "payment-amount": { type: "string", default: "0" },
+    "payment-token": { type: "string", default: "" },
+    product: { type: "string", default: DEFAULT_PRODUCT_ID },
     season: { type: "string", default: DEFAULT_SEASON_ID },
     status: { type: "string" },
+    "token-id": { type: "string", default: "" },
+    tx: { type: "string" },
     wallet: { type: "string" },
   },
 });
@@ -56,6 +67,63 @@ try {
       break;
     case "season-set-status":
       await setSeasonRewardStatus({
+        id: values.id,
+        note: values.note,
+        status: values.status,
+      });
+      break;
+    case "purchase-summary":
+      await printPurchaseSummary({
+        productId: normalizeProduct(values.product),
+      });
+      break;
+    case "purchase-list":
+      await printPurchaseList({
+        limit: parseLimit(values.limit),
+        productId: normalizeProduct(values.product),
+        status: values.status,
+        wallet: values.wallet,
+      });
+      break;
+    case "purchase-export":
+      await exportPurchases({
+        productId: normalizeProduct(values.product),
+        status: values.status ?? "confirmed",
+      });
+      break;
+    case "purchase-record":
+      await recordChainPurchase({
+        chainId: parseChainId(values.chain),
+        contract: values.contract,
+        logIndex: parseNonNegativeInt(values["log-index"], "log-index"),
+        note: values.note,
+        paymentAmount: values["payment-amount"],
+        paymentToken: values["payment-token"],
+        productId: normalizeProduct(values.product),
+        status: values.status ?? "pending",
+        tokenId: values["token-id"],
+        txHash: values.tx,
+        wallet: values.wallet,
+      });
+      break;
+    case "purchase-grant":
+      await grantPurchase({
+        note: values.note,
+        productId: normalizeProduct(values.product),
+        tokenId: values["token-id"],
+        wallet: values.wallet,
+      });
+      break;
+    case "purchase-revoke":
+      await revokePurchase({
+        id: values.id,
+        note: values.note,
+        productId: normalizeProduct(values.product),
+        wallet: values.wallet,
+      });
+      break;
+    case "purchase-set-status":
+      await setPurchaseStatus({
         id: values.id,
         note: values.note,
         status: values.status,
@@ -115,6 +183,13 @@ async function printWallet(wallet) {
     FROM season_reward_events
     WHERE wallet_address = ${normalizedWallet}
   `;
+  const purchases = await sql`
+    SELECT product_id, status, source, count(*)::int AS events
+    FROM crypto_purchase_events
+    WHERE wallet_address = ${normalizedWallet}
+    GROUP BY product_id, status, source
+    ORDER BY product_id, status, source
+  `;
 
   console.log(JSON.stringify({
     wallet: account.wallet_address,
@@ -130,6 +205,7 @@ async function printWallet(wallet) {
     inventory,
     equipment,
     seasonRewards: rewards,
+    cryptoPurchases: purchases,
   }, null, 2));
 }
 
@@ -199,10 +275,360 @@ async function setSeasonRewardStatus({ id, note, status }) {
   console.log(JSON.stringify(updated, null, 2));
 }
 
+async function printPurchaseSummary({ productId }) {
+  const rows = await sql`
+    SELECT
+      status,
+      source,
+      count(*)::int AS events,
+      count(DISTINCT wallet_address)::int AS wallets
+    FROM crypto_purchase_events
+    WHERE product_id = ${productId}
+    GROUP BY status, source
+    ORDER BY status, source
+  `;
+  console.table(rows);
+}
+
+async function printPurchaseList({ limit, productId, status, wallet }) {
+  if (status && !VALID_PURCHASE_STATUSES.has(status)) fail("Pass --status pending|confirmed|rejected|revoked");
+  const normalizedWallet = normalizeWallet(wallet);
+  const rows = await sql`
+    SELECT
+      id,
+      product_id,
+      wallet_address,
+      source,
+      chain_id,
+      contract_address,
+      tx_hash,
+      log_index,
+      token_id,
+      payment_token,
+      payment_amount_wei,
+      status,
+      note,
+      created_at,
+      confirmed_at,
+      revoked_at
+    FROM crypto_purchase_events
+    WHERE product_id = ${productId}
+      AND (${status ?? ""} = '' OR status = ${status ?? ""})
+      AND (${normalizedWallet ?? ""} = '' OR wallet_address = ${normalizedWallet ?? ""})
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+  console.table(rows);
+}
+
+async function exportPurchases({ productId, status }) {
+  if (!VALID_PURCHASE_STATUSES.has(status)) fail("Pass --status pending|confirmed|rejected|revoked");
+  const rows = await sql`
+    SELECT
+      wallet_address,
+      product_id,
+      token_id,
+      source,
+      chain_id,
+      contract_address,
+      tx_hash,
+      log_index,
+      payment_token,
+      payment_amount_wei,
+      confirmed_at
+    FROM crypto_purchase_events
+    WHERE product_id = ${productId}
+      AND status = ${status}
+    ORDER BY confirmed_at DESC NULLS LAST, created_at DESC
+  `;
+
+  console.log("wallet_address,product_id,token_id,source,chain_id,contract_address,tx_hash,log_index,payment_token,payment_amount_wei,confirmed_at");
+  for (const row of rows) {
+    console.log([
+      row.wallet_address,
+      row.product_id,
+      row.token_id,
+      row.source,
+      row.chain_id,
+      row.contract_address,
+      row.tx_hash,
+      row.log_index,
+      row.payment_token,
+      row.payment_amount_wei,
+      row.confirmed_at?.toISOString?.() ?? row.confirmed_at ?? "",
+    ].map(escapeCsv).join(","));
+  }
+}
+
+async function recordChainPurchase({
+  chainId,
+  contract,
+  logIndex,
+  note,
+  paymentAmount,
+  paymentToken,
+  productId,
+  status,
+  tokenId,
+  txHash,
+  wallet,
+}) {
+  if (!VALID_PURCHASE_STATUSES.has(status)) fail("Pass --status pending|confirmed|rejected|revoked");
+  if (chainId <= 0) fail("Pass --chain <chain_id>");
+  const normalizedWallet = normalizeWallet(wallet);
+  if (!normalizedWallet) fail("Pass --wallet 0x...");
+  const normalizedContract = normalizeAddress(contract);
+  if (!normalizedContract) fail("Pass --contract 0x...");
+  const normalizedTxHash = normalizeTxHash(txHash);
+  if (!normalizedTxHash) fail("Pass --tx 0x...");
+  const normalizedPaymentToken = normalizePaymentToken(paymentToken);
+  if (!normalizedPaymentToken) fail("Pass --payment-token ETH|MFERGPT|...");
+  const normalizedPaymentAmount = normalizePaymentAmount(paymentAmount);
+  const normalizedTokenId = normalizeTokenId(tokenId);
+  if (!normalizedTokenId) fail("Pass --token-id <token_or_receipt_id>");
+
+  const walletAccount = await lookupWalletAccount(normalizedWallet);
+  const timestamp = new Date();
+  const existing = await findPurchaseByChainLog({ chainId, txHash: normalizedTxHash, logIndex });
+  const values = {
+    productId,
+    walletAddress: normalizedWallet,
+    characterId: walletAccount?.character_id ?? null,
+    source: "chain",
+    chainId,
+    contractAddress: normalizedContract,
+    txHash: normalizedTxHash,
+    logIndex,
+    tokenId: normalizedTokenId,
+    paymentToken: normalizedPaymentToken,
+    paymentAmountWei: normalizedPaymentAmount,
+    status,
+    note: note ?? "",
+    confirmedAt: status === "confirmed" ? timestamp : null,
+    revokedAt: status === "revoked" ? timestamp : null,
+  };
+
+  if (existing) {
+    const [updated] = await sql`
+      UPDATE crypto_purchase_events
+      SET
+        product_id = ${values.productId},
+        wallet_address = ${values.walletAddress},
+        character_id = ${values.characterId},
+        source = ${values.source},
+        contract_address = ${values.contractAddress},
+        token_id = ${values.tokenId},
+        payment_token = ${values.paymentToken},
+        payment_amount_wei = ${values.paymentAmountWei},
+        status = ${values.status},
+        note = CASE WHEN ${values.note} = '' THEN note ELSE ${values.note} END,
+        confirmed_at = CASE WHEN ${values.status} = 'confirmed' THEN ${values.confirmedAt} ELSE confirmed_at END,
+        revoked_at = CASE WHEN ${values.status} = 'revoked' THEN ${values.revokedAt} ELSE revoked_at END
+      WHERE id = ${existing.id}
+      RETURNING *
+    `;
+    console.log(JSON.stringify(updated, null, 2));
+    return;
+  }
+
+  const [inserted] = await sql`
+    INSERT INTO crypto_purchase_events (
+      id,
+      product_id,
+      wallet_address,
+      character_id,
+      source,
+      chain_id,
+      contract_address,
+      tx_hash,
+      log_index,
+      token_id,
+      payment_token,
+      payment_amount_wei,
+      status,
+      note,
+      confirmed_at,
+      revoked_at
+    )
+    VALUES (
+      ${randomUUID()},
+      ${values.productId},
+      ${values.walletAddress},
+      ${values.characterId},
+      ${values.source},
+      ${values.chainId},
+      ${values.contractAddress},
+      ${values.txHash},
+      ${values.logIndex},
+      ${values.tokenId},
+      ${values.paymentToken},
+      ${values.paymentAmountWei},
+      ${values.status},
+      ${values.note},
+      ${values.confirmedAt},
+      ${values.revokedAt}
+    )
+    RETURNING *
+  `;
+  console.log(JSON.stringify(inserted, null, 2));
+}
+
+async function grantPurchase({ note, productId, tokenId, wallet }) {
+  const normalizedWallet = normalizeWallet(wallet);
+  if (!normalizedWallet) fail("Pass --wallet 0x...");
+  const normalizedTokenId = normalizeTokenId(tokenId) || `manual:${randomUUID()}`;
+  const walletAccount = await lookupWalletAccount(normalizedWallet);
+
+  const [inserted] = await sql`
+    INSERT INTO crypto_purchase_events (
+      id,
+      product_id,
+      wallet_address,
+      character_id,
+      source,
+      token_id,
+      payment_token,
+      payment_amount_wei,
+      status,
+      note,
+      confirmed_at
+    )
+    VALUES (
+      ${randomUUID()},
+      ${productId},
+      ${normalizedWallet},
+      ${walletAccount?.character_id ?? null},
+      'manual',
+      ${normalizedTokenId},
+      'MANUAL',
+      '0',
+      'confirmed',
+      ${note ?? ""},
+      now()
+    )
+    RETURNING *
+  `;
+  console.log(JSON.stringify(inserted, null, 2));
+}
+
+async function revokePurchase({ id, note, productId, wallet }) {
+  if (id) {
+    await setPurchaseStatus({ id, note, status: "revoked" });
+    return;
+  }
+
+  const normalizedWallet = normalizeWallet(wallet);
+  if (!normalizedWallet) fail("Pass --id <purchase_event_id> or --wallet 0x...");
+  const rows = await sql`
+    UPDATE crypto_purchase_events
+    SET
+      status = 'revoked',
+      note = CASE WHEN ${note ?? ""} = '' THEN note ELSE ${note ?? ""} END,
+      revoked_at = now()
+    WHERE wallet_address = ${normalizedWallet}
+      AND product_id = ${productId}
+      AND status = 'confirmed'
+    RETURNING id, wallet_address, product_id, token_id, source, status, note, revoked_at
+  `;
+
+  if (rows.length === 0) fail(`No active ${productId} purchase/grant found for ${normalizedWallet}`);
+  console.table(rows);
+}
+
+async function setPurchaseStatus({ id, note, status }) {
+  if (!id) fail("Pass --id <purchase_event_id>");
+  if (!status || !VALID_PURCHASE_STATUSES.has(status)) fail("Pass --status pending|confirmed|rejected|revoked");
+
+  const [updated] = await sql`
+    UPDATE crypto_purchase_events
+    SET
+      status = ${status},
+      note = CASE WHEN ${note ?? ""} = '' THEN note ELSE ${note ?? ""} END,
+      confirmed_at = CASE WHEN ${status} = 'confirmed' THEN now() ELSE confirmed_at END,
+      revoked_at = CASE WHEN ${status} = 'revoked' THEN now() ELSE revoked_at END
+    WHERE id = ${id}
+    RETURNING *
+  `;
+
+  if (!updated) fail(`No purchase event found for id ${id}`);
+  console.log(JSON.stringify(updated, null, 2));
+}
+
+async function lookupWalletAccount(wallet) {
+  const [account] = await sql`
+    SELECT aw.account_id, c.id AS character_id
+    FROM account_wallets aw
+    LEFT JOIN characters c ON c.account_id = aw.account_id
+    WHERE aw.wallet_address = ${wallet}
+    LIMIT 1
+  `;
+  return account ?? null;
+}
+
+async function findPurchaseByChainLog({ chainId, txHash, logIndex }) {
+  const [purchase] = await sql`
+    SELECT id
+    FROM crypto_purchase_events
+    WHERE chain_id = ${chainId}
+      AND tx_hash = ${txHash}
+      AND log_index = ${logIndex}
+    LIMIT 1
+  `;
+  return purchase ?? null;
+}
+
 function parseLimit(value) {
   const limit = Number.parseInt(value ?? "", 10);
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) return 50;
   return limit;
+}
+
+function parseChainId(value) {
+  const chainId = Number.parseInt(value ?? "", 10);
+  if (!Number.isInteger(chainId) || chainId < 0) return 0;
+  return chainId;
+}
+
+function parseNonNegativeInt(value, label) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isInteger(parsed) || parsed < 0) fail(`Pass --${label} as a non-negative integer`);
+  return parsed;
+}
+
+function normalizeAddress(value) {
+  if (!value) return "";
+  const normalized = value.toLowerCase().trim();
+  return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeTxHash(value) {
+  if (!value) return "";
+  const normalized = value.toLowerCase().trim();
+  return /^0x[a-f0-9]{64}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeProduct(value) {
+  const normalized = String(value ?? "").toLowerCase().trim();
+  if (!/^[a-z0-9][a-z0-9._:-]{0,63}$/.test(normalized)) fail("Pass --product like season0-pass");
+  return normalized;
+}
+
+function normalizePaymentAmount(value) {
+  const normalized = String(value ?? "0").trim();
+  if (!/^[0-9]+$/.test(normalized)) fail("Pass --payment-amount in wei as digits only");
+  return normalized;
+}
+
+function normalizePaymentToken(value) {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  return /^[A-Z0-9_$-]{1,32}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeTokenId(value) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return "";
+  if (normalized.length > 96) fail("--token-id is too long");
+  return normalized;
 }
 
 function normalizeWallet(wallet) {
@@ -227,5 +653,13 @@ function printHelp() {
   npm run support:admin -- season-summary [--season season-0]
   npm run support:admin -- season-list [--status pending] [--wallet 0x...] [--limit 50]
   npm run support:admin -- season-export [--status approved]
-  npm run support:admin -- season-set-status --id <id> --status approved|rejected|distributed [--note "..."]`);
+  npm run support:admin -- season-set-status --id <id> --status approved|rejected|distributed [--note "..."]
+  npm run support:admin -- purchase-summary [--product season0-pass]
+  npm run support:admin -- purchase-list [--product season0-pass] [--status confirmed] [--wallet 0x...] [--limit 50]
+  npm run support:admin -- purchase-export [--product season0-pass] [--status confirmed]
+  npm run support:admin -- purchase-record --wallet 0x... --chain 8453 --contract 0x... --tx 0x... --log-index 0 --token-id 1 --payment-token ETH --payment-amount <wei> [--status confirmed] [--note "..."]
+  npm run support:admin -- purchase-grant --wallet 0x... [--product season0-pass] [--token-id manual-id] [--note "..."]
+  npm run support:admin -- purchase-revoke --id <id> [--note "..."]
+  npm run support:admin -- purchase-revoke --wallet 0x... [--product season0-pass] [--note "..."]
+  npm run support:admin -- purchase-set-status --id <id> --status pending|confirmed|rejected|revoked [--note "..."]`);
 }

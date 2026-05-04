@@ -122,10 +122,10 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 
 1. Freeze scope: done in this document.
 2. Sync repo and merge crypto branch: done on `codex/soft-launch-prep`.
-3. Production DB cutover: local/test migrations through `0005_season_reward_events.sql` applied; production remains blocked on final Neon production branch/deploy-machine secret setup.
+3. Production DB cutover: local/test migrations through `0006_crypto_purchase_events.sql` applied; production remains blocked on final Neon production branch/deploy-machine secret setup.
 4. Season 0 reward mechanics: initial capped offchain quest-point ledger implemented.
-5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; production purchase UI, deployment, and reconciliation still pending.
-6. Admin/support tooling: initial wallet lookup and Season 0 reward review/export CLI added through `npm run support:admin`; purchase reconciliation and manual grant/revoke still need a production pass.
+5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; production purchase UI and deployment still pending, with manual reconciliation tooling now available.
+6. Admin/support tooling: wallet lookup, Season 0 reward review/export, purchase reconciliation, and manual pass grant/revoke are available through `npm run support:admin`.
 7. Abuse testing: pending after Season 0 mechanics exist.
 8. First-10-minute polish: partially covered by current queue; needs focused verification.
 9. Internal rehearsal: pending after gates 1-4.
@@ -153,6 +153,9 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run build:agent`: passed after the launch-pass update.
 - `git diff --check`: passed after the launch-pass update.
 - Secret scan: first pass only hit the placeholder `DATABASE_URL` in `.env.example`; the scan excluding documented/placeholding fixtures returned no hits.
+- `npm run db:migrate -w @mferland/server`: applied `0006_crypto_purchase_events.sql` to the configured local/test database.
+- `npm run support:admin -- --help`: passed and showed the purchase support commands.
+- Purchase admin smoke: manually granted a Season 0 pass, recorded a chain purchase receipt, listed/exported confirmed rows, revoked by wallet, listed revoked rows, and deleted the disposable smoke rows.
 
 ## Open Decisions
 

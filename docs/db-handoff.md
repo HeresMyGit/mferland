@@ -9,7 +9,7 @@
 - `.env.example` contains placeholders only.
 - The broken Drizzle metadata-dependent migrate command has been replaced with a repo-local SQL migration runner.
 - Checked-in migrations were applied to the current local `DATABASE_URL`.
-- On 2026-05-04, `0004_chain_gear_tiers.sql` and `0005_season_reward_events.sql` were applied to the configured local/test `DATABASE_URL`.
+- On 2026-05-04, `0004_chain_gear_tiers.sql`, `0005_season_reward_events.sql`, and `0006_crypto_purchase_events.sql` were applied to the configured local/test `DATABASE_URL`.
 - Wallet persistence was smoke-tested with a synthetic wallet for level/XP/talent points, quest state, inventory, equipment, and talents.
 
 ## Neon Test Branch
@@ -29,6 +29,7 @@ This branch has the character/account schema and is safe for temporary testing. 
 - `0003_item_chain_tokens.sql`: chain token IDs on inventory/equipment and inventory primary-key update.
 - `0004_chain_gear_tiers.sql`: persisted NFT gear tier fields.
 - `0005_season_reward_events.sql`: capped offchain Season 0 reward eligibility ledger.
+- `0006_crypto_purchase_events.sql`: launch-pass purchase reconciliation, manual grant, reject, and revoke ledger.
 
 ## How To Test Locally
 
@@ -47,15 +48,14 @@ Guest mode does not persist yet.
    `git grep -n -E "postgresql://|postgres://|API_KEY|SECRET|PRIVATE_KEY|TOKEN|npg_" -- . ':!package-lock.json'`
 2. Wait until Josh is on the Mac mini.
 3. Decide the final Neon dev/prod branch layout.
-4. Apply all checked-in migrations through `0005_season_reward_events.sql` to the production branch/DB from that launch machine.
+4. Apply all checked-in migrations through `0006_crypto_purchase_events.sql` to the production branch/DB from that launch machine.
 5. Point the Mac mini at production `DATABASE_URL` through local/deploy secrets only.
 6. Keep `.env` local-only.
-7. Run wallet persistence and Season 0 reward smoke tests against production before inviting external testers.
+7. Run wallet persistence, Season 0 reward, and purchase-ledger smoke tests against production before inviting external testers.
 
 ## Later DB/Auth Work
 
 - Keep tester auth wallet-only for now. Privy and `accounts.privy_user_id` mapping are deferred until wallet-only testing proves they are needed.
 - Decide final character progression tables for XP, talent trees, and gear.
 - Keep rare/onchain items separate later; current character/account/quest/inventory state is regular DB.
-- Add admin/debug tooling for looking up a wallet character without exposing secrets.
-- Add an admin review/export flow for `season_reward_events` before any `$mferGPT` Season 0 distribution.
+- Add automatic onchain receipt ingestion after the manual purchase-ledger path proves sufficient for the first tester group.
