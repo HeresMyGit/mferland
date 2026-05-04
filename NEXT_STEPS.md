@@ -40,7 +40,8 @@ Add raw new notes here before triage.
 - [x] Add production purchase reconciliation plus manual grant/revoke tooling before inviting respected testers. Completed 2026-05-04 with `crypto_purchase_events`, purchase record/list/export/status commands, and manual pass grant/revoke support in `npm run support:admin`.
 - [x] Pick and scaffold exactly one paid crypto surface for the first test group. Completed 2026-05-04 with a local Season 0 launch pass contract that accepts exact ETH payment or burns `$mfergpt`; production UI/deploy/reconciliation remains open above.
 - [x] Validate the local crypto merchant path end to end. Completed 2026-05-04 with `npm run crypto:test:local`, including contract tests, web receipt tests, and local browser smoke.
-- [ ] Run the full launch gate checklist in [docs/soft-launch-plan.md](docs/soft-launch-plan.md), including local crypto, wallet persistence, abuse tests, browser smoke, mobile smoke, and secret scan.
+- [x] Run the local/internal launch gate checklist in [docs/soft-launch-plan.md](docs/soft-launch-plan.md), including local crypto, wallet persistence, abuse tests, browser smoke, mobile smoke, and secret scan. Completed 2026-05-04; production DB cutover and production pass deployment remain separate blockers.
+- [ ] Run the final production launch gate after production DB cutover and production pass deployment.
 - [ ] After the internal rehearsal passes, invite 10-25 respected testers with clear reward rules, known limits, and a feedback channel.
 
 ### Stabilization And Verification

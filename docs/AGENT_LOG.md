@@ -17,6 +17,13 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Applied `0006_crypto_purchase_events.sql` to the configured local/test database.
 - Smoke-tested manual grant, chain purchase record, summary, list, export, and wallet revoke against a disposable wallet, then removed the smoke rows from the test database.
 
+### 2026-05-04 14:09 PDT - Local Launch Gate Pass
+
+- Re-ran the standard repo gates after the launch-pass and purchase-ledger work: `npm run typecheck`, `npm run build`, `npm run build:agent`, `npm run crypto:test:local`, `git diff --check`, and the secret scan.
+- Ran a direct wallet persistence and Season 0 abuse smoke against the configured local/test database: create wallet character, persist quest/inventory/equipment/talent state, reload by wallet, and fire two concurrent `mfer-beginnings` reward awards; exactly one award and one duplicate were recorded, then the synthetic account was deleted.
+- Started the local dev stack and ran a Playwright desktop/mobile smoke: enter game, move, open/close Character, stash, and errand log panels, debug travel to Farm, trigger target/attack input, confirm no browser console errors, and verify the mobile touch stick renders and enters active state.
+- Stopped the local dev stack after the smoke. Production DB cutover and production pass deployment remain unresolved external launch gates.
+
 ## Completed Build Plan Items
 
 ### Stabilization

@@ -156,6 +156,16 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run db:migrate -w @mferland/server`: applied `0006_crypto_purchase_events.sql` to the configured local/test database.
 - `npm run support:admin -- --help`: passed and showed the purchase support commands.
 - Purchase admin smoke: manually granted a Season 0 pass, recorded a chain purchase receipt, listed/exported confirmed rows, revoked by wallet, listed revoked rows, and deleted the disposable smoke rows.
+- Direct wallet persistence and reward-abuse smoke: created a synthetic wallet character, persisted quest/inventory/equipment/talent state, reloaded it by wallet, then fired two concurrent Season 0 `mfer-beginnings` awards and confirmed one award plus one duplicate. The synthetic account was deleted afterward.
+- Desktop browser smoke: started the local dev stack, entered as anon, moved, opened/closed Character, stash, and errand log panels, debug-traveled to Farm, pressed target/attack inputs, and saw no browser console errors.
+- Mobile browser smoke: entered at an iPhone-sized touch viewport, confirmed the mobile movement stick rendered and activated, opened/closed Character, stash, and errand log panels, and saw no browser console errors.
+
+## Remaining Launch Gates
+
+- Production Neon branch layout and cutover from the launch machine.
+- Production deployer wallet, RPC provider, and Season 0 pass deployment.
+- Production purchase UI wiring to the deployed pass.
+- Final production launch gate after the production DB and pass deployment are live.
 
 ## Open Decisions
 
