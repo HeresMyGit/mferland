@@ -171,6 +171,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - Production deployer wallet, RPC provider, and Season 0 pass deployment.
 - Production address config for the deployed pass.
 - Final production launch gate after the production DB and pass deployment are live.
+- Optional Base Sepolia rehearsal is documented in [docs/crypto/base-sepolia-dry-run.md](crypto/base-sepolia-dry-run.md), but local remains the stronger full-path `$mfergpt` test until a public-testnet mock token is needed.
 
 ## Tester Brief
 

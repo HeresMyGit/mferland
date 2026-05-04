@@ -43,6 +43,7 @@ Add raw new notes here before triage.
 - [x] Validate the local crypto merchant path end to end. Completed 2026-05-04 with `npm run crypto:test:local`, including contract tests, web receipt tests, and local browser smoke.
 - [x] Run the local/internal launch gate checklist in [docs/soft-launch-plan.md](docs/soft-launch-plan.md), including local crypto, wallet persistence, abuse tests, browser smoke, mobile smoke, and secret scan. Completed 2026-05-04; production DB cutover and production pass deployment remain separate blockers.
 - [x] Draft the respected-tester brief with reward rules, known limits, feedback asks, and support commands. Completed in [docs/soft-launch-tester-brief.md](docs/soft-launch-tester-brief.md).
+- [x] Add disposable test-wallet and Base Sepolia dry-run guidance so tester rehearsals do not need Josh's real keys. Completed in [docs/crypto/base-sepolia-dry-run.md](docs/crypto/base-sepolia-dry-run.md) with `npm run wallets:create:test`.
 - [ ] Run the final production launch gate after production DB cutover and production pass deployment.
 - [ ] After the internal rehearsal passes, invite 10-25 respected testers with clear reward rules, known limits, and a feedback channel.
 
