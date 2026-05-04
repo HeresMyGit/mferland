@@ -20,6 +20,16 @@ To calculate the exact rounded onchain amount from a chosen quote:
 npm run pricing:quote:mfer-pass -- --mfer-eth 0.00001
 ```
 
+To use the free Dex Screener API against the Base `$mfer` token:
+
+```sh
+npm run pricing:quote:mfer-pass -- \
+  --dexscreener-token 0xe3086852a4b125803c815a158249ae468a3254ca \
+  --min-liquidity-usd 1000
+```
+
+This fetches Base token pairs, filters to `$mfer` as the base token with `WETH` as the quote token, requires the liquidity floor, selects the highest-liquidity eligible pair, reads `priceNative`, and rounds the required `$mfer` amount up.
+
 ## Formula
 
 For an 18-decimal `$mfer` token:
@@ -44,6 +54,7 @@ That means:
 
 - keep `ethPrice`, `mferPrice`, and `mferGptPrice` as explicit contract fields.
 - compute `$mfer` offchain from a conservative DEX quote/TWAP.
+- for a free soft-launch quote, use `npm run pricing:quote:mfer-pass -- --dexscreener-token ...` and sanity-check the selected pair/liquidity before calling `setPricing(...)`.
 - call `setPricing(...)` before the invite window.
 - record the quote source, timestamp, `$mfer/ETH` rate, and resulting `mferPrice` in the launch notes.
 - use a short invite window if `$mfer` is volatile.
@@ -69,6 +80,7 @@ Uniswap v3 pools can expose historical observations through `observe(...)`, whic
 
 References:
 
+- https://docs.dexscreener.com/api/reference
 - https://developers.uniswap.org/docs/protocols/v3/concepts/price-oracles
 - https://developers.uniswap.org/docs/sdks/v3/guides/price-oracle
 

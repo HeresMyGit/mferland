@@ -171,6 +171,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run support:admin -- season-payout-export --pool 1000 --per-wallet-cap 100 --minimum-points 1`: smoke-tested against disposable approved reward rows and a manual pass grant; output was capped and pass-gated, then smoke rows were deleted.
 - `npm run typecheck`, `npm run build`, `npm run build:agent`, and `npm run crypto:browser:local`: passed after adding Character panel Season Gold totals, payout export, and production pricing docs.
 - `npm run pricing:quote:mfer-pass -- --mfer-eth 0.00001`: passed and returned `621` `$mfer` / `621000000000000000000` wei for the current local assumption.
+- `npm run pricing:quote:mfer-pass -- --dexscreener-token 0xe3086852a4b125803c815a158249ae468a3254ca --min-liquidity-usd 1000`: passed against Dex Screener's free Base token-pairs API and selected the highest-liquidity `$mfer/WETH` pair.
 
 ## Remaining Launch Gates
 

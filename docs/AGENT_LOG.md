@@ -35,7 +35,7 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Added the discounted `$mfer` Season 0 pass path so pass buyers can pay treasury with `$mfer` instead of ETH or `$mfergpt` burn.
 - Added [crypto/season-gold-redemption.md](crypto/season-gold-redemption.md) to preserve the current Season Gold stance: reviewed offchain points now, refillable onchain claim vault later, and Mint Club only as a later bonding-curve experiment.
 - Added Character panel Season Gold totals and `season-payout-export` support tooling so reviewed, pass-gated points can be converted into capped proposed `$mfergpt` payouts.
-- Added [crypto/production-pricing.md](crypto/production-pricing.md) and `npm run pricing:quote:mfer-pass` for production `$mfer` pass pricing, including the `0.0069 ETH * 0.9` target and the soft-launch owner-set pricing recommendation.
+- Added [crypto/production-pricing.md](crypto/production-pricing.md) and `npm run pricing:quote:mfer-pass` for production `$mfer` pass pricing, including the `0.0069 ETH * 0.9` target, Dex Screener free quote mode, and the soft-launch owner-set pricing recommendation.
 
 ## Completed Build Plan Items
 
