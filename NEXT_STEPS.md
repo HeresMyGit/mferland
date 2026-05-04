@@ -41,6 +41,7 @@ Add raw new notes here before triage.
 - [x] Pick and scaffold exactly one paid crypto surface for the first test group. Completed 2026-05-04 with a local Season 0 launch pass contract that accepts exact ETH payment or burns `$mfergpt`; production UI/deploy/reconciliation remains open above.
 - [x] Validate the local crypto merchant path end to end. Completed 2026-05-04 with `npm run crypto:test:local`, including contract tests, web receipt tests, and local browser smoke.
 - [x] Run the local/internal launch gate checklist in [docs/soft-launch-plan.md](docs/soft-launch-plan.md), including local crypto, wallet persistence, abuse tests, browser smoke, mobile smoke, and secret scan. Completed 2026-05-04; production DB cutover and production pass deployment remain separate blockers.
+- [x] Draft the respected-tester brief with reward rules, known limits, feedback asks, and support commands. Completed in [docs/soft-launch-tester-brief.md](docs/soft-launch-tester-brief.md).
 - [ ] Run the final production launch gate after production DB cutover and production pass deployment.
 - [ ] After the internal rehearsal passes, invite 10-25 respected testers with clear reward rules, known limits, and a feedback channel.
 
@@ -116,6 +117,7 @@ Add raw new notes here before triage.
 - DB handoff and migration notes: [docs/db-handoff.md](docs/db-handoff.md)
 - Completed work and verification log: [docs/AGENT_LOG.md](docs/AGENT_LOG.md)
 - Invite-only soft launch plan: [docs/soft-launch-plan.md](docs/soft-launch-plan.md)
+- Respected tester brief: [docs/soft-launch-tester-brief.md](docs/soft-launch-tester-brief.md)
 - Ability/threat design reference: [docs/plans/ability-threat.md](docs/plans/ability-threat.md)
 - Original mfer town visual target: [docs/reference/original-mfertown-reference.png](docs/reference/original-mfertown-reference.png)
 - mferGPT daily quest digester/API spec: [docs/mfergpt-daily-quest-api-spec.md](docs/mfergpt-daily-quest-api-spec.md)

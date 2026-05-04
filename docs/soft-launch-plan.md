@@ -167,6 +167,10 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - Production purchase UI wiring to the deployed pass.
 - Final production launch gate after the production DB and pass deployment are live.
 
+## Tester Brief
+
+Use [docs/soft-launch-tester-brief.md](soft-launch-tester-brief.md) for the first respected-tester invite copy, reward rules, known limits, feedback asks, and internal support commands.
+
 ## Open Decisions
 
 These need Josh before production launch, but not before continuing local implementation:

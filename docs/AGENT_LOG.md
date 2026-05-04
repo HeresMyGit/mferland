@@ -23,6 +23,7 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Ran a direct wallet persistence and Season 0 abuse smoke against the configured local/test database: create wallet character, persist quest/inventory/equipment/talent state, reload by wallet, and fire two concurrent `mfer-beginnings` reward awards; exactly one award and one duplicate were recorded, then the synthetic account was deleted.
 - Started the local dev stack and ran a Playwright desktop/mobile smoke: enter game, move, open/close Character, stash, and errand log panels, debug travel to Farm, trigger target/attack input, confirm no browser console errors, and verify the mobile touch stick renders and enters active state.
 - Stopped the local dev stack after the smoke. Production DB cutover and production pass deployment remain unresolved external launch gates.
+- Drafted [soft-launch-tester-brief.md](soft-launch-tester-brief.md) with invite criteria, tester tasks, reward rules, known limits, feedback asks, and internal support commands.
 
 ## Completed Build Plan Items
 
