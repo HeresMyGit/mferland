@@ -14,8 +14,22 @@ type CryptoStoreAddresses = {
   launchPass: string;
 };
 
-type LocalCryptoContractsDocument = {
+type CryptoStoreChainConfig = {
+  chainId: number;
+  chainName: string;
+  rpcUrl: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+};
+
+type CryptoContractsDocument = {
   chainId?: number;
+  chainName?: string;
+  rpcUrl?: string;
+  nativeCurrency?: Partial<CryptoStoreChainConfig["nativeCurrency"]>;
   generatedAt?: string;
   addresses?: Partial<CryptoStoreAddresses>;
 };
@@ -35,10 +49,15 @@ type CryptoStoreBalances = {
   error: string;
 };
 
-const LOCAL_CHAIN_ID = "0x7a69";
-const LOCAL_CHAIN_ID_DECIMAL = 31337;
 const CONTRACT_STORAGE_KEY = "mferland.cryptoStore.localContracts.v1";
-const CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
+const LOCAL_CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
+const PRODUCTION_CONTRACT_CONFIG_URL = "/crypto/production-contracts.json";
+const LOCAL_CHAIN_CONFIG: CryptoStoreChainConfig = {
+  chainId: 31337,
+  chainName: "mferland local",
+  rpcUrl: "http://127.0.0.1:8545",
+  nativeCurrency: { name: "Anvil ETH", symbol: "ETH", decimals: 18 },
+};
 const MAX_APPROVAL = 1_000_000n * 10n ** 18n;
 const TEST_GOLD_GRANT = 250n * 10n ** 18n;
 const LAUNCH_PASS_LABEL = "Season 0 pass";
@@ -91,6 +110,7 @@ const EMPTY_BALANCES: CryptoStoreBalances = {
 export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateChainGearTier }: CryptoStorePanelProps) {
   const wagmiAccount = useAccount();
   const [addresses, setAddresses] = useState<CryptoStoreAddresses>(() => readStoredAddresses());
+  const [chainConfig, setChainConfig] = useState<CryptoStoreChainConfig>(LOCAL_CHAIN_CONFIG);
   const [account, setAccount] = useState(() => wagmiAccount.address ?? "");
   const [gearType, setGearType] = useState<string>(String(DEFAULT_STORE_GEAR.gearType));
   const [ethPrice, setEthPrice] = useState<string>(DEFAULT_STORE_GEAR.ethPrice);
@@ -100,6 +120,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   const [isBusy, setIsBusy] = useState(false);
   const [balances, setBalances] = useState<CryptoStoreBalances>(EMPTY_BALANCES);
   const shortAccount = useMemo(() => account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "not connected", [account]);
+  const chainIdHex = useMemo(() => toChainIdHex(chainConfig.chainId), [chainConfig.chainId]);
   const selectedStoreGear = useMemo(
     () => STORE_GEAR_COLLECTION.find((gear) => String(gear.gearType) === gearType) ?? null,
     [gearType],
@@ -116,13 +137,14 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         if (abortController.signal.aborted) return;
         if (generated) {
           setAddresses(generated.addresses);
-          setStatus(`loaded local contracts${generated.generatedAt ? ` from ${new Date(generated.generatedAt).toLocaleTimeString()}` : ""}`);
+          setChainConfig(generated.chainConfig);
+          setStatus(`loaded contracts from ${generated.configUrl}${generated.generatedAt ? ` at ${new Date(generated.generatedAt).toLocaleTimeString()}` : ""}`);
         } else {
-          setStatus("run npm run chain:deploy:local to prefill contracts");
+          setStatus(getMissingConfigStatus());
         }
       })
       .catch(() => {
-        if (!abortController.signal.aborted) setStatus("run npm run chain:deploy:local to prefill contracts");
+        if (!abortController.signal.aborted) setStatus(getMissingConfigStatus());
       });
 
     void getEthereum()?.request({ method: "eth_accounts" })
@@ -140,7 +162,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
 
   useEffect(() => {
     void refreshBalances();
-  }, [account, wagmiAccount.address, addresses.mfer, addresses.mfergpt]);
+  }, [account, wagmiAccount.address, addresses.mfer, addresses.mfergpt, chainConfig.chainId]);
 
   function updateAddress(key: keyof CryptoStoreAddresses, value: string) {
     setAddresses((current) => ({ ...current, [key]: value.trim() }));
@@ -172,7 +194,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       return;
     }
 
-    const provider = getProviderForAccount(wallet);
+    const provider = getProviderForAccount(wallet, chainConfig.chainId);
     if (!provider) {
       setBalances({ ...EMPTY_BALANCES, state: "error", error: "connect wallet" });
       return;
@@ -181,8 +203,8 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
     setBalances((current) => ({ ...current, state: "loading", error: "" }));
     try {
       const chainId = await provider.request({ method: "eth_chainId" });
-      if (chainId !== LOCAL_CHAIN_ID) {
-        setBalances({ ...EMPTY_BALANCES, state: "error", error: "switch to local chain" });
+      if (chainId !== chainIdHex) {
+        setBalances({ ...EMPTY_BALANCES, state: "error", error: `switch to ${chainConfig.chainName}` });
         return;
       }
 
@@ -205,11 +227,11 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
 
   async function connectWallet() {
     await runAction("connecting wallet", async () => {
-      const provider = requireProviderForAccount(account || wagmiAccount.address || "");
+      const provider = requireProviderForAccount(account || wagmiAccount.address || "", chainConfig.chainId);
       const accounts = await provider.request({ method: "eth_requestAccounts" });
       const nextAccount = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
       if (nextAccount) setAccount(nextAccount);
-      await switchToLocalChain(provider);
+      await switchToConfiguredChain(provider, chainConfig);
       return nextAccount;
     });
   }
@@ -322,10 +344,10 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
 
   async function prepareWallet(requiredAddresses: Array<keyof CryptoStoreAddresses>) {
     validateAddresses(addresses, requiredAddresses);
-    const provider = requireProviderForAccount(account || wagmiAccount.address || "");
+    const provider = requireProviderForAccount(account || wagmiAccount.address || "", chainConfig.chainId);
     const accounts = await provider.request({ method: "eth_requestAccounts" });
     if (Array.isArray(accounts) && typeof accounts[0] === "string") setAccount(accounts[0]);
-    await switchToLocalChain(provider);
+    await switchToConfiguredChain(provider, chainConfig);
     return provider;
   }
 
@@ -334,7 +356,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       <div className="world-map-header">
         <div>
           <strong>{npc.name}</strong>
-          <span>local chain store</span>
+          <span>crypto store</span>
         </div>
         <button type="button" title="Close store" aria-label="Close store" onClick={onClose}>
           <X size={22} />
@@ -342,7 +364,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       </div>
 
       <div className="crypto-store-account">
-        <span>anvil {LOCAL_CHAIN_ID_DECIMAL}</span>
+        <span>{chainConfig.chainName} {chainConfig.chainId}</span>
         <code>{shortAccount}</code>
         <button type="button" disabled={isBusy} onClick={() => void connectWallet()}>
           <PlugZap size={16} />
@@ -523,10 +545,11 @@ function readStoredAddresses(): CryptoStoreAddresses {
   }
 }
 
-async function fetchLocalContractAddresses(signal: AbortSignal): Promise<{ addresses: CryptoStoreAddresses; generatedAt?: string } | null> {
-  const response = await fetch(`${CONTRACT_CONFIG_URL}?t=${Date.now()}`, { signal, cache: "no-store" });
+async function fetchLocalContractAddresses(signal: AbortSignal): Promise<{ addresses: CryptoStoreAddresses; chainConfig: CryptoStoreChainConfig; configUrl: string; generatedAt?: string } | null> {
+  const configUrl = getContractConfigUrl();
+  const response = await fetch(`${configUrl}?t=${Date.now()}`, { signal, cache: "no-store" });
   if (!response.ok) return null;
-  const document = await response.json() as LocalCryptoContractsDocument;
+  const document = await response.json() as CryptoContractsDocument;
   const addresses = document.addresses;
   if (!addresses) return null;
   const generated = {
@@ -538,8 +561,49 @@ async function fetchLocalContractAddresses(signal: AbortSignal): Promise<{ addre
     rewards: typeof addresses.rewards === "string" ? addresses.rewards : "",
     launchPass: typeof addresses.launchPass === "string" ? addresses.launchPass : "",
   };
-  if (!Object.values(generated).every(isAddress)) return null;
-  return { addresses: generated, generatedAt: document.generatedAt };
+  if (!isUsableContractConfig(generated)) return null;
+  return {
+    addresses: generated,
+    chainConfig: parseChainConfig(document),
+    configUrl,
+    generatedAt: document.generatedAt,
+  };
+}
+
+function getContractConfigUrl() {
+  const configured = import.meta.env.VITE_CRYPTO_CONTRACTS_URL;
+  if (typeof configured === "string" && configured.trim()) return configured.trim();
+  return import.meta.env.PROD ? PRODUCTION_CONTRACT_CONFIG_URL : LOCAL_CONTRACT_CONFIG_URL;
+}
+
+function getMissingConfigStatus() {
+  return import.meta.env.PROD
+    ? `add production contract config at ${getContractConfigUrl()}`
+    : "run npm run chain:deploy:local to prefill contracts";
+}
+
+function parseChainConfig(document: CryptoContractsDocument): CryptoStoreChainConfig {
+  const chainId = Number.isInteger(document.chainId) && Number(document.chainId) > 0
+    ? Number(document.chainId)
+    : LOCAL_CHAIN_CONFIG.chainId;
+  const nativeCurrency = document.nativeCurrency ?? {};
+  return {
+    chainId,
+    chainName: typeof document.chainName === "string" && document.chainName.trim()
+      ? document.chainName.trim()
+      : chainId === LOCAL_CHAIN_CONFIG.chainId ? LOCAL_CHAIN_CONFIG.chainName : `chain ${chainId}`,
+    rpcUrl: typeof document.rpcUrl === "string" ? document.rpcUrl.trim() : "",
+    nativeCurrency: {
+      name: typeof nativeCurrency.name === "string" && nativeCurrency.name.trim() ? nativeCurrency.name.trim() : "Ether",
+      symbol: typeof nativeCurrency.symbol === "string" && nativeCurrency.symbol.trim() ? nativeCurrency.symbol.trim() : "ETH",
+      decimals: Number.isInteger(nativeCurrency.decimals) && Number(nativeCurrency.decimals) > 0 ? Number(nativeCurrency.decimals) : 18,
+    },
+  };
+}
+
+function isUsableContractConfig(addresses: CryptoStoreAddresses) {
+  if (!isAddress(addresses.launchPass) || !isAddress(addresses.mfer) || !isAddress(addresses.mfergpt)) return false;
+  return Object.values(addresses).every((address) => address === "" || isAddress(address));
 }
 
 function getEthereum(): EthereumProvider | null {
@@ -548,22 +612,22 @@ function getEthereum(): EthereumProvider | null {
   return typeof maybeWindow.ethereum?.request === "function" ? maybeWindow.ethereum as EthereumProvider : null;
 }
 
-function getProviderForAccount(account: string): EthereumProvider | null {
-  return getEthereum() ?? getLocalAnvilProvider(account);
+function getProviderForAccount(account: string, chainId: number): EthereumProvider | null {
+  return getEthereum() ?? getLocalAnvilProvider(account, chainId);
 }
 
-function requireProviderForAccount(account: string) {
-  const provider = getProviderForAccount(account);
+function requireProviderForAccount(account: string, chainId: number) {
+  const provider = getProviderForAccount(account, chainId);
   if (!provider) throw new Error("No wallet found");
   return provider;
 }
 
-function getLocalAnvilProvider(account: string): EthereumProvider | null {
-  if (!import.meta.env.DEV || !isAddress(account)) return null;
+function getLocalAnvilProvider(account: string, chainId: number): EthereumProvider | null {
+  if (!import.meta.env.DEV || chainId !== LOCAL_CHAIN_CONFIG.chainId || !isAddress(account)) return null;
   return {
     async request({ method, params = [] }) {
       if (method === "eth_accounts" || method === "eth_requestAccounts") return [account];
-      if (method === "eth_chainId") return LOCAL_CHAIN_ID;
+      if (method === "eth_chainId") return toChainIdHex(LOCAL_CHAIN_CONFIG.chainId);
       if (method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") return null;
       return requestLocalAnvil(method, params);
     },
@@ -581,18 +645,20 @@ async function requestLocalAnvil(method: string, params: unknown[]) {
   return payload.result;
 }
 
-async function switchToLocalChain(provider: EthereumProvider) {
+async function switchToConfiguredChain(provider: EthereumProvider, chainConfig: CryptoStoreChainConfig) {
+  const chainId = toChainIdHex(chainConfig.chainId);
   try {
-    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: LOCAL_CHAIN_ID }] });
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
   } catch (error) {
     if (!isUnknownChainError(error)) throw error;
+    if (!chainConfig.rpcUrl) throw error;
     await provider.request({
       method: "wallet_addEthereumChain",
       params: [{
-        chainId: LOCAL_CHAIN_ID,
-        chainName: "mferland local",
-        nativeCurrency: { name: "Anvil ETH", symbol: "ETH", decimals: 18 },
-        rpcUrls: ["http://127.0.0.1:8545"],
+        chainId,
+        chainName: chainConfig.chainName,
+        nativeCurrency: chainConfig.nativeCurrency,
+        rpcUrls: [chainConfig.rpcUrl],
       }],
     });
   }
@@ -735,6 +801,10 @@ function formatUnits(value: bigint, decimals = 18, maxFractionDigits = 4) {
 
 function toHex(value: bigint) {
   return `0x${value.toString(16)}`;
+}
+
+function toChainIdHex(chainId: number) {
+  return `0x${Math.max(1, Math.floor(chainId)).toString(16)}`;
 }
 
 function isAddress(value: string) {

@@ -44,7 +44,9 @@ test("writes app-facing local contract JSON", async () => {
 
   assert.deepEqual(written, exported);
   assert.equal(written.chainId, 31337);
+  assert.equal(written.chainName, "mferland local");
   assert.equal(written.rpcUrl, "http://127.0.0.1:8545");
+  assert.deepEqual(written.nativeCurrency, { name: "Anvil ETH", symbol: "ETH", decimals: 18 });
   assert.equal(written.generatedAt, "2026-05-02T00:00:00.000Z");
   assert.equal(written.addresses.launchPass, "0x6666666666666666666666666666666666666666");
   assert.equal(written.addresses.store, "0x7777777777777777777777777777777777777777");

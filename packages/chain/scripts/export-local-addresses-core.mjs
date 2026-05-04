@@ -30,12 +30,20 @@ export async function exportLocalContractAddresses({
   broadcastPath,
   outputPath,
   chainId = 31337,
+  chainName = "mferland local",
   rpcUrl = "http://127.0.0.1:8545",
   generatedAt = new Date().toISOString(),
 }) {
   const document = JSON.parse(await readFile(broadcastPath, "utf8"));
   const addresses = extractLocalContractAddresses(document, broadcastPath);
-  const exported = { chainId, rpcUrl, generatedAt, addresses };
+  const exported = {
+    chainId,
+    chainName,
+    rpcUrl,
+    nativeCurrency: { name: "Anvil ETH", symbol: "ETH", decimals: 18 },
+    generatedAt,
+    addresses,
+  };
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(exported, null, 2)}\n`);

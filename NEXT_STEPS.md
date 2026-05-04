@@ -47,6 +47,7 @@ Add raw new notes here before triage.
 - [x] Document the Season Gold redemption strategy and onchain-vault path. Completed in [docs/crypto/season-gold-redemption.md](docs/crypto/season-gold-redemption.md).
 - [x] Add visible Season Gold/Season 0 points in the HUD or character profile and a support export that converts approved pass-gated points into proposed `$mfergpt` payouts under a fixed pool and per-wallet cap. Completed with Character panel Season Gold totals and `npm run support:admin -- season-payout-export`.
 - [x] Document production `$mfer` pass pricing. Completed in [docs/crypto/production-pricing.md](docs/crypto/production-pricing.md) with `npm run pricing:quote:mfer-pass`.
+- [x] Add Mac mini launch runbook, production crypto config template, and pass deployment command. Completed in [docs/launch/mac-mini-soft-launch-runbook.md](docs/launch/mac-mini-soft-launch-runbook.md).
 - [ ] Run the final production launch gate after production DB cutover and production pass deployment.
 - [ ] After the internal rehearsal passes, invite 10-25 respected testers with clear reward rules, known limits, and a feedback channel.
 

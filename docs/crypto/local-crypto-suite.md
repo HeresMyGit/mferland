@@ -215,6 +215,8 @@ Use it after deploying the local suite:
 The contract fields also persist in local storage for manual overrides, but the generated local deployment file is loaded first when available.
 The `grant test gold` button is only for local gameplay testing; real quest rewards should come from the server reward flow.
 
+In production builds the same panel defaults to `/crypto/production-contracts.json`, or `VITE_CRYPTO_CONTRACTS_URL` if configured. The production config only needs `launchPass`, `$mfer`, and `$mfergpt` for the first Season 0 pass surface; local gear/gold/store addresses can stay blank until production versions exist.
+
 ## Standalone Debug Store UI
 
 There is a tiny standalone test UI at:

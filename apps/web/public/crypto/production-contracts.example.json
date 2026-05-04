@@ -1,0 +1,20 @@
+{
+  "chainId": 8453,
+  "chainName": "Base",
+  "rpcUrl": "",
+  "nativeCurrency": {
+    "name": "Ether",
+    "symbol": "ETH",
+    "decimals": 18
+  },
+  "generatedAt": "REPLACE_AT_LAUNCH",
+  "addresses": {
+    "mfer": "0x0000000000000000000000000000000000000000",
+    "mfergpt": "0x0000000000000000000000000000000000000000",
+    "launchPass": "0x0000000000000000000000000000000000000000",
+    "gold": "",
+    "gear": "",
+    "rewards": "",
+    "store": ""
+  }
+}

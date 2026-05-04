@@ -172,12 +172,16 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run typecheck`, `npm run build`, `npm run build:agent`, and `npm run crypto:browser:local`: passed after adding Character panel Season Gold totals, payout export, and production pricing docs.
 - `npm run pricing:quote:mfer-pass -- --mfer-eth 0.00001`: passed and returned `621` `$mfer` / `621000000000000000000` wei for the current local assumption.
 - `npm run pricing:quote:mfer-pass -- --dexscreener-token 0xe3086852a4b125803c815a158249ae468a3254ca --min-liquidity-usd 1000`: passed against Dex Screener's free Base token-pairs API and selected the highest-liquidity `$mfer/WETH` pair.
+- `npm run crypto:config:check -- --file apps/web/public/crypto/production-contracts.example.json --allow-placeholders`: passed after adding the production config template.
+- `npm run chain:build`: passed after adding `DeploySeasonPass`.
+- `npm run crypto:config:check -- --file apps/web/public/crypto/local-contracts.json --full-suite` and `npm run crypto:browser:local`: passed after moving the store to configurable chain metadata and refreshing the local address export shape.
 
 ## Remaining Launch Gates
 
 - Production Neon branch layout and cutover from the launch machine.
 - Production deployer wallet, RPC provider, and Season 0 pass deployment.
 - Production address config for the deployed pass.
+- Mac mini launch runbook: [docs/launch/mac-mini-soft-launch-runbook.md](launch/mac-mini-soft-launch-runbook.md).
 - Production `$mfer` pass quote from [docs/crypto/production-pricing.md](crypto/production-pricing.md); local `621 $mfer` is only the current test assumption.
 - Final production launch gate after the production DB and pass deployment are live.
 - Optional Base Sepolia rehearsal is documented in [docs/crypto/base-sepolia-dry-run.md](crypto/base-sepolia-dry-run.md), but local remains the stronger full-path `$mfergpt` test until a public-testnet mock token is needed.

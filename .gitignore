@@ -8,6 +8,7 @@ packages/chain/cache/
 packages/chain/out/
 packages/chain/broadcast/
 apps/web/public/crypto/local-contracts.json
+apps/web/public/crypto/production-contracts.json
 *.blend1
 .DS_Store
 .env
