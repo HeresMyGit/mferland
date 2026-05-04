@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=../../.env scripts/migrate.mjs",
+    "support:admin": "node --env-file-if-exists=../../.env scripts/support-admin.mjs",
     "start": "node --env-file-if-exists=../../.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

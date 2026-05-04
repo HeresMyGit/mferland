@@ -9,6 +9,7 @@
 - `.env.example` contains placeholders only.
 - The broken Drizzle metadata-dependent migrate command has been replaced with a repo-local SQL migration runner.
 - Checked-in migrations were applied to the current local `DATABASE_URL`.
+- On 2026-05-04, `0004_chain_gear_tiers.sql` and `0005_season_reward_events.sql` were applied to the configured local/test `DATABASE_URL`.
 - Wallet persistence was smoke-tested with a synthetic wallet for level/XP/talent points, quest state, inventory, equipment, and talents.
 
 ## Neon Test Branch
@@ -20,6 +21,14 @@
 - Migration ID: `8707261c-c914-47c4-a67e-bd6c77b6f021`
 
 This branch has the character/account schema and is safe for temporary testing. Neon main has not been migrated yet.
+
+## Current Checked-In Migrations
+
+- `0001_character_foundation.sql`: accounts, wallet mapping, characters, quests, inventory, talents.
+- `0002_character_equipment.sql`: character equipment slots.
+- `0003_item_chain_tokens.sql`: chain token IDs on inventory/equipment and inventory primary-key update.
+- `0004_chain_gear_tiers.sql`: persisted NFT gear tier fields.
+- `0005_season_reward_events.sql`: capped offchain Season 0 reward eligibility ledger.
 
 ## How To Test Locally
 
@@ -38,9 +47,10 @@ Guest mode does not persist yet.
    `git grep -n -E "postgresql://|postgres://|API_KEY|SECRET|PRIVATE_KEY|TOKEN|npg_" -- . ':!package-lock.json'`
 2. Wait until Josh is on the Mac mini.
 3. Decide the final Neon dev/prod branch layout.
-4. Apply the verified migrations to the production branch/DB from that launch machine.
+4. Apply all checked-in migrations through `0005_season_reward_events.sql` to the production branch/DB from that launch machine.
 5. Point the Mac mini at production `DATABASE_URL` through local/deploy secrets only.
 6. Keep `.env` local-only.
+7. Run wallet persistence and Season 0 reward smoke tests against production before inviting external testers.
 
 ## Later DB/Auth Work
 
@@ -48,3 +58,4 @@ Guest mode does not persist yet.
 - Decide final character progression tables for XP, talent trees, and gear.
 - Keep rare/onchain items separate later; current character/account/quest/inventory state is regular DB.
 - Add admin/debug tooling for looking up a wallet character without exposing secrets.
+- Add an admin review/export flow for `season_reward_events` before any `$mferGPT` Season 0 distribution.

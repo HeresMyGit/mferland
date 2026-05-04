@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
   QUEST_IDS,
+  SEASON_0_DAILY_POINT_CAP,
+  SEASON_0_ID,
+  SEASON_0_TOTAL_POINT_CAP,
   TALENTS,
   getInventoryItemKey,
   getTalentId,
+  getSeason0QuestReward,
+  getSeasonRewardSourceId,
   isEquipmentCompatibleWithSlot,
   normalizeChainGearTier,
   normalizeChainTokenId,
@@ -28,7 +33,10 @@ import {
   characterQuests,
   characterTalents,
   characters,
+  seasonRewardEvents,
 } from "./db/schema.js";
+
+type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
 
 export type PersistedCharacter = {
   accountId: string;
@@ -55,6 +63,14 @@ export type PersistableCharacterState = {
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
   talents: TalentRankSnapshot[];
+};
+
+export type SeasonRewardAwardResult = {
+  status: "awarded" | "duplicate" | "capped" | "ineligible" | "no_database";
+  points: number;
+  dailyTotal: number;
+  seasonTotal: number;
+  label: string;
 };
 
 export async function loadOrCreateWalletCharacter({
@@ -259,6 +275,124 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
       })));
     }
   });
+}
+
+export async function awardSeason0QuestReward({
+  characterId,
+  walletAddress,
+  questId,
+  now = new Date(),
+}: {
+  characterId: string;
+  walletAddress: string;
+  questId: QuestId;
+  now?: Date;
+}): Promise<SeasonRewardAwardResult> {
+  const reward = getSeason0QuestReward(questId);
+  if (!reward) {
+    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label: "" };
+  }
+
+  const db = getDatabase();
+  if (!db) {
+    return { status: "no_database", points: 0, dailyTotal: 0, seasonTotal: 0, label: reward.label };
+  }
+
+  const normalizedWallet = walletAddress.toLowerCase();
+  if (!normalizedWallet) {
+    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label: reward.label };
+  }
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:${normalizedWallet}`}), 0)`);
+
+    const sourceId = getSeasonRewardSourceId(questId, now);
+    const existing = await tx.query.seasonRewardEvents.findFirst({
+      where: and(
+        eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+        eq(seasonRewardEvents.characterId, characterId),
+        eq(seasonRewardEvents.sourceType, "quest"),
+        eq(seasonRewardEvents.sourceId, sourceId),
+      ),
+    });
+    const totals = await getSeasonRewardTotals(tx, normalizedWallet, now);
+    if (existing) {
+      return {
+        status: "duplicate",
+        points: 0,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label: reward.label,
+      };
+    }
+
+    const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - totals.dailyTotal);
+    const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - totals.seasonTotal);
+    const points = Math.min(reward.points, remainingDaily, remainingSeason);
+    if (points <= 0) {
+      return {
+        status: "capped",
+        points: 0,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label: reward.label,
+      };
+    }
+
+    await tx.insert(seasonRewardEvents).values({
+      id: randomUUID(),
+      seasonId: SEASON_0_ID,
+      characterId,
+      walletAddress: normalizedWallet,
+      sourceType: "quest",
+      sourceId,
+      points,
+      status: "pending",
+      note: reward.label,
+      createdAt: now,
+    });
+
+    return {
+      status: "awarded",
+      points,
+      dailyTotal: totals.dailyTotal + points,
+      seasonTotal: totals.seasonTotal + points,
+      label: reward.label,
+    };
+  });
+}
+
+async function getSeasonRewardTotals(
+  tx: DatabaseTransaction,
+  walletAddress: string,
+  now: Date,
+) {
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const countedStatuses = ["pending", "approved", "distributed"];
+  const [dailyRow] = await tx.select({
+    total: sql<number>`coalesce(sum(${seasonRewardEvents.points}), 0)::int`,
+  })
+    .from(seasonRewardEvents)
+    .where(and(
+      eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+      eq(seasonRewardEvents.walletAddress, walletAddress),
+      gte(seasonRewardEvents.createdAt, dayStart),
+      inArray(seasonRewardEvents.status, countedStatuses),
+    ));
+  const [seasonRow] = await tx.select({
+    total: sql<number>`coalesce(sum(${seasonRewardEvents.points}), 0)::int`,
+  })
+    .from(seasonRewardEvents)
+    .where(and(
+      eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+      eq(seasonRewardEvents.walletAddress, walletAddress),
+      inArray(seasonRewardEvents.status, countedStatuses),
+    ));
+
+  return {
+    dailyTotal: Number(dailyRow?.total ?? 0),
+    seasonTotal: Number(seasonRow?.total ?? 0),
+  };
 }
 
 function isKnownQuestId(value: string): value is QuestId {

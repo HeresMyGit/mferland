@@ -85,3 +85,21 @@ export const characterTalents = pgTable("character_talents", {
 }, (table) => [
   primaryKey({ columns: [table.characterId, table.tree, table.nodeId] }),
 ]);
+
+export const seasonRewardEvents = pgTable("season_reward_events", {
+  id: text("id").primaryKey(),
+  seasonId: text("season_id").notNull(),
+  characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  walletAddress: text("wallet_address").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  points: integer("points").notNull(),
+  status: text("status").notNull().default("pending"),
+  note: text("note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  distributedAt: timestamp("distributed_at", { withTimezone: true }),
+}, (table) => [
+  index("season_reward_events_wallet_idx").on(table.seasonId, table.walletAddress, table.createdAt),
+  index("season_reward_events_status_idx").on(table.seasonId, table.status, table.createdAt),
+]);

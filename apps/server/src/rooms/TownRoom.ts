@@ -12,6 +12,8 @@ import {
   PLAYER,
   PROGRESSION,
   QUESTS,
+  SEASON_0_DAILY_POINT_CAP,
+  SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
   TALENTS,
   clamp,
@@ -50,6 +52,7 @@ import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, Talent
 import type { TrackedInput } from "../types.js";
 import {
   loadOrCreateWalletCharacter,
+  awardSeason0QuestReward,
   saveCharacterProgress,
   type PersistableCharacterState,
   type PersistedCharacter,
@@ -1260,6 +1263,7 @@ export class TownRoom extends Room<TownState> {
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
     if (!completeQuest(player, questId, Date.now())) return;
     awardExperience(player, getPlayerQuestXpReward(player, QUESTS[questId].xpReward));
+    void this.awardSeason0QuestReward(client, player, questId);
 
     this.persistPlayerProgress(client.sessionId, player);
 
@@ -1351,6 +1355,30 @@ export class TownRoom extends Room<TownState> {
   private persistPlayerProgress(sessionId: string, player: PlayerState) {
     if (!this.persistentCharacterIds.has(sessionId)) return;
     void this.persistPlayerProgressNow(sessionId, player);
+  }
+
+  private async awardSeason0QuestReward(client: Client, player: PlayerState, questId: QuestId) {
+    const characterId = this.persistentCharacterIds.get(client.sessionId);
+    if (!characterId || player.identityType !== "wallet" || !player.walletAddress) return;
+
+    try {
+      const result = await awardSeason0QuestReward({
+        characterId,
+        walletAddress: player.walletAddress,
+        questId,
+      });
+      if (result.status !== "awarded") return;
+
+      client.send("chat", {
+        sessionId: "season-0",
+        name: "Season 0",
+        identityType: "npc",
+        text: `Logged ${result.points} tester points for ${result.label}. Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+        sentAt: Date.now(),
+      } satisfies ChatMessage);
+    } catch (error) {
+      console.error(`Failed to award Season 0 points for ${player.walletAddress}`, error);
+    }
   }
 
   private async persistPlayerProgressNow(sessionId: string, player: PlayerState) {
