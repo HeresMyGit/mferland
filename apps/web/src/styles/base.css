@@ -447,6 +447,42 @@ button {
   margin-top: 18px;
 }
 
+.connected-wallet-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(121, 214, 127, 0.34);
+  border-radius: 6px;
+  background: rgba(17, 74, 42, 0.34);
+}
+
+.connected-wallet-card span {
+  color: #bfeec5;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.connected-wallet-card code {
+  color: #fff8dc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.wallet-action-error {
+  margin: 10px 0 0;
+  color: #ffb0a7;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .primary-btn,
 .secondary-btn,
 .text-btn {

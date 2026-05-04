@@ -6,6 +6,8 @@ import {
   type ClientAcceptQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
+  type ClientDebugRegisterChainGear,
+  type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
   type ClientInteract,
@@ -27,6 +29,7 @@ import {
   type QuestStatusNotice,
   type QuestTurnIn,
   type TalentRankSnapshot,
+  normalizeChainGearTier,
 } from "@mferland/shared";
 import { CHAT_BUBBLE_TTL_MS, type ChatBubble } from "./chatBubbles";
 
@@ -406,6 +409,16 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("useItem", message);
   }, []);
 
+  const sendDebugRegisterChainGear = useCallback((message: ClientDebugRegisterChainGear) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugRegisterChainGear", message);
+  }, []);
+
+  const sendDebugUpdateChainGearTier = useCallback((message: ClientDebugUpdateChainGearTier) => {
+    if (!import.meta.env.DEV) return;
+    roomRef.current?.send("debugUpdateChainGearTier", message);
+  }, []);
+
   const sendSelectTalent = useCallback((message: ClientSelectTalent) => {
     roomRef.current?.send("selectTalent", message);
   }, []);
@@ -497,6 +510,8 @@ export function useTownRoom(identity: JoinOptions) {
     sendEquipItem,
     sendUnequipItem,
     sendUseItem,
+    sendDebugRegisterChainGear,
+    sendDebugUpdateChainGearTier,
     sendSelectTalent,
     closeLootWindow,
     sendRespawn,
@@ -852,6 +867,7 @@ function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): I
     next.push({
       id: (item.id || id) as InventoryItemSnapshot["id"],
       chainTokenId: item.chainTokenId,
+      chainTier: normalizeChainGearTier(item.chainTier),
       count: item.count,
     });
   });
@@ -865,6 +881,7 @@ function snapshotEquipment(equipment: RuntimeEquipmentCollection | undefined): E
       slot: (slot.slot || id) as EquipmentSlotSnapshot["slot"],
       itemId: slot.itemId,
       chainTokenId: slot.chainTokenId,
+      chainTier: normalizeChainGearTier(slot.chainTier),
     });
   });
   return next.sort((left, right) => left.slot.localeCompare(right.slot));
@@ -902,6 +919,7 @@ function inventorySnapshotsEqual(left: InventoryItemSnapshot[], right: Inventory
     const other = right[index];
     return item.id === other.id
       && item.chainTokenId === other.chainTokenId
+      && normalizeChainGearTier(item.chainTier) === normalizeChainGearTier(other.chainTier)
       && item.count === other.count;
   });
 }
@@ -912,7 +930,8 @@ function equipmentSnapshotsEqual(left: EquipmentSlotSnapshot[], right: Equipment
     const other = right[index];
     return slot.slot === other.slot
       && slot.itemId === other.itemId
-      && slot.chainTokenId === other.chainTokenId;
+      && slot.chainTokenId === other.chainTokenId
+      && normalizeChainGearTier(slot.chainTier) === normalizeChainGearTier(other.chainTier);
   });
 }
 

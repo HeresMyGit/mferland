@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Gem, LogOut, MapPin, Sparkles, UserRound } from "lucide-react";
+import { Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import {
@@ -17,6 +17,8 @@ import {
   type ActionId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
+  type ClientDebugRegisterChainGear,
+  type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
   type ClientLootCorpse,
@@ -77,6 +79,7 @@ const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
+  { id: "drip", label: "Drip", x: -12, z: 15, yaw: -2.35 },
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
   { id: "field", label: "Field", x: -118, z: 112, yaw: 0 },
@@ -111,6 +114,10 @@ type QueuedMoveUnlockNotice = Omit<MoveUnlockNotice, "id">;
 function isRealCaptureMode() {
   if (!REAL_CAPTURE_ENABLED) return false;
   return new URLSearchParams(window.location.search).get("realCapture") === "1";
+}
+
+function isCryptoSmokeMode() {
+  return import.meta.env.DEV && new URLSearchParams(window.location.search).get("cryptoSmoke") === "1";
 }
 
 export function App() {
@@ -162,15 +169,19 @@ function AuthGate({
 }) {
   const [name, setName] = useState(() => getStoredName());
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { connect, connectAsync, connectors, isPending: isConnectPending } = useConnect();
+  const { disconnect, disconnectAsync, isPending: isDisconnectPending } = useDisconnect();
   const injected = connectors[0];
+  const localTestConnector = connectors.find((connector) => connector.id === "mock");
+  const [isSwitchingWallet, setIsSwitchingWallet] = useState(false);
+  const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderReachedCap, setLoaderReachedCap] = useState(false);
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
+  const cryptoSmokeMode = isCryptoSmokeMode();
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
   const handleLoaderReachedCap = useCallback(() => setLoaderReachedCap(true), []);
-  const showAuthLoader = !previewReady || !loaderReachedCap;
+  const showAuthLoader = !cryptoSmokeMode && (!previewReady || !loaderReachedCap);
 
   const cleanName = name.trim() || getStoredName();
 
@@ -185,17 +196,44 @@ function AuthGate({
     onEnter(makeWalletIdentity(cleanName, address));
   }
 
+  async function switchWallet() {
+    if (!injected || isSwitchingWallet) return;
+
+    setIsSwitchingWallet(true);
+    setWalletActionError(null);
+    try {
+      const promptedAccountPicker = await requestInjectedAccountSelection();
+      if (!promptedAccountPicker) {
+        await disconnectAsync().catch(() => undefined);
+        await connectAsync({ connector: injected });
+      }
+    } catch (error) {
+      if (!isUserRejectedWalletRequest(error)) {
+        setWalletActionError("wallet switch failed");
+      }
+    } finally {
+      setIsSwitchingWallet(false);
+    }
+  }
+
+  function disconnectWallet() {
+    setWalletActionError(null);
+    disconnect();
+  }
+
   return (
     <main className="auth-screen">
       <div className="auth-bg" aria-hidden="true">
-        <Canvas
-          className="auth-town-canvas"
-          dpr={renderProfile.previewDpr}
-          camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
-          gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
-        >
-          <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} onReady={handlePreviewReady} />
-        </Canvas>
+        {!cryptoSmokeMode && (
+          <Canvas
+            className="auth-town-canvas"
+            dpr={renderProfile.previewDpr}
+            camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
+            gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
+          >
+            <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} onReady={handlePreviewReady} />
+          </Canvas>
+        )}
         <div className="auth-scene-vignette" />
       </div>
       {showAuthLoader && <MferHeadLoader onCappedProgressComplete={handleLoaderReachedCap} />}
@@ -219,37 +257,114 @@ function AuthGate({
           />
         </label>
 
+        {isConnected && address && (
+          <div className="connected-wallet-card" title={address}>
+            <span>connected wallet</span>
+            <code>{address}</code>
+          </div>
+        )}
+
         <div className="auth-actions">
           <button className="primary-btn" type="button" onClick={enterGuest}>
             <UserRound size={18} />
             enter as anon mfer
           </button>
           {isConnected && address ? (
-            <button className="primary-btn wallet" type="button" onClick={enterWallet}>
-              <Gem size={18} />
-              enter as verified mfer
-            </button>
+            <>
+              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending}>
+                <Gem size={18} />
+                enter as verified mfer
+              </button>
+              <button
+                className="secondary-btn"
+                type="button"
+                disabled={!injected || isConnectPending || isDisconnectPending || isSwitchingWallet}
+                onClick={() => void switchWallet()}
+              >
+                <RefreshCw size={18} />
+                {isSwitchingWallet ? "switching wallet" : "switch wallet"}
+              </button>
+              <button className="text-btn" type="button" disabled={isDisconnectPending} onClick={disconnectWallet}>
+                <LogOut size={16} />
+                disconnect
+              </button>
+            </>
           ) : (
-            <button
-              className="secondary-btn"
-              type="button"
-              disabled={!injected || isPending}
-              onClick={() => injected && connect({ connector: injected })}
-            >
-              <Sparkles size={18} />
-              connect wallet
-            </button>
-          )}
-          {isConnected && (
-            <button className="text-btn" type="button" onClick={() => disconnect()}>
-              <LogOut size={16} />
-              disconnect
-            </button>
+            <>
+              <button
+                className="secondary-btn"
+                type="button"
+                disabled={!injected || isConnectPending}
+                onClick={() => injected && connect({ connector: injected })}
+              >
+                <Sparkles size={18} />
+                connect wallet
+              </button>
+              {import.meta.env.DEV && localTestConnector && (
+                <button
+                  className="text-btn"
+                  type="button"
+                  disabled={isConnectPending}
+                  onClick={() => connect({ connector: localTestConnector, chainId: 31337 })}
+                >
+                  <Sparkles size={16} />
+                  local test wallet
+                </button>
+              )}
+            </>
           )}
         </div>
+        {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>
     </main>
   );
+}
+
+type EthereumRequestProvider = {
+  request: (request: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
+
+async function requestInjectedAccountSelection() {
+  const ethereum = getInjectedEthereumProvider();
+  if (!ethereum) return false;
+
+  try {
+    await ethereum.request({
+      method: "wallet_requestPermissions",
+      params: [{ eth_accounts: {} }],
+    });
+  } catch (error) {
+    if (isUnsupportedWalletPermissionRequest(error)) return false;
+    throw error;
+  }
+  return true;
+}
+
+function getInjectedEthereumProvider(): EthereumRequestProvider | null {
+  if (typeof window === "undefined") return null;
+
+  const maybeWindow = window as Window & { ethereum?: Partial<EthereumRequestProvider> };
+  if (typeof maybeWindow.ethereum?.request !== "function") return null;
+  return maybeWindow.ethereum as EthereumRequestProvider;
+}
+
+function isUserRejectedWalletRequest(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; cause?: unknown; name?: unknown; shortMessage?: unknown; message?: unknown };
+  if (maybeError.code === 4001) return true;
+  if (typeof maybeError.name === "string" && maybeError.name.includes("UserRejected")) return true;
+  if (isUserRejectedWalletRequest(maybeError.cause)) return true;
+
+  const message = typeof maybeError.shortMessage === "string" ? maybeError.shortMessage : maybeError.message;
+  return typeof message === "string" && /user rejected|user denied|request rejected/i.test(message);
+}
+
+function isUnsupportedWalletPermissionRequest(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; cause?: unknown; message?: unknown };
+  if (maybeError.code === -32601 || maybeError.code === 4200) return true;
+  if (isUnsupportedWalletPermissionRequest(maybeError.cause)) return true;
+  return typeof maybeError.message === "string" && /unsupported|not supported|method not found/i.test(maybeError.message);
 }
 
 function AuthTownPreview({
@@ -268,8 +383,8 @@ function AuthTownPreview({
       <Skybox />
       <Suspense fallback={null}>
         <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
-        <SceneReadySignal onReady={onReady} />
       </Suspense>
+      <SceneReadySignal onReady={onReady} />
       <AuthPreviewCamera />
     </>
   );
@@ -314,6 +429,7 @@ function GameShell({
 }) {
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
+  const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
   const [moveUnlockNotices, setMoveUnlockNotices] = useState<MoveUnlockNotice[]>([]);
@@ -343,15 +459,28 @@ function GameShell({
   const realCaptureRoomRef = useRef(room);
   const realCaptureSelectedTargetRef = useRef<TargetSelection | null>(null);
   const debugToolsAvailable = import.meta.env.DEV;
+  const cryptoSmokeMode = isCryptoSmokeMode();
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
     name: localPlayer?.name || identity.name || "mfer",
     avatarSeed: localPlayer?.avatarSeed || identity.avatarSeed || 1,
-  }), [identity.avatarSeed, identity.name, localPlayer?.avatarSeed, localPlayer?.name]);
+    walletAddress: localPlayer?.walletAddress || identity.walletAddress || "",
+  }), [
+    identity.avatarSeed,
+    identity.name,
+    identity.walletAddress,
+    localPlayer?.avatarSeed,
+    localPlayer?.name,
+    localPlayer?.walletAddress,
+  ]);
   const selectedTargetUnit = useMemo(
     () => getSelectedTargetUnit(selectedTarget, room.players, room.npcs),
     [room.npcs, room.players, room.snapshotRevision, selectedTarget],
+  );
+  const cryptoStoreNpc = useMemo(
+    () => cryptoStoreNpcId ? room.npcs.get(cryptoStoreNpcId) ?? null : null,
+    [cryptoStoreNpcId, room.npcs, room.snapshotRevision],
   );
   const debugPlacementTargets = useMemo(
     () => [
@@ -374,7 +503,7 @@ function GameShell({
   const showGameLoader = room.status === "connecting" || (room.status === "connected" && !localPlayer);
   const [gameLoaderReachedCap, setGameLoaderReachedCap] = useState(false);
   const handleGameLoaderReachedCap = useCallback(() => setGameLoaderReachedCap(true), []);
-  const renderGameLoader = showGameLoader || !gameLoaderReachedCap;
+  const renderGameLoader = !cryptoSmokeMode && (showGameLoader || !gameLoaderReachedCap);
   realCaptureRoomRef.current = room;
   realCaptureSelectedTargetRef.current = selectedTarget;
 
@@ -413,6 +542,7 @@ function GameShell({
     const selectedNpc = findInteractableNpcInRange(localPlayer, room.npcs, npcId);
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
+      if (selectedNpc.role === "merchant") setCryptoStoreNpcId(selectedNpc.id);
       room.sendInteract({ npcId: selectedNpc.id });
     }
   }, [audio, localPlayer, room.npcs, room.sendInteract]);
@@ -423,6 +553,7 @@ function GameShell({
       : null;
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
+    if (nearestNpc?.role === "merchant") setCryptoStoreNpcId(nearestNpc.id);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
   }, [audio, localPlayer, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
@@ -493,6 +624,14 @@ function GameShell({
     audio.play("itemUse");
     room.sendUseItem(message);
   }, [audio, room.sendUseItem]);
+  const registerChainGear = useCallback((message: ClientDebugRegisterChainGear) => {
+    audio.play("inventoryLoot");
+    room.sendDebugRegisterChainGear(message);
+  }, [audio, room.sendDebugRegisterChainGear]);
+  const updateChainGearTier = useCallback((message: ClientDebugUpdateChainGearTier) => {
+    audio.play("inventoryEquip");
+    room.sendDebugUpdateChainGearTier(message);
+  }, [audio, room.sendDebugUpdateChainGearTier]);
   const selectTalent = useCallback((message: ClientSelectTalent) => {
     audio.play("uiConfirm");
     room.sendSelectTalent(message);
@@ -831,6 +970,7 @@ function GameShell({
           onSelectDebugPlacement={selectDebugPlacement}
           onChangeDebugPlacement={updateDebugPlacement}
           renderProfile={renderProfile}
+          lightweightRender={cryptoSmokeMode}
         />
       </Canvas>
       {renderGameLoader && <MferHeadLoader onCappedProgressComplete={handleGameLoaderReachedCap} />}
@@ -847,6 +987,7 @@ function GameShell({
             npcs={room.npcs}
             selectedTarget={selectedTarget}
             selectedTargetUnit={selectedTargetUnit}
+            cryptoStoreNpc={cryptoStoreNpc}
             localSessionId={room.sessionId}
             localPlayer={localPlayer ?? null}
             questOffer={room.questOffer}
@@ -867,8 +1008,11 @@ function GameShell({
             onEquipItem={equipItem}
             onUnequipItem={unequipItem}
             onUseItem={useItem}
+            onRegisterChainGear={registerChainGear}
+            onUpdateChainGearTier={updateChainGearTier}
             onSelectTalent={selectTalent}
             onCloseLootWindow={room.closeLootWindow}
+            onCloseCryptoStore={() => setCryptoStoreNpcId(null)}
             onSendChat={sendChat}
             onEmote={performEmote}
             onRespawn={respawn}
@@ -886,7 +1030,7 @@ function GameShell({
       )}
 
       {!hideCaptureHud && debugToolsAvailable && settings.debugTravelPanel && (
-        <DebugTravelPanel localPlayer={localPlayer ?? null} onTravel={performDebugTravel} />
+        <DebugTravelPanel localPlayer={localPlayer ?? null} canTravel={room.status === "connected"} onTravel={performDebugTravel} />
       )}
       {!hideCaptureHud && debugPlacementMode && debugPlacementPanelOpen && (
         <DebugPlacementEditor
@@ -908,9 +1052,11 @@ function GameShell({
 
 function DebugTravelPanel({
   localPlayer,
+  canTravel,
   onTravel,
 }: {
   localPlayer: PlayerSnapshot | null;
+  canTravel: boolean;
   onTravel: (destination: DebugTravelDestination) => void;
 }) {
   return (
@@ -923,6 +1069,7 @@ function DebugTravelPanel({
           key={destination.id}
           type="button"
           title={`Debug travel: ${destination.label}`}
+          disabled={!canTravel}
           onClick={() => onTravel(destination)}
         >
           <MapPin size={13} />

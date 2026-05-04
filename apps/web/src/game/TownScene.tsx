@@ -77,6 +77,7 @@ type TownSceneProps = {
   selectedDebugPlacementId?: string | null;
   mobileMoveInputRef?: MobileMoveInputRef;
   renderProfile?: RenderPerformanceProfile;
+  lightweightRender?: boolean;
   onSelectDebugPlacement?: (targetId: string | null) => void;
   onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
 };
@@ -123,6 +124,7 @@ function TownSceneComponent({
   selectedDebugPlacementId = null,
   mobileMoveInputRef,
   renderProfile,
+  lightweightRender = false,
   onSelectDebugPlacement,
   onChangeDebugPlacement,
 }: TownSceneProps) {
@@ -540,10 +542,12 @@ function TownSceneComponent({
       <directionalLight position={[-10, 18, 8]} intensity={1.55} color="#fff3d3" />
       <Skybox />
 
-      <Suspense fallback={null}>
-        <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
-      </Suspense>
-      {debugPlacementMode && (
+      {!lightweightRender && (
+        <Suspense fallback={null}>
+          <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
+        </Suspense>
+      )}
+      {debugPlacementMode && !lightweightRender && (
         <DebugPlacementGizmos
           targets={debugPlacementTargets}
           overrides={debugPlacementOverrides}
@@ -552,6 +556,7 @@ function TownSceneComponent({
           onChange={onChangeDebugPlacement}
         />
       )}
+      {!lightweightRender && (
       <Suspense fallback={null}>
         {renderedPlayers.map(([sessionId, player]) => {
           const isLocalPlayer = sessionId === localSessionId;
@@ -657,6 +662,7 @@ function TownSceneComponent({
           viewerPosition={viewerPosition}
         />
       </Suspense>
+      )}
     </>
   );
 }
@@ -685,6 +691,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.selectedDebugPlacementId === next.selectedDebugPlacementId
     && previous.mobileMoveInputRef === next.mobileMoveInputRef
     && previous.renderProfile === next.renderProfile
+    && previous.lightweightRender === next.lightweightRender
     && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
     && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;
 }

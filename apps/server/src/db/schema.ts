@@ -58,6 +58,7 @@ export const characterInventory = pgTable("character_inventory", {
   characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
   itemId: text("item_id").notNull(),
   chainTokenId: text("chain_token_id").notNull().default(""),
+  chainTier: integer("chain_tier").notNull().default(1),
   count: integer("count").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -69,6 +70,7 @@ export const characterEquipment = pgTable("character_equipment", {
   slot: text("slot").notNull(),
   itemId: text("item_id").notNull(),
   chainTokenId: text("chain_token_id").notNull().default(""),
+  chainTier: integer("chain_tier").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.characterId, table.slot] }),

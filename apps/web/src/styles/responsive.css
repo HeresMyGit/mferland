@@ -210,6 +210,7 @@
 
   .character-panel,
   .inventory-panel,
+  .crypto-store-panel,
   .settings-panel {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
@@ -236,6 +237,20 @@
   .floating-menu-overlay.settings-anchor {
     top: auto;
     bottom: 76px;
+  }
+
+  .floating-menu-overlay.crypto-store-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
+  .crypto-store-config,
+  .crypto-store-balance-grid,
+  .crypto-store-collection,
+  .crypto-store-item,
+  .crypto-store-actions,
+  .crypto-upgrade-row {
+    grid-template-columns: 1fr;
   }
 
   .debug-placement-editor {

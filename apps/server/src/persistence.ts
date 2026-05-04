@@ -8,6 +8,7 @@ import {
   getInventoryItemKey,
   getTalentId,
   isEquipmentCompatibleWithSlot,
+  normalizeChainGearTier,
   normalizeChainTokenId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
@@ -139,6 +140,7 @@ export async function loadOrCreateWalletCharacter({
       .map((item) => ({
         id: item.itemId as ItemId,
         chainTokenId: normalizeChainTokenId(item.chainTokenId),
+        chainTier: normalizeChainGearTier(item.chainTier),
         count: item.count,
       }));
     const ownedInventoryKeys = new Set(inventory.map((item) => getInventoryItemKey(item.id, item.chainTokenId)));
@@ -152,6 +154,7 @@ export async function loadOrCreateWalletCharacter({
         slot: slot.slot as EquipmentSlotId,
         itemId: slot.itemId as ItemId,
         chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+        chainTier: normalizeChainGearTier(slot.chainTier),
       }));
 
     return {
@@ -219,6 +222,7 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
         characterId: state.characterId,
         itemId: item.id,
         chainTokenId: normalizeChainTokenId(item.chainTokenId),
+        chainTier: normalizeChainGearTier(item.chainTier),
         count: item.count,
         updatedAt: now,
       })));
@@ -238,6 +242,7 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
         slot: slot.slot,
         itemId: slot.itemId,
         chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+        chainTier: normalizeChainGearTier(slot.chainTier),
         updatedAt: now,
       })));
     }

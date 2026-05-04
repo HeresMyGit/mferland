@@ -12,9 +12,18 @@
     "dev:web": "npm run dev -w @mferland/web",
     "dev:server": "npm run dev -w @mferland/server",
     "dev:agent": "npm run dev -w @mferland/agent",
+    "shared:test": "npm run test -w @mferland/shared",
+    "web:test": "npm run build -w @mferland/shared && npm run test -w @mferland/web",
+    "crypto:browser:local": "node scripts/crypto-local-browser-smoke.mjs",
+    "crypto:test:local": "npm run shared:test && npm run chain:test && npm run web:test && npm run crypto:browser:local",
+    "chain:build": "npm run build -w @mferland/chain",
+    "chain:test": "npm run test -w @mferland/chain",
+    "chain:node": "npm run node -w @mferland/chain",
+    "chain:deploy:local": "npm run deploy:local -w @mferland/chain",
+    "chain:export:local": "npm run export:local -w @mferland/chain",
     "build": "npm run build -w @mferland/shared && npm run build -w @mferland/server && npm run build -w @mferland/web",
     "build:agent": "npm run build -w @mferland/agent",
-    "typecheck": "npm run typecheck -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web && npm run typecheck -w @mferland/agent"
+    "typecheck": "npm run typecheck -w @mferland/shared && npm run build -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web && npm run typecheck -w @mferland/agent"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

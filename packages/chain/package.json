@@ -1,0 +1,14 @@
+{
+  "name": "@mferland/chain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vv && npm run test:export",
+    "test:export": "node --test scripts/*.test.mjs",
+    "node": "anvil --chain-id 31337 --host 127.0.0.1 --port 8545",
+    "deploy:local": "forge script script/DeployLocalSuite.s.sol:DeployLocalSuite --rpc-url http://127.0.0.1:8545 --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --unlocked --broadcast && npm run export:local",
+    "export:local": "node scripts/export-local-addresses.mjs"
+  }
+}

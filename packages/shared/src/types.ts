@@ -68,6 +68,7 @@ export type QuestStatusNotice = {
 export type InventoryItemSnapshot = {
   id: ItemId;
   chainTokenId: string;
+  chainTier?: number;
   count: number;
 };
 
@@ -75,6 +76,7 @@ export type EquipmentSlotSnapshot = {
   slot: EquipmentSlotId;
   itemId: ItemId | "";
   chainTokenId: string;
+  chainTier?: number;
 };
 
 export type TalentRankSnapshot = {
@@ -280,6 +282,17 @@ export type ClientUseItem = {
 
 export type ClientUnequipItem = {
   slot: EquipmentSlotId;
+};
+
+export type ClientDebugRegisterChainGear = {
+  gearType: number;
+  tokenId: string;
+  tier?: number;
+};
+
+export type ClientDebugUpdateChainGearTier = {
+  tokenId: string;
+  tier: number;
 };
 
 export type ClientSelectTalent = {

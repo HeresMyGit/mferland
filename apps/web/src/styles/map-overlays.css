@@ -676,6 +676,11 @@
   bottom: 168px;
 }
 
+.crypto-store-anchor {
+  right: 108px;
+  top: 92px;
+}
+
 .world-map-panel {
   width: min(760px, calc(100vw - 48px));
   padding: 14px;
@@ -738,6 +743,285 @@
   border-radius: 8px;
   background: rgba(18, 14, 10, 0.92);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.crypto-store-panel {
+  display: grid;
+  gap: 12px;
+  width: min(430px, calc(100vw - 132px));
+  max-height: min(620px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 14, 10, 0.92);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.crypto-store-account {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.crypto-store-account span,
+.crypto-store-config span,
+.crypto-store-item label span,
+.crypto-upgrade-row label span {
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 10px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.crypto-store-account code {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff8e0;
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crypto-store-account button,
+.crypto-store-collection button,
+.crypto-store-actions button,
+.crypto-upgrade-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #17130c;
+  background: var(--mfer-yellow);
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.crypto-store-actions button:nth-child(2) {
+  color: #fff8df;
+  background: var(--mfer-purple);
+}
+
+.crypto-store-actions button:nth-child(3),
+.crypto-upgrade-row button {
+  color: #17130c;
+  background: var(--mfer-orange);
+}
+
+.crypto-store-account button:disabled,
+.crypto-store-balances button:disabled,
+.crypto-store-collection button:disabled,
+.crypto-store-actions button:disabled,
+.crypto-upgrade-row button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.55);
+  opacity: 0.58;
+}
+
+.crypto-store-balances {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.crypto-store-balances-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.crypto-store-balances-head span,
+.crypto-store-balance-grid span {
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 10px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.crypto-store-balance-grid span {
+  text-transform: none;
+}
+
+.crypto-store-balances-head button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #17130c;
+  background: var(--mfer-yellow);
+}
+
+.crypto-store-balance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crypto-store-balance-grid div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.crypto-store-balance-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff8e0;
+  font-size: 13px;
+  font-weight: 1000;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crypto-store-balances em {
+  color: rgba(255, 205, 134, 0.9);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.crypto-store-config,
+.crypto-store-collection,
+.crypto-store-item,
+.crypto-upgrade-row {
+  display: grid;
+  gap: 8px;
+}
+
+.crypto-store-config {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.crypto-store-collection {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.crypto-store-collection button {
+  align-items: flex-start;
+  min-height: 54px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  color: rgba(255, 248, 224, 0.84);
+  background: rgba(255, 255, 255, 0.1);
+  text-align: left;
+}
+
+.crypto-store-collection button.selected {
+  color: #17130c;
+  background: var(--mfer-yellow);
+}
+
+.crypto-store-collection strong,
+.crypto-store-collection span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crypto-store-collection strong {
+  font-size: 11px;
+}
+
+.crypto-store-collection span {
+  font-size: 10px;
+  opacity: 0.78;
+}
+
+.crypto-store-config label,
+.crypto-store-item label,
+.crypto-upgrade-row label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.crypto-store-config input,
+.crypto-store-item input,
+.crypto-upgrade-row input {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  color: #fff8e0;
+  background: rgba(0, 0, 0, 0.3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  outline: none;
+}
+
+.crypto-store-item {
+  grid-template-columns: minmax(0, 1fr) 74px 88px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.26);
+}
+
+.crypto-store-item strong {
+  display: block;
+  color: #fff8e0;
+  font-size: 15px;
+  font-weight: 1000;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.crypto-store-item div > span {
+  display: block;
+  margin-top: 5px;
+  color: rgba(255, 248, 224, 0.66);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.crypto-store-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crypto-upgrade-row {
+  grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: end;
+}
+
+.crypto-store-status {
+  min-height: 18px;
+  margin: 0;
+  color: rgba(255, 248, 224, 0.78);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
 }
 
 .settings-section {
@@ -1081,6 +1365,20 @@
   font-size: 17px;
   font-weight: 1000;
   line-height: 1;
+}
+
+.character-wallet-stat {
+  grid-column: 1 / -1;
+}
+
+.character-wallet-stat code {
+  color: #fff8e0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-transform: none;
 }
 
 .equipment-grid {

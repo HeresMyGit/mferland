@@ -12,12 +12,15 @@ import {
   getItemConsumable,
   getItemEquipment,
   getNpcDisposition,
+  normalizeChainGearTier,
   type ActionId,
   type ChatMessage,
   type CombatActionId,
   type EmoteId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
+  type ClientDebugRegisterChainGear,
+  type ClientDebugUpdateChainGearTier,
   type ClientEquipItem,
   type ClientLootCorpse,
   type ClientSelectTalent,
@@ -46,6 +49,7 @@ import { ItemIcon } from "./hud/ItemIcon";
 import { Quest } from "./hud/Quest";
 import { TargetFrame } from "./hud/TargetFrame";
 import { type ActionSlot, type DragState, isItemActionSlot, makeItemActionSlot } from "./hud/types";
+import { CryptoStorePanel } from "./CryptoStorePanel";
 import { MferPortrait } from "./MferPortrait";
 import {
   MINIMAP_HUBS,
@@ -93,6 +97,7 @@ type HudProps = {
   identity: {
     name: string;
     avatarSeed: number;
+    walletAddress?: string;
   };
   playerCount: number;
   connectionStatus: string;
@@ -102,6 +107,7 @@ type HudProps = {
   npcs: Map<string, NpcSnapshot>;
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
+  cryptoStoreNpc: NpcSnapshot | null;
   localSessionId: string | null;
   localPlayer: PlayerSnapshot | null;
   questOffer: QuestOffer | null;
@@ -122,8 +128,11 @@ type HudProps = {
   onEquipItem: (message: ClientEquipItem) => void;
   onUnequipItem: (message: ClientUnequipItem) => void;
   onUseItem: (message: ClientUseItem) => void;
+  onRegisterChainGear: (message: ClientDebugRegisterChainGear) => void;
+  onUpdateChainGearTier: (message: ClientDebugUpdateChainGearTier) => void;
   onSelectTalent: (message: ClientSelectTalent) => void;
   onCloseLootWindow: () => void;
+  onCloseCryptoStore: () => void;
   onSendChat: (text: string) => void;
   onEmote: (emoteId: EmoteId) => void;
   onRespawn: () => void;
@@ -144,6 +153,7 @@ export function Hud({
   npcs,
   selectedTarget,
   selectedTargetUnit,
+  cryptoStoreNpc,
   localSessionId,
   localPlayer,
   questOffer,
@@ -164,8 +174,11 @@ export function Hud({
   onEquipItem,
   onUnequipItem,
   onUseItem,
+  onRegisterChainGear,
+  onUpdateChainGearTier,
   onSelectTalent,
   onCloseLootWindow,
+  onCloseCryptoStore,
   onSendChat,
   onEmote,
   onRespawn,
@@ -204,6 +217,7 @@ export function Hud({
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const portraitSeed = localPlayer?.avatarSeed ?? identity.avatarSeed;
   const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
+  const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
@@ -746,6 +760,17 @@ export function Hud({
         />
       )}
 
+      {cryptoStoreNpc && (
+        <section className="floating-menu-overlay crypto-store-anchor" role="dialog" aria-label="crypto store">
+          <CryptoStorePanel
+            npc={cryptoStoreNpc}
+            onClose={onCloseCryptoStore}
+            onRegisterChainGear={onRegisterChainGear}
+            onUpdateChainGearTier={onUpdateChainGearTier}
+          />
+        </section>
+      )}
+
       <section className="minimap-panel">
         <div className="minimap-header">
           <h2>mferland</h2>
@@ -922,6 +947,12 @@ export function Hud({
                   <MferPortrait traits={playerPortraitTraits} variant="full" title="your mfer portrait" />
                 </div>
                 <div className="character-stats">
+                  {characterWalletAddress && (
+                    <div className="character-stat character-wallet-stat" title={characterWalletAddress}>
+                      <span>wallet</span>
+                      <code>{characterWalletAddress}</code>
+                    </div>
+                  )}
                   {getCharacterStatRows(localPlayer).map((stat) => (
                     <div key={stat.label} className="character-stat">
                       <span>{stat.label}</span>
@@ -933,10 +964,12 @@ export function Hud({
 
               <section className="equipment-grid">
                 {EQUIPMENT_SLOT_IDS.map((slotId) => {
-                  const itemId = getEquippedItemId(localPlayer, slotId);
+                  const slot = getEquippedSlot(localPlayer, slotId);
+                  const itemId = slot?.itemId ?? "";
                   const item = itemId ? ITEMS[itemId] : null;
+                  const chainLabel = slot ? formatChainGearLabel(slot) : "";
                   const title = itemId && item
-                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${formatItemStats(itemId)}\nClick to unequip`
+                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier)}\nClick to unequip`
                     : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
                   return (
                     <button
@@ -952,6 +985,7 @@ export function Hud({
                         <>
                           <ItemIcon itemId={itemId} />
                           <strong>{item?.name}</strong>
+                          {chainLabel ? <em>{chainLabel}</em> : null}
                         </>
                       ) : (
                         <>
@@ -1016,6 +1050,7 @@ export function Hud({
                   <>
                     <ItemIcon itemId={item.id} />
                     <strong>{ITEMS[item.id].name}</strong>
+                    {formatChainGearLabel(item) ? <em>{formatChainGearLabel(item)}</em> : null}
                     <span className="tile-count">{item.count > 1 ? `x${item.count}` : ""}</span>
                     {isEquipped && <span className="tile-state">On</span>}
                   </>
@@ -1679,15 +1714,15 @@ function getCharacterStatRows(player: PlayerSnapshot | null) {
     },
     {
       label: "STR",
-      value: String(player?.strength ?? 0),
+      value: formatStatNumber(player?.strength ?? 0),
     },
     {
       label: "DEX",
-      value: String(player?.dexterity ?? 0),
+      value: formatStatNumber(player?.dexterity ?? 0),
     },
     {
       label: "MAG",
-      value: String(player?.magic ?? 0),
+      value: formatStatNumber(player?.magic ?? 0),
     },
     {
       label: "Speed",
@@ -1716,10 +1751,6 @@ function getEquippedSlot(player: PlayerSnapshot | null, slotId: EquipmentSlotId)
   return player?.equipment.find((slot) => slot.slot === slotId) ?? null;
 }
 
-function getEquippedItemId(player: PlayerSnapshot | null, slotId: EquipmentSlotId): ItemId | "" {
-  return getEquippedSlot(player, slotId)?.itemId ?? "";
-}
-
 function isInventoryItemEquipped(player: PlayerSnapshot | null, item: InventoryItemSnapshot) {
   const equipment = getItemEquipment(item.id);
   if (!equipment) return false;
@@ -1728,8 +1759,8 @@ function isInventoryItemEquipped(player: PlayerSnapshot | null, item: InventoryI
   return equipped?.itemId === item.id && equipped.chainTokenId === item.chainTokenId;
 }
 
-function formatItemStats(itemId: ItemId) {
-  const equipment = getItemEquipment(itemId);
+function formatItemStats(itemId: ItemId, chainTier?: number) {
+  const equipment = getItemEquipment(itemId, chainTier);
   if (!equipment) return "";
 
   const statKeys = Object.keys(equipment.stats) as Array<keyof typeof STAT_LABELS>;
@@ -1739,9 +1770,14 @@ function formatItemStats(itemId: ItemId) {
     .map((statKey) => {
       const value = equipment.stats[statKey] ?? 0;
       const sign = value > 0 ? "+" : "";
-      return `${sign}${value} ${STAT_LABELS[statKey]}`;
+      return `${sign}${formatStatNumber(value)} ${STAT_LABELS[statKey]}`;
     })
     .join(", ");
+}
+
+function formatChainGearLabel(item: { chainTokenId?: string; chainTier?: number }) {
+  if (!item.chainTokenId) return "";
+  return `T${normalizeChainGearTier(item.chainTier)} #${item.chainTokenId}`;
 }
 
 function formatConsumableEffect(itemId: ItemId) {
@@ -1768,8 +1804,9 @@ function getInventoryItemTitle(
     definition.name,
     definition.description,
     item.count > 1 ? `Count: ${item.count}` : "",
+    formatChainGearLabel(item),
     equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
-    equipment ? formatItemStats(item.id) : "",
+    equipment ? formatItemStats(item.id, item.chainTier) : "",
     consumable ? formatConsumableEffect(item.id) : "",
     comparison?.text ?? "",
     equipped ? "Currently equipped" : equipment ? "Click to equip" : consumable ? "Click to use, drag to hotbar" : "",
@@ -1792,7 +1829,7 @@ function getLootItemTitle(item: { id: ItemId; count: number }) {
 }
 
 function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot | null) {
-  const equipment = getItemEquipment(item.id);
+  const equipment = getItemEquipment(item.id, item.chainTier);
   if (!equipment) return null;
 
   const equipped = getEquippedSlot(player, equipment.slot);
@@ -1801,7 +1838,7 @@ function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot |
   }
 
   const equippedItem = equipped?.itemId ? ITEMS[equipped.itemId] : null;
-  const equippedStats = equipped?.itemId ? getItemEquipment(equipped.itemId)?.stats ?? {} : {};
+  const equippedStats = equipped?.itemId ? getItemEquipment(equipped.itemId, equipped.chainTier)?.stats ?? {} : {};
   const statKeys = Object.keys(STAT_LABELS) as Array<keyof typeof STAT_LABELS>;
   const deltas = statKeys
     .map((statKey) => ({
@@ -1819,7 +1856,7 @@ function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot |
 
   const totalDelta = deltas.reduce((sum, itemDelta) => sum + itemDelta.delta, 0);
   const text = deltas
-    .map(({ statKey, delta }) => `${delta > 0 ? "+" : ""}${delta} ${STAT_LABELS[statKey]}`)
+    .map(({ statKey, delta }) => `${delta > 0 ? "+" : ""}${formatStatNumber(delta)} ${STAT_LABELS[statKey]}`)
     .join(", ");
 
   return {

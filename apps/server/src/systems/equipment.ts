@@ -4,10 +4,13 @@ import {
   PLAYER,
   STARTER_GEAR_IDS,
   clamp,
+  getChainGearItemId,
   getEquippedCharacterStats,
   getInventoryItemKey,
   getItemEquipment,
+  normalizeChainGearTier,
   normalizeChainTokenId,
+  type EquippedItemRef,
   type EquipmentSlotId,
   type ItemId,
 } from "@mferland/shared";
@@ -30,17 +33,20 @@ export function initializeCharacterEquipment(player: PlayerState) {
 
 export function equipInventoryItem(player: PlayerState, itemId: ItemId, chainTokenId = "") {
   const inventoryKey = getInventoryItemKey(itemId, chainTokenId);
-  if ((player.inventory.get(inventoryKey)?.count ?? 0) <= 0) return false;
+  const inventoryItem = player.inventory.get(inventoryKey);
+  if ((inventoryItem?.count ?? 0) <= 0) return false;
 
   const equipment = getItemEquipment(itemId);
   if (!equipment) return false;
 
   const slot = getOrCreateEquipmentSlot(player, equipment.slot);
   const normalizedTokenId = normalizeChainTokenId(chainTokenId);
-  if (slot.itemId === itemId && slot.chainTokenId === normalizedTokenId) return true;
+  const chainTier = normalizeChainGearTier(inventoryItem?.chainTier);
+  if (slot.itemId === itemId && slot.chainTokenId === normalizedTokenId && slot.chainTier === chainTier) return true;
 
   slot.itemId = itemId;
   slot.chainTokenId = normalizedTokenId;
+  slot.chainTier = chainTier;
   recalculatePlayerStats(player);
   return true;
 }
@@ -51,15 +57,16 @@ export function unequipPlayerSlot(player: PlayerState, slotId: EquipmentSlotId) 
 
   slot.itemId = "";
   slot.chainTokenId = "";
+  slot.chainTier = 1;
   recalculatePlayerStats(player);
   return true;
 }
 
 export function recalculatePlayerStats(player: PlayerState) {
-  const itemIds: Array<ItemId | ""> = [];
-  player.equipment.forEach((slot) => itemIds.push(slot.itemId));
+  const items: EquippedItemRef[] = [];
+  player.equipment.forEach((slot) => items.push({ itemId: slot.itemId, chainTier: slot.chainTier }));
 
-  const stats = getEquippedCharacterStats(itemIds);
+  const stats = getEquippedCharacterStats(items);
   const talentEffects = getPlayerTalentEffects(player);
 
   player.maxHealth = stats.maxHealth + (talentEffects.stats.maxHealth ?? 0);
@@ -75,6 +82,58 @@ export function recalculatePlayerStats(player: PlayerState) {
   player.mana = clamp(player.mana, 0, player.maxMana);
 }
 
+export function registerChainGearItem(player: PlayerState, gearType: number, chainTokenId = "", chainTier = 1) {
+  const itemId = getChainGearItemId(gearType);
+  const normalizedTokenId = normalizeChainTokenId(chainTokenId);
+  if (!itemId || !normalizedTokenId) return false;
+
+  const equipment = getItemEquipment(itemId);
+  if (!equipment) return false;
+
+  const inventoryKey = getInventoryItemKey(itemId, normalizedTokenId);
+  const item = player.inventory.get(inventoryKey) ?? new InventoryItemState();
+  item.id = itemId;
+  item.chainTokenId = normalizedTokenId;
+  item.chainTier = normalizeChainGearTier(chainTier);
+  item.count = Math.max(1, item.count);
+  player.inventory.set(inventoryKey, item);
+
+  const slot = getOrCreateEquipmentSlot(player, equipment.slot);
+  slot.itemId = itemId;
+  slot.chainTokenId = normalizedTokenId;
+  slot.chainTier = item.chainTier;
+
+  recalculatePlayerStats(player);
+  return true;
+}
+
+export function updateChainGearTier(player: PlayerState, chainTokenId = "", chainTier = 1) {
+  const normalizedTokenId = normalizeChainTokenId(chainTokenId);
+  if (!normalizedTokenId) return false;
+
+  const tier = normalizeChainGearTier(chainTier);
+  let changed = false;
+
+  player.inventory.forEach((item) => {
+    if (item.chainTokenId !== normalizedTokenId || !getItemEquipment(item.id)) return;
+    if (item.chainTier !== tier) {
+      item.chainTier = tier;
+      changed = true;
+    }
+  });
+
+  player.equipment.forEach((slot) => {
+    if (slot.chainTokenId !== normalizedTokenId) return;
+    if (slot.chainTier !== tier) {
+      slot.chainTier = tier;
+      changed = true;
+    }
+  });
+
+  if (changed) recalculatePlayerStats(player);
+  return changed;
+}
+
 function grantStarterGear(player: PlayerState) {
   for (const itemId of STARTER_GEAR_IDS) {
     const inventoryKey = getInventoryItemKey(itemId);
@@ -83,6 +142,7 @@ function grantStarterGear(player: PlayerState) {
     const item = new InventoryItemState();
     item.id = itemId;
     item.chainTokenId = "";
+    item.chainTier = 1;
     item.count = 1;
     player.inventory.set(inventoryKey, item);
   }
@@ -97,6 +157,7 @@ function equipDefaultStarterGear(player: PlayerState) {
     const slot = getOrCreateEquipmentSlot(player, slotId);
     slot.itemId = itemId;
     slot.chainTokenId = "";
+    slot.chainTier = 1;
   }
 }
 
