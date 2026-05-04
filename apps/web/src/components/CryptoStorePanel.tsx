@@ -57,8 +57,10 @@ const SELECTORS = {
   discountedTokenPrice: "0xbb6505a5",
   ethPrice: "0xff186b2e",
   gear: "0xbea80cea",
+  mferPrice: "0x4c3071ae",
   mferGptPrice: "0x4774d971",
   mintPassWithEth: "0x0ad641f1",
+  mintPassWithMfer: "0xd39b84af",
   mintPassWithMferGpt: "0x4c19163b",
   upgradeWithGold: "0x36327c6c",
   distributeQuestReward: "0x26bfdb66",
@@ -260,6 +262,16 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
     });
   }
 
+  async function buyLaunchPassWithMfer() {
+    await runAction("buying launch pass with $mfer", async () => {
+      const provider = await prepareWallet(["launchPass", "mfer"]);
+      const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferPrice));
+      await approve(provider, addresses.mfer, addresses.launchPass, price);
+      const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithMfer));
+      registerMintedLaunchPass(receipt);
+    });
+  }
+
   async function buyLaunchPassWithMferGpt() {
     await runAction("buying launch pass with $mfergpt", async () => {
       const provider = await prepareWallet(["launchPass", "mfergpt"]);
@@ -402,7 +414,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       <div className="crypto-store-item crypto-pass-item">
         <div>
           <strong>{LAUNCH_PASS_LABEL}</strong>
-          <span>token distribution eligibility / 0.0069 ETH / 690 MFERGPT burn</span>
+          <span>token distribution eligibility / 0.0069 ETH / 621 MFER / 690 MFERGPT burn</span>
         </div>
         <label>
           <span>pass id</span>
@@ -414,6 +426,10 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithEth()}>
           <Gem size={16} />
           pass ETH
+        </button>
+        <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMfer()}>
+          <Coins size={16} />
+          pass $mfer -10%
         </button>
         <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMferGpt()}>
           <Flame size={16} />

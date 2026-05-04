@@ -145,6 +145,13 @@ try {
     assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999948.25"));
     await waitForBalance(balances, "$mfergpt", "999948.25");
 
+    await clickExactly(dialog.getByRole("button", { name: "pass $mfer -10%", exact: true }));
+    await waitForStatus(dialog, "buying launch pass with $mfer confirmed");
+    await assertOwner(client, addresses.launchPass, 1n, buyer);
+    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), parseEther("999266.5"));
+    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), parseEther("733.5"));
+    await waitForBalance(balances, "$mfer", "999266.5");
+
     await clickExactly(dialog.getByRole("button", { name: "grant test gold", exact: true }));
     await waitForStatus(dialog, "granting test gold confirmed");
     await dialog.getByLabel("token id", { exact: true }).fill("2");
@@ -167,7 +174,7 @@ try {
 
     await clickExactly(dialog.getByRole("button", { name: "pass $mfergpt", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfergpt confirmed");
-    await assertOwner(client, addresses.launchPass, 1n, buyer);
+    await assertOwner(client, addresses.launchPass, 2n, buyer);
     assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999258.25"));
     assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999258.25"));
     await waitForBalance(balances, "$mfergpt", "999258.25");

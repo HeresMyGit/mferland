@@ -44,6 +44,8 @@ Add raw new notes here before triage.
 - [x] Run the local/internal launch gate checklist in [docs/soft-launch-plan.md](docs/soft-launch-plan.md), including local crypto, wallet persistence, abuse tests, browser smoke, mobile smoke, and secret scan. Completed 2026-05-04; production DB cutover and production pass deployment remain separate blockers.
 - [x] Draft the respected-tester brief with reward rules, known limits, feedback asks, and support commands. Completed in [docs/soft-launch-tester-brief.md](docs/soft-launch-tester-brief.md).
 - [x] Add disposable test-wallet and Base Sepolia dry-run guidance so tester rehearsals do not need Josh's real keys. Completed in [docs/crypto/base-sepolia-dry-run.md](docs/crypto/base-sepolia-dry-run.md) with `npm run wallets:create:test`.
+- [x] Document the Season Gold redemption strategy and onchain-vault path. Completed in [docs/crypto/season-gold-redemption.md](docs/crypto/season-gold-redemption.md).
+- [ ] Add visible Season Gold/Season 0 points in the HUD or character profile and a support export that converts approved pass-gated points into proposed `$mfergpt` payouts under a fixed pool and per-wallet cap.
 - [ ] Run the final production launch gate after production DB cutover and production pass deployment.
 - [ ] After the internal rehearsal passes, invite 10-25 respected testers with clear reward rules, known limits, and a feedback channel.
 

@@ -5,7 +5,7 @@ import {MferGearNFT} from "../src/MferGearNFT.sol";
 import {IBurnableToken, IERC20Payment, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
-import {IMferGptBurnable, MferLaunchPass} from "../src/MferLaunchPass.sol";
+import {IMferGptBurnable, IMferPayment, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferGold} from "../src/MferGold.sol";
 import {QuestRewardDistributor} from "../src/QuestRewardDistributor.sol";
 
@@ -27,6 +27,7 @@ contract DeployLocalSuite {
     uint256 internal constant LUCKY_LIGHTER_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LUCKY_LIGHTER_TOKEN_PRICE = 69 ether;
     uint256 internal constant LAUNCH_PASS_ETH_PRICE = 0.0069 ether;
+    uint256 internal constant LAUNCH_PASS_MFER_PRICE = 621 ether;
     uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 690 ether;
     uint256 internal constant LAUNCH_PASS_MAX_SUPPLY = 500;
 
@@ -43,10 +44,12 @@ contract DeployLocalSuite {
         new MferLaunchPass(
             "mferland Season 0 Pass",
             "MFPASS0",
+            IMferPayment(address(mfer)),
             IMferGptBurnable(address(mfergpt)),
             treasury,
             deployer,
             LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFER_PRICE,
             LAUNCH_PASS_MFERGPT_PRICE,
             LAUNCH_PASS_MAX_SUPPLY
         );

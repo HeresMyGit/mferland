@@ -32,6 +32,8 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Added `--require-product season0-pass` to `season-export` so reviewed token distribution CSVs can be gated to wallets with a confirmed pass purchase or manual grant.
 - Verified with pass-gated Season 0 export smoke, `npm run typecheck`, `npm run crypto:test:local`, `npm run build`, `npm run build:agent`, `git diff --check`, and the secret scan.
 - Added `npm run wallets:create:test` and [crypto/base-sepolia-dry-run.md](crypto/base-sepolia-dry-run.md) so Base Sepolia rehearsals can use disposable test wallets instead of Josh's real keys.
+- Added the discounted `$mfer` Season 0 pass path so pass buyers can pay treasury with `$mfer` instead of ETH or `$mfergpt` burn.
+- Added [crypto/season-gold-redemption.md](crypto/season-gold-redemption.md) to preserve the current Season Gold stance: reviewed offchain points now, refillable onchain claim vault later, and Mint Club only as a later bonding-curve experiment.
 
 ## Completed Build Plan Items
 

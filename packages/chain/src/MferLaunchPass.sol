@@ -5,13 +5,19 @@ interface IMferGptBurnable {
     function burnFrom(address from, uint256 amount) external;
 }
 
+interface IMferPayment {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+}
+
 contract MferLaunchPass {
     string public name;
     string public symbol;
     address public owner;
     address payable public treasury;
+    IMferPayment public immutable mfer;
     IMferGptBurnable public immutable mfergpt;
     uint256 public ethPrice;
+    uint256 public mferPrice;
     uint256 public mferGptPrice;
     uint256 public immutable maxSupply;
     uint256 public nextTokenId = 1;
@@ -24,7 +30,7 @@ contract MferLaunchPass {
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
     event PassPurchased(address indexed buyer, uint256 indexed tokenId, string paymentToken, uint256 paid);
-    event PricingSet(uint256 ethPrice, uint256 mferGptPrice);
+    event PricingSet(uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice);
     event TreasurySet(address indexed treasury);
 
     error NotOwner();
@@ -39,28 +45,39 @@ contract MferLaunchPass {
     constructor(
         string memory collectionName,
         string memory collectionSymbol,
+        IMferPayment mferToken,
         IMferGptBurnable mferGptToken,
         address payable passTreasury,
         address initialOwner,
         uint256 initialEthPrice,
+        uint256 initialMferPrice,
         uint256 initialMferGptPrice,
         uint256 supplyCap
     ) {
-        if (address(mferGptToken) == address(0) || passTreasury == address(0) || initialOwner == address(0)) {
+        if (
+            address(mferToken) == address(0) ||
+            address(mferGptToken) == address(0) ||
+            passTreasury == address(0) ||
+            initialOwner == address(0)
+        ) {
             revert InvalidAddress();
         }
-        if (initialEthPrice == 0 || initialMferGptPrice == 0 || supplyCap == 0) revert InvalidPrice();
+        if (initialEthPrice == 0 || initialMferPrice == 0 || initialMferGptPrice == 0 || supplyCap == 0) {
+            revert InvalidPrice();
+        }
 
         name = collectionName;
         symbol = collectionSymbol;
+        mfer = mferToken;
         mfergpt = mferGptToken;
         treasury = passTreasury;
         owner = initialOwner;
         ethPrice = initialEthPrice;
+        mferPrice = initialMferPrice;
         mferGptPrice = initialMferGptPrice;
         maxSupply = supplyCap;
         emit TreasurySet(passTreasury);
-        emit PricingSet(initialEthPrice, initialMferGptPrice);
+        emit PricingSet(initialEthPrice, initialMferPrice, initialMferGptPrice);
     }
 
     modifier onlyOwner() {
@@ -81,11 +98,12 @@ contract MferLaunchPass {
         emit TreasurySet(nextTreasury);
     }
 
-    function setPricing(uint256 nextEthPrice, uint256 nextMferGptPrice) external onlyOwner {
-        if (nextEthPrice == 0 || nextMferGptPrice == 0) revert InvalidPrice();
+    function setPricing(uint256 nextEthPrice, uint256 nextMferPrice, uint256 nextMferGptPrice) external onlyOwner {
+        if (nextEthPrice == 0 || nextMferPrice == 0 || nextMferGptPrice == 0) revert InvalidPrice();
         ethPrice = nextEthPrice;
+        mferPrice = nextMferPrice;
         mferGptPrice = nextMferGptPrice;
-        emit PricingSet(nextEthPrice, nextMferGptPrice);
+        emit PricingSet(nextEthPrice, nextMferPrice, nextMferGptPrice);
     }
 
     function mintWithEth() external payable nonReentrant returns (uint256 tokenId) {
@@ -94,6 +112,14 @@ contract MferLaunchPass {
         (bool sent,) = treasury.call{value: msg.value}("");
         require(sent, "treasury transfer failed");
         emit PassPurchased(msg.sender, tokenId, "ETH", msg.value);
+    }
+
+    function mintWithMfer() external nonReentrant returns (uint256 tokenId) {
+        uint256 price = mferPrice;
+        bool paid = mfer.transferFrom(msg.sender, treasury, price);
+        require(paid, "mfer transfer failed");
+        tokenId = _mint(msg.sender);
+        emit PassPurchased(msg.sender, tokenId, "MFER", price);
     }
 
     function mintWithMferGpt() external nonReentrant returns (uint256 tokenId) {

@@ -125,7 +125,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 2. Sync repo and merge crypto branch: done on `codex/soft-launch-prep`.
 3. Production DB cutover: local/test migrations through `0006_crypto_purchase_events.sql` applied; production remains blocked on final Neon production branch/deploy-machine secret setup.
 4. Season 0 reward mechanics: initial capped offchain quest-point ledger implemented.
-5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; local in-game pass purchase UI exists, production deployment still pending, and manual reconciliation tooling is available.
+5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; local in-game pass purchase UI exists with ETH, discounted `$mfer` to treasury, and `$mfergpt` burn paths. Production deployment still pending, and manual reconciliation tooling is available.
 6. Admin/support tooling: wallet lookup, Season 0 reward review/export, purchase reconciliation, and manual pass grant/revoke are available through `npm run support:admin`.
 7. Abuse testing: pending after Season 0 mechanics exist.
 8. First-10-minute polish: partially covered by current queue; needs focused verification.
@@ -164,6 +164,8 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - Pass-gated export smoke: approved points did not export before a confirmed pass grant, then exported after `purchase-grant`, and the synthetic account/purchase rows were deleted.
 - `npm run crypto:test:local`: passed after adding the pass purchase UI, including `$mfergpt` pass mint, pass ownership check, and updated burn balance/supply assertions.
 - `npm run typecheck`, `npm run build`, and `npm run build:agent`: passed after the pass eligibility update.
+- `npm run crypto:test:local`: passed after adding discounted `$mfer` pass mint, including treasury balance checks and a second `$mfergpt` pass mint.
+- `npm run typecheck`, `npm run build`, `npm run build:agent`, `git diff --check`, and secret scan: passed after the discounted `$mfer` pass update.
 
 ## Remaining Launch Gates
 

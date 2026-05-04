@@ -6,10 +6,10 @@ It currently models:
 
 - `GOLD`: the in-game ERC-20 reward token.
 - `MGEAR`: ERC-721-ish NFT gear items.
-- `$mfer`: alternate payment token with a 10% store discount.
+- `$mfer`: alternate payment token with a 10% discount that pays treasury.
 - `$mfergpt`: alternate payment token with a 25% store discount and burn-on-pay.
 - quest reward distribution with per-wallet quest replay protection.
-- `MFPASS0`: a capped Season 0 launch pass NFT that can be bought with ETH or by burning `$mfergpt`.
+- `MFPASS0`: a capped Season 0 launch pass NFT that can be bought with ETH, discounted `$mfer` to treasury, or by burning `$mfergpt`.
 - gear upgrades from tier 1 to tier 3 by burning `GOLD`.
 
 The contracts are intentionally simple and local-first. They are not audited production contracts.
@@ -50,8 +50,8 @@ The suite verifies:
 - `$mfer` purchases get a 10% discount and send payment to treasury.
 - `$mfergpt` purchases get a 25% discount and burn the payment.
 - discounted ERC-20 purchases require the exact discounted allowance.
-- the Season 0 launch pass can be minted with exact ETH payment or exact `$mfergpt` burn allowance.
-- the Season 0 launch pass rejects wrong ETH prices, missing `$mfergpt` allowance, and sold-out mints.
+- the Season 0 launch pass can be minted with exact ETH payment, exact discounted `$mfer` treasury payment, or exact `$mfergpt` burn allowance.
+- the Season 0 launch pass rejects wrong ETH prices, missing ERC-20 allowances, and sold-out mints.
 - `GOLD` can be burned to upgrade any owned gear through tiers 1, 2, and 3.
 - minted NFT gear is registered into the local game inventory, auto-equipped, and tier upgrades scale the in-game item stats.
 - unauthorized reward distribution, unauthorized gear minting, and non-owner gear upgrades are blocked.
@@ -206,10 +206,11 @@ Use it after deploying the local suite:
 1. Run `npm run chain:node`.
 2. Run `npm run chain:deploy:local`.
 3. Connect a wallet pointed at `http://127.0.0.1:8545` with chain id `31337`.
-4. Open a merchant in-game. The panel pre-fills `MferGearStore`, `MferGearNFT`, `MferGold`, `$mfer`, `$mfergpt`, and `QuestRewardDistributor` from `apps/web/public/crypto/local-contracts.json`.
+4. Open a merchant in-game. The panel pre-fills `MferGearStore`, `MferGearNFT`, `MferGold`, `$mfer`, `$mfergpt`, `QuestRewardDistributor`, and `MferLaunchPass` from `apps/web/public/crypto/local-contracts.json`.
 5. Pick an item from the local starter collection: `beater deck`, `road lid`, or `lucky lighter`.
-6. Buy gear with ETH, `$mfer`, or `$mfergpt`. In the local dev suite, the minted token id is registered into the game inventory and auto-equipped into its matching gear slot.
-7. In dev, use `grant test gold` to mint local quest-reward `GOLD` through `QuestRewardDistributor`, then burn `GOLD` to upgrade a token id. The upgraded tier is read from `MferGearNFT` and sent to the local game state.
+6. Buy the Season 0 pass with ETH, discounted `$mfer` paid to treasury, or `$mfergpt` burn.
+7. Buy gear with ETH, `$mfer`, or `$mfergpt`. In the local dev suite, the minted token id is registered into the game inventory and auto-equipped into its matching gear slot.
+8. In dev, use `grant test gold` to mint local quest-reward `GOLD` through `QuestRewardDistributor`, then burn `GOLD` to upgrade a token id. The upgraded tier is read from `MferGearNFT` and sent to the local game state.
 
 The contract fields also persist in local storage for manual overrides, but the generated local deployment file is loaded first when available.
 The `grant test gold` button is only for local gameplay testing; real quest rewards should come from the server reward flow.

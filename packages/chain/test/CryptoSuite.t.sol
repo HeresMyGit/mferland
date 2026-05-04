@@ -5,7 +5,7 @@ import {MferGearNFT} from "../src/MferGearNFT.sol";
 import {IBurnableToken, IERC20Payment, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
-import {IMferGptBurnable, MferLaunchPass} from "../src/MferLaunchPass.sol";
+import {IMferGptBurnable, IMferPayment, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferGold} from "../src/MferGold.sol";
 import {QuestRewardDistributor} from "../src/QuestRewardDistributor.sol";
 
@@ -21,6 +21,7 @@ contract CryptoSuiteTest {
     uint256 internal constant LUCKY_LIGHTER_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LUCKY_LIGHTER_TOKEN_PRICE = 69 ether;
     uint256 internal constant LAUNCH_PASS_ETH_PRICE = 0.0069 ether;
+    uint256 internal constant LAUNCH_PASS_MFER_PRICE = 621 ether;
     uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 690 ether;
     uint256 internal constant QUEST_REWARD = 250 ether;
 
@@ -50,10 +51,12 @@ contract CryptoSuiteTest {
         launchPass = new MferLaunchPass(
             "mferland Season 0 Pass",
             "MFPASS0",
+            IMferPayment(address(mfer)),
             IMferGptBurnable(address(mfergpt)),
             payable(address(0xBEEF)),
             address(this),
             LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFER_PRICE,
             LAUNCH_PASS_MFERGPT_PRICE,
             500
         );
@@ -69,8 +72,10 @@ contract CryptoSuiteTest {
     function testLaunchPassExposesSeasonZeroMetadata() public view {
         assertEq(launchPass.name(), "mferland Season 0 Pass");
         assertEq(launchPass.symbol(), "MFPASS0");
+        assertEq(address(launchPass.mfer()), address(mfer));
         assertEq(address(launchPass.mfergpt()), address(mfergpt));
         assertEq(launchPass.ethPrice(), LAUNCH_PASS_ETH_PRICE);
+        assertEq(launchPass.mferPrice(), LAUNCH_PASS_MFER_PRICE);
         assertEq(launchPass.mferGptPrice(), LAUNCH_PASS_MFERGPT_PRICE);
         assertEq(launchPass.maxSupply(), 500);
     }
@@ -161,6 +166,19 @@ contract CryptoSuiteTest {
         assertEq(mfergpt.totalSupply(), supplyBefore - LAUNCH_PASS_MFERGPT_PRICE);
     }
 
+    function testLaunchPassAcceptsDiscountedMferPaymentToTreasury() public {
+        uint256 treasuryBefore = mfer.balanceOf(address(0xBEEF));
+        mfer.approve(address(launchPass), LAUNCH_PASS_MFER_PRICE);
+
+        uint256 tokenId = launchPass.mintWithMfer();
+
+        assertEq(tokenId, 1);
+        assertEq(launchPass.ownerOf(tokenId), address(this));
+        assertEq(mfer.balanceOf(address(this)), 1_000 ether - LAUNCH_PASS_MFER_PRICE);
+        assertEq(mfer.balanceOf(address(0xBEEF)), treasuryBefore + LAUNCH_PASS_MFER_PRICE);
+        assertEq(mfer.totalSupply(), 1_000 ether);
+    }
+
     function testLaunchPassRejectsWrongEthPrice() public {
         try launchPass.mintWithEth{value: LAUNCH_PASS_ETH_PRICE - 1}() {
             fail("wrong launch pass ETH price should revert");
@@ -175,14 +193,24 @@ contract CryptoSuiteTest {
         } catch {}
     }
 
+    function testLaunchPassRequiresMferAllowance() public {
+        mfer.approve(address(launchPass), LAUNCH_PASS_MFER_PRICE - 1);
+
+        try launchPass.mintWithMfer() {
+            fail("launch pass should require full mfer allowance");
+        } catch {}
+    }
+
     function testLaunchPassEnforcesMaxSupply() public {
         MferLaunchPass smallPass = new MferLaunchPass(
             "small pass",
             "SMALL",
+            IMferPayment(address(mfer)),
             IMferGptBurnable(address(mfergpt)),
             payable(address(0xBEEF)),
             address(this),
             LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFER_PRICE,
             LAUNCH_PASS_MFERGPT_PRICE,
             2
         );
