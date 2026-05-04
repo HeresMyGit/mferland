@@ -9,6 +9,7 @@ It currently models:
 - `$mfer`: alternate payment token with a 10% store discount.
 - `$mfergpt`: alternate payment token with a 25% store discount and burn-on-pay.
 - quest reward distribution with per-wallet quest replay protection.
+- `MFPASS0`: a capped Season 0 launch pass NFT that can be bought with ETH or by burning `$mfergpt`.
 - gear upgrades from tier 1 to tier 3 by burning `GOLD`.
 
 The contracts are intentionally simple and local-first. They are not audited production contracts.
@@ -49,6 +50,8 @@ The suite verifies:
 - `$mfer` purchases get a 10% discount and send payment to treasury.
 - `$mfergpt` purchases get a 25% discount and burn the payment.
 - discounted ERC-20 purchases require the exact discounted allowance.
+- the Season 0 launch pass can be minted with exact ETH payment or exact `$mfergpt` burn allowance.
+- the Season 0 launch pass rejects wrong ETH prices, missing `$mfergpt` allowance, and sold-out mints.
 - `GOLD` can be burned to upgrade any owned gear through tiers 1, 2, and 3.
 - minted NFT gear is registered into the local game inventory, auto-equipped, and tier upgrades scale the in-game item stats.
 - unauthorized reward distribution, unauthorized gear minting, and non-owner gear upgrades are blocked.
@@ -100,6 +103,23 @@ Current payment behavior:
 - ETH: exact native price is forwarded to treasury.
 - `$mfer`: discounted token price is transferred to treasury.
 - `$mfergpt`: discounted token price is burned from the buyer.
+
+## Season 0 Launch Pass
+
+`MferLaunchPass` is the selected first paid soft-launch surface for local testing.
+It is intentionally separate from combat gear so early testers can exercise a real crypto purchase without buying power.
+
+Current local terms:
+
+- Collection: `mferland Season 0 Pass`
+- Symbol: `MFPASS0`
+- Max supply: `500`
+- ETH price: `0.0069 ETH`
+- `$mfergpt` price: `690 MFERGPT`, burned from the buyer
+- Treasury: the same local treasury as the gear store
+
+The pass has owner-controlled price and treasury setters, but mints still enforce exact ETH payment, exact `$mfergpt` allowance/burn, and the supply cap onchain.
+This contract is a local proof path for the first tester purchase surface, not yet an audited production deployment.
 
 ## Base Token Parity
 
@@ -163,6 +183,7 @@ The deploy script creates local versions of:
 - `$mfergpt`
 - `MferGearNFT`
 - `QuestRewardDistributor`
+- `MferLaunchPass`
 - `MferGearStore`
 
 It authorizes the quest reward distributor to mint `GOLD`, authorizes the store to mint gear NFTs, lists a small starter gear collection, mints local `$mfer` / `$mfergpt` balances to the deployer, and exports the latest local contract addresses to:
@@ -219,6 +240,7 @@ packages/chain/
     MferGold.sol
     MferGearNFT.sol
     MferGearStore.sol
+    MferLaunchPass.sol
     QuestRewardDistributor.sol
   test/
     CryptoSuite.t.sol

@@ -10,6 +10,7 @@ This is the working plan for an invite-only soft launch to respected testers. Th
 - `main` has been fast-forwarded to `origin/main`.
 - `codex/crypto-wallet-updates` has been merged into `codex/soft-launch-prep`.
 - The merged crypto suite adds local Foundry contracts, a local merchant UI, test scripts, chain-token item support, and crypto docs.
+- The selected first paid surface is now a Season 0 launch pass, kept separate from combat power so respected testers can exercise a real purchase path without turning early access into pay-to-win testing.
 - The crypto suite is still local-first. It is not audited and is not a production Base deployment.
 - Production DB cutover is still blocked until the final Neon branch layout is chosen and migrations are applied from the launch machine.
 
@@ -23,7 +24,7 @@ The first respected-tester session should support only this loop:
 4. Complete the intro/farm combat loop.
 5. Earn XP, regular DB-backed gear, and normal in-game rewards.
 6. Earn capped Season 0 reward points or tickets, not an uncapped live-token faucet.
-7. Visit a merchant and exercise the one crypto purchase path.
+7. Visit a merchant or launch-pass flow and exercise the one crypto purchase path.
 8. Reconnect with the same wallet and confirm progress persists.
 
 Out of scope for this soft launch:
@@ -123,7 +124,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 2. Sync repo and merge crypto branch: done on `codex/soft-launch-prep`.
 3. Production DB cutover: local/test migrations through `0005_season_reward_events.sql` applied; production remains blocked on final Neon production branch/deploy-machine secret setup.
 4. Season 0 reward mechanics: initial capped offchain quest-point ledger implemented.
-5. Paid crypto surface: local crypto store and browser smoke pass; production pass/badge purchase still needs product selection and chain deployment.
+5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; production purchase UI, deployment, and reconciliation still pending.
 6. Admin/support tooling: initial wallet lookup and Season 0 reward review/export CLI added through `npm run support:admin`; purchase reconciliation and manual grant/revoke still need a production pass.
 7. Abuse testing: pending after Season 0 mechanics exist.
 8. First-10-minute polish: partially covered by current queue; needs focused verification.
@@ -145,6 +146,13 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run support:admin -- season-summary`: passed against the configured local/test database.
 - `npm run support:admin -- season-export --status approved`: passed against the configured local/test database.
 - Season 0 DB smoke: created a throwaway wallet character, awarded `mfer-beginnings`, confirmed duplicate award was blocked, then deleted the throwaway account.
+- `npm run chain:test`: passed after adding `MferLaunchPass`, including ETH mint, `$mfergpt` burn mint, wrong-price rejection, allowance rejection, sold-out rejection, and local address export coverage.
+- `npm run crypto:test:local`: passed after adding `MferLaunchPass`, including deploy/export and local browser merchant smoke.
+- `npm run typecheck`: passed after the launch-pass update.
+- `npm run build`: passed after the launch-pass update. Vite emitted existing large-chunk and upstream pure-annotation warnings.
+- `npm run build:agent`: passed after the launch-pass update.
+- `git diff --check`: passed after the launch-pass update.
+- Secret scan: first pass only hit the placeholder `DATABASE_URL` in `.env.example`; the scan excluding documented/placeholding fixtures returned no hits.
 
 ## Open Decisions
 
@@ -152,6 +160,5 @@ These need Josh before production launch, but not before continuing local implem
 
 - Final Season 0 `$mferGPT` reward pool size.
 - Final per-wallet daily and season caps.
-- Whether the first paid surface is a Founder Pass, tester badge, cosmetic pack, or onchain rare gear item.
 - Production Neon branch layout.
 - Production deployer wallet and RPC provider.

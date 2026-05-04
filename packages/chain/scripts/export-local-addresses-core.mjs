@@ -8,9 +8,10 @@ export function extractLocalContractAddresses(document, sourceLabel = "broadcast
   const mfergpt = creates.find((transaction) => transaction.contractName === "MferGptToken");
   const gear = creates.find((transaction) => transaction.contractName === "MferGearNFT");
   const rewards = creates.find((transaction) => transaction.contractName === "QuestRewardDistributor");
+  const launchPass = creates.find((transaction) => transaction.contractName === "MferLaunchPass");
   const store = creates.find((transaction) => transaction.contractName === "MferGearStore");
 
-  if (!gold || !mfer || !mfergpt || !gear || !rewards || !store) {
+  if (!gold || !mfer || !mfergpt || !gear || !rewards || !launchPass || !store) {
     throw new Error(`Could not find all local contracts in ${sourceLabel}`);
   }
 
@@ -20,6 +21,7 @@ export function extractLocalContractAddresses(document, sourceLabel = "broadcast
     mfergpt: mfergpt.contractAddress,
     gear: gear.contractAddress,
     rewards: rewards.contractAddress,
+    launchPass: launchPass.contractAddress,
     store: store.contractAddress,
   };
 }

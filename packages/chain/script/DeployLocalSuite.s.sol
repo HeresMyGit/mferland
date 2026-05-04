@@ -5,6 +5,7 @@ import {MferGearNFT} from "../src/MferGearNFT.sol";
 import {IBurnableToken, IERC20Payment, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
+import {IMferGptBurnable, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferGold} from "../src/MferGold.sol";
 import {QuestRewardDistributor} from "../src/QuestRewardDistributor.sol";
 
@@ -25,6 +26,9 @@ contract DeployLocalSuite {
     uint256 internal constant ROAD_LID_TOKEN_PRICE = 125 ether;
     uint256 internal constant LUCKY_LIGHTER_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LUCKY_LIGHTER_TOKEN_PRICE = 69 ether;
+    uint256 internal constant LAUNCH_PASS_ETH_PRICE = 0.0069 ether;
+    uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 690 ether;
+    uint256 internal constant LAUNCH_PASS_MAX_SUPPLY = 500;
 
     function run() external {
         address deployer = msg.sender;
@@ -36,13 +40,18 @@ contract DeployLocalSuite {
         MferGptToken mfergpt = new MferGptToken(deployer, 1_000_000 ether);
         MferGearNFT gear = new MferGearNFT("mferland gear", "MGEAR", deployer);
         QuestRewardDistributor rewards = new QuestRewardDistributor(gold, deployer);
-        MferGearStore store = new MferGearStore(
-            gear,
-            gold,
-            IERC20Payment(address(mfer)),
-            IBurnableToken(address(mfergpt)),
+        new MferLaunchPass(
+            "mferland Season 0 Pass",
+            "MFPASS0",
+            IMferGptBurnable(address(mfergpt)),
             treasury,
-            deployer
+            deployer,
+            LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFERGPT_PRICE,
+            LAUNCH_PASS_MAX_SUPPLY
+        );
+        MferGearStore store = new MferGearStore(
+            gear, gold, IERC20Payment(address(mfer)), IBurnableToken(address(mfergpt)), treasury, deployer
         );
 
         gold.setMinter(address(rewards), true);

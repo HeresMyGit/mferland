@@ -38,7 +38,7 @@ Add raw new notes here before triage.
 - [x] Implement Season 0 reward points as a capped offchain eligibility ledger. Do not pay live `$mferGPT` directly from repeatable quests. Completed 2026-05-04 with `season_reward_events`, conservative quest eligibility, daily/season caps, and wallet-only point logging.
 - [x] Add initial admin/support tooling for wallet lookup and Season 0 reward review/export. Completed 2026-05-04 with `npm run support:admin`.
 - [ ] Add production purchase reconciliation plus manual grant/revoke tooling before inviting respected testers.
-- [ ] Pick and productionize exactly one paid crypto surface for the first test group: Founder Pass, tester badge, cosmetic pack, or onchain rare gear item.
+- [x] Pick and scaffold exactly one paid crypto surface for the first test group. Completed 2026-05-04 with a local Season 0 launch pass contract that accepts exact ETH payment or burns `$mfergpt`; production UI/deploy/reconciliation remains open above.
 - [x] Validate the local crypto merchant path end to end. Completed 2026-05-04 with `npm run crypto:test:local`, including contract tests, web receipt tests, and local browser smoke.
 - [ ] Run the full launch gate checklist in [docs/soft-launch-plan.md](docs/soft-launch-plan.md), including local crypto, wallet persistence, abuse tests, browser smoke, mobile smoke, and secret scan.
 - [ ] After the internal rehearsal passes, invite 10-25 respected testers with clear reward rules, known limits, and a feedback channel.

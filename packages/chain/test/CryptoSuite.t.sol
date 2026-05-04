@@ -5,6 +5,7 @@ import {MferGearNFT} from "../src/MferGearNFT.sol";
 import {IBurnableToken, IERC20Payment, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
+import {IMferGptBurnable, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferGold} from "../src/MferGold.sol";
 import {QuestRewardDistributor} from "../src/QuestRewardDistributor.sol";
 
@@ -19,6 +20,8 @@ contract CryptoSuiteTest {
     uint256 internal constant ROAD_LID_TOKEN_PRICE = 125 ether;
     uint256 internal constant LUCKY_LIGHTER_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LUCKY_LIGHTER_TOKEN_PRICE = 69 ether;
+    uint256 internal constant LAUNCH_PASS_ETH_PRICE = 0.0069 ether;
+    uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 690 ether;
     uint256 internal constant QUEST_REWARD = 250 ether;
 
     MferGold internal gold;
@@ -26,6 +29,7 @@ contract CryptoSuiteTest {
     MferGptToken internal mfergpt;
     MferGearNFT internal gear;
     MferGearStore internal store;
+    MferLaunchPass internal launchPass;
     QuestRewardDistributor internal rewards;
 
     receive() external payable {}
@@ -43,6 +47,16 @@ contract CryptoSuiteTest {
             payable(address(0xBEEF)),
             address(this)
         );
+        launchPass = new MferLaunchPass(
+            "mferland Season 0 Pass",
+            "MFPASS0",
+            IMferGptBurnable(address(mfergpt)),
+            payable(address(0xBEEF)),
+            address(this),
+            LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFERGPT_PRICE,
+            500
+        );
         rewards = new QuestRewardDistributor(gold, address(this));
 
         gold.setMinter(address(rewards), true);
@@ -50,6 +64,15 @@ contract CryptoSuiteTest {
         store.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE);
         store.listGear(ROAD_LID, ROAD_LID_ETH_PRICE, ROAD_LID_TOKEN_PRICE);
         store.listGear(LUCKY_LIGHTER, LUCKY_LIGHTER_ETH_PRICE, LUCKY_LIGHTER_TOKEN_PRICE);
+    }
+
+    function testLaunchPassExposesSeasonZeroMetadata() public view {
+        assertEq(launchPass.name(), "mferland Season 0 Pass");
+        assertEq(launchPass.symbol(), "MFPASS0");
+        assertEq(address(launchPass.mfergpt()), address(mfergpt));
+        assertEq(launchPass.ethPrice(), LAUNCH_PASS_ETH_PRICE);
+        assertEq(launchPass.mferGptPrice(), LAUNCH_PASS_MFERGPT_PRICE);
+        assertEq(launchPass.maxSupply(), 500);
     }
 
     function testLaunchesLocalErc20Token() public {
@@ -73,9 +96,8 @@ contract CryptoSuiteTest {
         assertEq(mfer.balanceOf(address(this)), 999 ether);
         assertEq(mfer.totalSupply(), 999 ether);
 
-        (bool burnFromSupported,) = address(mfer).call(
-            abi.encodeWithSignature("burnFrom(address,uint256)", address(this), 0)
-        );
+        (bool burnFromSupported,) =
+            address(mfer).call(abi.encodeWithSignature("burnFrom(address,uint256)", address(this), 0));
         assertFalse(burnFromSupported);
     }
 
@@ -115,6 +137,62 @@ contract CryptoSuiteTest {
         (uint16 gearType, uint8 tier) = gear.gear(tokenId);
         assertEq(uint256(gearType), uint256(BEATER_DECK));
         assertEq(uint256(tier), 1);
+    }
+
+    function testLaunchPassMintsWithEthAndPaysTreasury() public {
+        uint256 treasuryBefore = address(0xBEEF).balance;
+        uint256 tokenId = launchPass.mintWithEth{value: LAUNCH_PASS_ETH_PRICE}();
+
+        assertEq(tokenId, 1);
+        assertEq(launchPass.ownerOf(tokenId), address(this));
+        assertEq(launchPass.balanceOf(address(this)), 1);
+        assertEq(address(0xBEEF).balance, treasuryBefore + LAUNCH_PASS_ETH_PRICE);
+    }
+
+    function testLaunchPassBurnsMferGptPayment() public {
+        uint256 supplyBefore = mfergpt.totalSupply();
+        mfergpt.approve(address(launchPass), LAUNCH_PASS_MFERGPT_PRICE);
+
+        uint256 tokenId = launchPass.mintWithMferGpt();
+
+        assertEq(tokenId, 1);
+        assertEq(launchPass.ownerOf(tokenId), address(this));
+        assertEq(mfergpt.balanceOf(address(this)), 1_000 ether - LAUNCH_PASS_MFERGPT_PRICE);
+        assertEq(mfergpt.totalSupply(), supplyBefore - LAUNCH_PASS_MFERGPT_PRICE);
+    }
+
+    function testLaunchPassRejectsWrongEthPrice() public {
+        try launchPass.mintWithEth{value: LAUNCH_PASS_ETH_PRICE - 1}() {
+            fail("wrong launch pass ETH price should revert");
+        } catch {}
+    }
+
+    function testLaunchPassRequiresMferGptAllowance() public {
+        mfergpt.approve(address(launchPass), LAUNCH_PASS_MFERGPT_PRICE - 1);
+
+        try launchPass.mintWithMferGpt() {
+            fail("launch pass should require full mferGPT allowance");
+        } catch {}
+    }
+
+    function testLaunchPassEnforcesMaxSupply() public {
+        MferLaunchPass smallPass = new MferLaunchPass(
+            "small pass",
+            "SMALL",
+            IMferGptBurnable(address(mfergpt)),
+            payable(address(0xBEEF)),
+            address(this),
+            LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFERGPT_PRICE,
+            2
+        );
+
+        smallPass.mintWithEth{value: LAUNCH_PASS_ETH_PRICE}();
+        smallPass.mintWithEth{value: LAUNCH_PASS_ETH_PRICE}();
+
+        try smallPass.mintWithEth{value: LAUNCH_PASS_ETH_PRICE}() {
+            fail("sold out launch pass should revert");
+        } catch {}
     }
 
     function testStoreClerkMintsSmallGearCollection() public {

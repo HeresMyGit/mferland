@@ -12,7 +12,8 @@ const sampleBroadcast = {
     create("MferGptToken", "0x3333333333333333333333333333333333333333"),
     create("MferGearNFT", "0x4444444444444444444444444444444444444444"),
     create("QuestRewardDistributor", "0x5555555555555555555555555555555555555555"),
-    create("MferGearStore", "0x6666666666666666666666666666666666666666"),
+    create("MferLaunchPass", "0x6666666666666666666666666666666666666666"),
+    create("MferGearStore", "0x7777777777777777777777777777777777777777"),
   ],
 };
 
@@ -23,7 +24,8 @@ test("extracts local token, NFT, rewards, and store addresses in deploy order", 
     mfergpt: "0x3333333333333333333333333333333333333333",
     gear: "0x4444444444444444444444444444444444444444",
     rewards: "0x5555555555555555555555555555555555555555",
-    store: "0x6666666666666666666666666666666666666666",
+    launchPass: "0x6666666666666666666666666666666666666666",
+    store: "0x7777777777777777777777777777777777777777",
   });
 });
 
@@ -44,7 +46,8 @@ test("writes app-facing local contract JSON", async () => {
   assert.equal(written.chainId, 31337);
   assert.equal(written.rpcUrl, "http://127.0.0.1:8545");
   assert.equal(written.generatedAt, "2026-05-02T00:00:00.000Z");
-  assert.equal(written.addresses.store, "0x6666666666666666666666666666666666666666");
+  assert.equal(written.addresses.launchPass, "0x6666666666666666666666666666666666666666");
+  assert.equal(written.addresses.store, "0x7777777777777777777777777777777777777777");
 });
 
 test("fails when a broadcast does not include the complete local suite", () => {
