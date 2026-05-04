@@ -24,7 +24,7 @@ The first respected-tester session should support only this loop:
 4. Complete the intro/farm combat loop.
 5. Earn XP, regular DB-backed gear, and normal in-game rewards.
 6. Earn capped Season 0 reward points or tickets, not an uncapped live-token faucet.
-7. Visit a merchant or launch-pass flow and exercise the one crypto purchase path.
+7. Buy or receive the Season 0 pass if they want eligibility for any reviewed token distribution.
 8. Reconnect with the same wallet and confirm progress persists.
 
 Out of scope for this soft launch:
@@ -70,6 +70,7 @@ Recommended mechanics:
 - `season cap`: hard per-wallet cap for liquid-reward eligibility.
 - `review state`: pending, approved, rejected, distributed.
 - `distribution`: manual CSV or claim contract only after review.
+- `eligibility gate`: approved points are only exported for wallets with a confirmed `season0-pass` purchase or manual grant.
 
 This keeps the launch from becoming a bot faucet while still letting the `$mferGPT` stash attract real testers.
 
@@ -124,7 +125,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 2. Sync repo and merge crypto branch: done on `codex/soft-launch-prep`.
 3. Production DB cutover: local/test migrations through `0006_crypto_purchase_events.sql` applied; production remains blocked on final Neon production branch/deploy-machine secret setup.
 4. Season 0 reward mechanics: initial capped offchain quest-point ledger implemented.
-5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; production purchase UI and deployment still pending, with manual reconciliation tooling now available.
+5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; local in-game pass purchase UI exists, production deployment still pending, and manual reconciliation tooling is available.
 6. Admin/support tooling: wallet lookup, Season 0 reward review/export, purchase reconciliation, and manual pass grant/revoke are available through `npm run support:admin`.
 7. Abuse testing: pending after Season 0 mechanics exist.
 8. First-10-minute polish: partially covered by current queue; needs focused verification.
@@ -159,12 +160,16 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - Direct wallet persistence and reward-abuse smoke: created a synthetic wallet character, persisted quest/inventory/equipment/talent state, reloaded it by wallet, then fired two concurrent Season 0 `mfer-beginnings` awards and confirmed one award plus one duplicate. The synthetic account was deleted afterward.
 - Desktop browser smoke: started the local dev stack, entered as anon, moved, opened/closed Character, stash, and errand log panels, debug-traveled to Farm, pressed target/attack inputs, and saw no browser console errors.
 - Mobile browser smoke: entered at an iPhone-sized touch viewport, confirmed the mobile movement stick rendered and activated, opened/closed Character, stash, and errand log panels, and saw no browser console errors.
+- `npm run support:admin -- season-export --status approved --require-product season0-pass`: pass-gated reward export path added for token distribution eligibility.
+- Pass-gated export smoke: approved points did not export before a confirmed pass grant, then exported after `purchase-grant`, and the synthetic account/purchase rows were deleted.
+- `npm run crypto:test:local`: passed after adding the pass purchase UI, including `$mfergpt` pass mint, pass ownership check, and updated burn balance/supply assertions.
+- `npm run typecheck`, `npm run build`, and `npm run build:agent`: passed after the pass eligibility update.
 
 ## Remaining Launch Gates
 
 - Production Neon branch layout and cutover from the launch machine.
 - Production deployer wallet, RPC provider, and Season 0 pass deployment.
-- Production purchase UI wiring to the deployed pass.
+- Production address config for the deployed pass.
 - Final production launch gate after the production DB and pass deployment are live.
 
 ## Tester Brief

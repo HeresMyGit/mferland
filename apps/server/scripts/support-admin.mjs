@@ -20,6 +20,7 @@ const { positionals, values } = parseArgs({
     "payment-amount": { type: "string", default: "0" },
     "payment-token": { type: "string", default: "" },
     product: { type: "string", default: DEFAULT_PRODUCT_ID },
+    "require-product": { type: "string" },
     season: { type: "string", default: DEFAULT_SEASON_ID },
     status: { type: "string" },
     "token-id": { type: "string", default: "" },
@@ -61,6 +62,7 @@ try {
       break;
     case "season-export":
       await exportSeasonRewards({
+        requiredProduct: values["require-product"] ? normalizeProduct(values["require-product"]) : "",
         seasonId: values.season,
         status: values.status ?? "approved",
       });
@@ -238,13 +240,23 @@ async function printSeasonList({ limit, seasonId, status, wallet }) {
   console.table(rows);
 }
 
-async function exportSeasonRewards({ seasonId, status }) {
+async function exportSeasonRewards({ requiredProduct, seasonId, status }) {
   if (!VALID_REWARD_STATUSES.has(status)) fail(`Invalid status: ${status}`);
   const rows = await sql`
     SELECT wallet_address, sum(points)::int AS points
     FROM season_reward_events
     WHERE season_id = ${seasonId}
       AND status = ${status}
+      AND (
+        ${requiredProduct} = ''
+        OR EXISTS (
+          SELECT 1
+          FROM crypto_purchase_events purchase
+          WHERE purchase.wallet_address = season_reward_events.wallet_address
+            AND purchase.product_id = ${requiredProduct}
+            AND purchase.status = 'confirmed'
+        )
+      )
     GROUP BY wallet_address
     ORDER BY points DESC, wallet_address ASC
   `;
@@ -652,7 +664,7 @@ function printHelp() {
   npm run support:admin -- wallet --wallet 0x...
   npm run support:admin -- season-summary [--season season-0]
   npm run support:admin -- season-list [--status pending] [--wallet 0x...] [--limit 50]
-  npm run support:admin -- season-export [--status approved]
+  npm run support:admin -- season-export [--status approved] [--require-product season0-pass]
   npm run support:admin -- season-set-status --id <id> --status approved|rejected|distributed [--note "..."]
   npm run support:admin -- purchase-summary [--product season0-pass]
   npm run support:admin -- purchase-list [--product season0-pass] [--status confirmed] [--wallet 0x...] [--limit 50]

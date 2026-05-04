@@ -25,6 +25,13 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Stopped the local dev stack after the smoke. Production DB cutover and production pass deployment remain unresolved external launch gates.
 - Drafted [soft-launch-tester-brief.md](soft-launch-tester-brief.md) with invite criteria, tester tasks, reward rules, known limits, feedback asks, and internal support commands.
 
+### 2026-05-04 14:30 PDT - Launch Pass Eligibility Gate
+
+- Added the Season 0 pass purchase UI to the in-game local crypto merchant, using the exported `launchPass` address and supporting ETH mint or `$mfergpt` burn mint.
+- Extended the local crypto browser smoke to mint the pass with `$mfergpt`, verify pass ownership, and confirm the additional `$mfergpt` burn in balance/supply checks.
+- Added `--require-product season0-pass` to `season-export` so reviewed token distribution CSVs can be gated to wallets with a confirmed pass purchase or manual grant.
+- Verified with pass-gated Season 0 export smoke, `npm run typecheck`, `npm run crypto:test:local`, `npm run build`, `npm run build:agent`, `git diff --check`, and the secret scan.
+
 ## Completed Build Plan Items
 
 ### Stabilization

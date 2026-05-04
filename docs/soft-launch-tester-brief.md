@@ -22,7 +22,7 @@ Do not send this to public channels yet.
 3. Play the starter mfer town loop.
 4. Finish the intro/plaza/farm path as far as they reasonably can.
 5. Reconnect with the same wallet and confirm progress persists.
-6. Try the Season 0 pass purchase only if the pass flow is enabled for the session.
+6. Buy the Season 0 pass if they want eligibility for any reviewed token distribution.
 7. Report bugs in the feedback channel: `TBD`.
 
 ## Reward Rules
@@ -34,11 +34,12 @@ Season 0 rewards are reviewed eligibility points, not instant liquid token emiss
 - Daily and season caps apply per wallet.
 - Repeatable farming does not create uncapped `$mferGPT`.
 - Final `$mferGPT` distribution amount is `TBD` and happens only after review.
+- Approved points require a confirmed Season 0 pass purchase or manual grant before they can be exported for token distribution.
 - Pass purchases and manual grants can be revoked if the underlying purchase is reversed, fraudulent, or attached to an abusive wallet.
 
 Plain version to send testers:
 
-> Play normally, report useful bugs, do not farm like a bot. Season 0 points are reviewed after the test. Nothing is an instant token faucet.
+> Play normally, report useful bugs, do not farm like a bot. Season 0 points are reviewed after the test. The pass is the eligibility gate for any token distribution. Nothing is an instant token faucet.
 
 ## Known Limits
 
@@ -92,7 +93,7 @@ Season 0 review:
 npm run support:admin -- season-summary
 npm run support:admin -- season-list --wallet 0x...
 npm run support:admin -- season-set-status --id <event_id> --status approved --note "useful tester"
-npm run support:admin -- season-export --status approved
+npm run support:admin -- season-export --status approved --require-product season0-pass
 ```
 
 Pass purchase reconciliation:

@@ -116,6 +116,7 @@ try {
     await waitForAddressPrefill(dialog, "$mfer", addresses.mfer);
     await waitForAddressPrefill(dialog, "$mfergpt", addresses.mfergpt);
     await waitForAddressPrefill(dialog, "rewards", addresses.rewards);
+    await waitForAddressPrefill(dialog, "launch pass", addresses.launchPass);
     const balances = dialog.locator('[aria-label="wallet balances"]');
     await waitForBalance(balances, "$mfer", "1000000");
     await waitForBalance(balances, "$mfergpt", "1000000");
@@ -163,6 +164,13 @@ try {
     await waitForStatus(dialog, "transaction reverted");
     await assertGear(client, addresses.gear, 2n, 2n, 3n);
     assert.equal(await readErc20Balance(client, addresses.gold, buyer), parseEther("75"));
+
+    await clickExactly(dialog.getByRole("button", { name: "pass $mfergpt", exact: true }));
+    await waitForStatus(dialog, "buying launch pass with $mfergpt confirmed");
+    await assertOwner(client, addresses.launchPass, 1n, buyer);
+    assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999258.25"));
+    assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999258.25"));
+    await waitForBalance(balances, "$mfergpt", "999258.25");
 
     await clickExactly(dialog.getByRole("button", { name: "Close store", exact: true }));
     const characterButton = page.getByRole("button", { name: "Character", exact: true });
@@ -373,6 +381,16 @@ async function assertGear(client, gearAddress, tokenId, expectedGearType, expect
   });
   assert.equal(BigInt(gearType), expectedGearType);
   assert.equal(BigInt(tier), expectedTier);
+}
+
+async function assertOwner(client, contractAddress, tokenId, expectedOwner) {
+  const owner = await client.readContract({
+    address: contractAddress,
+    abi: gearAbi,
+    functionName: "ownerOf",
+    args: [tokenId],
+  });
+  assert.equal(owner.toLowerCase(), expectedOwner.toLowerCase());
 }
 
 async function waitForGear(client, gearAddress, tokenId, expectedGearType, expectedTier) {

@@ -249,6 +249,7 @@
   .crypto-store-collection,
   .crypto-store-item,
   .crypto-store-actions,
+  .crypto-pass-actions,
   .crypto-upgrade-row {
     grid-template-columns: 1fr;
   }

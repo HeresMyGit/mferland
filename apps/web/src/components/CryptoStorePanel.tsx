@@ -11,6 +11,7 @@ type CryptoStoreAddresses = {
   mfer: string;
   mfergpt: string;
   rewards: string;
+  launchPass: string;
 };
 
 type LocalCryptoContractsDocument = {
@@ -40,6 +41,7 @@ const CONTRACT_STORAGE_KEY = "mferland.cryptoStore.localContracts.v1";
 const CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
 const MAX_APPROVAL = 1_000_000n * 10n ** 18n;
 const TEST_GOLD_GRANT = 250n * 10n ** 18n;
+const LAUNCH_PASS_LABEL = "Season 0 pass";
 const STORE_GEAR_COLLECTION = [
   { gearType: 1, label: "beater deck", ethPrice: "0.01", tokenPriceLabel: "100" },
   { gearType: 2, label: "road lid", ethPrice: "0.012", tokenPriceLabel: "125" },
@@ -53,11 +55,16 @@ const SELECTORS = {
   buyWithMfer: "0x78f753c6",
   buyWithMferGpt: "0x42cebb36",
   discountedTokenPrice: "0xbb6505a5",
+  ethPrice: "0xff186b2e",
   gear: "0xbea80cea",
+  mferGptPrice: "0x4774d971",
+  mintPassWithEth: "0x0ad641f1",
+  mintPassWithMferGpt: "0x4c19163b",
   upgradeWithGold: "0x36327c6c",
   distributeQuestReward: "0x26bfdb66",
 };
 const GEAR_PURCHASED_TOPIC = "0xe90bb5970d4f1919d67686ba913696996929bafae6e827c0a61589d8e057e099";
+const PASS_PURCHASED_TOPIC = "0xe738688c345ae6b52b7f5e8326f8ef036091302ba7a58f7a9a081d737e29a973";
 const DISCOUNT_BPS = {
   mfer: 1000n,
   mfergpt: 2500n,
@@ -69,6 +76,7 @@ const EMPTY_ADDRESSES: CryptoStoreAddresses = {
   mfer: "",
   mfergpt: "",
   rewards: "",
+  launchPass: "",
 };
 const EMPTY_BALANCES: CryptoStoreBalances = {
   eth: "--",
@@ -85,6 +93,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   const [gearType, setGearType] = useState<string>(String(DEFAULT_STORE_GEAR.gearType));
   const [ethPrice, setEthPrice] = useState<string>(DEFAULT_STORE_GEAR.ethPrice);
   const [upgradeTokenId, setUpgradeTokenId] = useState("1");
+  const [launchPassTokenId, setLaunchPassTokenId] = useState("");
   const [status, setStatus] = useState("loading local contracts");
   const [isBusy, setIsBusy] = useState(false);
   const [balances, setBalances] = useState<CryptoStoreBalances>(EMPTY_BALANCES);
@@ -242,6 +251,25 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
     });
   }
 
+  async function buyLaunchPassWithEth() {
+    await runAction("buying launch pass with ETH", async () => {
+      const provider = await prepareWallet(["launchPass"]);
+      const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.ethPrice));
+      const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithEth), price);
+      registerMintedLaunchPass(receipt);
+    });
+  }
+
+  async function buyLaunchPassWithMferGpt() {
+    await runAction("buying launch pass with $mfergpt", async () => {
+      const provider = await prepareWallet(["launchPass", "mfergpt"]);
+      const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferGptPrice));
+      await approve(provider, addresses.mfergpt, addresses.launchPass, price);
+      const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithMferGpt));
+      registerMintedLaunchPass(receipt);
+    });
+  }
+
   async function upgradeGear() {
     await runAction("upgrading gear", async () => {
       const provider = await prepareWallet(["store", "gear", "gold"]);
@@ -259,6 +287,12 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
     const tokenIdText = tokenId.toString();
     setUpgradeTokenId(tokenIdText);
     onRegisterChainGear({ gearType: purchasedGearType, tokenId: tokenIdText, tier: 1 });
+  }
+
+  function registerMintedLaunchPass(receipt: unknown) {
+    const tokenId = extractPurchasedTokenId(receipt, addresses.launchPass, PASS_PURCHASED_TOPIC, 2);
+    if (tokenId === null) return;
+    setLaunchPassTokenId(tokenId.toString());
   }
 
   async function grantTestGold() {
@@ -359,6 +393,32 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
           <span>rewards</span>
           <input value={addresses.rewards} placeholder="0x..." onChange={(event) => updateAddress("rewards", event.target.value)} />
         </label>
+        <label>
+          <span>launch pass</span>
+          <input value={addresses.launchPass} placeholder="0x..." onChange={(event) => updateAddress("launchPass", event.target.value)} />
+        </label>
+      </div>
+
+      <div className="crypto-store-item crypto-pass-item">
+        <div>
+          <strong>{LAUNCH_PASS_LABEL}</strong>
+          <span>token distribution eligibility / 0.0069 ETH / 690 MFERGPT burn</span>
+        </div>
+        <label>
+          <span>pass id</span>
+          <input value={launchPassTokenId || "--"} readOnly />
+        </label>
+      </div>
+
+      <div className="crypto-store-actions crypto-pass-actions">
+        <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithEth()}>
+          <Gem size={16} />
+          pass ETH
+        </button>
+        <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMferGpt()}>
+          <Flame size={16} />
+          pass $mfergpt
+        </button>
       </div>
 
       <div className="crypto-store-collection" aria-label="gear collection">
@@ -440,6 +500,7 @@ function readStoredAddresses(): CryptoStoreAddresses {
       mfer: typeof parsed.mfer === "string" ? parsed.mfer : "",
       mfergpt: typeof parsed.mfergpt === "string" ? parsed.mfergpt : "",
       rewards: typeof parsed.rewards === "string" ? parsed.rewards : "",
+      launchPass: typeof parsed.launchPass === "string" ? parsed.launchPass : "",
     };
   } catch {
     return EMPTY_ADDRESSES;
@@ -459,6 +520,7 @@ async function fetchLocalContractAddresses(signal: AbortSignal): Promise<{ addre
     mfer: typeof addresses.mfer === "string" ? addresses.mfer : "",
     mfergpt: typeof addresses.mfergpt === "string" ? addresses.mfergpt : "",
     rewards: typeof addresses.rewards === "string" ? addresses.rewards : "",
+    launchPass: typeof addresses.launchPass === "string" ? addresses.launchPass : "",
   };
   if (!Object.values(generated).every(isAddress)) return null;
   return { addresses: generated, generatedAt: document.generatedAt };
@@ -582,16 +644,21 @@ function validateAddresses(addresses: CryptoStoreAddresses, requiredAddresses: A
 }
 
 function extractPurchasedGearTokenId(receipt: unknown, storeAddress: string) {
+  return extractPurchasedTokenId(receipt, storeAddress, GEAR_PURCHASED_TOPIC, 3);
+}
+
+function extractPurchasedTokenId(receipt: unknown, contractAddress: string, eventTopic: string, tokenTopicIndex: number) {
   if (!receipt || typeof receipt !== "object" || !("logs" in receipt) || !Array.isArray(receipt.logs)) return null;
-  const normalizedStore = storeAddress.toLowerCase();
+  const normalizedContract = contractAddress.toLowerCase();
 
   for (const log of receipt.logs) {
     if (!log || typeof log !== "object") continue;
     const entry = log as { address?: unknown; topics?: unknown };
-    if (typeof entry.address !== "string" || entry.address.toLowerCase() !== normalizedStore) continue;
-    if (!Array.isArray(entry.topics) || entry.topics.length < 4) continue;
-    const [topic, , , tokenTopic] = entry.topics;
-    if (typeof topic !== "string" || topic.toLowerCase() !== GEAR_PURCHASED_TOPIC) continue;
+    if (typeof entry.address !== "string" || entry.address.toLowerCase() !== normalizedContract) continue;
+    if (!Array.isArray(entry.topics) || entry.topics.length <= tokenTopicIndex) continue;
+    const topic = entry.topics[0];
+    const tokenTopic = entry.topics[tokenTopicIndex];
+    if (typeof topic !== "string" || topic.toLowerCase() !== eventTopic) continue;
     if (typeof tokenTopic !== "string") continue;
     return BigInt(tokenTopic);
   }

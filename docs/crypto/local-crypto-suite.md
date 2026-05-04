@@ -108,6 +108,7 @@ Current payment behavior:
 
 `MferLaunchPass` is the selected first paid soft-launch surface for local testing.
 It is intentionally separate from combat gear so early testers can exercise a real crypto purchase without buying power.
+The support export path treats a confirmed `season0-pass` purchase or manual grant as the eligibility gate for any reviewed token distribution.
 
 Current local terms:
 
