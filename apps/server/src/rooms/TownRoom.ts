@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Room, type Client } from "colyseus";
+import { ErrorCode, Room, ServerError, type Client } from "colyseus";
 import {
   CHAT,
   COMBAT,
@@ -130,6 +130,16 @@ export function areDebugMessagesEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_ENABLE_DEBUG_MESSAGES === "1";
 }
 
+function getRequiredInviteCode() {
+  return (process.env.MFERLAND_INVITE_CODE ?? "").trim();
+}
+
+function isAllowedInvite(options?: JoinOptions) {
+  const requiredInvite = getRequiredInviteCode();
+  if (!requiredInvite) return true;
+  return typeof options?.inviteCode === "string" && options.inviteCode.trim() === requiredInvite;
+}
+
 type DebugTeleportMessage = {
   x?: unknown;
   z?: unknown;
@@ -229,9 +239,14 @@ export class TownRoom extends Room<TownState> {
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
+  onAuth(_client: Client, options?: JoinOptions) {
+    if (!isAllowedInvite(options)) throw new ServerError(ErrorCode.AUTH_FAILED, "invalid invite");
+    return true;
+  }
+
   onCreate() {
     this.setState(new TownState());
-  spawnNpcs(this.state.npcs);
+    spawnNpcs(this.state.npcs);
     void this.loadSavedDebugPlacementMap();
     this.setSimulationInterval((dt) => this.update(dt / 1000), 1000 / SERVER_TICK_RATE);
 

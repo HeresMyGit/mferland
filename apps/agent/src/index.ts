@@ -23,6 +23,7 @@ import {
 
 type AgentConfig = {
   serverUrl: string;
+  inviteCode: string;
   count: number;
   baseName: string;
   chatEnabled: boolean;
@@ -133,6 +134,7 @@ class AgentCharacter {
   private readonly client: Client;
   private readonly name: string;
   private readonly avatarSeed: number;
+  private readonly inviteCode: string;
   private readonly chatEnabled: boolean;
   private readonly style: AmbientStyle;
   private room: Room | null = null;
@@ -152,6 +154,7 @@ class AgentCharacter {
     this.client = new Client(config.serverUrl);
     this.name = config.name;
     this.avatarSeed = config.avatarSeed;
+    this.inviteCode = config.inviteCode;
     this.chatEnabled = config.chatEnabled;
     this.style = getAgentStyle(config.avatarSeed);
   }
@@ -161,6 +164,7 @@ class AgentCharacter {
       name: this.name,
       identityType: "agent",
       avatarSeed: this.avatarSeed,
+      inviteCode: this.inviteCode,
     });
 
     this.room = room;
@@ -466,6 +470,7 @@ function pickLine(lines: readonly string[]) {
 function readConfig(): AgentConfig {
   return {
     serverUrl: process.env.AGENT_SERVER_URL ?? "ws://localhost:2567",
+    inviteCode: process.env.AGENT_INVITE_CODE ?? process.env.MFERLAND_INVITE_CODE ?? "",
     count: readPositiveInt(process.env.AGENT_COUNT, 1),
     baseName: cleanName(process.env.AGENT_NAME ?? "mfer-agent"),
     chatEnabled: process.env.AGENT_CHAT !== "0",

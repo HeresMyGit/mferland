@@ -1,6 +1,6 @@
 # Respected Tester Brief
 
-Use this as the source copy for the first invite-only tester group. Fill the launch URL, feedback channel, deployed pass address, and reward pool only after the production DB/pass deployment is final.
+Use this as the source copy for the first invite-only tester group. Send the launch URL by DM only. No email collection is required for this test.
 
 ## Who This Is For
 
@@ -18,11 +18,11 @@ Do not send this to public channels yet.
 ## What Testers Should Do
 
 1. Open the launch URL: `TBD`.
-2. Enter with the wallet they want tied to Season 0 eligibility.
+2. Enter as anon or with the wallet they may want tied to Season 0 eligibility later.
 3. Play the starter mfer town loop.
 4. Finish the intro/plaza/farm path as far as they reasonably can.
 5. Reconnect with the same wallet and confirm progress persists.
-6. Buy the Season 0 pass if they want eligibility for any reviewed token distribution.
+6. Skip crypto/pass purchase unless Josh explicitly says the pass test is live.
 7. Report bugs in the feedback channel: `TBD`.
 
 ## Reward Rules
@@ -47,8 +47,8 @@ Plain version to send testers:
 - Combat and first-10-minute polish are still rough.
 - Quests are functional but will be rewritten to be more mfer-centric later.
 - Normal character state is DB-backed. Rare/onchain behavior is deliberately narrow.
-- The Season 0 pass is the only intended first paid crypto surface.
-- If the pass UI is enabled, save the transaction hash after purchase.
+- The Season 0 pass is paused until Josh explicitly turns on a public-chain test contract.
+- If the pass UI is enabled later, save the transaction hash after purchase.
 
 ## What To Ask For In Feedback
 
@@ -60,7 +60,7 @@ Ask testers to include:
 - where they were in the world.
 - what they clicked/pressed.
 - screenshot or screen recording if possible.
-- transaction hash for any pass purchase.
+- transaction hash for any pass purchase, only if pass testing is enabled.
 - whether reconnect preserved progress.
 
 High-signal feedback:
@@ -111,9 +111,9 @@ npm run support:admin -- purchase-export --status confirmed
 
 - Launch URL: `TBD`
 - Feedback channel: `TBD`
-- Production DB branch: `TBD`
-- Pass network: `TBD`
-- Pass contract: `TBD`
-- Pass price: `TBD`
+- Neon DB branch: `TBD`
+- Pass network: `paused`
+- Pass contract: `paused`
+- Pass price: `paused`
 - Final Season 0 `$mferGPT` reward pool: `TBD`
 - Initial invite list: `TBD`

@@ -172,7 +172,10 @@ export function useTownRoom(identity: JoinOptions) {
   const serverUrl = useMemo(() => {
     if (import.meta.env.VITE_SERVER_URL) return String(import.meta.env.VITE_SERVER_URL);
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    return `${protocol}://${window.location.hostname}:2567`;
+    if (isLocalDevWebHost(window.location.hostname, window.location.port)) {
+      return `${protocol}://${window.location.hostname}:2567`;
+    }
+    return `${protocol}://${window.location.host}`;
   }, []);
 
   useEffect(() => () => {
@@ -522,6 +525,10 @@ export function useTownRoom(identity: JoinOptions) {
     sendDebugNpcSetup,
     sendDebugPlacementSave,
   };
+}
+
+function isLocalDevWebHost(hostname: string, port: string) {
+  return ["localhost", "127.0.0.1", "::1"].includes(hostname) && port !== "2567";
 }
 
 function makeDebugPlacementSaveChunks(payload: DebugPlacementSavePayload) {

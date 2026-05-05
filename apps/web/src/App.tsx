@@ -35,7 +35,14 @@ import {
   type PlayerSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
-import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
+import {
+  getStoredInviteCode,
+  getStoredName,
+  makeGuestIdentity,
+  makeWalletIdentity,
+  rememberInviteCode,
+  rememberName,
+} from "./auth/identity";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
@@ -120,6 +127,14 @@ function isCryptoSmokeMode() {
   return import.meta.env.DEV && new URLSearchParams(window.location.search).get("cryptoSmoke") === "1";
 }
 
+function isInviteRequired() {
+  return import.meta.env.VITE_REQUIRE_INVITE === "1";
+}
+
+function isCryptoStoreEnabled() {
+  return import.meta.env.VITE_ENABLE_CRYPTO_STORE !== "0";
+}
+
 export function App() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
   const [savedDebugPlacementDefaults, setSavedDebugPlacementDefaults] = useState<DebugPlacementOverrides>({});
@@ -175,6 +190,7 @@ function AuthGate({
   const localTestConnector = connectors.find((connector) => connector.id === "mock");
   const [isSwitchingWallet, setIsSwitchingWallet] = useState(false);
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
+  const [inviteCode, setInviteCode] = useState(() => getStoredInviteCode());
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderReachedCap, setLoaderReachedCap] = useState(false);
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
@@ -182,16 +198,30 @@ function AuthGate({
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
   const handleLoaderReachedCap = useCallback(() => setLoaderReachedCap(true), []);
   const showAuthLoader = !cryptoSmokeMode && (!previewReady || !loaderReachedCap);
+  const inviteRequired = isInviteRequired();
+  const hasInviteCode = inviteCode.trim() !== "";
 
   const cleanName = name.trim() || getStoredName();
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkedInvite = params.get("invite")?.trim() || params.get("code")?.trim() || "";
+    if (!linkedInvite) return;
+    rememberInviteCode(linkedInvite);
+    setInviteCode(linkedInvite);
+  }, []);
+
   function enterGuest() {
+    if (inviteRequired && !hasInviteCode) return;
+    rememberInviteCode(inviteCode);
     rememberName(cleanName);
     onEnter(makeGuestIdentity(cleanName));
   }
 
   function enterWallet() {
     if (!address) return;
+    if (inviteRequired && !hasInviteCode) return;
+    rememberInviteCode(inviteCode);
     rememberName(cleanName);
     onEnter(makeWalletIdentity(cleanName, address));
   }
@@ -265,13 +295,13 @@ function AuthGate({
         )}
 
         <div className="auth-actions">
-          <button className="primary-btn" type="button" onClick={enterGuest}>
+          <button className="primary-btn" type="button" onClick={enterGuest} disabled={inviteRequired && !hasInviteCode}>
             <UserRound size={18} />
             enter as anon mfer
           </button>
           {isConnected && address ? (
             <>
-              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending}>
+              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending || (inviteRequired && !hasInviteCode)}>
                 <Gem size={18} />
                 enter as verified mfer
               </button>
@@ -314,6 +344,7 @@ function AuthGate({
             </>
           )}
         </div>
+        {inviteRequired && !hasInviteCode && <p className="wallet-action-error">use your invite link to enter this test</p>}
         {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>
     </main>
@@ -460,6 +491,7 @@ function GameShell({
   const realCaptureSelectedTargetRef = useRef<TargetSelection | null>(null);
   const debugToolsAvailable = import.meta.env.DEV;
   const cryptoSmokeMode = isCryptoSmokeMode();
+  const cryptoStoreEnabled = isCryptoStoreEnabled();
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
@@ -542,10 +574,10 @@ function GameShell({
     const selectedNpc = findInteractableNpcInRange(localPlayer, room.npcs, npcId);
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
-      if (selectedNpc.role === "merchant") setCryptoStoreNpcId(selectedNpc.id);
+      if (cryptoStoreEnabled && selectedNpc.role === "merchant") setCryptoStoreNpcId(selectedNpc.id);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, localPlayer, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -553,9 +585,9 @@ function GameShell({
       : null;
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
-    if (nearestNpc?.role === "merchant") setCryptoStoreNpcId(nearestNpc.id);
+    if (cryptoStoreEnabled && nearestNpc?.role === "merchant") setCryptoStoreNpcId(nearestNpc.id);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, localPlayer, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -987,7 +1019,7 @@ function GameShell({
             npcs={room.npcs}
             selectedTarget={selectedTarget}
             selectedTargetUnit={selectedTargetUnit}
-            cryptoStoreNpc={cryptoStoreNpc}
+            cryptoStoreNpc={cryptoStoreEnabled ? cryptoStoreNpc : null}
             localSessionId={room.sessionId}
             localPlayer={localPlayer ?? null}
             questOffer={room.questOffer}

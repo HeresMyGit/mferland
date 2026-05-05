@@ -103,6 +103,7 @@ export type JoinOptions = {
   identityType?: IdentityType;
   walletAddress?: string;
   avatarSeed?: number;
+  inviteCode?: string;
 };
 
 export type ClientInput = {

@@ -2,6 +2,7 @@ import { makeGuestName, stableHash, type JoinOptions } from "@mferland/shared";
 
 const GUEST_ID_KEY = "mferland.guestId";
 const NAME_KEY = "mferland.name";
+const INVITE_CODE_KEY = "mferland.inviteCode";
 
 export function getOrCreateGuestId(): string {
   const existing = localStorage.getItem(GUEST_ID_KEY);
@@ -21,12 +22,22 @@ export function rememberName(name: string) {
   localStorage.setItem(NAME_KEY, name);
 }
 
+export function getStoredInviteCode(): string {
+  return localStorage.getItem(INVITE_CODE_KEY) || "";
+}
+
+export function rememberInviteCode(inviteCode: string) {
+  const normalized = inviteCode.trim();
+  if (normalized) localStorage.setItem(INVITE_CODE_KEY, normalized);
+}
+
 export function makeGuestIdentity(name: string): JoinOptions {
   const guestId = getOrCreateGuestId();
   return {
     name,
     identityType: "guest",
     avatarSeed: stableHash(`${guestId}:${name}`),
+    inviteCode: getStoredInviteCode(),
   };
 }
 
@@ -36,6 +47,7 @@ export function makeWalletIdentity(name: string, walletAddress: string): JoinOpt
     identityType: "wallet",
     walletAddress,
     avatarSeed: stableHash(`${walletAddress}:${name}`),
+    inviteCode: getStoredInviteCode(),
   };
 }
 

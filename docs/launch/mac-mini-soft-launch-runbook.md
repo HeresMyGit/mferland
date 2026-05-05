@@ -2,7 +2,7 @@
 
 Use this from the Mac mini when it becomes the launch machine. Keep secrets in local env files or shell session only. Do not commit `.env`, private keys, RPC keys, or generated production config containing unreviewed addresses.
 
-Current decision: keep mainnet/Base deployment paused. Use local or staging infrastructure only until Josh explicitly approves production DB cutover and Base deployment.
+Current decision: keep mainnet/Base deployment paused. Use the real staging tools, but not production infrastructure: Neon staging/test DB, Cloudflare Tunnel for `game.mfergpt.lol`, local-only game server binding, and no exposed local chain RPC. Base deployment stays paused until Josh explicitly approves it.
 
 ## 0. Pull The Prep Branch
 
@@ -38,6 +38,35 @@ npm run pricing:refresh:market
 
 The web crypto store reads `/crypto/market-quotes` from the game server and shows cached `$mfer/WETH` and `MFERGPT/WETH` labels. These labels are informational; local contract payment still uses the contract's configured price.
 
+## 0.75. Remote Test Network Shape
+
+Use Cloudflare Tunnel for off-LAN testers. Do not port-forward the router, do not bind the game server to a public interface, and do not expose Anvil or any local RPC to the internet.
+
+Target shape:
+
+```txt
+tester browser -> https://game.mfergpt.lol -> Cloudflare Tunnel -> http://127.0.0.1:2567
+```
+
+The Node game server can serve the built web app and the Colyseus WebSocket on the same local port when `MFERLAND_SERVE_WEB_DIST=1`.
+
+Configure the existing tunnel ingress so `game.mfergpt.lol` points at the local server:
+
+```yaml
+ingress:
+  - hostname: game.mfergpt.lol
+    service: http://127.0.0.1:2567
+```
+
+Keep the final catch-all ingress as `http_status:404`. Create or refresh the DNS route:
+
+```sh
+cloudflared tunnel route dns mfergpt-x402 game.mfergpt.lol
+cloudflared tunnel ingress validate
+```
+
+Restart the tunnel service only after validating the config. Preserve any existing hostnames in the tunnel config.
+
 ## 1. Configure Local Secrets
 
 Create the launch-machine `.env` from the template:
@@ -49,11 +78,19 @@ cp docs/launch/mac-mini-env.example .env
 Fill:
 
 ```txt
-DATABASE_URL="postgresql://..." # local or staging until production cutover is approved
-VITE_SERVER_URL="http://localhost:2567"
-VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"
+DATABASE_URL="postgresql://..." # Neon staging/test until production cutover is approved
+VITE_SERVER_URL="wss://game.mfergpt.lol"
+VITE_CRYPTO_CONTRACTS_URL=""
+VITE_REQUIRE_INVITE="1"
+VITE_ENABLE_CRYPTO_STORE="0"
+MFERLAND_INVITE_CODE="REPLACE_WITH_PRIVATE_DM_CODE"
+MFERLAND_SERVE_WEB_DIST="1"
 MFERLAND_MARKET_QUOTE_INTERVAL_MS="3600000"
 ```
+
+Use `https://game.mfergpt.lol/?invite=REPLACE_WITH_PRIVATE_DM_CODE` as the DM link. The static page is not secret, but room joins are rejected unless the invite code matches. Rotate `MFERLAND_INVITE_CODE` if the link leaks. Do not commit the invite code.
+
+Keep `VITE_ENABLE_CRYPTO_STORE="0"` for the first remote friend test while Base/local-chain testing is paused. Remote testers can join, play, and persist state without managing crypto. Local Anvil purchases remain covered by `npm run crypto:test:local`; public wallet purchase testing should wait for a cheap Base test contract or another public RPC-backed chain.
 
 Keep Base deployment secrets unset while mainnet/Base is paused. When production deployment is explicitly approved later, set chain deployment secrets only in the shell session or a private local env file:
 
@@ -95,7 +132,20 @@ export PASS_MFER_PRICE_WEI="<requiredMferWei>"
 
 Sanity-check the selected pair, liquidity, and required `$mfer` amount before deploying. If the quote looks wrong, stop.
 
-## 3. Apply Production DB Migrations
+## 3. Apply Neon Staging/Test DB Migrations
+
+Use Neon for the remote friend test, but use a staging/test branch. Do not point `.env` at the production branch yet.
+
+```sh
+npm run db:migrate -w @mferland/server
+npm run pricing:refresh:market
+npm run support:admin -- season-summary
+npm run support:admin -- purchase-summary
+```
+
+If these commands hit the wrong DB, stop and fix `DATABASE_URL`.
+
+## 3.5. Apply Production DB Migrations
 
 Paused. Do not run production DB migrations until Josh explicitly approves production cutover.
 
@@ -166,15 +216,15 @@ Validate:
 npm run crypto:config:check -- --file apps/web/public/crypto/production-contracts.json
 ```
 
-## 6. Build And Start Launch Stack
+## 6. Build And Start Remote Test Stack
 
 ```sh
 npm run typecheck
-npm run build
-npm run build:agent
+npm run launch:build
+npm run launch:server
 ```
 
-Start the server/web process using the Mac mini's normal local/staging process manager or terminal workflow. Before inviting anyone, open the launch URL and confirm:
+`launch:server` binds the game process to `127.0.0.1` and serves `apps/web/dist` through the same HTTP server as the WebSocket. Before inviting anyone, open `https://game.mfergpt.lol/?invite=...` and confirm:
 
 - wallet entry works.
 - Character panel shows wallet and Season Gold.
@@ -184,7 +234,7 @@ Start the server/web process using the Mac mini's normal local/staging process m
 - `$mfer/WETH` and `MFERGPT/WETH` market labels show cached DB quotes or a clear cache error.
 - ETH, `$mfer`, and `$mfergpt` pass buttons show wallet prompts.
 
-Do not perform a real purchase from Josh's main wallet during smoke. Use a disposable wallet or a manual grant if needed.
+For the remote friend test with `VITE_ENABLE_CRYPTO_STORE="0"`, skip the merchant/pass checks above and confirm the merchant does not open a crypto panel. Do not perform a real purchase from Josh's main wallet during smoke. Use a disposable wallet or a manual grant if needed.
 
 ## 7. Record Or Grant The First Pass
 
@@ -225,7 +275,7 @@ Then fill:
 
 - launch URL in `docs/soft-launch-tester-brief.md`
 - feedback channel
-- deployed pass address
+- deployed pass address, or `paused`
 - reward pool
 
-Invite 10-25 respected testers only after the launch URL, DB, pass, config, and support commands all agree.
+Invite 10-25 respected testers only after the launch URL, DB, config, and support commands all agree. If the crypto store remains disabled, mark the pass as paused and use manual grants for any tester eligibility.

@@ -916,7 +916,14 @@ function getServerHttpBaseUrl() {
   }
 
   const protocol = window.location.protocol === "https:" ? "https" : "http";
-  return `${protocol}://${window.location.hostname}:2567`;
+  if (isLocalDevWebHost(window.location.hostname, window.location.port)) {
+    return `${protocol}://${window.location.hostname}:2567`;
+  }
+  return `${protocol}://${window.location.host}`;
+}
+
+function isLocalDevWebHost(hostname: string, port: string) {
+  return ["localhost", "127.0.0.1", "::1"].includes(hostname) && port !== "2567";
 }
 
 function findMarketQuote(quotes: CryptoMarketQuote[], tokenSymbol: string) {
