@@ -100,7 +100,6 @@ function CombatEventVisual({
   const projectileAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const damageOffset = useMemo(() => getEventOffset(eventId), [eventId]);
   const isFrostNovaCast = actionId === "frostNova" && amount <= 0;
-  const isPhysicalImpact = amount > 0 && isPhysicalImpactAction(actionId);
   const projectileDurationMs = actionId === "shoot" || actionId === "multishot" || actionId === "signalShot"
     ? 520
     : isFrostNovaCast ? 720 : Math.max(180, impactAt - sentAt);
@@ -204,7 +203,6 @@ function CombatEventVisual({
         </>
       )}
       {actionId === "heal" && <HealBloom refGroup={impactRef} position={targetPosition} />}
-      {isPhysicalImpact && <PhysicalImpactBurst refGroup={impactRef} position={targetPosition} targetKind={targetKind} defeated={defeated} />}
       {(actionId === "fireblast" || actionId === "iceBlast" || actionId === "signalShot") && <SpellImpactBurst refGroup={impactRef} position={targetPosition} variant={actionId === "iceBlast" ? "ice" : actionId === "signalShot" ? "signal" : "fire"} />}
       {(amount > 0 || actionId === "heal") && (
         <FloatingDamageNumber
@@ -217,46 +215,6 @@ function CombatEventVisual({
           offset={damageOffset}
         />
       )}
-    </group>
-  );
-}
-
-function PhysicalImpactBurst({
-  refGroup,
-  position,
-  targetKind,
-  defeated,
-}: {
-  refGroup: RefObject<THREE.Group | null>;
-  position: Vec3Tuple;
-  targetKind: CombatEvent["target"]["kind"];
-  defeated: boolean;
-}) {
-  const color = targetKind === "player" ? MFER_COLORS.hostile : MFER_COLORS.local;
-  const glow = defeated ? "#fff8dc" : targetKind === "player" ? MFER_COLORS.fireHot : MFER_COLORS.lootHighlight;
-  const shardAngles = useMemo(() => Array.from({ length: defeated ? 10 : 7 }, (_, index) => (index / (defeated ? 10 : 7)) * Math.PI * 2), [defeated]);
-
-  return (
-    <group ref={refGroup} position={position} visible={false}>
-      <mesh rotation-x={Math.PI / 2}>
-        <ringGeometry args={[0.28, defeated ? 0.92 : 0.68, 34]} />
-        <meshBasicMaterial color={color} depthWrite={false} opacity={defeated ? 0.48 : 0.34} toneMapped={false} transparent />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[defeated ? 0.34 : 0.24, 12, 8]} />
-        <meshBasicMaterial color={color} depthWrite={false} opacity={0.3} toneMapped={false} transparent />
-      </mesh>
-      {shardAngles.map((angle) => (
-        <mesh
-          key={angle}
-          position={[Math.sin(angle) * 0.36, 0.1 + (defeated ? 0.06 : 0), Math.cos(angle) * 0.36]}
-          rotation-y={angle}
-          rotation-z={0.72}
-        >
-          <boxGeometry args={[0.035, defeated ? 0.34 : 0.24, 0.026]} />
-          <meshBasicMaterial color={glow} depthWrite={false} opacity={0.82} toneMapped={false} transparent />
-        </mesh>
-      ))}
     </group>
   );
 }
@@ -634,10 +592,6 @@ function formatCombatAmount(actionId: CombatActionId, amount: number, targetKind
   if (actionId === "heal") return `+${rounded}`;
   if (targetKind === "player") return `-${rounded}${defeated ? " down" : ""}`;
   return defeated ? `${rounded} KO` : `${rounded}`;
-}
-
-function isPhysicalImpactAction(actionId: CombatActionId) {
-  return actionId === "attack" || actionId === "shoot" || actionId === "multishot" || actionId === "whirlwind";
 }
 
 function getEventOffset(id: string): [number, number] {

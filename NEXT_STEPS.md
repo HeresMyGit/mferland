@@ -62,7 +62,7 @@ Add raw new notes here before triage.
 ### Combat Tuning And Feedback
 
 - [ ] Keep combat tuning lightweight for testers: obvious hit feedback, enemy tells, cooldown clarity, death/respawn polish, and basic readability only.
-- [x] Add the first tester combat readability polish pass. Completed 2026-05-05 with physical hit bursts, red signed incoming damage numbers, KO labels, recent-hit/low-health HUD feedback, and clearer death/respawn context.
+- [x] Add the first tester combat readability polish pass. Completed 2026-05-05 with red signed incoming damage numbers, KO labels, recent-hit/low-health HUD feedback, and clearer death/respawn context.
 - [ ] Defer deeper eight-slot/talent-active tuning until the mfer-centric rewrite path is clearer. Use [docs/plans/ability-threat.md](docs/plans/ability-threat.md) as the reference when this resumes.
 - [ ] Defer non-mfer 3D model animation until the Blender MCP workflow is available, then do a proper asset/rig pass for simple moving limbs instead of a cheap placeholder.
 

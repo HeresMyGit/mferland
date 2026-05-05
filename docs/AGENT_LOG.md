@@ -37,7 +37,7 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Added Character panel Season Gold totals and `season-payout-export` support tooling so reviewed, pass-gated points can be converted into capped proposed `$mfergpt` payouts.
 - Added [crypto/production-pricing.md](crypto/production-pricing.md) and `npm run pricing:quote:mfer-pass` for production `$mfer` pass pricing, including the `0.0069 ETH * 0.9` target, Dex Screener free quote mode, and the soft-launch owner-set pricing recommendation.
 - Added [launch/mac-mini-soft-launch-runbook.md](launch/mac-mini-soft-launch-runbook.md), a production crypto config template, config validation, and a pass-only Base deploy script for the Mac mini handoff.
-- Added a first MBP tester combat readability polish pass: physical hit impact bursts, signed red incoming damage numbers, KO labels, recent-hit and low-health HUD feedback, and clearer fountain-reset death context.
+- Added a first MBP tester combat readability polish pass: signed red incoming damage numbers, KO labels, recent-hit and low-health HUD feedback, and clearer fountain-reset death context.
 
 ## Completed Build Plan Items
 
