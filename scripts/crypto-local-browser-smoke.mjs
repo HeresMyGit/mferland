@@ -106,7 +106,7 @@ try {
     const dripButton = page.locator('button[title="Debug travel: Drip"]');
     await waitForEnabled(dripButton);
     await clickDebugTravel(dripButton, page.locator(".debug-travel-position"), "-12, 15");
-    await page.keyboard.press("f");
+    await pressInteractKey(page);
 
     const dialog = page.getByRole("dialog", { name: "crypto store", exact: true });
     await dialog.waitFor({ state: "visible", timeout: 10000 });
@@ -117,6 +117,8 @@ try {
     await waitForAddressPrefill(dialog, "$mfergpt", addresses.mfergpt);
     await waitForAddressPrefill(dialog, "rewards", addresses.rewards);
     await waitForAddressPrefill(dialog, "launch pass", addresses.launchPass);
+    await waitForMarketQuote(dialog, "$mfer/WETH");
+    await waitForMarketQuote(dialog, "MFERGPT/WETH");
     const balances = dialog.locator('[aria-label="wallet balances"]');
     await waitForBalance(balances, "$mfer", "1000000");
     await waitForBalance(balances, "$mfergpt", "1000000");
@@ -295,6 +297,12 @@ async function clickDebugTravel(button, position, expectedPosition) {
   throw new Error(`debug travel did not reach ${expectedPosition}; got ${await position.innerText()}`);
 }
 
+async function pressInteractKey(page) {
+  await page.keyboard.down("f");
+  await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  await page.keyboard.up("f");
+}
+
 async function clickExactly(locator) {
   assert.equal(await locator.count(), 1);
   await waitForEnabled(locator);
@@ -340,6 +348,18 @@ async function waitForBalance(balancePanel, label, expected) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
   throw new Error(`Expected ${label} balance ${expected}, got "${await balancePanel.innerText()}"`);
+}
+
+async function waitForMarketQuote(dialog, label) {
+  const startedAt = Date.now();
+  const marketQuotes = dialog.locator('[aria-label="market quotes"]');
+  const normalizedLabel = label.toUpperCase();
+  while (Date.now() - startedAt < 10_000) {
+    const text = await marketQuotes.innerText();
+    if (text.toUpperCase().includes(normalizedLabel) && text.includes("ETH") && !text.includes("--")) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected market quote ${label}, got "${await marketQuotes.innerText()}"`);
 }
 
 async function waitForEquipmentTooltip(character, itemName, tierLabel, statLabel) {

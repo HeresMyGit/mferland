@@ -156,6 +156,43 @@ Those public RPCs are fine for dev and early testing, but Base documents them as
 
 For deployment, Foundry can use a local secure keystore via `cast wallet import deployer --interactive`, then deploy with `--account deployer --broadcast`. Contract source verification on BaseScan/Etherscan is optional for runtime, but it usually needs an explorer API key if we automate it from Foundry.
 
+## Local Crypto Backend Requirements
+
+A machine that runs the full crypto test loop needs:
+
+- Foundry installed with `foundryup`, which provides `forge`, `cast`, `anvil`, and `chisel`.
+- Postgres available for local or staging `DATABASE_URL` migrations and `crypto_market_quotes`.
+- Playwright's Chromium browser installed for `npm run crypto:browser:local`.
+
+One-time setup on a Mac:
+
+```sh
+curl -L https://foundry.paradigm.xyz | bash
+source ~/.zshenv
+foundryup
+brew install postgresql@17
+brew services start postgresql@17
+/opt/homebrew/opt/postgresql@17/bin/createdb mferland_test
+npx playwright install chromium
+```
+
+Local `.env`:
+
+```txt
+DATABASE_URL="postgresql://USER@localhost:5432/mferland_test"
+VITE_SERVER_URL="http://localhost:2567"
+VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"
+MFERLAND_MARKET_QUOTE_INTERVAL_MS="3600000"
+```
+
+Then:
+
+```sh
+npm run db:migrate -w @mferland/server
+npm run pricing:refresh:market
+npm run crypto:test:local
+```
+
 ## Start A Local Testnet
 
 Terminal 1:
