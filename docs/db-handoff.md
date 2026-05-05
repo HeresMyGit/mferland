@@ -13,15 +13,15 @@
 - On 2026-05-05, `0007_crypto_market_quotes.sql` was added for the Dex Screener quote cache and must be applied to the Neon staging/test branch before the remote friend test.
 - Wallet persistence was smoke-tested with a synthetic wallet for level/XP/talent points, quest state, inventory, equipment, and talents.
 
-## Neon Test Branch
+## Neon Staging/Test Branch
 
-- Project ID: `odd-scene-22957189`
+- Project ID: `shy-frog-66739604`
 - Database: `neondb`
-- Temporary test branch ID: `br-floral-shape-a46wjdc8`
-- Temporary test branch name: `mcp-migration-2026-04-28T04-34-32`
-- Migration ID: `8707261c-c914-47c4-a67e-bd6c77b6f021`
+- Staging project default branch ID: `br-hidden-firefly-aqy5jojx`
+- Remote friend-test branch ID: `br-autumn-rice-aqv3ie10`
+- Remote friend-test branch name: `remote-friend-test-2026-05-05`
 
-This branch has the character/account schema and is safe for temporary testing. Neon main has not been migrated yet.
+This staging project is separate from production. On 2026-05-05, the remote friend-test branch was migrated through `0007_crypto_market_quotes.sql` and seeded with cached Dex Screener quotes for remote testing.
 
 ## Current Checked-In Migrations
 
