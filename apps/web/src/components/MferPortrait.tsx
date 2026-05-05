@@ -28,7 +28,9 @@ type MferLayer = {
 const MFER_METADATA_URL = "https://raw.githubusercontent.com/m4r-sh/mfers/main/data/mfers.json";
 const MFER_CLEAR_URL = (tokenId: number) => `https://clear.mfers.dev/${tokenId}.png`;
 const IPFS_IMAGE_GATEWAY = "https://ipfs.io/ipfs/";
-const MFER_LAYER_ROOTS = ["/mfer-layers/og", "/mfer-layers/extended", "https://mfers.dev/layers/full"];
+const LOCAL_MFER_LAYER_ROOTS = ["/mfer-layers/og", "/mfer-layers/extended"];
+const REMOTE_MFER_LAYER_ROOT = "https://mfers.dev/layers/full";
+const MFER_LAYER_ROOTS = [...LOCAL_MFER_LAYER_ROOTS, REMOTE_MFER_LAYER_ROOT];
 const PLAIN_BACKGROUNDS: OriginalMferBackground[] = ["blue", "green", "orange", "red", "yellow"];
 const LAYER_ORDER = [
   "background",
@@ -60,6 +62,8 @@ const OFFICIAL_OPTIONAL_TRAITS = [
 const portraitCache = new Map<string, OriginalMferPortraitMatch | null>();
 const composedPortraitCache = new Map<string, Promise<string | null>>();
 const layerImageCache = new Map<string, Promise<HTMLImageElement | null>>();
+const localLayerRootCache = new Map<string, Promise<boolean>>();
+let availableLayerRootsPromise: Promise<string[]> | null = null;
 let metadataPromise: Promise<OriginalMferMetadata[]> | null = null;
 
 export function MferPortrait({
@@ -497,9 +501,10 @@ async function composeMferPortrait(query: ReturnType<typeof makeOriginalMferQuer
   const context = canvas.getContext("2d");
   if (!context) return null;
 
+  const layerRoots = await getAvailableLayerRoots();
   let drewBody = false;
   for (const layer of getPortraitLayers(query.layerTraits, variant)) {
-    const image = await loadFirstLayerImage(getLayerUrls(layer));
+    const image = await loadFirstLayerImage(getLayerUrls(layer, layerRoots));
     if (!image) {
       if (layer.required) return null;
       continue;
@@ -523,10 +528,31 @@ function getPortraitLayers(layerTraits: Record<string, string>, variant: NonNull
   return layers;
 }
 
-function getLayerUrls(layer: MferLayer) {
+async function getAvailableLayerRoots() {
+  availableLayerRootsPromise ??= Promise.all(LOCAL_MFER_LAYER_ROOTS.map((root) => isLocalLayerRootAvailable(root)))
+    .then((available) => [
+      ...LOCAL_MFER_LAYER_ROOTS.filter((_, index) => available[index]),
+      REMOTE_MFER_LAYER_ROOT,
+    ]);
+  return availableLayerRootsPromise;
+}
+
+function isLocalLayerRootAvailable(root: string) {
+  let cached = localLayerRootCache.get(root);
+  if (!cached) {
+    cached = Promise.all([
+      loadLayerImage(`${root}/background/blue.png`),
+      loadLayerImage(`${root}/type/plain%20mfer.png`),
+    ]).then((images) => images.some(Boolean));
+    localLayerRootCache.set(root, cached);
+  }
+  return cached;
+}
+
+function getLayerUrls(layer: MferLayer, roots: string[] = MFER_LAYER_ROOTS) {
   const filenames = getLayerFilenames(layer.folder, layer.value);
   const urls: string[] = [];
-  for (const root of MFER_LAYER_ROOTS) {
+  for (const root of roots) {
     for (const filename of filenames) {
       urls.push(`${root}/${encodeURIComponent(layer.folder)}/${encodeURIComponent(filename)}`);
     }
