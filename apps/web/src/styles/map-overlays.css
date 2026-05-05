@@ -907,6 +907,7 @@
 .crypto-store-config,
 .crypto-store-collection,
 .crypto-store-item,
+.crypto-market-quotes,
 .crypto-upgrade-row {
   display: grid;
   gap: 8px;
@@ -988,6 +989,45 @@
 
 .crypto-pass-item {
   grid-template-columns: minmax(0, 1fr) 96px;
+}
+
+.crypto-market-quotes {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.crypto-market-quotes div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.crypto-market-quotes span,
+.crypto-market-quotes em {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(255, 248, 224, 0.62);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.crypto-market-quotes strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff8e0;
+  font-size: 12px;
+  font-weight: 1000;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .crypto-pass-actions {

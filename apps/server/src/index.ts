@@ -3,6 +3,7 @@ import { networkInterfaces } from "node:os";
 import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
+import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { closeDatabase } from "./db/client.js";
 import { areDebugMessagesEnabled, readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
 
@@ -50,12 +51,33 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (url === "/crypto/market-quotes") {
+    void getCryptoMarketQuoteSnapshot()
+      .then((document) => {
+        writeCorsHeaders(res);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(document));
+      })
+      .catch((error) => {
+        writeCorsHeaders(res);
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to read market quotes.",
+          refreshIntervalSeconds: 3600,
+          quotes: [],
+        }));
+      });
+    return;
+  }
+
   res.writeHead(200, { "content-type": "text/plain" });
   res.end("mferland is up\n");
 });
 
 const gameServer = new Server({ server });
 gameServer.define(ROOM_NAME, TownRoom);
+const stopMarketQuotePoller = startCryptoMarketQuotePoller();
 
 server.listen(port, host, () => {
   console.log(`mferland server listening on ws://localhost:${port}`);
@@ -70,6 +92,7 @@ server.listen(port, host, () => {
 });
 
 async function shutdown() {
+  stopMarketQuotePoller();
   await closeDatabase();
   server.close(() => process.exit(0));
 }

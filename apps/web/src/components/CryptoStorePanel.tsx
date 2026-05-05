@@ -49,6 +49,29 @@ type CryptoStoreBalances = {
   error: string;
 };
 
+type CryptoMarketQuote = {
+  id: string;
+  tokenSymbol: string;
+  chainId: string;
+  quoteSymbol: string;
+  source: string;
+  dexId: string;
+  pairAddress: string;
+  pairUrl: string;
+  priceNative: string;
+  priceUsd: string;
+  liquidityUsd: string;
+  volume24h: string;
+  fetchedAt: string;
+};
+
+type CryptoMarketQuotesState = {
+  quotes: CryptoMarketQuote[];
+  state: "idle" | "loading" | "ready" | "error";
+  error: string;
+  refreshIntervalSeconds: number;
+};
+
 const CONTRACT_STORAGE_KEY = "mferland.cryptoStore.localContracts.v1";
 const LOCAL_CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
 const PRODUCTION_CONTRACT_CONFIG_URL = "/crypto/production-contracts.json";
@@ -106,6 +129,13 @@ const EMPTY_BALANCES: CryptoStoreBalances = {
   state: "idle",
   error: "",
 };
+const EMPTY_MARKET_QUOTES: CryptoMarketQuotesState = {
+  quotes: [],
+  state: "idle",
+  error: "",
+  refreshIntervalSeconds: 3600,
+};
+const MARKET_QUOTE_UI_REFRESH_MS = 60_000;
 
 export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateChainGearTier }: CryptoStorePanelProps) {
   const wagmiAccount = useAccount();
@@ -119,12 +149,15 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   const [status, setStatus] = useState("loading local contracts");
   const [isBusy, setIsBusy] = useState(false);
   const [balances, setBalances] = useState<CryptoStoreBalances>(EMPTY_BALANCES);
+  const [marketQuotes, setMarketQuotes] = useState<CryptoMarketQuotesState>(EMPTY_MARKET_QUOTES);
   const shortAccount = useMemo(() => account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "not connected", [account]);
   const chainIdHex = useMemo(() => toChainIdHex(chainConfig.chainId), [chainConfig.chainId]);
   const selectedStoreGear = useMemo(
     () => STORE_GEAR_COLLECTION.find((gear) => String(gear.gearType) === gearType) ?? null,
     [gearType],
   );
+  const mferQuote = useMemo(() => findMarketQuote(marketQuotes.quotes, "$mfer"), [marketQuotes.quotes]);
+  const mferGptQuote = useMemo(() => findMarketQuote(marketQuotes.quotes, "MFERGPT"), [marketQuotes.quotes]);
 
   useEffect(() => {
     if (wagmiAccount.address) setAccount(wagmiAccount.address);
@@ -163,6 +196,45 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   useEffect(() => {
     void refreshBalances();
   }, [account, wagmiAccount.address, addresses.mfer, addresses.mfergpt, chainConfig.chainId]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: number | null = null;
+
+    async function loadQuotes() {
+      setMarketQuotes((current) => ({ ...current, state: current.state === "idle" ? "loading" : current.state, error: "" }));
+      try {
+        const response = await fetch(`${getServerHttpBaseUrl()}/crypto/market-quotes`, { cache: "no-store" });
+        const payload = await response.json() as Partial<CryptoMarketQuotesState & { ok: boolean }>;
+        if (!response.ok || payload.ok === false) throw new Error(payload.error || "market cache offline");
+        if (disposed) return;
+        setMarketQuotes({
+          quotes: Array.isArray(payload.quotes) ? payload.quotes.filter(isMarketQuote) : [],
+          state: "ready",
+          error: "",
+          refreshIntervalSeconds: Number.isFinite(payload.refreshIntervalSeconds)
+            ? Number(payload.refreshIntervalSeconds)
+            : EMPTY_MARKET_QUOTES.refreshIntervalSeconds,
+        });
+      } catch (error) {
+        if (!disposed) {
+          setMarketQuotes((current) => ({
+            ...current,
+            state: "error",
+            error: getErrorMessage(error),
+          }));
+        }
+      }
+    }
+
+    void loadQuotes();
+    timer = window.setInterval(() => void loadQuotes(), MARKET_QUOTE_UI_REFRESH_MS);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, []);
 
   function updateAddress(key: keyof CryptoStoreAddresses, value: string) {
     setAddresses((current) => ({ ...current, [key]: value.trim() }));
@@ -436,12 +508,25 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       <div className="crypto-store-item crypto-pass-item">
         <div>
           <strong>{LAUNCH_PASS_LABEL}</strong>
-          <span>token distribution eligibility / 0.0069 ETH / 621 MFER / 690 MFERGPT burn</span>
+          <span>token distribution eligibility / contract price set onchain</span>
         </div>
         <label>
           <span>pass id</span>
           <input value={launchPassTokenId || "--"} readOnly />
         </label>
+      </div>
+
+      <div className="crypto-market-quotes" aria-label="market quotes">
+        <div>
+          <span>$mfer/WETH</span>
+          <strong>{formatMarketQuote(mferQuote)}</strong>
+          <em>{formatMarketQuoteMeta(mferQuote, marketQuotes)}</em>
+        </div>
+        <div>
+          <span>MFERGPT/WETH</span>
+          <strong>{formatMarketQuote(mferGptQuote)}</strong>
+          <em>{formatMarketQuoteMeta(mferGptQuote, marketQuotes)}</em>
+        </div>
       </div>
 
       <div className="crypto-store-actions crypto-pass-actions">
@@ -815,6 +900,82 @@ function isUnknownChainError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const maybeError = error as { code?: unknown; cause?: unknown };
   return maybeError.code === 4902 || isUnknownChainError(maybeError.cause);
+}
+
+function getServerHttpBaseUrl() {
+  const configured = String(import.meta.env.VITE_SERVER_URL ?? "").trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "ws:") url.protocol = "http:";
+      if (url.protocol === "wss:") url.protocol = "https:";
+      return url.origin;
+    } catch {
+      return configured.replace(/^ws:/, "http:").replace(/^wss:/, "https:").replace(/\/+$/, "");
+    }
+  }
+
+  const protocol = window.location.protocol === "https:" ? "https" : "http";
+  return `${protocol}://${window.location.hostname}:2567`;
+}
+
+function findMarketQuote(quotes: CryptoMarketQuote[], tokenSymbol: string) {
+  const normalized = tokenSymbol.toUpperCase();
+  return quotes.find((quote) => quote.tokenSymbol.toUpperCase() === normalized) ?? null;
+}
+
+function isMarketQuote(value: unknown): value is CryptoMarketQuote {
+  if (!value || typeof value !== "object") return false;
+  const quote = value as Partial<CryptoMarketQuote>;
+  return (
+    typeof quote.id === "string"
+    && typeof quote.tokenSymbol === "string"
+    && typeof quote.chainId === "string"
+    && typeof quote.quoteSymbol === "string"
+    && typeof quote.source === "string"
+    && typeof quote.dexId === "string"
+    && typeof quote.pairAddress === "string"
+    && typeof quote.pairUrl === "string"
+    && typeof quote.priceNative === "string"
+    && typeof quote.priceUsd === "string"
+    && typeof quote.liquidityUsd === "string"
+    && typeof quote.volume24h === "string"
+    && typeof quote.fetchedAt === "string"
+  );
+}
+
+function formatMarketQuote(quote: CryptoMarketQuote | null) {
+  if (!quote) return "--";
+  const native = formatDecimal(quote.priceNative);
+  const usd = quote.priceUsd ? ` / $${formatDecimal(quote.priceUsd)}` : "";
+  const quoteSymbol = quote.quoteSymbol === "WETH" ? "ETH" : quote.quoteSymbol;
+  return `${native} ${quoteSymbol}${usd}`;
+}
+
+function formatMarketQuoteMeta(quote: CryptoMarketQuote | null, state: CryptoMarketQuotesState) {
+  if (!quote) return state.state === "error" ? state.error : "waiting";
+  const age = formatQuoteAge(quote.fetchedAt);
+  const liquidity = quote.liquidityUsd ? `liq $${formatDecimal(quote.liquidityUsd)}` : "liq --";
+  return `${quote.dexId || quote.source} / ${age} / ${liquidity}`;
+}
+
+function formatQuoteAge(value: string) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "stale";
+  const ageMs = Math.max(0, Date.now() - timestamp);
+  const ageMinutes = Math.floor(ageMs / 60_000);
+  if (ageMinutes < 1) return "now";
+  if (ageMinutes < 90) return `${ageMinutes}m`;
+  const ageHours = Math.floor(ageMinutes / 60);
+  return `${ageHours}h`;
+}
+
+function formatDecimal(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  if (parsed === 0) return "0";
+  if (Math.abs(parsed) < 0.000001) return parsed.toExponential(3);
+  return parsed.toLocaleString(undefined, { maximumSignificantDigits: 6 });
 }
 
 function getErrorMessage(error: unknown) {

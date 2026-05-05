@@ -48,7 +48,7 @@ Round up, not down, so the treasury never receives less than the target value be
 
 ## Soft Launch Recommendation
 
-For friend-test production, keep the contract price owner-set and update it from a trusted admin quote before launch or before each invite window.
+For friend-test production, keep the contract price owner-set and update it from a trusted admin quote before launch or before each invite window. Mainnet/Base deployment is currently paused; use the local/staging DB-backed market quote cache until the production gate is reopened.
 
 That means:
 
@@ -61,6 +61,21 @@ That means:
 - pause or stop advertising the `$mfer` button if the quote is stale.
 
 This is boring, but it is the right first production surface. It avoids putting a half-tested oracle path into the payment contract while still making `$mfer` feel native.
+
+## Local/Staging Market Quote Cache
+
+The game server stores hourly Dex Screener quotes in `crypto_market_quotes` when `DATABASE_URL` is configured. It tracks the highest-liquidity Base `WETH` pair above the configured floor for:
+
+- `$mfer`: `0xe3086852a4b125803c815a158249ae468a3254ca`
+- `MFERGPT`: `0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07`
+
+Refresh manually:
+
+```sh
+npm run pricing:refresh:market
+```
+
+The crypto store reads `/crypto/market-quotes` from the server and displays cached labels. These labels do not change what the contract accepts; onchain payment prices stay contract-enforced.
 
 ## Later Onchain Quote
 

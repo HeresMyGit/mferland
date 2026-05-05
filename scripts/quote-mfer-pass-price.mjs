@@ -112,7 +112,7 @@ function selectDexScreenerPair({ candidates, minLiquidityUsd, quoteSymbol, token
     .filter((pair) => {
       const baseAddress = normalizeAddress(pair?.baseToken?.address);
       const baseMatches = !normalizedToken || baseAddress === normalizedToken;
-      const quoteMatches = normalizeSymbol(pair?.quoteToken?.symbol) === quoteSymbol;
+      const quoteMatches = normalizeExternalSymbol(pair?.quoteToken?.symbol) === quoteSymbol;
       const hasPrice = typeof pair?.priceNative === "string" && pair.priceNative.trim() !== "";
       const liquidityUsd = Number(pair?.liquidity?.usd ?? 0);
       return baseMatches && quoteMatches && hasPrice && Number.isFinite(liquidityUsd) && liquidityUsd >= minLiquidityUsd;
@@ -166,6 +166,11 @@ function normalizeSymbol(value) {
   const normalized = String(value ?? "").trim().toUpperCase();
   if (!/^[A-Z0-9_$.-]{1,32}$/.test(normalized)) throw new Error("--quote-symbol is invalid");
   return normalized;
+}
+
+function normalizeExternalSymbol(value) {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  return /^[A-Z0-9_$.-]{1,32}$/.test(normalized) ? normalized : "";
 }
 
 function hasText(value) {

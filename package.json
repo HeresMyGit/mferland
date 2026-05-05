@@ -25,6 +25,7 @@
     "crypto:config:check": "node scripts/check-crypto-config.mjs",
     "wallets:create:test": "node scripts/create-disposable-wallets.mjs",
     "pricing:quote:mfer-pass": "node scripts/quote-mfer-pass-price.mjs",
+    "pricing:refresh:market": "npm run market:refresh -w @mferland/server",
     "support:admin": "npm run support:admin -w @mferland/server --",
     "build": "npm run build -w @mferland/shared && npm run build -w @mferland/server && npm run build -w @mferland/web",
     "build:agent": "npm run build -w @mferland/agent",

@@ -126,3 +126,25 @@ export const cryptoPurchaseEvents = pgTable("crypto_purchase_events", {
   index("crypto_purchase_events_wallet_idx").on(table.walletAddress, table.productId, table.createdAt),
   index("crypto_purchase_events_status_idx").on(table.productId, table.status, table.createdAt),
 ]);
+
+export const cryptoMarketQuotes = pgTable("crypto_market_quotes", {
+  id: text("id").primaryKey(),
+  tokenSymbol: text("token_symbol").notNull(),
+  tokenAddress: text("token_address").notNull(),
+  chainId: text("chain_id").notNull(),
+  quoteSymbol: text("quote_symbol").notNull(),
+  source: text("source").notNull().default("dexscreener"),
+  dexId: text("dex_id").notNull().default(""),
+  pairAddress: text("pair_address").notNull().default(""),
+  pairUrl: text("pair_url").notNull().default(""),
+  priceNative: text("price_native").notNull(),
+  priceUsd: text("price_usd").notNull().default(""),
+  liquidityUsd: text("liquidity_usd").notNull().default(""),
+  volume24h: text("volume_24h").notNull().default(""),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  rawJson: text("raw_json").notNull().default("{}"),
+}, (table) => [
+  index("crypto_market_quotes_token_idx").on(table.chainId, table.tokenAddress, table.quoteSymbol),
+  index("crypto_market_quotes_fetched_idx").on(table.fetchedAt),
+]);
