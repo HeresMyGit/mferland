@@ -51,35 +51,35 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
   const specs: NpcSpawnSpec[] = [
     {
       id: "og-mfer",
-      name: "OG mfer",
+      name: "OG porch mfer",
       role: "quest_giver",
       x: -4.2,
       z: 3.9,
       yaw: 2.3,
       leashRadius: 1.1,
-      dialogue: "gm. make one lap and come back.",
+      dialogue: "gm. do one honest lap, see who's real, come back less lost.",
       questId: "mfer-beginnings",
     },
     {
       id: "dao-mfer",
-      name: "dao board mfer",
+      name: "board mfer",
       role: "quest_giver",
       x: 14.8,
       z: -8.8,
       yaw: -1.7,
       leashRadius: 1.5,
-      dialogue: "officially unofficial, as always.",
+      dialogue: "it's not governance. it's a corkboard with delusions.",
       questId: "dao-tour",
     },
     {
       id: "wearables-mfer",
-      name: "drip mfer",
+      name: "drip desk mfer",
       role: "merchant",
       x: -14.8,
       z: 12.5,
       yaw: 1.1,
       leashRadius: 1.2,
-      dialogue: "fit looks under control. if you brought scraps, hand them over.",
+      dialogue: "town can look busted and still not dress like a reply guy.",
     },
     {
       id: "gate-guard",
@@ -103,13 +103,13 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
     },
     {
       id: "fountain-mfer",
-      name: "fountain mfer",
+      name: "fountain rail mfer",
       role: "quest_giver",
       x: -7.5,
       z: -2.8,
       yaw: 1.6,
       leashRadius: 7.5,
-      dialogue: "plaza's the real town hall. sit for a sec.",
+      dialogue: "if the board says one thing and the fountain says another, trust the fountain.",
       questId: "fountain-vibes",
     },
     {
@@ -121,7 +121,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: -5.2,
       yaw: -0.92,
       leashRadius: 0,
-      dialogue: "say @mfergpt for a hint, room scan, or a clean dummy check.",
+      dialogue: "say @mfergpt where next if the town starts sounding too official.",
     },
     {
       id: "plaza-left-mfer",
@@ -201,7 +201,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 64.5,
       yaw: -0.35,
       leashRadius: 1.3,
-      dialogue: "red-eyes are still out there. farm smells awful.",
+      dialogue: "farm's full of loop-brained posters. go thin the herd.",
       questId: "feral-farmers",
     },
     {
@@ -212,28 +212,28 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 60.8,
       yaw: -1.35,
       leashRadius: 5.5,
-      dialogue: "farm first, route post after. stay on the dirt.",
+      dialogue: "farm first, route board after. stay on the dirt.",
     },
     {
       id: "field-guide-mfer",
-      name: "route post mfer",
+      name: "route board mfer",
       role: "quest_giver",
       x: -119.2,
       z: 132.4,
       yaw: 0.2,
       leashRadius: 1.4,
-      dialogue: "route board's right here. sweep the road and come back.",
+      dialogue: "i don't need heroics. i need the road quiet enough to walk.",
       questId: "route-patrol-daily",
     },
     {
       id: "pen-keeper-mfer",
-      name: "hog loop mfer",
+      name: "loop booth mfer",
       role: "quest_giver",
       x: -111.2,
       z: 136.7,
       yaw: -0.8,
       leashRadius: 1.2,
-      dialogue: "hog loop never ends. still pays.",
+      dialogue: "the hog loop resets faster than shame.",
       questId: "hog-loop",
     },
     {
@@ -254,18 +254,18 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: -92.8,
       yaw: 2.05,
       leashRadius: 1.4,
-      dialogue: "ridge is buzzing again. follow the markers and don't drift.",
+      dialogue: "uptrail gets loud. follow the markers and ignore the weird ideas.",
       questId: "signal-scraps",
     },
     {
       id: "beacon-keeper-mfer",
-      name: "relay mfer",
+      name: "relay shack mfer",
       role: "quest_giver",
       x: 117.6,
       z: -91.2,
       yaw: 2.75,
       leashRadius: 1.4,
-      dialogue: "relay's touchy today. clear the crew before you touch it.",
+      dialogue: "too much signal makes one big stupid body. let's not admire it.",
       questId: "cut-the-static",
     },
     {
@@ -423,11 +423,11 @@ function makeWildHogSpecs() {
 
 function makeFarmerSpecs() {
   return [
-    { id: "farmhand-bran", name: "red-eye mfer bran", x: -77.5, z: 86.5, yaw: -0.7, style: "melee" },
-    { id: "farmhand-mae", name: "red-eye mfer mae", x: -87.5, z: 91.5, yaw: 0.8, style: "melee" },
-    { id: "field-mage-sol", name: "drop-loop mfer sol", x: -73.2, z: 99.8, yaw: -1.6, style: "caster" },
-    { id: "farmhand-jo", name: "red-eye mfer jo", x: -94.5, z: 102.4, yaw: 0.4, style: "melee" },
-    { id: "field-mage-ren", name: "rumor-loop mfer ren", x: -84.8, z: 108.6, yaw: 2.2, style: "caster" },
+    { id: "farmhand-bran", name: "loop-burnt bran", x: -77.5, z: 86.5, yaw: -0.7, style: "melee" },
+    { id: "farmhand-mae", name: "loop-burnt mae", x: -87.5, z: 91.5, yaw: 0.8, style: "melee" },
+    { id: "field-mage-sol", name: "reply-loop sol", x: -73.2, z: 99.8, yaw: -1.6, style: "caster" },
+    { id: "farmhand-jo", name: "loop-burnt jo", x: -94.5, z: 102.4, yaw: 0.4, style: "melee" },
+    { id: "field-mage-ren", name: "rumor-loop ren", x: -84.8, z: 108.6, yaw: 2.2, style: "caster" },
   ].map((farmer) => ({
     id: farmer.id,
     name: farmer.name,
@@ -441,19 +441,19 @@ function makeFarmerSpecs() {
     maxHealth: farmer.style === "caster" ? 70 : 90,
     combatStyle: farmer.style as "melee" | "caster",
     dialogue: farmer.style === "caster"
-      ? "been farming the same rumor for three nights."
-      : "one more loop, one more drop. eyes cooked.",
+      ? "reply-loop still running. bad posture. worse signal."
+      : "one more loop, one more post. brain cooked.",
   }));
 }
 
 function makeRidgeRaiderSpecs() {
   return [
-    { id: "ridge-raider-vex", name: "red-eye runner mfer", x: 145.5, z: -84.2, yaw: -2.4, style: "melee", health: 150 },
-    { id: "ridge-raider-pax", name: "rogue route mfer", x: 153.2, z: -95.8, yaw: 2.5, style: "melee", health: 150 },
-    { id: "static-mage-ori", name: "signal-fried mferGPT", model: "mfergpt", x: 150.2, z: -113.4, yaw: -0.2, style: "caster", health: 135 },
-    { id: "ridge-raider-loop", name: "relay runner mfer", x: 142.0, z: -74.5, yaw: 1.1, style: "melee", health: 125 },
-    { id: "ridge-raider-spark", name: "relay shell mfer", model: "mfergpt", x: 158.2, z: -106.2, yaw: -2.2, style: "caster", health: 125 },
-    { id: "static-baron-nox", name: "static baron mfer", x: 151.5, z: -124.8, yaw: 2.85, style: "melee", health: 920 },
+    { id: "ridge-raider-vex", name: "runner vex", x: 145.5, z: -84.2, yaw: -2.4, style: "melee", health: 150 },
+    { id: "ridge-raider-pax", name: "off-route pax", x: 153.2, z: -95.8, yaw: 2.5, style: "melee", health: 150 },
+    { id: "static-mage-ori", name: "broken mferGPT shell", model: "mfergpt", x: 150.2, z: -113.4, yaw: -0.2, style: "caster", health: 135 },
+    { id: "ridge-raider-loop", name: "loop runner", x: 142.0, z: -74.5, yaw: 1.1, style: "melee", health: 125 },
+    { id: "ridge-raider-spark", name: "verified shell", model: "mfergpt", x: 158.2, z: -106.2, yaw: -2.2, style: "caster", health: 125 },
+    { id: "static-baron-nox", name: "The Static Baron", x: 151.5, z: -124.8, yaw: 2.85, style: "melee", health: 920 },
   ].map((raider) => ({
     id: raider.id,
     name: raider.name,
@@ -467,10 +467,10 @@ function makeRidgeRaiderSpecs() {
     maxHealth: raider.health,
     combatStyle: raider.style as "melee" | "caster",
     dialogue: raider.id === "static-baron-nox"
-      ? "all the bad signal got one big body."
+      ? "bad signal found a spine."
       : raider.style === "caster"
-        ? "broken helper loop. red visor. bad idea."
-        : "wired on relay static and looking for a fight.",
+        ? "broken helper loop. polished shell. bad idea."
+        : "signal-jacked and looking for a fight.",
   }));
 }
 

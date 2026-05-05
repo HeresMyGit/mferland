@@ -61,8 +61,8 @@ export const WORLD_ROADS: WorldRoad[] = [
 
 export const WORLD_HUBS: WorldHub[] = [
   { id: "starter-plaza", name: "Fountain Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
-  { id: "busted-farm", name: "Red-Eye Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
-  { id: "field-camp", name: "Route Post", x: -118, z: 136, diameter: 28, kind: "hub" },
+  { id: "busted-farm", name: "Loop Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
+  { id: "field-camp", name: "Route Board", x: -118, z: 136, diameter: 28, kind: "hub" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
   { id: "static-field", name: "Static Lot", x: 150, z: -104, diameter: 22, kind: "farm" },
 ];

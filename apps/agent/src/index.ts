@@ -405,7 +405,7 @@ const MARKET_LINES = [
 ] as const;
 const FARM_LINES = [
   "road's open but it still smells like hogs",
-  "red-eye farm again",
+  "loop farm again",
   "hog loop never ends",
 ] as const;
 const RIDGE_LINES = [

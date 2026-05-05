@@ -69,7 +69,7 @@ The full local crypto test path, including a headless browser pass through the i
 npm run crypto:test:local
 ```
 
-That command starts any missing local services, deploys fresh local contracts, opens the game in a browser, connects the dev wallet, opens `drip mfer`, buys the starter gear collection through the merchant, checks onchain balances and NFT tiers, verifies reverted max-tier upgrades show as failures in the UI, and confirms an upgraded NFT is visible in the character screen with scaled stats.
+That command starts any missing local services, deploys fresh local contracts, opens the game in a browser, connects the dev wallet, opens `drip desk mfer`, buys the starter gear collection through the merchant, checks onchain balances and NFT tiers, verifies reverted max-tier upgrades show as failures in the UI, and confirms an upgraded NFT is visible in the character screen with scaled stats.
 
 ## Pricing Model
 

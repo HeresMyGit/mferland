@@ -94,8 +94,12 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
     return `${QUESTS[questId].title}: ${formatNamedQuestProgress(quest)}.`;
   }
 
+  if (questId === "ask-mfergpt") {
+    return `${QUESTS[questId].title}: ask @mferGPT where to go next. use the word hint, quest, or where next so the agent knows you're asking for direction.`;
+  }
+
   if (questId === "hog-livers") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog livers in the bag. ugly drop rate, normal town problem.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog loop livers in the bag. ugly drop rate, normal town problem.`;
   }
 
   if (questId === "route-patrol-daily") {
@@ -107,7 +111,7 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   }
 
   if (questId === "signal-scraps") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} static scraps collected. still buzzing, unfortunately.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} fried relay scraps collected. still buzzing, unfortunately.`;
   }
 
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
@@ -130,63 +134,67 @@ export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): 
 
 function getQuestCompletionResponse(questId: QuestId) {
   if (questId === "mfer-beginnings") {
-    return "dao board mfer writes your name somewhere probably official.";
+    return "good. you found the board. don't start respecting it.";
   }
 
   if (questId === "sealed-note") {
-    return "drip mfer tucks the note away. zero questions. healthy town behavior.";
+    return "yep. that's for me. town still runs on folded notes and side-eye.";
+  }
+
+  if (questId === "ask-mfergpt") {
+    return "good. if the agent says farm first, take that as practical advice, not prophecy.";
   }
 
   if (questId === "farmhand-bandanas") {
-    return "these rags will make ugly little warning flags for red-eye farm.";
+    return "perfect. even cooked mfers leave behind usable material.";
   }
 
   if (questId === "dao-tour") {
-    return "fountain mfer confirms the plaza loop. this is how government works here.";
+    return "yeah, that's the fountain. more governance happens there than at the board.";
   }
 
   if (questId === "fountain-vibes") {
-    return "OG mfer sees you made the loop. town accepts this as enough.";
+    return "good. now you know the town loop. that's enough orientation.";
   }
 
   if (questId === "feral-farmers") {
-    return "good. fewer fried airdrop brains on the road.";
+    return "good. less loop-brain drifting off that farm now.";
   }
 
   if (questId === "hog-livers") {
-    return "the hog charm smells illegal. hogwatch says it works.";
+    return "disgusting. exactly right. route should hold a little longer.";
   }
 
   if (questId === "field-camp-delivery") {
-    return "route post marks the road open. one less thing to argue about.";
+    return "got it. road's open enough to risk sending more mfers through.";
   }
 
   if (questId === "route-patrol-daily") {
-    return "route sweep logged. board looks slightly less embarrassing.";
+    return "nice. road's walkable again. check tomorrow; it never stays civil.";
   }
 
   if (questId === "hog-loop") {
-    return "another hog loop handled. nobody is shocked it will come back.";
+    return "clean enough. give it five minutes and the mud will get ideas again.";
   }
 
   if (questId === "ridge-dispatch") {
-    return "ridge post mfer pins the ping to the board and points uptrail.";
+    return "made it. if you can find the ridge once, you can usually find it again.";
   }
 
   if (questId === "signal-scraps") {
-    return "these scraps still buzz. enough for relay mfer to make it someone else's problem.";
+    return "good scrap. still humming. means it hasn't fully lied to us yet.";
   }
 
   if (questId === "cut-the-static") {
-    return "the crew is down. only the big pile of bad signal is still up.";
+    return "crew's down. now we deal with the one big body holding the mess together.";
   }
 
   if (questId === "baron-of-static") {
-    return "static baron mfer is offline. the relay can now do the daily stupid thing.";
+    return "beautiful. ridge can hear itself think again.";
   }
 
   if (questId === "ogre-raid-daily") {
-    return "the huge mfer ogre is down. relay mfer cuts the signal before it gets ideas.";
+    return "clean hit. that's all the bad feed in one body, and you folded it.";
   }
 
   return "errand handled.";
@@ -197,24 +205,26 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "wearables-mfer") return "good town. better hats.";
   if (npcId === "dao-mfer") return "nothing here is that organized.";
   if (npcId === "fountain-mfer") return "good fountain. good smoke. good enough.";
-  if (npcId === "hogwatch-mfer") return "farm smells awful. still gotta clear it.";
+  if (npcId === "hogwatch-mfer") return "farm's still full of loop-brain. keep it thin.";
   if (npcId === "field-guide-mfer") return "camp stays up if the road stays quiet.";
-  if (npcId === "pen-keeper-mfer") return "hog loop never ends.";
+  if (npcId === "pen-keeper-mfer") return "hog loop resets faster than shame.";
   if (npcId === "ridge-guide-mfer") return "static's louder uptrail.";
-  if (npcId === "beacon-keeper-mfer") return "if the baron's still up, we're not done.";
+  if (npcId === "beacon-keeper-mfer") return "too much signal makes one big stupid body.";
+  if (npcId === "mfergpt") return "hog farm first if you haven't handled it. then uptrail when the road lets you.";
   return "nothing else for now.";
 }
 
 function getNpcDisplayName(npcId: string) {
-  if (npcId === "og-mfer") return "OG mfer";
-  if (npcId === "wearables-mfer") return "drip mfer";
-  if (npcId === "dao-mfer") return "dao board mfer";
-  if (npcId === "fountain-mfer") return "fountain mfer";
+  if (npcId === "og-mfer") return "OG porch mfer";
+  if (npcId === "wearables-mfer") return "drip desk mfer";
+  if (npcId === "dao-mfer") return "board mfer";
+  if (npcId === "fountain-mfer") return "fountain rail mfer";
   if (npcId === "hogwatch-mfer") return "hogwatch mfer";
-  if (npcId === "field-guide-mfer") return "route post mfer";
-  if (npcId === "pen-keeper-mfer") return "hog loop mfer";
+  if (npcId === "field-guide-mfer") return "route board mfer";
+  if (npcId === "pen-keeper-mfer") return "loop booth mfer";
   if (npcId === "ridge-guide-mfer") return "ridge post mfer";
-  if (npcId === "beacon-keeper-mfer") return "relay mfer";
+  if (npcId === "beacon-keeper-mfer") return "relay shack mfer";
+  if (npcId === "mfergpt") return "mferGPT";
   return "the right mfer";
 }
 
@@ -383,6 +393,15 @@ export function progressDefeatQuests(player: PlayerState, npc: NpcState) {
   }
 
   return progressed;
+}
+
+export function progressMferGptHintQuest(player: PlayerState) {
+  const quest = player.quests.get("ask-mfergpt");
+  if (!quest || quest.status !== "active") return false;
+
+  quest.progress = quest.required;
+  quest.status = "ready";
+  return true;
 }
 
 function isDefeatQuestTarget(questId: QuestId, npc: NpcState) {

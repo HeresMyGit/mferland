@@ -2,6 +2,13 @@
 
 Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT_STEPS.md) can stay focused on open work.
 
+### 2026-05-05 13:45 PDT - Mfer-Centric Quest Rewrite Baseline
+
+- Rewrote the starter, farm, route, ridge, and daily raid quest copy around the mferGPT-supplied tables.
+- Updated NPC display names/dialogue, hostile mob names, quest item/equipment names, Season 0 reward labels, mferGPT hint text, world hub labels, target-frame roles, and real-game capture clip names to match the new language.
+- Added an early `ask the agent` quest after `don't open that`: drip desk mfer sends the player to ask `@mferGPT where next`, the hint response points them toward the hog farm, and the quest becomes ready to turn in at mferGPT.
+- Verified with `npm run typecheck`, `npm run build`, `npm run shared:test`, `npm run web:test`, `npm run build:agent`, a direct built-server smoke for `ask-mfergpt` progression into `farmhand-bandanas`, and an in-app browser smoke confirming the rewritten map/NPC labels render after anon entry.
+
 ### 2026-05-04 13:52 PDT - Soft Launch Paid Surface
 
 - Selected the first paid soft-launch surface as a Season 0 launch pass instead of combat gear, keeping the respected-tester purchase path separate from early power progression.

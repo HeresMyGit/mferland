@@ -105,7 +105,7 @@ function spawnArenaEnemies({ sessionId, npcs, now }: MferGptContext): ToolOutcom
   const count = Math.min(MFERGPT.temporaryEnemyCount, available);
   const expiresAt = now + MFERGPT.temporaryEnemyLifetimeMs;
   const temporaryNpcs: MferGptTemporaryNpc[] = [];
-  const badGuyNames = ["dummy trouble", "glitched farmhand", "red-eye echo", "static brawler"];
+  const badGuyNames = ["dummy trouble", "glitched farmhand", "loop-burnt echo", "static brawler"];
 
   for (let index = 0; index < count; index += 1) {
     const angle = (index / count) * Math.PI * 2 + (now % 6280) / 1000;
@@ -198,7 +198,7 @@ function getQuestHint({ player, npcs, now }: MferGptContext): ToolOutcome {
   }
 
   return {
-    fallback: "no urgent errand is open. check the route post dailies later or ask for a room scan.",
+    fallback: "no urgent errand is open. check the route board dailies later or ask for a room scan.",
     summary: "No active, ready, or currently available quest found.",
   };
 }
@@ -242,44 +242,19 @@ function getActiveQuestHint(
   status: string,
   progress: number,
   required: number,
-  flags: string,
+  _flags: string,
   npcs: MapSchema<NpcState>,
 ) {
   const quest = QUESTS[questId];
   const turnInNpcName = getNpcName(npcs, getQuestTurnInNpcId(questId));
+  const questHint = MFERGPT_QUEST_HINTS[questId];
 
   if (status === "ready") {
     return `${quest.title} is ready. turn it in to ${turnInNpcName}.`;
   }
 
-  if (questId === "feral-farmers" && "objectives" in quest) {
-    const completed = new Set(flags.split(",").filter(Boolean));
-    const missing = quest.objectives
-      .filter((objective) => !completed.has(objective.id))
-      .map((objective) => objective.label.replace("Defeat ", ""));
-    return missing.length > 0
-      ? `for ${quest.title}, head to red-eye farm and handle ${missing.join(", ")}.`
-      : `${quest.title} is basically done. check back with ${turnInNpcName}.`;
-  }
-
-  if (questId === "hog-livers") {
-    return `for ${quest.title}, keep clearing wild hogs near the loop. you have ${progress}/${required} hog livers.`;
-  }
-
-  if (questId === "field-camp-delivery") {
-    return `follow the dirt route past red-eye farm to route post, then talk to ${turnInNpcName}.`;
-  }
-
-  if (questId === "ridge-dispatch") {
-    return `take the east cut, follow 0.069 mile and 4:20 turn, then talk to ${turnInNpcName}.`;
-  }
-
-  if (questId === "route-patrol-daily") {
-    return `for ${quest.title}, clear hogs or red-eyes along the road. progress is ${progress}/${required}.`;
-  }
-
-  if (questId === "hog-loop") {
-    return `for ${quest.title}, sweep wild hogs around red-eye farm and route post. progress is ${progress}/${required}.`;
+  if (questHint) {
+    return questHint;
   }
 
   if ("requiredItemId" in quest) {
@@ -288,6 +263,25 @@ function getActiveQuestHint(
 
   return `for ${quest.title}, handle: ${quest.objectiveLabel}. progress is ${progress}/${required}.`;
 }
+
+const MFERGPT_QUEST_HINTS = {
+  "mfer-beginnings": "pick up one honest lap from OG porch mfer, then head to board mfer by the corkboard.",
+  "dao-tour": "board mfer sends you fountain-side. find fountain rail mfer; the board's done enough.",
+  "fountain-vibes": "do the plaza loop, then take it back to OG porch mfer.",
+  "sealed-note": "carry the folded offchain note to drip desk mfer. don't open it just because you can.",
+  "ask-mfergpt": "hog farm first if you haven't. ask me where next, then check in with me and start with drip desk mfer's reply-loop rag job.",
+  "farmhand-bandanas": "loop-burnt farm mfers drop reply-loop rags. bring back 2.",
+  "feral-farmers": "head into the farm and take out loop-burnt bran, loop-burnt mae, and reply-loop sol.",
+  "hog-livers": "wild hogs around the farm and loop drop hog loop livers. you need 5.",
+  "field-camp-delivery": "take hogwatch's update north to route board mfer at the post.",
+  "route-patrol-daily": "clear 6 hogs or farm trouble along the road, then check back at route board mfer.",
+  "hog-loop": "loop booth mfer pays for 5 more hogs. ugly work, fast reset.",
+  "ridge-dispatch": "follow the dirt cut east, hit the 0.069-mile stretch, take the 4:20 turn, and talk to ridge post mfer.",
+  "signal-scraps": "signal-jacked ridge crew drop fried relay scraps. bring back 4.",
+  "cut-the-static": "drop runner vex, off-route pax, and the broken mferGPT shell.",
+  "baron-of-static": "bring people. the Static Baron is one big body made out of bad feed.",
+  "ogre-raid-daily": "once the relay is charged, drop too much signal and go tell relay shack mfer.",
+} as const satisfies Partial<Record<QuestId, string>>;
 
 function describeSafePublicState({ player, players, npcs }: MferGptContext) {
   let playerCount = 0;

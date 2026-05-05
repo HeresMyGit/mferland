@@ -26,7 +26,7 @@ Add raw new notes here before triage.
 - Production DB cutover stays paused until Josh is on the Mac mini.
 - Blender MCP is available; asset/model work can proceed one checked pass at a time.
 - Keep tester auth wallet-first for now. Hold Privy until the wallet flow proves insufficient.
-- Do not spend time playtesting or expanding the current questline; quests will be rewritten later to be more mfer-centric.
+- The first mfer-centric quest rewrite baseline landed on the MBP polish branch; keep follow-up quest edits table-driven and preserve the existing mfer avatar/NPC path for visible mfers.
 - Do not build deep itemization yet. Keep normal items simple and leave rare/onchain behavior for later.
 - Use [docs/soft-launch-plan.md](docs/soft-launch-plan.md) as the current launch gate and Season 0 crypto-reward reference.
 - Use [docs/reference/original-mfertown-reference.png](docs/reference/original-mfertown-reference.png) as the current visual north star: dense cobblestone social plaza, central fountain, packed mfer NPCs, full trees, warm buildings, and a castle/gate backdrop.
@@ -75,7 +75,8 @@ Add raw new notes here before triage.
 
 ### World And Quest Polish
 
-- [ ] Hold detailed Signal Ridge/current quest playtesting until the planned mfer-centric quest rewrite. Keep the current route usable, but do not tune this questline as if it is final content.
+- [x] Land the first mfer-centric quest rewrite baseline. Completed 2026-05-05 with renamed starter/farm/route/ridge quests, rewritten NPC/mob/item labels, Season 0 reward labels, mferGPT hints, and an early `ask @mferGPT where next` quest step before the farm loop.
+- [ ] Playtest the full rewritten quest route after the Mac mini launch branch catches up, especially the new mferGPT chat-to-turn-in step and the route/ridge handoff copy.
 - [ ] Keep future upper-right and bottom-left hub changes separated into safe NPC pockets, route landmarks, and combat pockets so questgiver interactions stay readable.
 - [ ] Defer adding more quest hubs and progression pacing work until after the visual town pass and quest rewrite direction settle.
 
