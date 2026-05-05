@@ -14,6 +14,37 @@
   pointer-events: none;
 }
 
+.hud::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 56%, transparent 0 42%, rgba(255, 114, 120, 0.18) 72%, rgba(255, 114, 120, 0.34) 100%),
+    linear-gradient(180deg, rgba(255, 114, 120, 0.08), transparent 28%, transparent 72%, rgba(255, 114, 120, 0.12));
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.hud.low-health::after {
+  opacity: 0.3;
+  animation: combat-low-health-pulse 1250ms ease-in-out infinite;
+}
+
+.hud.recent-hit::after {
+  opacity: 0.54;
+  animation: combat-hit-flash 620ms ease-out forwards;
+}
+
+.hud.dead::after {
+  opacity: 0.68;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(9, 8, 6, 0.1) 0 32%, rgba(9, 8, 6, 0.54) 72%, rgba(9, 8, 6, 0.72) 100%),
+    linear-gradient(180deg, rgba(255, 114, 120, 0.14), rgba(0, 0, 0, 0.2));
+  animation: none;
+}
+
 .hud button,
 .hud input {
   pointer-events: auto;
@@ -41,6 +72,15 @@
   grid-template-columns: 70px minmax(168px, 220px);
   gap: 10px;
   align-items: center;
+}
+
+.hud.low-health .player-card {
+  outline: 2px solid rgba(255, 114, 120, 0.42);
+  outline-offset: 3px;
+}
+
+.hud.recent-hit .player-card {
+  animation: player-card-hit 360ms ease-out;
 }
 
 .player-name-row {
@@ -178,6 +218,40 @@
   100% {
     opacity: 0;
     transform: translate(-50%, -12px) scale(0.98);
+  }
+}
+
+@keyframes combat-low-health-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.38;
+  }
+}
+
+@keyframes combat-hit-flash {
+  0% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes player-card-hit {
+  0% {
+    transform: translateX(-4px);
+  }
+  38% {
+    transform: translateX(3px);
+  }
+  74% {
+    transform: translateX(-1px);
+  }
+  100% {
+    transform: translateX(0);
   }
 }
 

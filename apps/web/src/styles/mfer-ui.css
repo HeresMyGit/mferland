@@ -707,6 +707,20 @@ button.inventory-slot:hover,
   --bar-marker: var(--mfer-marker-red);
 }
 
+.bar.hp.critical {
+  border-color: rgba(255, 114, 120, 0.96);
+  box-shadow:
+    0 0 0 1px rgba(255, 248, 224, 0.24),
+    0 0 16px rgba(255, 114, 120, 0.42),
+    inset 0 0 0 1px rgba(9, 8, 6, 0.2);
+}
+
+.bar.hp.critical span {
+  --bar-base: #ff7278;
+  --bar-marker: var(--mfer-marker-red);
+  animation: low-health-bar-pulse 820ms ease-in-out infinite;
+}
+
 .bar.mp span {
   --bar-base: var(--mfer-blue);
   --bar-marker: var(--mfer-marker-blue);
@@ -734,6 +748,16 @@ button.inventory-slot:hover,
   background: linear-gradient(90deg, transparent 0 20%, rgba(255, 248, 224, 0.18) 22%, transparent 25% 68%, rgba(12, 10, 7, 0.16) 72%, transparent 76%);
   opacity: 0.35;
   pointer-events: none;
+}
+
+@keyframes low-health-bar-pulse {
+  0%,
+  100% {
+    filter: brightness(0.92);
+  }
+  50% {
+    filter: brightness(1.28);
+  }
 }
 
 .slot-key {

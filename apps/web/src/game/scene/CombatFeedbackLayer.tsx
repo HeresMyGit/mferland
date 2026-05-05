@@ -50,6 +50,8 @@ export function CombatFeedbackLayer({
             sentAt={event.sentAt}
             impactAt={impactAt}
             amount={event.amount}
+            targetKind={event.target.kind}
+            defeated={event.defeated}
             eventId={event.id}
           />
         );
@@ -69,6 +71,8 @@ function CombatEventVisual({
   sentAt,
   impactAt,
   amount,
+  targetKind,
+  defeated,
   eventId,
 }: {
   actionId: CombatActionId;
@@ -78,6 +82,8 @@ function CombatEventVisual({
   sentAt: number;
   impactAt: number;
   amount: number;
+  targetKind: CombatEvent["target"]["kind"];
+  defeated: boolean;
   eventId: string;
 }) {
   const swordRef = useRef<THREE.Group>(null);
@@ -94,6 +100,7 @@ function CombatEventVisual({
   const projectileAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const damageOffset = useMemo(() => getEventOffset(eventId), [eventId]);
   const isFrostNovaCast = actionId === "frostNova" && amount <= 0;
+  const isPhysicalImpact = amount > 0 && isPhysicalImpactAction(actionId);
   const projectileDurationMs = actionId === "shoot" || actionId === "multishot" || actionId === "signalShot"
     ? 520
     : isFrostNovaCast ? 720 : Math.max(180, impactAt - sentAt);
@@ -197,16 +204,59 @@ function CombatEventVisual({
         </>
       )}
       {actionId === "heal" && <HealBloom refGroup={impactRef} position={targetPosition} />}
+      {isPhysicalImpact && <PhysicalImpactBurst refGroup={impactRef} position={targetPosition} targetKind={targetKind} defeated={defeated} />}
       {(actionId === "fireblast" || actionId === "iceBlast" || actionId === "signalShot") && <SpellImpactBurst refGroup={impactRef} position={targetPosition} variant={actionId === "iceBlast" ? "ice" : actionId === "signalShot" ? "signal" : "fire"} />}
       {(amount > 0 || actionId === "heal") && (
         <FloatingDamageNumber
           refGroup={damageRef}
           actionId={actionId}
           amount={amount}
+          targetKind={targetKind}
+          defeated={defeated}
           position={targetPosition}
           offset={damageOffset}
         />
       )}
+    </group>
+  );
+}
+
+function PhysicalImpactBurst({
+  refGroup,
+  position,
+  targetKind,
+  defeated,
+}: {
+  refGroup: RefObject<THREE.Group | null>;
+  position: Vec3Tuple;
+  targetKind: CombatEvent["target"]["kind"];
+  defeated: boolean;
+}) {
+  const color = targetKind === "player" ? MFER_COLORS.hostile : MFER_COLORS.local;
+  const glow = defeated ? "#fff8dc" : targetKind === "player" ? MFER_COLORS.fireHot : MFER_COLORS.lootHighlight;
+  const shardAngles = useMemo(() => Array.from({ length: defeated ? 10 : 7 }, (_, index) => (index / (defeated ? 10 : 7)) * Math.PI * 2), [defeated]);
+
+  return (
+    <group ref={refGroup} position={position} visible={false}>
+      <mesh rotation-x={Math.PI / 2}>
+        <ringGeometry args={[0.28, defeated ? 0.92 : 0.68, 34]} />
+        <meshBasicMaterial color={color} depthWrite={false} opacity={defeated ? 0.48 : 0.34} toneMapped={false} transparent />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[defeated ? 0.34 : 0.24, 12, 8]} />
+        <meshBasicMaterial color={color} depthWrite={false} opacity={0.3} toneMapped={false} transparent />
+      </mesh>
+      {shardAngles.map((angle) => (
+        <mesh
+          key={angle}
+          position={[Math.sin(angle) * 0.36, 0.1 + (defeated ? 0.06 : 0), Math.cos(angle) * 0.36]}
+          rotation-y={angle}
+          rotation-z={0.72}
+        >
+          <boxGeometry args={[0.035, defeated ? 0.34 : 0.24, 0.026]} />
+          <meshBasicMaterial color={glow} depthWrite={false} opacity={0.82} toneMapped={false} transparent />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -493,29 +543,35 @@ function FloatingDamageNumber({
   refGroup,
   actionId,
   amount,
+  targetKind,
+  defeated,
   position,
   offset,
 }: {
   refGroup: RefObject<THREE.Group | null>;
   actionId: CombatActionId;
   amount: number;
+  targetKind: CombatEvent["target"]["kind"];
+  defeated: boolean;
   position: Vec3Tuple;
   offset: [number, number];
 }) {
-  const style = getDamageNumberStyle(actionId);
+  const style = getDamageNumberStyle(actionId, targetKind, defeated);
+  const label = formatCombatAmount(actionId, amount, targetKind, defeated);
 
   return (
     <group ref={refGroup} position={[position[0] + offset[0], position[1] + 0.38, position[2] + offset[1]]} visible={false}>
       <Billboard>
         <Text
-          fontSize={0.36}
+          fontSize={style.fontSize}
           anchorX="center"
           anchorY="middle"
           color={style.color}
           outlineColor={style.outlineColor}
           outlineWidth={0.045}
+          renderOrder={88}
         >
-          {actionId === "heal" ? `+${Math.round(amount)}` : Math.round(amount)}
+          {label}
         </Text>
       </Billboard>
     </group>
@@ -563,12 +619,25 @@ function ExperienceEventVisual({ event }: { event: ExperienceEvent }) {
   );
 }
 
-function getDamageNumberStyle(actionId: CombatActionId) {
-  if (actionId === "heal") return { color: MFER_COLORS.heal, outlineColor: "#0d2c16" };
-  if (actionId === "fireblast") return { color: MFER_COLORS.fire, outlineColor: "#2a0d05" };
-  if (actionId === "frostNova" || actionId === "iceBlast") return { color: "#c8f7ff", outlineColor: "#052331" };
-  if (actionId === "signalShot") return { color: "#d7a7ff", outlineColor: "#25103b" };
-  return { color: MFER_COLORS.local, outlineColor: "#15100c" };
+function getDamageNumberStyle(actionId: CombatActionId, targetKind: CombatEvent["target"]["kind"], defeated: boolean) {
+  if (actionId === "heal") return { color: MFER_COLORS.heal, outlineColor: "#0d2c16", fontSize: 0.38 };
+  if (targetKind === "player") return { color: MFER_COLORS.hostile, outlineColor: "#260403", fontSize: defeated ? 0.46 : 0.42 };
+  if (defeated) return { color: "#fff8dc", outlineColor: "#15100c", fontSize: 0.44 };
+  if (actionId === "fireblast") return { color: MFER_COLORS.fire, outlineColor: "#2a0d05", fontSize: 0.38 };
+  if (actionId === "frostNova" || actionId === "iceBlast") return { color: "#c8f7ff", outlineColor: "#052331", fontSize: 0.38 };
+  if (actionId === "signalShot") return { color: "#d7a7ff", outlineColor: "#25103b", fontSize: 0.38 };
+  return { color: MFER_COLORS.local, outlineColor: "#15100c", fontSize: 0.36 };
+}
+
+function formatCombatAmount(actionId: CombatActionId, amount: number, targetKind: CombatEvent["target"]["kind"], defeated: boolean) {
+  const rounded = Math.round(amount);
+  if (actionId === "heal") return `+${rounded}`;
+  if (targetKind === "player") return `-${rounded}${defeated ? " down" : ""}`;
+  return defeated ? `${rounded} KO` : `${rounded}`;
+}
+
+function isPhysicalImpactAction(actionId: CombatActionId) {
+  return actionId === "attack" || actionId === "shoot" || actionId === "multishot" || actionId === "whirlwind";
 }
 
 function getEventOffset(id: string): [number, number] {
