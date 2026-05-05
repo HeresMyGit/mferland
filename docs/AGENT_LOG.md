@@ -40,6 +40,7 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Added a first MBP tester combat readability polish pass: signed red incoming damage numbers, KO labels, recent-hit and low-health HUD feedback, and clearer fountain-reset death context.
 - Added an original mfer town first-read polish pass: wider cobblestone apron, plaza edge stalls, fuller nearby tree edges, and extra real mfer NPC spawns around the fountain, gate, and shop lanes.
 - Removed the experimental handmade plaza crowd. Going forward, visible mfers should come through the existing mfer avatar/NPC/player rendering path, not custom stand-in geometry.
+- Added a Nameplates setting for health bars so testers can reduce crowd clutter without hiding actor names.
 
 ## Completed Build Plan Items
 

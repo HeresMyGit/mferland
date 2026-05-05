@@ -28,6 +28,7 @@ type TrainingDummyAvatarProps = {
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   showNameplate?: boolean;
+  showNameplateHealthBar?: boolean;
   onTarget?: () => void;
 };
 
@@ -56,6 +57,7 @@ export function TrainingDummyAvatar({
   chatBubble = null,
   viewerPosition = null,
   showNameplate: canShowNameplate = true,
+  showNameplateHealthBar = true,
   onTarget,
 }: TrainingDummyAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -117,6 +119,7 @@ export function TrainingDummyAvatar({
               badgeColor={ringColor}
               health={npc.isImmortal ? undefined : npc.health}
               maxHealth={npc.isImmortal ? undefined : npc.maxHealth}
+              showHealthBar={showNameplateHealthBar}
               fontSize={0.2}
               maxWidth={2.8}
             />

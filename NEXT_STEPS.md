@@ -68,7 +68,7 @@ Add raw new notes here before triage.
 
 ### UI And HUD Polish
 
-- [ ] Add a future settings toggle to hide/show character nameplate health bars.
+- [x] Add a settings toggle to hide/show character nameplate health bars. Completed 2026-05-05 via the existing Nameplates settings section.
 - [ ] Continue narrow/mobile HUD QA when touching the right-side dock, quest tracker, hotbar, cast bar, or status bars.
 - [ ] Add simple dual-stick mobile controls, with movement/action sticks and all existing HUD/buttons remaining tappable.
 - [x] Generate ChatGPT Images 2.0 icons for all items, abilities, placeholders, and general categories like armor. Keep a consistent style, size, naming convention, and placeholder set so new content can ship quickly.

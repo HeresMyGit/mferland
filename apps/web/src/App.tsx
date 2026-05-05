@@ -73,6 +73,7 @@ const HIDDEN_CAPTURE_NAMEPLATES = {
   otherPlayers: false,
   friendlyNpcs: false,
   unfriendlyNpcs: false,
+  healthBars: false,
 };
 const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";

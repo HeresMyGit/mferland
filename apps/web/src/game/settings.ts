@@ -5,6 +5,7 @@ export type NameplateVisibility = {
   otherPlayers: boolean;
   friendlyNpcs: boolean;
   unfriendlyNpcs: boolean;
+  healthBars: boolean;
 };
 
 export type GameSettings = {
@@ -25,6 +26,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
     otherPlayers: true,
     friendlyNpcs: true,
     unfriendlyNpcs: true,
+    healthBars: true,
   },
 };
 
@@ -42,6 +44,7 @@ export function normalizeGameSettings(value: unknown): GameSettings {
       otherPlayers: candidate.nameplates?.otherPlayers ?? DEFAULT_GAME_SETTINGS.nameplates.otherPlayers,
       friendlyNpcs: candidate.nameplates?.friendlyNpcs ?? DEFAULT_GAME_SETTINGS.nameplates.friendlyNpcs,
       unfriendlyNpcs: candidate.nameplates?.unfriendlyNpcs ?? DEFAULT_GAME_SETTINGS.nameplates.unfriendlyNpcs,
+      healthBars: candidate.nameplates?.healthBars ?? DEFAULT_GAME_SETTINGS.nameplates.healthBars,
     },
   };
 }

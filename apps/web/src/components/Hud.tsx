@@ -1374,6 +1374,11 @@ function SettingsPanel({
           checked={settings.nameplates.unfriendlyNpcs}
           onChange={(checked) => updateNameplateSetting("unfriendlyNpcs", checked)}
         />
+        <SettingsToggle
+          label="Health bars"
+          checked={settings.nameplates.healthBars}
+          onChange={(checked) => updateNameplateSetting("healthBars", checked)}
+        />
       </section>
     </div>
   );

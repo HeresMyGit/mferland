@@ -32,6 +32,7 @@ type MferAvatarProps = {
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   showNameplate?: boolean;
+  showNameplateHealthBar?: boolean;
   onTarget?: () => void;
 };
 type ShadowScale = [number, number, number];
@@ -116,6 +117,7 @@ export function MferAvatar({
   chatBubble = null,
   viewerPosition = null,
   showNameplate: canShowNameplate = true,
+  showNameplateHealthBar = true,
   onTarget,
 }: MferAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -258,6 +260,7 @@ export function MferAvatar({
               badgeColor={badgeColor}
               health={npc?.isImmortal ? undefined : player.health}
               maxHealth={npc?.isImmortal ? undefined : player.maxHealth}
+              showHealthBar={showNameplateHealthBar}
               fontSize={0.22}
               maxWidth={3.2}
             />
@@ -496,6 +499,7 @@ export function ActorNameplate({
   badgeColor,
   health,
   maxHealth,
+  showHealthBar = true,
   fontSize = 0.22,
   maxWidth = 2.55,
 }: {
@@ -505,12 +509,13 @@ export function ActorNameplate({
   badgeColor: string;
   health?: number;
   maxHealth?: number;
+  showHealthBar?: boolean;
   fontSize?: number;
   maxWidth?: number;
 }) {
   const normalizedTitle = title.trim() || "mfer";
   const width = Math.min(maxWidth, Math.max(1.0, normalizedTitle.length * fontSize * 0.58 + (badge ? badge.length * 0.065 : 0) + 0.54));
-  const hasHealthBar = typeof health === "number" && typeof maxHealth === "number" && maxHealth > 0;
+  const hasHealthBar = showHealthBar && typeof health === "number" && typeof maxHealth === "number" && maxHealth > 0;
   const height = (badge ? 0.4 : 0.3) + (hasHealthBar ? 0.22 : 0);
   const titleY = hasHealthBar ? (badge ? 0.18 : 0.115) : (badge ? 0.085 : 0.02);
   const badgeY = hasHealthBar ? 0.0 : -0.13;
