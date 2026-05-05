@@ -38,6 +38,8 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Added [crypto/production-pricing.md](crypto/production-pricing.md) and `npm run pricing:quote:mfer-pass` for production `$mfer` pass pricing, including the `0.0069 ETH * 0.9` target, Dex Screener free quote mode, and the soft-launch owner-set pricing recommendation.
 - Added [launch/mac-mini-soft-launch-runbook.md](launch/mac-mini-soft-launch-runbook.md), a production crypto config template, config validation, and a pass-only Base deploy script for the Mac mini handoff.
 - Added a first MBP tester combat readability polish pass: signed red incoming damage numbers, KO labels, recent-hit and low-health HUD feedback, and clearer fountain-reset death context.
+- Added an original mfer town first-read polish pass: wider cobblestone apron, plaza edge stalls, fuller nearby tree edges, and extra real mfer NPC spawns around the fountain, gate, and shop lanes.
+- Removed the experimental handmade plaza crowd. Going forward, visible mfers should come through the existing mfer avatar/NPC/player rendering path, not custom stand-in geometry.
 
 ## Completed Build Plan Items
 

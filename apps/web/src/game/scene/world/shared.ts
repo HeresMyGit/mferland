@@ -91,12 +91,20 @@ export const TREE_ROOT_COLOR = new THREE.Color("#6b4227");
 export const TOWN_TREES: TreeSpec[] = [
   [-31, 0, -18, 1.2],
   [-27, 0, -7, 0.9],
+  [-34, 0, -10, 1.18],
+  [-34, 0, 8, 1.06],
   [-30, 0, 15, 1.05],
   [-41, 0, 30, 0.98],
+  [-24, 0, 30, 1.02],
   [-12, 0, 25, 0.95],
+  [-12, 0, -28, 0.88],
+  [12, 0, -28, 0.88],
   [12, 0, 25, 1.05],
+  [24, 0, 30, 1.02],
   [41, 0, 30, 0.98],
   [30, 0, 16, 0.95],
+  [34, 0, 8, 1.06],
+  [34, 0, -10, 1.18],
   [29, 0, -17, 1.15],
   [42, 0, -4, 0.9],
   [-42, 0, -4, 0.9],
@@ -180,6 +188,8 @@ export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = [
   { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "BEACON", accent: MFER_COLORS.fire },
 ];
 export const MARKET_STALLS: MarketStallSpec[] = [
+  { id: "left-plaza-stall", position: [-27.2, 0, 3.6], rotation: Math.PI / 2, color: MFER_COLORS.local },
+  { id: "right-plaza-stall", position: [27.2, 0, 3.6], rotation: -Math.PI / 2, color: MFER_COLORS.fire },
   { id: "left-market", position: [-6.4, 0, 29.2], rotation: Math.PI, color: MFER_COLORS.relay },
   { id: "center-market", position: [0, 0, 31.4], rotation: Math.PI, color: MFER_COLORS.friendly },
   { id: "right-market", position: [6.4, 0, 29.2], rotation: Math.PI, color: MFER_COLORS.pink },
@@ -248,6 +258,8 @@ export const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
   { position: [-41, 0.03, -36], size: [3.1, 2.5], color: "#17110b" },
   { position: [41, 0.03, -36], size: [3.1, 2.5], color: "#17110b" },
   { position: [0, 0.03, 0], size: [7.2, 6.2], color: "#17110b" },
+  { position: [-27.2, 0.03, 3.6], size: [3.5, 1.9], rotation: Math.PI / 2, color: "#21170d" },
+  { position: [27.2, 0.03, 3.6], size: [3.5, 1.9], rotation: -Math.PI / 2, color: "#21170d" },
   { position: [-6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
   { position: [0, 0.03, 31.4], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
   { position: [6.4, 0.03, 29.2], size: [3.5, 1.9], rotation: Math.PI, color: "#21170d" },
@@ -257,6 +269,8 @@ export const STATIC_CONTACT_SHADOWS: GroundRectDecalSpec[] = [
   { position: [121.8, 0.03, -91.8], size: [3.5, 1.9], rotation: 0.32, color: "#21170d" },
 ];
 export const GROUND_SMUDGE_DECALS: GroundRectDecalSpec[] = [
+  { position: [-27.2, 0.032, 4.8], size: [4.6, 2.1], rotation: Math.PI / 2, color: "#725738" },
+  { position: [27.2, 0.032, 4.8], size: [4.6, 2.1], rotation: -Math.PI / 2, color: "#725738" },
   { position: [-6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: 0.08, color: "#765b3b" },
   { position: [0, 0.032, 32.6], size: [4.5, 2.1], rotation: -0.05, color: "#725738" },
   { position: [6.4, 0.032, 30.4], size: [4.7, 2.2], rotation: -0.12, color: "#765b3b" },
