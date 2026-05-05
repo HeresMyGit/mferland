@@ -2,6 +2,13 @@
 
 Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT_STEPS.md) can stay focused on open work.
 
+### 2026-05-05 13:45 PDT - Mfer-Centric Quest Rewrite Baseline
+
+- Rewrote the starter, farm, route, ridge, and daily raid quest copy around the mferGPT-supplied tables.
+- Updated NPC display names/dialogue, hostile mob names, quest item/equipment names, Season 0 reward labels, mferGPT hint text, world hub labels, target-frame roles, and real-game capture clip names to match the new language.
+- Added an early `ask the agent` quest after `don't open that`: drip desk mfer sends the player to ask `@mferGPT where next`, the hint response points them toward the hog farm, and the quest becomes ready to turn in at mferGPT.
+- Verified with `npm run typecheck`, `npm run build`, `npm run shared:test`, `npm run web:test`, `npm run build:agent`, a direct built-server smoke for `ask-mfergpt` progression into `farmhand-bandanas`, and an in-app browser smoke confirming the rewritten map/NPC labels render after anon entry.
+
 ### 2026-05-04 13:52 PDT - Soft Launch Paid Surface
 
 - Selected the first paid soft-launch surface as a Season 0 launch pass instead of combat gear, keeping the respected-tester purchase path separate from early power progression.
@@ -37,6 +44,10 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 - Added Character panel Season Gold totals and `season-payout-export` support tooling so reviewed, pass-gated points can be converted into capped proposed `$mfergpt` payouts.
 - Added [crypto/production-pricing.md](crypto/production-pricing.md) and `npm run pricing:quote:mfer-pass` for production `$mfer` pass pricing, including the `0.0069 ETH * 0.9` target, Dex Screener free quote mode, and the soft-launch owner-set pricing recommendation.
 - Added [launch/mac-mini-soft-launch-runbook.md](launch/mac-mini-soft-launch-runbook.md), a production crypto config template, config validation, and a pass-only Base deploy script for the Mac mini handoff.
+- Added a first MBP tester combat readability polish pass: signed red incoming damage numbers, KO labels, recent-hit and low-health HUD feedback, and clearer fountain-reset death context.
+- Added an original mfer town first-read polish pass: wider cobblestone apron, plaza edge stalls, fuller nearby tree edges, and extra real mfer NPC spawns around the fountain, gate, and shop lanes.
+- Removed the experimental handmade plaza crowd. Going forward, visible mfers should come through the existing mfer avatar/NPC/player rendering path, not custom stand-in geometry.
+- Added a Nameplates setting for health bars so testers can reduce crowd clutter without hiding actor names.
 
 ## Completed Build Plan Items
 

@@ -33,6 +33,7 @@ type MferGptAvatarProps = {
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   showNameplate?: boolean;
+  showNameplateHealthBar?: boolean;
   onTarget?: () => void;
 };
 
@@ -69,6 +70,7 @@ export function MferGptAvatar({
   chatBubble = null,
   viewerPosition = null,
   showNameplate: canShowNameplate = true,
+  showNameplateHealthBar = true,
   onTarget,
 }: MferGptAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -192,6 +194,7 @@ export function MferGptAvatar({
               badgeColor={badgeColor}
               health={npc.isImmortal ? undefined : npc.health}
               maxHealth={npc.isImmortal ? undefined : npc.maxHealth}
+              showHealthBar={showNameplateHealthBar}
               fontSize={0.24}
               maxWidth={3.6}
             />

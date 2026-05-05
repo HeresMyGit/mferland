@@ -100,6 +100,7 @@ import {
   isQuestAvailable,
   makeQuestOffer,
   normalizeQuestId,
+  progressMferGptHintQuest,
   startQuest,
   progressDefeatQuests,
 } from "../systems/quests.js";
@@ -807,10 +808,12 @@ export class TownRoom extends Room<TownState> {
         prompt,
         now: Date.now(),
       });
+      const progressedMferGptQuest = result.command === "hint" && progressMferGptHintQuest(player);
       for (const temporaryNpc of result.temporaryNpcs) {
         this.temporaryNpcExpiresAt.set(temporaryNpc.id, temporaryNpc.expiresAt);
       }
       this.broadcast("chat", makeMferGptChatMessage(result.responseText, Date.now()));
+      if (progressedMferGptQuest) this.persistPlayerProgress(client.sessionId, player);
       this.logMferGptCommand(
         client.sessionId,
         player.name,
@@ -1335,7 +1338,7 @@ export class TownRoom extends Room<TownState> {
 
     spawnNpcFromSpec(this.state.npcs, {
       id: "raid-ogre-mfer",
-      name: "Huge mfer ogre",
+      name: "too much signal",
       role: "farmer",
       model: "mfer",
       x: 154.5,
@@ -1345,14 +1348,14 @@ export class TownRoom extends Room<TownState> {
       health: 5200,
       maxHealth: 5200,
       combatStyle: "melee",
-      dialogue: "The huge mfer ogre shakes the relay hard enough for the whole ridge to hear.",
+      dialogue: "Too much signal shakes the relay hard enough for the whole ridge to hear.",
     });
 
     this.broadcast("chat", {
       sessionId: "raid-ogre-mfer",
-      name: "Huge mfer ogre",
+      name: "too much signal",
       identityType: "npc",
-      text: "A huge mfer ogre has been called to Signal Ridge.",
+      text: "Too much signal has been called to Signal Ridge.",
       sentAt: Date.now(),
     } satisfies ChatMessage);
   }

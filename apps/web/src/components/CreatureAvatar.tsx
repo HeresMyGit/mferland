@@ -27,6 +27,7 @@ type CreatureAvatarProps = {
   chatBubble?: ChatBubble | null;
   viewerPosition?: { x: number; z: number } | null;
   showNameplate?: boolean;
+  showNameplateHealthBar?: boolean;
   onTarget?: () => void;
 };
 
@@ -104,6 +105,7 @@ export function CreatureAvatar({
   chatBubble = null,
   viewerPosition = null,
   showNameplate: canShowNameplate = true,
+  showNameplateHealthBar = true,
   onTarget,
 }: CreatureAvatarProps) {
   const groupRef = useRef<THREE.Group>(null);
@@ -167,6 +169,7 @@ export function CreatureAvatar({
               badgeColor={ringColor}
               health={npc.isImmortal ? undefined : npc.health}
               maxHealth={npc.isImmortal ? undefined : npc.maxHealth}
+              showHealthBar={showNameplateHealthBar}
               fontSize={npc.model === "rabbit" ? 0.16 : 0.19}
               maxWidth={2.8}
             />

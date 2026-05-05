@@ -26,7 +26,7 @@ Add raw new notes here before triage.
 - Production DB cutover stays paused until Josh is on the Mac mini.
 - Blender MCP is available; asset/model work can proceed one checked pass at a time.
 - Keep tester auth wallet-first for now. Hold Privy until the wallet flow proves insufficient.
-- Do not spend time playtesting or expanding the current questline; quests will be rewritten later to be more mfer-centric.
+- The first mfer-centric quest rewrite baseline landed on the MBP polish branch; keep follow-up quest edits table-driven and preserve the existing mfer avatar/NPC path for visible mfers.
 - Do not build deep itemization yet. Keep normal items simple and leave rare/onchain behavior for later.
 - Use [docs/soft-launch-plan.md](docs/soft-launch-plan.md) as the current launch gate and Season 0 crypto-reward reference.
 - Use [docs/reference/original-mfertown-reference.png](docs/reference/original-mfertown-reference.png) as the current visual north star: dense cobblestone social plaza, central fountain, packed mfer NPCs, full trees, warm buildings, and a castle/gate backdrop.
@@ -62,19 +62,21 @@ Add raw new notes here before triage.
 ### Combat Tuning And Feedback
 
 - [ ] Keep combat tuning lightweight for testers: obvious hit feedback, enemy tells, cooldown clarity, death/respawn polish, and basic readability only.
+- [x] Add the first tester combat readability polish pass. Completed 2026-05-05 with red signed incoming damage numbers, KO labels, recent-hit/low-health HUD feedback, and clearer death/respawn context.
 - [ ] Defer deeper eight-slot/talent-active tuning until the mfer-centric rewrite path is clearer. Use [docs/plans/ability-threat.md](docs/plans/ability-threat.md) as the reference when this resumes.
 - [ ] Defer non-mfer 3D model animation until the Blender MCP workflow is available, then do a proper asset/rig pass for simple moving limbs instead of a cheap placeholder.
 
 ### UI And HUD Polish
 
-- [ ] Add a future settings toggle to hide/show character nameplate health bars.
+- [x] Add a settings toggle to hide/show character nameplate health bars. Completed 2026-05-05 via the existing Nameplates settings section.
 - [ ] Continue narrow/mobile HUD QA when touching the right-side dock, quest tracker, hotbar, cast bar, or status bars.
 - [ ] Add simple dual-stick mobile controls, with movement/action sticks and all existing HUD/buttons remaining tappable.
 - [x] Generate ChatGPT Images 2.0 icons for all items, abilities, placeholders, and general categories like armor. Keep a consistent style, size, naming convention, and placeholder set so new content can ship quickly.
 
 ### World And Quest Polish
 
-- [ ] Hold detailed Signal Ridge/current quest playtesting until the planned mfer-centric quest rewrite. Keep the current route usable, but do not tune this questline as if it is final content.
+- [x] Land the first mfer-centric quest rewrite baseline. Completed 2026-05-05 with renamed starter/farm/route/ridge quests, rewritten NPC/mob/item labels, Season 0 reward labels, mferGPT hints, and an early `ask @mferGPT where next` quest step before the farm loop.
+- [ ] Playtest the full rewritten quest route after the Mac mini launch branch catches up, especially the new mferGPT chat-to-turn-in step and the route/ridge handoff copy.
 - [ ] Keep future upper-right and bottom-left hub changes separated into safe NPC pockets, route landmarks, and combat pockets so questgiver interactions stay readable.
 - [ ] Defer adding more quest hubs and progression pacing work until after the visual town pass and quest rewrite direction settle.
 
@@ -83,7 +85,7 @@ Add raw new notes here before triage.
 - [x] Create an asset replacement audit doc. Go through each world object/model and decide which ones would be good to replace with a new Blender-built 3D model once the Blender MCP server is available. For each object, include current asset, proposed replacement, priority, performance pros/cons, and quality pros/cons. Completed in [docs/asset-replacement-audit.md](docs/asset-replacement-audit.md).
 - [x] Expand the south gate into a real castle landmark, not just a gate. Completed 2026-04-29 as a single merged textured `/models/castle-gate.glb` with larger walls, side towers, a keep/courtyard read, baked sign text, front-facing orientation, simple widened collision, and browser QA from the Gate debug stop. Details are logged in [docs/AGENT_LOG.md](docs/AGENT_LOG.md) and [docs/asset-replacement-audit.md](docs/asset-replacement-audit.md).
 - [ ] Continue the Blender model quality pass one asset at a time: every new model should have a ChatGPT Images 2.0 texture/atlas pass, checked pivots/orientation, browser QA from the dev travel stops, and a note if a rare untextured exception is intentional.
-- [ ] Original mfer town plaza pass: push the starter area toward [docs/reference/original-mfertown-reference.png](docs/reference/original-mfertown-reference.png) with a denser cobblestone social square, fuller building/tree edges, stronger fountain read, visible mfer crowd/NPC placement, and castle/gate backdrop. Avoid letting the first read feel like a sparse western/rural town.
+- [x] Original mfer town plaza first-read pass: pushed the starter area toward [docs/reference/original-mfertown-reference.png](docs/reference/original-mfertown-reference.png) with a denser cobblestone social square, fuller building/tree edges, stronger fountain read, visible real mfer NPC placement, and castle/gate backdrop. Completed 2026-05-05; visible mfers must use the existing mfer avatar/NPC path, never custom stand-in geometry.
 - [x] Replace the current flat procedural shop signs with Blender-built hanging signs/banners that support runtime labels/accent colors without looking like UI rectangles pasted onto the buildings. Completed 2026-04-29 with `/models/town-hanging-sign.glb`, shared runtime labels/accent tinting, shopfront signs, market stall signs, farm entrance signage, and route marker signposts. Browser QA covered auth preview, Gate, Market, Farm, and Relay debug stops.
 - [ ] Integrate the creature GLB source bank into runtime one creature at a time, starting with the hog/old-boar combat silhouette before passive rabbit/deer polish.
 

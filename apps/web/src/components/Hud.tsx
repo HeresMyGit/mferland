@@ -73,6 +73,8 @@ const IDLE_HUD_TICK_MIN_MS = 1000;
 const TOOLTIP_MAX_WIDTH = 280;
 const TOOLTIP_MAX_HEIGHT = 220;
 const TOOLTIP_OFFSET = 16;
+const LOW_HEALTH_PERCENT = 32;
+const RECENT_DAMAGE_FLASH_MS = 900;
 const EMOTE_OPTIONS: Array<{ id: EmoteId; Icon: LucideIcon }> = [
   { id: "wave", Icon: Hand },
   { id: "dance", Icon: Music },
@@ -224,6 +226,16 @@ export function Hud({
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const showSeasonGold = localPlayer?.identityType === "wallet";
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
+  const healthPercent = percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100);
+  const lowHealth = Boolean(localPlayer && localPlayer.health > 0 && healthPercent <= LOW_HEALTH_PERCENT);
+  const recentlyDamaged = Boolean(localPlayer?.lastDamagedAt && now - localPlayer.lastDamagedAt <= RECENT_DAMAGE_FLASH_MS);
+  const isDead = Boolean(localPlayer && localPlayer.health <= 0);
+  const hudClassName = [
+    "hud",
+    lowHealth ? "low-health" : "",
+    recentlyDamaged ? "recent-hit" : "",
+    isDead ? "dead" : "",
+  ].filter(Boolean).join(" ");
   const trackedQuests = useMemo(
     () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
     [questLog],
@@ -647,7 +659,7 @@ export function Hud({
 
   return (
     <div
-      className="hud"
+      className={hudClassName}
       onFocusCapture={handleTooltipFocus}
       onBlurCapture={hideTooltip}
     >
@@ -667,8 +679,8 @@ export function Hud({
             <strong>{localPlayer?.name ?? identity.name}</strong>
             <span>Lv {localPlayer?.level ?? 1}</span>
           </div>
-          <div className="bar hp">
-            <span style={{ width: `${percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100)}%` }} />
+          <div className={lowHealth ? "bar hp critical" : "bar hp"}>
+            <span style={{ width: `${healthPercent}%` }} />
             <em>{Math.ceil(localPlayer?.health ?? 100)}/{Math.ceil(localPlayer?.maxHealth ?? 100)}</em>
           </div>
           <div className="bar mp">
@@ -1242,6 +1254,7 @@ export function Hud({
       {localPlayer && localPlayer.health <= 0 && (
         <section className="death-panel">
           <strong>You died</strong>
+          <em>fountain reset</em>
           <button type="button" onClick={onRespawn}>Respawn</button>
         </section>
       )}
@@ -1360,6 +1373,11 @@ function SettingsPanel({
           label="Unfriendly NPCs"
           checked={settings.nameplates.unfriendlyNpcs}
           onChange={(checked) => updateNameplateSetting("unfriendlyNpcs", checked)}
+        />
+        <SettingsToggle
+          label="Health bars"
+          checked={settings.nameplates.healthBars}
+          onChange={(checked) => updateNameplateSetting("healthBars", checked)}
         />
       </section>
     </div>

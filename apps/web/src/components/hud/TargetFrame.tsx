@@ -42,7 +42,7 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
         <em>{label}</em>
         <div className="target-health">
           <span style={{ width: `${healthPercent}%` }} />
-          {healthText}
+          <em>{healthText}</em>
         </div>
       </div>
     </section>
@@ -57,14 +57,14 @@ function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "gate-guard") return "watch";
   if (npc.id === "fountain-mfer") return "plaza";
   if (npc.id === "hogwatch-mfer") return "hogwatch";
-  if (npc.id === "field-guide-mfer") return "route post";
-  if (npc.id === "pen-keeper-mfer") return "hog loop";
+  if (npc.id === "field-guide-mfer") return "route board";
+  if (npc.id === "pen-keeper-mfer") return "loop booth";
   if (npc.id === "ridge-guide-mfer") return "ridge post";
-  if (npc.id === "beacon-keeper-mfer") return "beacon";
+  if (npc.id === "beacon-keeper-mfer") return "relay shack";
   if (npc.role === "merchant") return "stash";
   if (npc.role === "quest_giver" || npc.role === "guard" || npc.role === "wanderer") return "local";
   if (npc.role === "enemy") return "bonk test";
-  if (npc.role === "farmer") return "red eye";
+  if (npc.role === "farmer") return "loop-burnt";
   if (npc.role === "beast") return "wild";
   if (npc.role === "critter") return "critter";
   return "local";

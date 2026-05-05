@@ -88,6 +88,7 @@ const DEFAULT_NAMEPLATE_VISIBILITY: NameplateVisibility = {
   otherPlayers: true,
   friendlyNpcs: true,
   unfriendlyNpcs: true,
+  healthBars: true,
 };
 const EMPTY_DEBUG_PLACEMENT_OVERRIDES: DebugPlacementOverrides = {};
 const DEBUG_CAMERA_FOV = 54;
@@ -570,6 +571,7 @@ function TownSceneComponent({
               player={renderedPlayer}
               isLocal={isLocalPlayer}
               showNameplate={showNameplate}
+              showNameplateHealthBar={nameplateVisibility.healthBars}
               isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
               isDefeated={player.health <= 0}
               chatBubble={chatBubbleBySessionId.get(sessionId)}
@@ -592,6 +594,7 @@ function TownSceneComponent({
                 key={npc.id}
                 npc={npc}
                 showNameplate={showNameplate}
+                showNameplateHealthBar={nameplateVisibility.healthBars}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
@@ -609,6 +612,7 @@ function TownSceneComponent({
                 key={npc.id}
                 npc={npc}
                 showNameplate={showNameplate}
+                showNameplateHealthBar={nameplateVisibility.healthBars}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
@@ -626,6 +630,7 @@ function TownSceneComponent({
                 key={npc.id}
                 npc={npc}
                 showNameplate={showNameplate}
+                showNameplateHealthBar={nameplateVisibility.healthBars}
                 questMarker={questMarker}
                 hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
                 isTargeted={isTargeted}
@@ -643,6 +648,7 @@ function TownSceneComponent({
               player={npc}
               isNpc
               showNameplate={showNameplate}
+              showNameplateHealthBar={nameplateVisibility.healthBars}
               questMarker={questMarker}
               hasLoot={npc.hasLoot && !npc.isImmortal && npc.health <= 0}
               actorScale={getNpcActorScale(npc)}

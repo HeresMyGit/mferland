@@ -15,20 +15,21 @@ export type SeasonQuestReward = {
 };
 
 export const SEASON_0_QUEST_REWARDS = {
-  "mfer-beginnings": { points: 5, cadence: "once", label: "First gm" },
-  "dao-tour": { points: 5, cadence: "once", label: "DAO check-in" },
-  "fountain-vibes": { points: 5, cadence: "once", label: "Plaza loop" },
-  "sealed-note": { points: 10, cadence: "once", label: "Starter delivery" },
-  "farmhand-bandanas": { points: 15, cadence: "once", label: "First combat loot" },
-  "feral-farmers": { points: 20, cadence: "once", label: "Farm crew clear" },
-  "hog-livers": { points: 20, cadence: "once", label: "Hog loop unlock" },
-  "field-camp-delivery": { points: 25, cadence: "once", label: "Route unlock" },
-  "route-patrol-daily": { points: 20, cadence: "daily", label: "Route daily" },
-  "ridge-dispatch": { points: 25, cadence: "once", label: "Ridge arrival" },
-  "signal-scraps": { points: 30, cadence: "once", label: "Ridge scrap clear" },
-  "cut-the-static": { points: 35, cadence: "once", label: "Signal crew clear" },
-  "baron-of-static": { points: 60, cadence: "once", label: "Static baron clear" },
-  "ogre-raid-daily": { points: 75, cadence: "daily", label: "Daily raid clear" },
+  "mfer-beginnings": { points: 5, cadence: "once", label: "one honest lap" },
+  "dao-tour": { points: 5, cadence: "once", label: "board check" },
+  "fountain-vibes": { points: 5, cadence: "once", label: "real town hall" },
+  "sealed-note": { points: 10, cadence: "once", label: "don't open that" },
+  "ask-mfergpt": { points: 10, cadence: "once", label: "ask mferGPT" },
+  "farmhand-bandanas": { points: 15, cadence: "once", label: "first bad drop" },
+  "feral-farmers": { points: 20, cadence: "once", label: "farm loop cleared" },
+  "hog-livers": { points: 20, cadence: "once", label: "gross road fix" },
+  "field-camp-delivery": { points: 25, cadence: "once", label: "road still works" },
+  "route-patrol-daily": { points: 20, cadence: "daily", label: "route cleanup" },
+  "ridge-dispatch": { points: 25, cadence: "once", label: "uptrail ping" },
+  "signal-scraps": { points: 30, cadence: "once", label: "fried relay scraps" },
+  "cut-the-static": { points: 35, cadence: "once", label: "pull the plug" },
+  "baron-of-static": { points: 60, cadence: "once", label: "log off the baron" },
+  "ogre-raid-daily": { points: 75, cadence: "daily", label: "too much signal" },
 } as const satisfies Partial<Record<QuestId, SeasonQuestReward>>;
 
 const SEASON_0_QUEST_REWARD_MAP: Partial<Record<QuestId, SeasonQuestReward>> = SEASON_0_QUEST_REWARDS;

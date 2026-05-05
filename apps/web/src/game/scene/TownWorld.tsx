@@ -87,6 +87,7 @@ export function TownWorld({
           texture={dirtPathTexture}
         />
       ))}
+      <PlazaApron texture={cobbleTexture} />
 
       <mesh position={[0, -0.035, 0]}>
         <cylinderGeometry args={[21, 21, 0.09, 96]} />
@@ -167,6 +168,39 @@ export function TownWorld({
       <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color={MFER_COLORS.hostile} overrides={debugPlacementOverrides} />
       <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color={MFER_COLORS.hostile} rotation={Math.PI} overrides={debugPlacementOverrides} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
+    </group>
+  );
+}
+
+function PlazaApron({ texture }: { texture: THREE.Texture }) {
+  const apronTexture = useMemo(() => {
+    const map = texture.clone();
+    configureTile(map, 6.4, 5.2);
+    return map;
+  }, [texture]);
+
+  return (
+    <group>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.012, 2]}>
+        <planeGeometry args={[58, 46]} />
+        <meshBasicMaterial map={apronTexture} color="#968a70" />
+      </mesh>
+      <mesh position={[0, 0.11, -21]}>
+        <boxGeometry args={[58, 0.18, 0.35]} />
+        <meshBasicMaterial color="#6a6356" />
+      </mesh>
+      <mesh position={[0, 0.11, 25]}>
+        <boxGeometry args={[58, 0.18, 0.35]} />
+        <meshBasicMaterial color="#6a6356" />
+      </mesh>
+      <mesh position={[-29, 0.11, 2]}>
+        <boxGeometry args={[0.35, 0.18, 46]} />
+        <meshBasicMaterial color="#6a6356" />
+      </mesh>
+      <mesh position={[29, 0.11, 2]}>
+        <boxGeometry args={[0.35, 0.18, 46]} />
+        <meshBasicMaterial color="#6a6356" />
+      </mesh>
     </group>
   );
 }

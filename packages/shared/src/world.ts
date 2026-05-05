@@ -61,8 +61,8 @@ export const WORLD_ROADS: WorldRoad[] = [
 
 export const WORLD_HUBS: WorldHub[] = [
   { id: "starter-plaza", name: "Fountain Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
-  { id: "busted-farm", name: "Red-Eye Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
-  { id: "field-camp", name: "Route Post", x: -118, z: 136, diameter: 28, kind: "hub" },
+  { id: "busted-farm", name: "Loop Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
+  { id: "field-camp", name: "Route Board", x: -118, z: 136, diameter: 28, kind: "hub" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
   { id: "static-field", name: "Static Lot", x: 150, z: -104, diameter: 22, kind: "farm" },
 ];
@@ -112,6 +112,8 @@ const PLACEMENT_SOLID_SPECS: PlacementSolidSpec[] = [
   makeRectPlacementSolid("building:ridge-post", 112, -101.5, -1.2, TOWN_BUILDING_SOLID_SIZE),
   makeRectPlacementSolid("building:signal-shed", 128.5, -97.5, 2.68, TOWN_BUILDING_SOLID_SIZE),
   makeRectPlacementSolid("building:relay-watch", 123, -116.5, -0.08, TOWN_BUILDING_SOLID_SIZE),
+  makeRectPlacementSolid("model:market-stall:left-plaza-stall", -27.2, 3.6, Math.PI / 2, MARKET_STALL_SOLID_SIZE),
+  makeRectPlacementSolid("model:market-stall:right-plaza-stall", 27.2, 3.6, -Math.PI / 2, MARKET_STALL_SOLID_SIZE),
   makeRectPlacementSolid("model:market-stall:left-market", -6.4, 29.2, Math.PI, MARKET_STALL_SOLID_SIZE),
   makeRectPlacementSolid("model:market-stall:center-market", 0, 31.4, Math.PI, MARKET_STALL_SOLID_SIZE),
   makeRectPlacementSolid("model:market-stall:right-market", 6.4, 29.2, Math.PI, MARKET_STALL_SOLID_SIZE),
@@ -155,8 +157,11 @@ const STATIC_PROP_SOLIDS: SolidObstacle[] = [
 ];
 
 const TREE_SOLIDS: SolidObstacle[] = [
-  [-31, -18, 0.95], [-27, -7, 0.75], [-30, 15, 0.85], [-41, 30, 0.8],
-  [-12, 25, 0.75], [12, 25, 0.85], [41, 30, 0.8], [30, 16, 0.75],
+  [-31, -18, 0.95], [-27, -7, 0.75], [-34, -10, 0.95], [-34, 8, 0.86],
+  [-30, 15, 0.85], [-41, 30, 0.8], [-24, 30, 0.82],
+  [-12, 25, 0.75], [-12, -28, 0.7], [12, -28, 0.7],
+  [12, 25, 0.85], [24, 30, 0.82], [41, 30, 0.8], [30, 16, 0.75],
+  [34, 8, 0.86], [34, -10, 0.95],
   [29, -17, 0.92], [42, -4, 0.75], [-42, -4, 0.75], [23, -26, 0.7],
   [-23, -26, 0.75], [35, -39, 0.78], [-35, -39, 0.78], [-67, 51, 0.85],
   [-65, 68, 0.75], [-38, 72, 0.92], [-22, 60, 0.7], [58, 48, 0.78],

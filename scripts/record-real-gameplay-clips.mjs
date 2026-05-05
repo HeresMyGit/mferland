@@ -50,7 +50,7 @@ const yawTo = ([fromX, fromZ], [toX, toZ]) => Math.atan2(toX - fromX, toZ - from
 const CLIPS = [
   {
     id: "ridge_real_hud_static_baron",
-    title: "real HUD Signal Ridge static baron",
+    title: "real HUD Signal Ridge Static Baron",
     durationMs: 12000,
     targetId: "static-baron-nox",
     setup: async ({ page, localSessionId, bots }) => {
@@ -64,7 +64,7 @@ const CLIPS = [
       });
       await setupNpc(page, {
         npcId: "static-baron-nox",
-        name: "static baron mfer",
+        name: "The Static Baron",
         x: 146.2,
         z: -121.8,
         yaw: 2.8,
@@ -95,7 +95,7 @@ const CLIPS = [
   },
   {
     id: "farm_real_hud_hog_charge",
-    title: "real HUD Red-Eye Farm hog charge",
+    title: "real HUD Loop Farm hog charge",
     durationMs: 10500,
     targetId: "wild-hog-boar",
     setup: async ({ page, localSessionId, bots }) => {
@@ -219,7 +219,7 @@ const CLIPS = [
   },
   {
     id: "ridge_real_hud_ogre_raid",
-    title: "real HUD huge mfer ogre raid",
+    title: "real HUD too much signal raid",
     durationMs: 12000,
     targetId: "raid-ogre-mfer",
     setup: async ({ page, localSessionId, bots }) => {
@@ -233,7 +233,7 @@ const CLIPS = [
       });
       await setupNpc(page, {
         npcId: "raid-ogre-mfer",
-        name: "Huge mfer ogre",
+        name: "too much signal",
         role: "farmer",
         model: "mfer",
         x: 146.4,
