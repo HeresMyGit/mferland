@@ -7,6 +7,17 @@ import {
   type JoinOptions,
 } from "@mferland/shared";
 
+const INTRO_SPAWN_POINTS = [
+  { x: 0, z: 10.8, yaw: Math.PI },
+  { x: 2.8, z: 9.8, yaw: Math.PI },
+  { x: -2.8, z: 9.8, yaw: Math.PI },
+  { x: 5.2, z: 8.2, yaw: Math.PI },
+  { x: -5.2, z: 8.2, yaw: Math.PI },
+  { x: 1.5, z: 13, yaw: Math.PI },
+  { x: -1.5, z: 13, yaw: Math.PI },
+  { x: 0, z: 15.2, yaw: Math.PI },
+] as const;
+
 export function normalizeInput(message: Partial<ClientInput>): ClientInput | null {
   const x = Number(message?.x ?? 0);
   const z = Number(message?.z ?? 0);
@@ -48,6 +59,9 @@ export function getDefaultName(identityType: IdentityType, walletAddress: string
 }
 
 export function getSpawnPoint(index: number) {
+  const introPoint = INTRO_SPAWN_POINTS[index % INTRO_SPAWN_POINTS.length];
+  if (index < INTRO_SPAWN_POINTS.length) return introPoint;
+
   const ring = 5 + Math.floor(index / 8) * 2.2;
   const angle = (index % 8) / 8 * Math.PI * 2;
   return {
