@@ -42,7 +42,7 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
         <em>{label}</em>
         <div className="target-health">
           <span style={{ width: `${healthPercent}%` }} />
-          {healthText}
+          <em>{healthText}</em>
         </div>
       </div>
     </section>

@@ -28,7 +28,7 @@ type MferLayer = {
 const MFER_METADATA_URL = "https://raw.githubusercontent.com/m4r-sh/mfers/main/data/mfers.json";
 const MFER_CLEAR_URL = (tokenId: number) => `https://clear.mfers.dev/${tokenId}.png`;
 const IPFS_IMAGE_GATEWAY = "https://ipfs.io/ipfs/";
-const MFER_LAYER_ROOTS = ["/mfer-layers/og", "/mfer-layers/extended"];
+const MFER_LAYER_ROOTS = ["/mfer-layers/og", "/mfer-layers/extended", "https://mfers.dev/layers/full"];
 const PLAIN_BACKGROUNDS: OriginalMferBackground[] = ["blue", "green", "orange", "red", "yellow"];
 const LAYER_ORDER = [
   "background",
@@ -187,15 +187,21 @@ function scoreOriginalMfer(candidate: Record<string, string>, desired: Record<st
     const candidateValue = candidate[category];
     const isCore = category === "background" || category === "type" || category === "eyes" || category === "mouth" || category === "headphones";
     if (candidateValue === value) score += isCore ? 20 : 12;
-    else if (!candidateValue) score -= isCore ? 18 : 3;
-    else score -= isCore ? 36 : 10;
+    else if (!candidateValue) score -= isCore ? 18 : 8;
+    else score -= isCore ? 36 : 14;
   }
 
   for (const category of OFFICIAL_OPTIONAL_TRAITS) {
-    if (!desired[category] && candidate[category]) score -= 1;
+    if (!desired[category] && candidate[category]) score -= getUnwantedOptionalTraitPenalty(category);
   }
 
   return score;
+}
+
+function getUnwantedOptionalTraitPenalty(category: typeof OFFICIAL_OPTIONAL_TRAITS[number]) {
+  if (category === "hat over headphones" || category === "hat under headphones") return 12;
+  if (category === "shirt" || category === "beard" || category === "short hair" || category === "long hair") return 10;
+  return 4;
 }
 
 function makeOriginalMferQuery(traits: MferTraits, requestedBackground?: OriginalMferBackground) {
@@ -370,7 +376,7 @@ function mapHatUnderHeadphonesForMetadata(value: string | undefined) {
 }
 
 function mapHatUnderHeadphonesForLayer(value: string | undefined) {
-  if (value === "cap_based_blue") return null;
+  if (value === "cap_based_blue") return "cap based blue";
   return mapHatUnderHeadphonesForMetadata(value);
 }
 
@@ -532,20 +538,31 @@ function getLayerFilenames(folder: string, value: string) {
   const filenames = new Set<string>();
   const clean = value.trim();
   const slashSafe = clean.replace(/\//g, "_");
+  const doubleDashSlashSafe = clean.replace(/\//g, "--");
+  const spaceSafe = slashSafe.replace(/\s+/g, "_");
   const compact = slashSafe.replace(/[\s()]/g, "").replace(/__/g, "_");
 
   filenames.add(`${clean}.png`);
   filenames.add(`${slashSafe}.png`);
+  filenames.add(`${doubleDashSlashSafe}.png`);
+  filenames.add(`${spaceSafe}.png`);
   filenames.add(`${compact}.png`);
 
   if (folder === "4_20 watch") {
     filenames.add(`${slashSafe.replace("blue_red", "bluered").replace("blue_black", "blueblack")}.png`);
   }
+  if (folder === "hat over headphones" && clean.startsWith("hoodie ")) {
+    filenames.add("hoodie.png");
+  }
   if (folder === "hat under headphones" && clean.startsWith("headband ")) {
     filenames.add(`${slashSafe.replace(/^headband /, "headband")}.png`);
+    filenames.add(`${doubleDashSlashSafe}.png`);
   }
   if (folder === "long hair" && clean === "curly 1") {
     filenames.add("prettycoolhair.png");
+  }
+  if (folder === "beard" && clean === "shadow beard") {
+    filenames.add("beard_flat.png");
   }
 
   return [...filenames];
@@ -564,6 +581,7 @@ function loadLayerImage(url: string) {
   if (!cached) {
     cached = new Promise((resolve) => {
       const image = new Image();
+      image.crossOrigin = "anonymous";
       image.onload = () => resolve(image);
       image.onerror = () => resolve(null);
       image.src = url;
