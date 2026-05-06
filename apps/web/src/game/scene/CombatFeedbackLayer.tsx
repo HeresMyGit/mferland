@@ -14,6 +14,20 @@ import {
 import { MFER_COLORS } from "../mferPalette";
 
 type Vec3Tuple = [number, number, number];
+type CombatLabelStyle = {
+  color: string;
+  outlineColor: string;
+  fontSize: number;
+};
+type FloatingLabelTexture = {
+  texture: THREE.CanvasTexture;
+  width: number;
+  height: number;
+};
+
+const FLOATING_LABEL_TEXTURE_LIMIT = 96;
+const floatingLabelTextureCache = new Map<string, FloatingLabelTexture>();
+
 export function CombatFeedbackLayer({
   combatEvents,
   experienceEvents,
@@ -29,7 +43,7 @@ export function CombatFeedbackLayer({
 }) {
   return (
     <group>
-      {combatEvents.slice(-32).filter((event) => shouldRenderCombatEvent(event, players, npcs, viewerPosition)).map((event) => {
+      {combatEvents.slice(-20).filter((event) => shouldRenderCombatEvent(event, players, npcs, viewerPosition)).map((event) => {
         const source = players.get(event.sourceId) ?? npcs.get(event.sourceId);
         const sourcePosition: Vec3Tuple = [
           source?.x ?? event.sourceX,
@@ -56,7 +70,7 @@ export function CombatFeedbackLayer({
           />
         );
       })}
-      {experienceEvents.slice(-24).filter((event) => shouldRenderExperienceEvent(event, viewerPosition)).map((event) => (
+      {experienceEvents.slice(-12).filter((event) => shouldRenderExperienceEvent(event, viewerPosition)).map((event) => (
         <ExperienceEventVisual key={event.id} event={event} />
       ))}
     </group>
@@ -520,17 +534,7 @@ function FloatingDamageNumber({
   return (
     <group ref={refGroup} position={[position[0] + offset[0], position[1] + 0.38, position[2] + offset[1]]} visible={false}>
       <Billboard>
-        <Text
-          fontSize={style.fontSize}
-          anchorX="center"
-          anchorY="middle"
-          color={style.color}
-          outlineColor={style.outlineColor}
-          outlineWidth={0.045}
-          renderOrder={88}
-        >
-          {label}
-        </Text>
+        <FloatingCombatLabel label={label} style={style} />
       </Billboard>
     </group>
   );
@@ -562,22 +566,39 @@ function ExperienceEventVisual({ event }: { event: ExperienceEvent }) {
   return (
     <group ref={refGroup} position={[event.x + offset[0], event.y + 0.44, event.z + offset[1]]} visible={false}>
       <Billboard>
-        <Text
-          fontSize={0.34}
-          anchorX="center"
-          anchorY="middle"
-          color={MFER_COLORS.xp}
-          outlineColor="#1f0f34"
-          outlineWidth={0.042}
-        >
-          {Math.round(event.amount)} XP
-        </Text>
+        <FloatingCombatLabel label={`${Math.round(event.amount)} XP`} style={getExperienceLabelStyle()} renderOrder={86} />
       </Billboard>
     </group>
   );
 }
 
-function getDamageNumberStyle(actionId: CombatActionId, targetKind: CombatEvent["target"]["kind"], defeated: boolean) {
+function FloatingCombatLabel({
+  label,
+  style,
+  renderOrder = 88,
+}: {
+  label: string;
+  style: CombatLabelStyle;
+  renderOrder?: number;
+}) {
+  const labelTexture = useMemo(() => getFloatingLabelTexture(label, style), [label, style.color, style.fontSize, style.outlineColor]);
+  const worldHeight = style.fontSize * 0.92;
+  const worldWidth = worldHeight * (labelTexture.width / labelTexture.height);
+
+  return (
+    <sprite renderOrder={renderOrder} scale={[worldWidth, worldHeight, 1]}>
+      <spriteMaterial
+        map={labelTexture.texture}
+        transparent
+        depthWrite={false}
+        depthTest={false}
+        toneMapped={false}
+      />
+    </sprite>
+  );
+}
+
+function getDamageNumberStyle(actionId: CombatActionId, targetKind: CombatEvent["target"]["kind"], defeated: boolean): CombatLabelStyle {
   if (actionId === "heal") return { color: MFER_COLORS.heal, outlineColor: "#0d2c16", fontSize: 0.38 };
   if (targetKind === "player") return { color: MFER_COLORS.hostile, outlineColor: "#260403", fontSize: defeated ? 0.46 : 0.42 };
   if (defeated) return { color: "#fff8dc", outlineColor: "#15100c", fontSize: 0.44 };
@@ -592,6 +613,67 @@ function formatCombatAmount(actionId: CombatActionId, amount: number, targetKind
   if (actionId === "heal") return `+${rounded}`;
   if (targetKind === "player") return `-${rounded}${defeated ? " down" : ""}`;
   return defeated ? `${rounded} KO` : `${rounded}`;
+}
+
+function getExperienceLabelStyle(): CombatLabelStyle {
+  return { color: MFER_COLORS.xp, outlineColor: "#1f0f34", fontSize: 0.34 };
+}
+
+function getFloatingLabelTexture(label: string, style: CombatLabelStyle): FloatingLabelTexture {
+  const key = `${label}|${style.color}|${style.outlineColor}|${style.fontSize}`;
+  const cached = floatingLabelTextureCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("2D canvas is required for combat labels.");
+
+  const fontSizePx = Math.max(28, Math.round(style.fontSize * 112));
+  const font = `800 ${fontSizePx}px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  context.font = font;
+  const metrics = context.measureText(label);
+  const strokeWidth = Math.max(5, Math.round(fontSizePx * 0.14));
+  const paddingX = strokeWidth + 12;
+  const paddingY = strokeWidth + 10;
+  const width = Math.ceil(metrics.width + paddingX * 2);
+  const height = Math.ceil(fontSizePx * 1.34 + paddingY * 2);
+  canvas.width = nextPowerOfTwo(width);
+  canvas.height = nextPowerOfTwo(height);
+
+  context.font = font;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.lineJoin = "round";
+  context.miterLimit = 2;
+  context.strokeStyle = style.outlineColor;
+  context.lineWidth = strokeWidth;
+  context.fillStyle = style.color;
+  context.shadowColor = "rgba(0, 0, 0, 0.45)";
+  context.shadowBlur = Math.round(fontSizePx * 0.08);
+  context.shadowOffsetY = Math.round(fontSizePx * 0.05);
+  context.strokeText(label, canvas.width / 2, canvas.height / 2);
+  context.fillText(label, canvas.width / 2, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+
+  const entry = { texture, width: canvas.width, height: canvas.height };
+  floatingLabelTextureCache.set(key, entry);
+  if (floatingLabelTextureCache.size > FLOATING_LABEL_TEXTURE_LIMIT) {
+    const oldestKey = floatingLabelTextureCache.keys().next().value;
+    const oldest = oldestKey ? floatingLabelTextureCache.get(oldestKey) : null;
+    oldest?.texture.dispose();
+    if (oldestKey) floatingLabelTextureCache.delete(oldestKey);
+  }
+  return entry;
+}
+
+function nextPowerOfTwo(value: number) {
+  return 2 ** Math.ceil(Math.log2(Math.max(2, value)));
 }
 
 function getEventOffset(id: string): [number, number] {

@@ -114,6 +114,10 @@ type DebugPlacementMapDocument = {
 
 const SNAPSHOT_RENDER_INTERVAL_MS = 125;
 const DEBUG_PLACEMENT_SAVE_CHUNK_SIZE = 8;
+const COMBAT_EVENT_RETAIN_MS = 1400;
+const EXPERIENCE_EVENT_RETAIN_MS = 1800;
+const MAX_COMBAT_EVENTS = 20;
+const MAX_EXPERIENCE_EVENTS = 12;
 
 export function useTownRoom(identity: JoinOptions) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -137,6 +141,9 @@ export function useTownRoom(identity: JoinOptions) {
   const lastSnapshotRenderAtRef = useRef(0);
   const pendingSnapshotRenderRef = useRef<number | null>(null);
   const pendingSceneRenderRef = useRef(false);
+  const pendingFeedbackFrameRef = useRef<number | null>(null);
+  const combatEventQueueRef = useRef<CombatEvent[]>([]);
+  const experienceEventQueueRef = useRef<ExperienceEvent[]>([]);
   const bubbleTimeoutsRef = useRef<number[]>([]);
 
   const requestSnapshotRender = useCallback((force = false, includeScene = true) => {
@@ -170,6 +177,49 @@ export function useTownRoom(identity: JoinOptions) {
     }, SNAPSHOT_RENDER_INTERVAL_MS - elapsed);
   }, []);
 
+  const clearQueuedFeedbackEvents = useCallback(() => {
+    combatEventQueueRef.current = [];
+    experienceEventQueueRef.current = [];
+    if (pendingFeedbackFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingFeedbackFrameRef.current);
+      pendingFeedbackFrameRef.current = null;
+    }
+  }, []);
+
+  const flushQueuedFeedbackEvents = useCallback(() => {
+    pendingFeedbackFrameRef.current = null;
+    const now = Date.now();
+    const combatBatch = combatEventQueueRef.current.splice(0);
+    const experienceBatch = experienceEventQueueRef.current.splice(0);
+
+    if (combatBatch.length > 0) {
+      const cappedBatch = combatBatch.slice(-MAX_COMBAT_EVENTS);
+      const keptEventCount = Math.max(0, MAX_COMBAT_EVENTS - cappedBatch.length);
+      setCombatEvents((current) => [
+        ...current
+          .filter((event) => now - (event.impactAt ?? event.sentAt) < COMBAT_EVENT_RETAIN_MS)
+          .slice(-keptEventCount),
+        ...cappedBatch,
+      ]);
+    }
+
+    if (experienceBatch.length > 0) {
+      const cappedBatch = experienceBatch.slice(-MAX_EXPERIENCE_EVENTS);
+      const keptEventCount = Math.max(0, MAX_EXPERIENCE_EVENTS - cappedBatch.length);
+      setExperienceEvents((current) => [
+        ...current
+          .filter((event) => now - event.sentAt < EXPERIENCE_EVENT_RETAIN_MS)
+          .slice(-keptEventCount),
+        ...cappedBatch,
+      ]);
+    }
+  }, []);
+
+  const scheduleFeedbackFlush = useCallback(() => {
+    if (pendingFeedbackFrameRef.current !== null) return;
+    pendingFeedbackFrameRef.current = window.requestAnimationFrame(flushQueuedFeedbackEvents);
+  }, [flushQueuedFeedbackEvents]);
+
   const serverUrl = useMemo(() => {
     if (import.meta.env.VITE_SERVER_URL) return String(import.meta.env.VITE_SERVER_URL);
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -184,6 +234,7 @@ export function useTownRoom(identity: JoinOptions) {
       window.clearTimeout(pendingSnapshotRenderRef.current);
       pendingSnapshotRenderRef.current = null;
     }
+    clearQueuedFeedbackEvents();
     for (const timeout of bubbleTimeoutsRef.current) {
       window.clearTimeout(timeout);
     }
@@ -197,6 +248,7 @@ export function useTownRoom(identity: JoinOptions) {
 
     playersRef.current.clear();
     npcsRef.current.clear();
+    clearQueuedFeedbackEvents();
     requestSnapshotRender(true);
     setChatBubbles([]);
     setCombatEvents([]);
@@ -248,18 +300,14 @@ export function useTownRoom(identity: JoinOptions) {
             sentAt: now,
             impactAt: now + travelMs,
           };
-          setCombatEvents((current) => [
-            ...current.filter((event) => now - (event.impactAt ?? event.sentAt) < 1800).slice(-40),
-            visualEvent,
-          ]);
+          combatEventQueueRef.current.push(visualEvent);
+          scheduleFeedbackFlush();
         });
 
         room.onMessage("experienceEvent", (message: ExperienceEvent) => {
           const now = Date.now();
-          setExperienceEvents((current) => [
-            ...current.filter((event) => now - event.sentAt < 2200).slice(-24),
-            { ...message, sentAt: now },
-          ]);
+          experienceEventQueueRef.current.push({ ...message, sentAt: now });
+          scheduleFeedbackFlush();
         });
 
         room.onMessage("questOffer", (message: QuestOffer) => {
@@ -300,6 +348,7 @@ export function useTownRoom(identity: JoinOptions) {
           if (!disposed) {
             playersRef.current.clear();
             npcsRef.current.clear();
+            clearQueuedFeedbackEvents();
             setChatBubbles([]);
             requestSnapshotRender(true);
             setStatus("closed");
@@ -317,8 +366,9 @@ export function useTownRoom(identity: JoinOptions) {
       const room = roomRef.current;
       roomRef.current = null;
       if (room) void room.leave();
+      clearQueuedFeedbackEvents();
     };
-  }, [identity, requestSnapshotRender, serverUrl]);
+  }, [clearQueuedFeedbackEvents, identity, requestSnapshotRender, scheduleFeedbackFlush, serverUrl]);
 
   useEffect(() => {
     if (!questOffer || !sessionId) return;
