@@ -34,6 +34,7 @@ Fill:
 DATABASE_URL="postgresql://..."
 VITE_SERVER_URL="https://..."
 VITE_CRYPTO_CONTRACTS_URL="/crypto/production-contracts.json"
+VITE_GA_MEASUREMENT_ID=""
 ```
 
 Set chain deployment secrets only in the shell session or a private local env file:
@@ -78,6 +79,7 @@ Confirm `.env` points at the intended Neon production branch. Then:
 npm run db:migrate -w @mferland/server
 npm run support:admin -- season-summary
 npm run support:admin -- purchase-summary
+npm run support:admin -- analytics-summary --since 24h
 ```
 
 If these commands hit the test DB by accident, stop and fix `DATABASE_URL`.
@@ -144,6 +146,7 @@ Start the server/web process using the Mac mini's normal process manager or term
 - pass address is prefilled from `/crypto/production-contracts.json`.
 - wallet is on Base.
 - ETH, `$mfer`, and `$mfergpt` pass buttons show wallet prompts.
+- `npm run support:admin -- analytics-summary --since 24h` shows a `session_joined` row after a wallet/guest smoke.
 
 Do not perform a real purchase from Josh's main wallet during smoke. Use a disposable wallet or a manual grant if needed.
 

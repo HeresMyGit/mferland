@@ -36,6 +36,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { makeGuestIdentity, makeWalletIdentity, getStoredName, rememberName } from "./auth/identity";
+import { initializeAnalytics, trackEvent } from "./analytics";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
@@ -126,6 +127,11 @@ export function App() {
   const [savedDebugPlacementDefaults, setSavedDebugPlacementDefaults] = useState<DebugPlacementOverrides>({});
 
   useEffect(() => {
+    initializeAnalytics();
+    trackEvent("app_loaded", { mode: import.meta.env.DEV ? "dev" : "prod" });
+  }, []);
+
+  useEffect(() => {
     if (!import.meta.env.DEV || identity) return;
     const params = new URLSearchParams(window.location.search);
     if (!isRealCaptureMode()) return;
@@ -188,13 +194,33 @@ function AuthGate({
 
   function enterGuest() {
     rememberName(cleanName);
+    trackEvent("auth_enter_guest");
     onEnter(makeGuestIdentity(cleanName));
   }
 
   function enterWallet() {
     if (!address) return;
     rememberName(cleanName);
+    trackEvent("auth_enter_wallet");
     onEnter(makeWalletIdentity(cleanName, address));
+  }
+
+  function connectInjectedWallet() {
+    if (!injected) return;
+    trackEvent("wallet_connect_started", { surface: "auth", connector: injected.id });
+    connect({ connector: injected }, {
+      onSuccess: () => trackEvent("wallet_connect_succeeded", { surface: "auth", connector: injected.id }),
+      onError: () => trackEvent("wallet_connect_failed", { surface: "auth", connector: injected.id }),
+    });
+  }
+
+  function connectLocalTestWallet() {
+    if (!localTestConnector) return;
+    trackEvent("wallet_connect_started", { surface: "auth", connector: localTestConnector.id, chainId: 31337 });
+    connect({ connector: localTestConnector, chainId: 31337 }, {
+      onSuccess: () => trackEvent("wallet_connect_succeeded", { surface: "auth", connector: localTestConnector.id, chainId: 31337 }),
+      onError: () => trackEvent("wallet_connect_failed", { surface: "auth", connector: localTestConnector.id, chainId: 31337 }),
+    });
   }
 
   async function switchWallet() {
@@ -202,16 +228,19 @@ function AuthGate({
 
     setIsSwitchingWallet(true);
     setWalletActionError(null);
+    trackEvent("wallet_switch_started", { surface: "auth", connector: injected.id });
     try {
       const promptedAccountPicker = await requestInjectedAccountSelection();
       if (!promptedAccountPicker) {
         await disconnectAsync().catch(() => undefined);
         await connectAsync({ connector: injected });
       }
+      trackEvent("wallet_switch_succeeded", { surface: "auth", connector: injected.id });
     } catch (error) {
       if (!isUserRejectedWalletRequest(error)) {
         setWalletActionError("wallet switch failed");
       }
+      trackEvent("wallet_switch_failed", { surface: "auth", connector: injected.id });
     } finally {
       setIsSwitchingWallet(false);
     }
@@ -219,6 +248,7 @@ function AuthGate({
 
   function disconnectWallet() {
     setWalletActionError(null);
+    trackEvent("wallet_disconnected", { surface: "auth" });
     disconnect();
   }
 
@@ -296,7 +326,7 @@ function AuthGate({
                 className="secondary-btn"
                 type="button"
                 disabled={!injected || isConnectPending}
-                onClick={() => injected && connect({ connector: injected })}
+                onClick={connectInjectedWallet}
               >
                 <Sparkles size={18} />
                 connect wallet
@@ -306,7 +336,7 @@ function AuthGate({
                   className="text-btn"
                   type="button"
                   disabled={isConnectPending}
-                  onClick={() => connect({ connector: localTestConnector, chainId: 31337 })}
+                  onClick={connectLocalTestWallet}
                 >
                   <Sparkles size={16} />
                   local test wallet
@@ -456,6 +486,7 @@ function GameShell({
   const playedExperienceEventIdsRef = useRef(new Set<string>());
   const lastQuestNoticeIdRef = useRef("");
   const lastLootNoticeIdRef = useRef("");
+  const trackedGameSessionIdRef = useRef("");
   const combatAudioTimeoutsRef = useRef<number[]>([]);
   const realCaptureRoomRef = useRef(room);
   const realCaptureSelectedTargetRef = useRef<TargetSelection | null>(null);
@@ -513,6 +544,12 @@ function GameShell({
   }, [initialSavedDebugPlacementDefaults]);
 
   useEffect(() => {
+    if (room.status !== "connected" || !room.sessionId || trackedGameSessionIdRef.current === room.sessionId) return;
+    trackedGameSessionIdRef.current = room.sessionId;
+    trackEvent("game_joined", { identityType: identity.identityType });
+  }, [identity.identityType, room.sessionId, room.status]);
+
+  useEffect(() => {
     if (showGameLoader) setGameLoaderReachedCap(false);
   }, [showGameLoader]);
 
@@ -536,6 +573,11 @@ function GameShell({
     setSelectedDebugPlacementId(targetId);
     if (targetId) setDebugPlacementPanelOpen(true);
   }, []);
+  const openCryptoStore = useCallback((npc: NpcSnapshot) => {
+    setCryptoStoreNpcId(npc.id);
+    trackEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const selectNpcTarget = useCallback((npcId: string) => {
     setSelectedTarget({ kind: "npc", id: npcId });
     audio.play("targetSelect");
@@ -543,10 +585,10 @@ function GameShell({
     const selectedNpc = findInteractableNpcInRange(localPlayer, room.npcs, npcId);
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
-      if (selectedNpc.role === "merchant") setCryptoStoreNpcId(selectedNpc.id);
+      if (selectedNpc.role === "merchant") openCryptoStore(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, localPlayer, room.npcs, room.sendInteract]);
+  }, [audio, localPlayer, openCryptoStore, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -554,9 +596,9 @@ function GameShell({
       : null;
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
-    if (nearestNpc?.role === "merchant") setCryptoStoreNpcId(nearestNpc.id);
+    if (nearestNpc?.role === "merchant") openCryptoStore(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, localPlayer, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, localPlayer, openCryptoStore, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1011,6 +1053,7 @@ function GameShell({
             onUseItem={useItem}
             onRegisterChainGear={registerChainGear}
             onUpdateChainGearTier={updateChainGearTier}
+            onCryptoStoreAnalytics={room.sendAnalyticsEvent}
             onSelectTalent={selectTalent}
             onCloseLootWindow={room.closeLootWindow}
             onCloseCryptoStore={() => setCryptoStoreNpcId(null)}

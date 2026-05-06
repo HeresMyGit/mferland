@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Coins, Flame, Gem, PlugZap, RefreshCw, X } from "lucide-react";
 import { useAccount } from "wagmi";
 import { type ClientDebugRegisterChainGear, type ClientDebugUpdateChainGearTier, type NpcSnapshot } from "@mferland/shared";
+import { trackEvent, type AnalyticsProperties } from "../analytics";
 import { waitForTransactionReceipt, type EthereumProvider } from "../crypto/transactionReceipts";
 
 type CryptoStoreAddresses = {
@@ -39,6 +40,7 @@ type CryptoStorePanelProps = {
   onClose: () => void;
   onRegisterChainGear: (message: ClientDebugRegisterChainGear) => void;
   onUpdateChainGearTier: (message: ClientDebugUpdateChainGearTier) => void;
+  onAnalyticsEvent?: (eventType: string, properties?: Record<string, string | number | boolean | null>) => void;
 };
 
 type CryptoStoreBalances = {
@@ -107,7 +109,7 @@ const EMPTY_BALANCES: CryptoStoreBalances = {
   error: "",
 };
 
-export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateChainGearTier }: CryptoStorePanelProps) {
+export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateChainGearTier, onAnalyticsEvent }: CryptoStorePanelProps) {
   const wagmiAccount = useAccount();
   const [addresses, setAddresses] = useState<CryptoStoreAddresses>(() => readStoredAddresses());
   const [chainConfig, setChainConfig] = useState<CryptoStoreChainConfig>(LOCAL_CHAIN_CONFIG);
@@ -187,6 +189,47 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
     }
   }
 
+  async function runTrackedAction({
+    label,
+    startedEvent,
+    confirmedEvent,
+    failedEvent,
+    properties,
+    action,
+  }: {
+    label: string;
+    startedEvent: string;
+    confirmedEvent: string;
+    failedEvent: string;
+    properties: AnalyticsProperties;
+    action: () => Promise<string | void>;
+  }) {
+    reportAnalytics(startedEvent, properties);
+    await runAction(label, async () => {
+      try {
+        const result = await action();
+        reportAnalytics(confirmedEvent, properties);
+        return result;
+      } catch (error) {
+        reportAnalytics(failedEvent, {
+          ...properties,
+          error: getAnalyticsErrorMessage(error),
+        });
+        throw error;
+      }
+    });
+  }
+
+  function reportAnalytics(eventType: string, properties: AnalyticsProperties = {}) {
+    const cleanProperties = sanitizeCryptoAnalyticsProperties({
+      npcId: npc.id,
+      chainId: chainConfig.chainId,
+      ...properties,
+    });
+    trackEvent(eventType, cleanProperties);
+    onAnalyticsEvent?.(eventType, cleanProperties);
+  }
+
   async function refreshBalances(accountOverride?: string) {
     const wallet = accountOverride || account || wagmiAccount.address || "";
     if (!isAddress(wallet)) {
@@ -226,27 +269,49 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   }
 
   async function connectWallet() {
-    await runAction("connecting wallet", async () => {
+    await runTrackedAction({
+      label: "connecting wallet",
+      startedEvent: "wallet_connect_started",
+      confirmedEvent: "wallet_connect_succeeded",
+      failedEvent: "wallet_connect_failed",
+      properties: { surface: "crypto_store" },
+      action: async () => {
       const provider = requireProviderForAccount(account || wagmiAccount.address || "", chainConfig.chainId);
       const accounts = await provider.request({ method: "eth_requestAccounts" });
       const nextAccount = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
       if (nextAccount) setAccount(nextAccount);
       await switchToConfiguredChain(provider, chainConfig);
       return nextAccount;
+      },
     });
   }
 
   async function buyWithEth() {
-    await runAction("buying with ETH", async () => {
+    const purchaseProperties = getGearPurchaseAnalyticsProperties("ETH", gearType);
+    await runTrackedAction({
+      label: "buying with ETH",
+      startedEvent: "gear_purchase_started",
+      confirmedEvent: "gear_purchase_confirmed",
+      failedEvent: "gear_purchase_failed",
+      properties: purchaseProperties,
+      action: async () => {
       const provider = await prepareWallet(["store"]);
       const purchasedGearType = parseGearType(gearType);
       const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithEth, encodeUint(purchasedGearType)), parseEther(ethPrice));
       registerMintedGear(receipt, purchasedGearType);
+      },
     });
   }
 
   async function buyWithMfer() {
-    await runAction("buying with $mfer", async () => {
+    const purchaseProperties = getGearPurchaseAnalyticsProperties("MFER", gearType);
+    await runTrackedAction({
+      label: "buying with $mfer",
+      startedEvent: "gear_purchase_started",
+      confirmedEvent: "gear_purchase_confirmed",
+      failedEvent: "gear_purchase_failed",
+      properties: purchaseProperties,
+      action: async () => {
       const provider = await prepareWallet(["store", "mfer"]);
       const purchasedGearType = parseGearType(gearType);
       const price = await readUint(provider, addresses.store, callData(
@@ -257,11 +322,19 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       await approve(provider, addresses.mfer, addresses.store, price);
       const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithMfer, encodeUint(purchasedGearType)));
       registerMintedGear(receipt, purchasedGearType);
+      },
     });
   }
 
   async function buyWithMferGpt() {
-    await runAction("buying with $mfergpt", async () => {
+    const purchaseProperties = getGearPurchaseAnalyticsProperties("MFERGPT", gearType);
+    await runTrackedAction({
+      label: "buying with $mfergpt",
+      startedEvent: "gear_purchase_started",
+      confirmedEvent: "gear_purchase_confirmed",
+      failedEvent: "gear_purchase_failed",
+      properties: purchaseProperties,
+      action: async () => {
       const provider = await prepareWallet(["store", "mfergpt"]);
       const purchasedGearType = parseGearType(gearType);
       const price = await readUint(provider, addresses.store, callData(
@@ -272,46 +345,75 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       await approve(provider, addresses.mfergpt, addresses.store, price);
       const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithMferGpt, encodeUint(purchasedGearType)));
       registerMintedGear(receipt, purchasedGearType);
+      },
     });
   }
 
   async function buyLaunchPassWithEth() {
-    await runAction("buying launch pass with ETH", async () => {
+    await runTrackedAction({
+      label: "buying launch pass with ETH",
+      startedEvent: "pass_purchase_started",
+      confirmedEvent: "pass_purchase_confirmed",
+      failedEvent: "pass_purchase_failed",
+      properties: getPassPurchaseAnalyticsProperties("ETH"),
+      action: async () => {
       const provider = await prepareWallet(["launchPass"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.ethPrice));
       const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithEth), price);
       registerMintedLaunchPass(receipt);
+      },
     });
   }
 
   async function buyLaunchPassWithMfer() {
-    await runAction("buying launch pass with $mfer", async () => {
+    await runTrackedAction({
+      label: "buying launch pass with $mfer",
+      startedEvent: "pass_purchase_started",
+      confirmedEvent: "pass_purchase_confirmed",
+      failedEvent: "pass_purchase_failed",
+      properties: getPassPurchaseAnalyticsProperties("MFER"),
+      action: async () => {
       const provider = await prepareWallet(["launchPass", "mfer"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferPrice));
       await approve(provider, addresses.mfer, addresses.launchPass, price);
       const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithMfer));
       registerMintedLaunchPass(receipt);
+      },
     });
   }
 
   async function buyLaunchPassWithMferGpt() {
-    await runAction("buying launch pass with $mfergpt", async () => {
+    await runTrackedAction({
+      label: "buying launch pass with $mfergpt",
+      startedEvent: "pass_purchase_started",
+      confirmedEvent: "pass_purchase_confirmed",
+      failedEvent: "pass_purchase_failed",
+      properties: getPassPurchaseAnalyticsProperties("MFERGPT"),
+      action: async () => {
       const provider = await prepareWallet(["launchPass", "mfergpt"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferGptPrice));
       await approve(provider, addresses.mfergpt, addresses.launchPass, price);
       const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithMferGpt));
       registerMintedLaunchPass(receipt);
+      },
     });
   }
 
   async function upgradeGear() {
-    await runAction("upgrading gear", async () => {
+    await runTrackedAction({
+      label: "upgrading gear",
+      startedEvent: "gear_upgrade_started",
+      confirmedEvent: "gear_upgrade_confirmed",
+      failedEvent: "gear_upgrade_failed",
+      properties: { product: "gear-upgrade", tokenId: upgradeTokenId || "" },
+      action: async () => {
       const provider = await prepareWallet(["store", "gear", "gold"]);
       const tokenId = parseTokenId(upgradeTokenId);
       await approve(provider, addresses.gold, addresses.store, MAX_APPROVAL);
       await sendTransaction(provider, addresses.store, callData(SELECTORS.upgradeWithGold, encodeUint(tokenId)));
       const updated = await readGear(provider, addresses.gear, tokenId);
       onUpdateChainGearTier({ tokenId: tokenId.toString(), tier: updated.tier });
+      },
     });
   }
 
@@ -330,7 +432,13 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   }
 
   async function grantTestGold() {
-    await runAction("granting test gold", async () => {
+    await runTrackedAction({
+      label: "granting test gold",
+      startedEvent: "gold_grant_started",
+      confirmedEvent: "gold_grant_confirmed",
+      failedEvent: "gold_grant_failed",
+      properties: { product: "test-gold", amountLabel: "250" },
+      action: async () => {
       const provider = await prepareWallet(["rewards"]);
       const player = await getConnectedAccount(provider);
       await sendTransaction(provider, addresses.rewards, callData(
@@ -339,6 +447,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         randomBytes32(),
         encodeUint(TEST_GOLD_GRANT),
       ));
+      },
     });
   }
 
@@ -821,4 +930,40 @@ function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
   return "wallet action failed";
+}
+
+function getGearPurchaseAnalyticsProperties(paymentToken: string, gearTypeText: string): AnalyticsProperties {
+  const gearTypeNumber = Number(gearTypeText);
+  const gear = STORE_GEAR_COLLECTION.find((entry) => entry.gearType === gearTypeNumber);
+  return {
+    product: "chain-gear",
+    paymentToken,
+    gearType: Number.isInteger(gearTypeNumber) ? gearTypeNumber : 0,
+    gearLabel: gear?.label ?? "custom gear",
+  };
+}
+
+function getPassPurchaseAnalyticsProperties(paymentToken: string): AnalyticsProperties {
+  return {
+    product: "season0-pass",
+    paymentToken,
+  };
+}
+
+function sanitizeCryptoAnalyticsProperties(properties: AnalyticsProperties): Record<string, string | number | boolean | null> {
+  const result: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (value === undefined) continue;
+    if (!/^[a-zA-Z][a-zA-Z0-9_:-]{0,63}$/.test(key)) continue;
+    if (typeof value === "string") result[key] = value.slice(0, 160);
+    else if (typeof value === "number" && Number.isFinite(value)) result[key] = value;
+    else if (typeof value === "boolean" || value === null) result[key] = value;
+  }
+  return result;
+}
+
+function getAnalyticsErrorMessage(error: unknown) {
+  return getErrorMessage(error)
+    .replaceAll(/0x[a-fA-F0-9]{8,}/g, "0x...")
+    .slice(0, 120);
 }
