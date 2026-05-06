@@ -50,6 +50,7 @@ import {
 } from "@mferland/shared";
 import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
+import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
@@ -126,6 +127,24 @@ import {
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const EMOTE_MIN_INTERVAL_MS = 900;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
+const CLIENT_ANALYTICS_EVENTS = new Set([
+  "store_opened",
+  "wallet_connect_started",
+  "wallet_connect_succeeded",
+  "wallet_connect_failed",
+  "pass_purchase_started",
+  "pass_purchase_confirmed",
+  "pass_purchase_failed",
+  "gear_purchase_started",
+  "gear_purchase_confirmed",
+  "gear_purchase_failed",
+  "gold_grant_started",
+  "gold_grant_confirmed",
+  "gold_grant_failed",
+  "gear_upgrade_started",
+  "gear_upgrade_confirmed",
+  "gear_upgrade_failed",
+]);
 
 export function areDebugMessagesEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_ENABLE_DEBUG_MESSAGES === "1";
@@ -200,6 +219,11 @@ type DebugNpcSetupMessage = {
   aggroTargetId?: unknown;
 };
 
+type ClientAnalyticsMessage = {
+  eventType?: unknown;
+  properties?: unknown;
+};
+
 type DebugPlacementRecord = {
   x: number;
   z: number;
@@ -231,6 +255,8 @@ export class TownRoom extends Room<TownState> {
   private readonly lastMferGptAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
   private readonly persistentCharacterIds = new Map<string, string>();
+  private readonly sessionJoinedAt = new Map<string, number>();
+  private readonly deadSessionIds = new Set<string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
   private readonly temporaryNpcExpiresAt = new Map<string, number>();
   private readonly npcDamageTags = new Map<string, Map<string, number>>();
@@ -272,6 +298,10 @@ export class TownRoom extends Room<TownState> {
       this.handleCompleteQuest(client, message);
     });
 
+    this.onMessage("analyticsEvent", (client, message: ClientAnalyticsMessage = {}) => {
+      this.handleClientAnalyticsEvent(client, message);
+    });
+
     this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
       this.handleLootCorpse(client, message);
     });
@@ -299,6 +329,12 @@ export class TownRoom extends Room<TownState> {
       clearPlayerEmote(player);
       this.inputs.delete(client.sessionId);
       this.jumpHeld.set(client.sessionId, false);
+      this.deadSessionIds.delete(client.sessionId);
+      this.recordPlayerAnalyticsEvent("player_respawned", client.sessionId, player, {
+        level: player.level,
+        x: Math.round(player.x),
+        z: Math.round(player.z),
+      });
     });
 
     if (areDebugMessagesEnabled()) {
@@ -498,11 +534,26 @@ export class TownRoom extends Room<TownState> {
     player.mana = player.maxMana;
 
     this.state.players.set(client.sessionId, player);
+    this.sessionJoinedAt.set(client.sessionId, Date.now());
+    this.recordPlayerAnalyticsEvent("session_joined", client.sessionId, player, {
+      level: player.level,
+      persisted: Boolean(persistedCharacter),
+      playerCount: this.state.players.size,
+    });
   }
 
   async onLeave(client: Client) {
     const player = this.state.players.get(client.sessionId);
-    if (player) await this.persistPlayerProgressNow(client.sessionId, player);
+    if (player) {
+      this.recordPlayerAnalyticsEvent("session_left", client.sessionId, player, {
+        durationMs: Math.max(0, Date.now() - (this.sessionJoinedAt.get(client.sessionId) ?? Date.now())),
+        level: player.level,
+        playerCount: Math.max(0, this.state.players.size - 1),
+        x: Math.round(player.x),
+        z: Math.round(player.z),
+      });
+      await this.persistPlayerProgressNow(client.sessionId, player);
+    }
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
     this.jumpHeld.delete(client.sessionId);
@@ -511,6 +562,8 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
+    this.sessionJoinedAt.delete(client.sessionId);
+    this.deadSessionIds.delete(client.sessionId);
     this.pendingDebugPlacementSaves.delete(client.sessionId);
     clearConsumableCooldownsForPlayer(this.consumableCooldowns, client.sessionId);
     this.removePlayerThreat(client.sessionId);
@@ -794,6 +847,11 @@ export class TownRoom extends Room<TownState> {
       const waitSeconds = Math.ceil((MFERGPT.commandCooldownMs - (now - lastMferGpt)) / 1000);
       client.send("chat", makeMferGptChatMessage(`signal cooling off. try again in ${waitSeconds}s.`, Date.now()));
       this.logMferGptCommand(client.sessionId, player.name, "chat", false, "cooldown", 0, []);
+      this.recordPlayerAnalyticsEvent("mfergpt_command", client.sessionId, player, {
+        command: "chat",
+        status: "cooldown",
+        latencyMs: 0,
+      });
       return;
     }
     this.lastMferGptAt.set(client.sessionId, now);
@@ -823,6 +881,18 @@ export class TownRoom extends Room<TownState> {
         Date.now() - startedAt,
         result.temporaryNpcs.map((npc) => npc.id),
       );
+      this.recordPlayerAnalyticsEvent("mfergpt_command", client.sessionId, player, {
+        command: result.command,
+        status: "ok",
+        latencyMs: Date.now() - startedAt,
+        temporaryNpcCount: result.temporaryNpcs.length,
+      });
+      if (result.command === "hint") {
+        this.recordPlayerAnalyticsEvent("mfergpt_hint_requested", client.sessionId, player, {
+          status: "ok",
+          progressedQuest: Boolean(progressedMferGptQuest),
+        });
+      }
     } catch (error) {
       client.send("chat", makeMferGptChatMessage("signal ate that one. try again in a sec.", Date.now()));
       console.error("mfergpt.command_failed", {
@@ -830,6 +900,11 @@ export class TownRoom extends Room<TownState> {
         playerName: player.name,
         latencyMs: Date.now() - startedAt,
         error,
+      });
+      this.recordPlayerAnalyticsEvent("mfergpt_command", client.sessionId, player, {
+        command: "unknown",
+        status: "error",
+        latencyMs: Date.now() - startedAt,
       });
     }
   }
@@ -1252,6 +1327,19 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
   }
 
+  private handleClientAnalyticsEvent(client: Client, message: ClientAnalyticsMessage) {
+    const eventType = typeof message.eventType === "string" ? message.eventType : "";
+    if (!CLIENT_ANALYTICS_EVENTS.has(eventType)) return;
+
+    const player = this.state.players.get(client.sessionId);
+    this.recordPlayerAnalyticsEvent(
+      eventType,
+      client.sessionId,
+      player,
+      normalizeClientAnalyticsProperties(message.properties),
+    );
+  }
+
   private handleAcceptQuest(client: Client, message: Partial<ClientAcceptQuest>) {
     const player = this.state.players.get(client.sessionId);
     if (!player || player.health <= 0) return;
@@ -1264,6 +1352,11 @@ export class TownRoom extends Room<TownState> {
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
 
     startQuest(player, questId);
+    this.recordPlayerAnalyticsEvent("quest_accepted", client.sessionId, player, {
+      questId,
+      npcId: npc.id,
+      level: player.level,
+    });
     if (questId === "ogre-raid-daily") {
       this.ensureDailyRaidBoss();
     }
@@ -1282,12 +1375,20 @@ export class TownRoom extends Room<TownState> {
     if (!npc || distanceToNpc(player, npc) > 3.75) return;
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
     if (!completeQuest(player, questId, Date.now())) return;
-    awardExperience(player, getPlayerQuestXpReward(player, QUESTS[questId].xpReward));
+    const xpReward = getPlayerQuestXpReward(player, QUESTS[questId].xpReward);
+    awardExperience(player, xpReward);
     void this.awardSeason0QuestReward(client, player, questId);
 
     this.persistPlayerProgress(client.sessionId, player);
 
     const nextQuestId = getNextAvailableQuestId(player, questId);
+    this.recordPlayerAnalyticsEvent("quest_completed", client.sessionId, player, {
+      questId,
+      npcId: npc.id,
+      xpReward,
+      level: player.level,
+      nextQuestId: nextQuestId ?? "",
+    });
     if (nextQuestId && QUESTS[nextQuestId].giverNpcId === npc.id) {
       client.send("questOffer", makeQuestOffer(nextQuestId, npc));
     }
@@ -1389,6 +1490,14 @@ export class TownRoom extends Room<TownState> {
       });
       player.season0Points = result.seasonTotal;
       player.season0DailyPoints = result.dailyTotal;
+      this.recordPlayerAnalyticsEvent("season_points_awarded", client.sessionId, player, {
+        questId,
+        status: result.status,
+        points: result.points,
+        dailyTotal: result.dailyTotal,
+        seasonTotal: result.seasonTotal,
+        label: result.label,
+      });
       if (result.status !== "awarded") return;
 
       client.send("chat", {
@@ -1442,6 +1551,14 @@ export class TownRoom extends Room<TownState> {
       const activeInput = input && now - input.receivedAt < 1000 ? input : null;
       updatePlayerRegen(player, delta, now);
       if (player.health <= 0) {
+        if (!this.deadSessionIds.has(sessionId)) {
+          this.deadSessionIds.add(sessionId);
+          this.recordPlayerAnalyticsEvent("player_death", sessionId, player, {
+            level: player.level,
+            x: Math.round(player.x),
+            z: Math.round(player.z),
+          });
+        }
         player.verticalVelocity = 0;
         player.animation = "idle";
         clearPlayerEmote(player);
@@ -1530,6 +1647,15 @@ export class TownRoom extends Room<TownState> {
       if (now - taggedAt <= NPC_DAMAGE_TAG_TTL_MS) creditedSessionIds.add(sessionId);
     });
 
+    if (isAnalyticsBossNpc(npc)) {
+      const sourcePlayer = this.state.players.get(sourceId);
+      this.recordPlayerAnalyticsEvent("boss_defeated", sourceId, sourcePlayer, {
+        npcId: npc.id,
+        npcName: npc.name,
+        creditedPlayers: creditedSessionIds.size,
+      });
+    }
+
     for (const sessionId of creditedSessionIds) {
       const player = this.state.players.get(sessionId);
       if (!player || player.health <= 0) continue;
@@ -1544,6 +1670,22 @@ export class TownRoom extends Room<TownState> {
     }
 
     this.npcDamageTags.delete(npc.id);
+  }
+
+  private recordPlayerAnalyticsEvent(
+    eventType: string,
+    sessionId: string,
+    player: PlayerState | undefined,
+    properties: AnalyticsProperties = {},
+  ) {
+    void recordAnalyticsEvent({
+      eventType,
+      sessionId,
+      characterId: this.persistentCharacterIds.get(sessionId) ?? null,
+      identityType: player?.identityType ?? "",
+      walletAddress: player?.walletAddress ?? "",
+      properties,
+    });
   }
 
   private sendExperienceEvent(sessionId: string, npc: NpcState, amount: number, now: number) {
@@ -1808,6 +1950,28 @@ function normalizeDebugPlacementChunkNumber(value: unknown, min: number, max: nu
   const number = Number(value);
   if (!Number.isInteger(number) || number < min || number > max) return null;
   return number;
+}
+
+function normalizeClientAnalyticsProperties(value: unknown): AnalyticsProperties {
+  const properties: AnalyticsProperties = {};
+  if (!value || typeof value !== "object") return properties;
+
+  for (const [key, rawValue] of Object.entries(value as Record<string, unknown>).slice(0, 24)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_:-]{0,63}$/.test(key)) continue;
+    if (typeof rawValue === "string") {
+      properties[key] = rawValue.slice(0, 160);
+    } else if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      properties[key] = rawValue;
+    } else if (typeof rawValue === "boolean" || rawValue === null) {
+      properties[key] = rawValue;
+    }
+  }
+
+  return properties;
+}
+
+function isAnalyticsBossNpc(npc: NpcState) {
+  return npc.id === "static-baron-nox" || npc.id === "raid-ogre-mfer";
 }
 
 function normalizeEmoteId(value: unknown): EmoteId | null {

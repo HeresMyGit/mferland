@@ -10,7 +10,8 @@
 - The broken Drizzle metadata-dependent migrate command has been replaced with a repo-local SQL migration runner.
 - Checked-in migrations were applied to the current local `DATABASE_URL`.
 - On 2026-05-04, `0004_chain_gear_tiers.sql`, `0005_season_reward_events.sql`, and `0006_crypto_purchase_events.sql` were applied to the configured local/test `DATABASE_URL`.
-- On 2026-05-05, `0007_crypto_market_quotes.sql` was added for the Dex Screener quote cache and must be applied to the Neon staging/test branch before the remote friend test.
+- On 2026-05-05, `0007_crypto_market_quotes.sql` was added for the Dex Screener quote cache and applied to the Neon staging/test branch before the remote friend test.
+- On 2026-05-05, `0008_analytics_events.sql` was added for soft-launch analytics and applied to the Neon staging/test branch.
 - Wallet persistence was smoke-tested with a synthetic wallet for level/XP/talent points, quest state, inventory, equipment, and talents.
 
 ## Neon Staging/Test Branch
@@ -21,7 +22,7 @@
 - Remote friend-test branch ID: `br-autumn-rice-aqv3ie10`
 - Remote friend-test branch name: `remote-friend-test-2026-05-05`
 
-This staging project is separate from production. On 2026-05-05, the remote friend-test branch was migrated through `0007_crypto_market_quotes.sql` and seeded with cached Dex Screener quotes for remote testing.
+This staging project is separate from production. On 2026-05-05, the remote friend-test branch was migrated through `0008_analytics_events.sql` and seeded with cached Dex Screener quotes for remote testing.
 
 ## Current Checked-In Migrations
 
@@ -32,6 +33,7 @@ This staging project is separate from production. On 2026-05-05, the remote frie
 - `0005_season_reward_events.sql`: capped offchain Season 0 reward eligibility ledger.
 - `0006_crypto_purchase_events.sql`: launch-pass purchase reconciliation, manual grant, reject, and revoke ledger.
 - `0007_crypto_market_quotes.sql`: DB-backed cached Dex Screener market quotes for `$mfer/WETH` and `MFERGPT/WETH` display labels.
+- `0008_analytics_events.sql`: DB-backed soft-launch analytics events with hashed wallet attribution.
 
 ## How To Test Locally
 
@@ -50,7 +52,7 @@ Guest mode does not persist yet.
    `git grep -n -E "postgresql://|postgres://|API_KEY|SECRET|PRIVATE_KEY|TOKEN|npg_" -- . ':!package-lock.json'`
 2. Wait until Josh is on the Mac mini.
 3. Decide the final Neon dev/prod branch layout.
-4. Apply all checked-in migrations through `0007_crypto_market_quotes.sql` to the production branch/DB from that launch machine.
+4. Apply all checked-in migrations through `0008_analytics_events.sql` to the production branch/DB from that launch machine.
 5. Point the Mac mini at production `DATABASE_URL` through local/deploy secrets only.
 6. Keep `.env` local-only.
 7. Run wallet persistence, Season 0 reward, and purchase-ledger smoke tests against production before inviting external testers.

@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -147,4 +148,20 @@ export const cryptoMarketQuotes = pgTable("crypto_market_quotes", {
 }, (table) => [
   index("crypto_market_quotes_token_idx").on(table.chainId, table.tokenAddress, table.quoteSymbol),
   index("crypto_market_quotes_fetched_idx").on(table.fetchedAt),
+]);
+
+export const analyticsEvents = pgTable("analytics_events", {
+  id: text("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  sessionId: text("session_id").notNull().default(""),
+  characterId: text("character_id").references(() => characters.id, { onDelete: "set null" }),
+  identityType: text("identity_type").notNull().default(""),
+  walletHash: text("wallet_hash").notNull().default(""),
+  properties: jsonb("properties").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("analytics_events_type_created_idx").on(table.eventType, table.createdAt),
+  index("analytics_events_character_created_idx").on(table.characterId, table.createdAt),
+  index("analytics_events_wallet_created_idx").on(table.walletHash, table.createdAt),
+  index("analytics_events_session_created_idx").on(table.sessionId, table.createdAt),
 ]);

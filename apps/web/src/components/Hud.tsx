@@ -89,6 +89,7 @@ type HudTooltipState = {
   x: number;
   y: number;
 };
+type CryptoStoreAnalyticsProperties = Record<string, string | number | boolean | null>;
 
 type MoveUnlockNotice = {
   id: number;
@@ -134,6 +135,7 @@ type HudProps = {
   onUseItem: (message: ClientUseItem) => void;
   onRegisterChainGear: (message: ClientDebugRegisterChainGear) => void;
   onUpdateChainGearTier: (message: ClientDebugUpdateChainGearTier) => void;
+  onCryptoStoreAnalytics: (eventType: string, properties?: CryptoStoreAnalyticsProperties) => void;
   onSelectTalent: (message: ClientSelectTalent) => void;
   onCloseLootWindow: () => void;
   onCloseCryptoStore: () => void;
@@ -180,6 +182,7 @@ export function Hud({
   onUseItem,
   onRegisterChainGear,
   onUpdateChainGearTier,
+  onCryptoStoreAnalytics,
   onSelectTalent,
   onCloseLootWindow,
   onCloseCryptoStore,
@@ -782,6 +785,7 @@ export function Hud({
             onClose={onCloseCryptoStore}
             onRegisterChainGear={onRegisterChainGear}
             onUpdateChainGearTier={onUpdateChainGearTier}
+            onAnalyticsEvent={onCryptoStoreAnalytics}
           />
         </section>
       )}

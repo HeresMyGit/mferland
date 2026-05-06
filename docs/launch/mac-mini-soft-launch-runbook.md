@@ -86,6 +86,7 @@ VITE_ENABLE_CRYPTO_STORE="0"
 MFERLAND_INVITE_CODE="REPLACE_WITH_PRIVATE_DM_CODE"
 MFERLAND_SERVE_WEB_DIST="1"
 MFERLAND_MARKET_QUOTE_INTERVAL_MS="3600000"
+VITE_GA_MEASUREMENT_ID=""
 ```
 
 Use `https://game.mfergpt.lol/?invite=REPLACE_WITH_PRIVATE_DM_CODE` as the DM link. The static page is not secret, but room joins are rejected unless the invite code matches. Rotate `MFERLAND_INVITE_CODE` if the link leaks. Do not commit the invite code.
@@ -155,6 +156,7 @@ Confirm `.env` points at the intended Neon production branch. Then:
 npm run db:migrate -w @mferland/server
 npm run support:admin -- season-summary
 npm run support:admin -- purchase-summary
+npm run support:admin -- analytics-summary --since 24h
 ```
 
 If these commands hit the test DB by accident, stop and fix `DATABASE_URL`.
@@ -233,6 +235,7 @@ npm run launch:server
 - wallet is on the configured local chain.
 - `$mfer/WETH` and `MFERGPT/WETH` market labels show cached DB quotes or a clear cache error.
 - ETH, `$mfer`, and `$mfergpt` pass buttons show wallet prompts.
+- `npm run support:admin -- analytics-summary --since 24h` shows a `session_joined` row after a wallet/guest smoke.
 
 For the remote friend test with `VITE_ENABLE_CRYPTO_STORE="0"`, skip the merchant/pass checks above and confirm the merchant does not open a crypto panel. Do not perform a real purchase from Josh's main wallet during smoke. Use a disposable wallet or a manual grant if needed.
 

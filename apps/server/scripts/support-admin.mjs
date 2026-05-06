@@ -28,6 +28,7 @@ const { positionals, values } = parseArgs({
     "require-product": { type: "string" },
     season: { type: "string", default: DEFAULT_SEASON_ID },
     status: { type: "string" },
+    since: { type: "string", default: "7d" },
     "token-id": { type: "string", default: "" },
     tx: { type: "string" },
     wallet: { type: "string" },
@@ -53,6 +54,12 @@ try {
   switch (command) {
     case "wallet":
       await printWallet(values.wallet);
+      break;
+    case "analytics-summary":
+      await printAnalyticsSummary({
+        limit: parseLimit(values.limit),
+        since: values.since,
+      });
       break;
     case "season-summary":
       await printSeasonSummary(values.season);
@@ -234,6 +241,112 @@ async function printWallet(wallet) {
     seasonRewards: rewards,
     cryptoPurchases: purchases,
   }, null, 2));
+}
+
+async function printAnalyticsSummary({ since, limit }) {
+  const sinceDate = parseSince(since);
+  const [totals] = await sql`
+    SELECT
+      count(*)::int AS events,
+      count(DISTINCT NULLIF(session_id, ''))::int AS sessions,
+      count(DISTINCT character_id)::int AS characters,
+      count(DISTINCT NULLIF(wallet_hash, ''))::int AS wallets
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+  `;
+  const [sessions] = await sql`
+    SELECT
+      count(*) FILTER (WHERE event_type = 'session_joined')::int AS joins,
+      count(*) FILTER (WHERE event_type = 'session_left')::int AS leaves,
+      coalesce(
+        round(avg((properties->>'durationMs')::numeric) FILTER (
+          WHERE event_type = 'session_left'
+            AND properties ? 'durationMs'
+        )),
+        0
+      )::int AS avg_duration_ms
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+  `;
+  const byType = await sql`
+    SELECT
+      event_type,
+      count(*)::int AS events,
+      count(DISTINCT NULLIF(session_id, ''))::int AS sessions,
+      count(DISTINCT character_id)::int AS characters
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+    GROUP BY event_type
+    ORDER BY events DESC, event_type ASC
+    LIMIT ${limit}
+  `;
+  const questFunnel = await sql`
+    SELECT
+      properties->>'questId' AS quest_id,
+      count(*) FILTER (WHERE event_type = 'quest_accepted')::int AS accepted,
+      count(*) FILTER (WHERE event_type = 'quest_completed')::int AS completed
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type IN ('quest_accepted', 'quest_completed')
+      AND properties ? 'questId'
+    GROUP BY properties->>'questId'
+    ORDER BY accepted DESC, completed DESC, quest_id ASC
+    LIMIT ${limit}
+  `;
+  const purchaseFunnel = await sql`
+    SELECT
+      coalesce(nullif(properties->>'product', ''), 'unknown') AS product,
+      coalesce(nullif(properties->>'paymentToken', ''), 'unknown') AS payment_token,
+      event_type,
+      count(*)::int AS events,
+      count(DISTINCT NULLIF(session_id, ''))::int AS sessions
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type IN (
+        'pass_purchase_started',
+        'pass_purchase_confirmed',
+        'pass_purchase_failed',
+        'gear_purchase_started',
+        'gear_purchase_confirmed',
+        'gear_purchase_failed',
+        'gold_grant_started',
+        'gold_grant_confirmed',
+        'gold_grant_failed',
+        'gear_upgrade_started',
+        'gear_upgrade_confirmed',
+        'gear_upgrade_failed'
+      )
+    GROUP BY product, payment_token, event_type
+    ORDER BY product ASC, payment_token ASC, event_type ASC
+    LIMIT ${limit}
+  `;
+  const mferGpt = await sql`
+    SELECT
+      coalesce(nullif(properties->>'command', ''), 'unknown') AS command,
+      coalesce(nullif(properties->>'status', ''), 'unknown') AS status,
+      count(*)::int AS events,
+      count(DISTINCT NULLIF(session_id, ''))::int AS sessions
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type = 'mfergpt_command'
+    GROUP BY command, status
+    ORDER BY events DESC, command ASC, status ASC
+    LIMIT ${limit}
+  `;
+
+  console.log(JSON.stringify({
+    since: sinceDate.toISOString(),
+    totals,
+    sessions,
+  }, null, 2));
+  console.log("\nEvents by type");
+  console.table(byType);
+  console.log("\nQuest funnel");
+  console.table(questFunnel);
+  console.log("\nCrypto funnel");
+  console.table(purchaseFunnel);
+  console.log("\nmferGPT");
+  console.table(mferGpt);
 }
 
 async function printSeasonSummary(seasonId) {
@@ -671,6 +784,21 @@ function parseLimit(value) {
   return limit;
 }
 
+function parseSince(value) {
+  const normalized = String(value ?? "7d").trim().toLowerCase();
+  const relative = normalized.match(/^([1-9][0-9]{0,3})(h|d|w)$/);
+  if (relative) {
+    const amount = Number.parseInt(relative[1], 10);
+    const unit = relative[2];
+    const hours = unit === "h" ? amount : unit === "d" ? amount * 24 : amount * 24 * 7;
+    return new Date(Date.now() - hours * 60 * 60 * 1000);
+  }
+
+  const date = new Date(normalized);
+  if (!Number.isNaN(date.getTime())) return date;
+  fail("Pass --since like 24h, 7d, 4w, or an ISO date");
+}
+
 function parseChainId(value) {
   const chainId = Number.parseInt(value ?? "", 10);
   if (!Number.isInteger(chainId) || chainId < 0) return 0;
@@ -825,6 +953,7 @@ function fail(message) {
 function printHelp() {
   console.log(`Usage:
   npm run support:admin -- wallet --wallet 0x...
+  npm run support:admin -- analytics-summary [--since 7d] [--limit 50]
   npm run support:admin -- season-summary [--season season-0]
   npm run support:admin -- season-list [--status pending] [--wallet 0x...] [--limit 50]
   npm run support:admin -- season-export [--status approved] [--require-product season0-pass]

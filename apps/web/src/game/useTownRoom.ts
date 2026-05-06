@@ -99,6 +99,7 @@ type DebugNpcSetupMessage = {
   dialogue?: string;
   aggroTargetId?: string;
 };
+type ClientAnalyticsProperties = Record<string, string | number | boolean | null>;
 type DebugPlacementSaveResult = {
   ok: boolean;
   path?: string;
@@ -380,6 +381,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("completeQuest", message);
   }, []);
 
+  const sendAnalyticsEvent = useCallback((eventType: string, properties: ClientAnalyticsProperties = {}) => {
+    roomRef.current?.send("analyticsEvent", { eventType, properties });
+  }, []);
+
   const dismissQuestOffer = useCallback(() => {
     setQuestOffer(null);
   }, []);
@@ -505,6 +510,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendInteract,
     sendAcceptQuest,
     sendCompleteQuest,
+    sendAnalyticsEvent,
     dismissQuestOffer,
     dismissQuestTurnIn,
     dismissQuestStatus,
