@@ -266,6 +266,11 @@ export type ClientCompleteQuest = {
   npcId?: string;
 };
 
+export type ClientShareQuestLink = {
+  questId: QuestId;
+  url?: string;
+};
+
 export type ClientLootCorpse = {
   npcId: string;
   itemId?: ItemId;

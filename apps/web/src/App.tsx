@@ -1001,6 +1001,7 @@ function GameShell({
             onReplaceActionSlots={replaceActionSlots}
             onAcceptQuest={acceptQuest}
             onCompleteQuest={completeQuest}
+            onShareQuestLink={room.sendShareQuestLink}
             onDismissQuestOffer={room.dismissQuestOffer}
             onDismissQuestTurnIn={room.dismissQuestTurnIn}
             onDismissQuestStatus={room.dismissQuestStatus}

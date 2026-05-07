@@ -1,19 +1,23 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Dumbbell, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, Dumbbell, ExternalLink, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
+  COMBAT,
   EMOTES,
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
+  SOCIAL,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
   STAT_LABELS,
+  doesItemRevealAllNpcsOnMinimap,
   getLevelProgress,
   getInventoryItemKey,
   getItemConsumable,
   getItemEquipment,
   getNpcDisposition,
+  getNpcQuestMarker,
   normalizeChainGearTier,
   type ActionId,
   type ChatMessage,
@@ -26,6 +30,7 @@ import {
   type ClientEquipItem,
   type ClientLootCorpse,
   type ClientSelectTalent,
+  type ClientShareQuestLink,
   type ClientUnequipItem,
   type ClientUseItem,
   type EquipmentSlotId,
@@ -35,6 +40,7 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
+  type QuestMarkerType,
   type QuestStatusNotice,
   type QuestTurnIn,
   type TargetSelection,
@@ -73,6 +79,7 @@ const IDLE_HUD_TICK_MIN_MS = 1000;
 const TOOLTIP_MAX_WIDTH = 280;
 const TOOLTIP_MAX_HEIGHT = 220;
 const TOOLTIP_OFFSET = 16;
+const MINIMAP_NPC_REVEAL_RANGE = COMBAT.actions.shoot.maxRange + 8;
 const EMOTE_OPTIONS: Array<{ id: EmoteId; Icon: LucideIcon }> = [
   { id: "wave", Icon: Hand },
   { id: "dance", Icon: Music },
@@ -123,6 +130,7 @@ type HudProps = {
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onCompleteQuest: (message: ClientCompleteQuest) => void;
+  onShareQuestLink: (message: ClientShareQuestLink) => void;
   onDismissQuestOffer: () => void;
   onDismissQuestTurnIn: () => void;
   onDismissQuestStatus: () => void;
@@ -169,6 +177,7 @@ export function Hud({
   onReplaceActionSlots,
   onAcceptQuest,
   onCompleteQuest,
+  onShareQuestLink,
   onDismissQuestOffer,
   onDismissQuestTurnIn,
   onDismissQuestStatus,
@@ -221,6 +230,15 @@ export function Hud({
   const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
+  const revealAllNpcsOnMinimap = playerRevealsAllNpcsOnMinimap(localPlayer);
+  const visibleMapNpcs = Array.from(npcs.values()).filter((npc) => shouldShowNpcOnMaps({
+    localPlayer,
+    npc,
+    questLog,
+    revealAllNpcsOnMinimap,
+    showFriendlyNpcs: settings.minimap.friendlyNpcs,
+  }));
+  const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const showSeasonGold = localPlayer?.identityType === "wallet";
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
@@ -282,7 +300,7 @@ export function Hud({
 
       if (isMapOpen && local) {
         revealExploredCells(local);
-        applyHudPositionStyle(worldMapLocalRef.current, getWorldMapPointStyle(local.x, local.z));
+        applyHudPositionStyle(worldMapLocalRef.current, getWorldMapLocalMarkerStyle(local));
         for (const [id, element] of worldMapNpcRefs.current) {
           const npc = npcs.get(id);
           if (!npc) continue;
@@ -723,6 +741,7 @@ export function Hud({
       {questStatus && (
         <QuestStatusPanel
           notice={questStatus}
+          onShareQuestLink={onShareQuestLink}
           onDismiss={onDismissQuestStatus}
         />
       )}
@@ -811,6 +830,7 @@ export function Hud({
           ))}
           <div className="minimap-ring" />
           <div className="minimap-vision-cone" />
+          <CardinalCompass yaw={localPlayer?.yaw ?? 0} />
           {Array.from(players.entries()).map(([id, player]) => (
             <span
               key={id}
@@ -822,17 +842,20 @@ export function Hud({
               }}
             />
           ))}
-          {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
-            <span
-              key={npc.id}
-              ref={(element) => setHudElementRef(minimapNpcRefs, npc.id, element)}
-              className={`map-dot npc ${getNpcDisposition(npc)}`}
-              title={npc.name}
-              style={{
-                ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
-              }}
-            />
-          ))}
+          {visibleMapNpcs.map((npc) => {
+            const questMarker = getNpcQuestMarker(npc, questLog);
+            return (
+              <span
+                key={npc.id}
+                ref={(element) => setHudElementRef(minimapNpcRefs, npc.id, element)}
+                className={getNpcMapDotClassName(npc, questMarker)}
+                title={npc.name}
+                style={{
+                  ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
+                }}
+              />
+            );
+          })}
         </div>
         <div className="online-row">
           <span>mfers: {playerCount}</span>
@@ -885,22 +908,25 @@ export function Hud({
                   <em>{landmark.label}</em>
                 </span>
               ))}
-              {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
-                <span
-                  key={npc.id}
-                  ref={(element) => setHudElementRef(worldMapNpcRefs, npc.id, element)}
-                  className={`map-dot npc ${getNpcDisposition(npc)}`}
-                  title={npc.name}
-                  style={getWorldMapPointStyle(npc.x, npc.z)}
-                />
-              ))}
+              {visibleMapNpcs.map((npc) => {
+                const questMarker = getNpcQuestMarker(npc, questLog);
+                return (
+                  <span
+                    key={npc.id}
+                    ref={(element) => setHudElementRef(worldMapNpcRefs, npc.id, element)}
+                    className={getNpcMapDotClassName(npc, questMarker)}
+                    title={npc.name}
+                    style={getWorldMapPointStyle(npc.x, npc.z)}
+                  />
+                );
+              })}
               {localPlayer && (
                 <span
                   ref={(element) => {
                     worldMapLocalRef.current = element;
                   }}
-                  className="map-dot local"
-                  style={getWorldMapPointStyle(localPlayer.x, localPlayer.z)}
+                  className="map-dot local directional"
+                  style={getWorldMapLocalMarkerStyle(localPlayer)}
                 />
               )}
             </div>
@@ -984,7 +1010,7 @@ export function Hud({
                   const item = itemId ? ITEMS[itemId] : null;
                   const chainLabel = slot ? formatChainGearLabel(slot) : "";
                   const title = itemId && item
-                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier)}\nClick to unequip`
+                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier)}\n${formatItemUtility(itemId)}\nClick to unequip`
                     : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
                   return (
                     <button
@@ -1048,14 +1074,14 @@ export function Hud({
             <div className="world-map-header">
               <div>
                 <strong>stash</strong>
-                <span>{localPlayer?.inventory.length ?? 0} stacks</span>
+                <span>{visibleInventory.length} stacks</span>
               </div>
               <button type="button" title="Close stash" aria-label="Close stash" onClick={() => setIsInventoryOpen(false)}>
                 <X size={22} />
               </button>
             </div>
             <div className="inventory-grid">
-              {localPlayer && localPlayer.inventory.length > 0 ? localPlayer.inventory.map((item) => {
+              {visibleInventory.length > 0 ? visibleInventory.map((item) => {
                 const equipment = getItemEquipment(item.id);
                 const consumable = getItemConsumable(item.id);
                 const comparison = getItemComparison(item, localPlayer);
@@ -1278,6 +1304,16 @@ function SettingsPanel({
     });
   }
 
+  function updateMinimapSetting(key: keyof GameSettings["minimap"], value: boolean) {
+    onChange({
+      ...settings,
+      minimap: {
+        ...settings.minimap,
+        [key]: value,
+      },
+    });
+  }
+
   function updateNameplateSetting(key: keyof NameplateVisibility, value: boolean) {
     onChange({
       ...settings,
@@ -1315,6 +1351,15 @@ function SettingsPanel({
           step={0.05}
           disabled={!settings.audio.enabled}
           onChange={(value) => updateAudioSetting("volume", value)}
+        />
+      </section>
+
+      <section className="settings-section">
+        <strong>Minimap</strong>
+        <SettingsToggle
+          label="Friendly NPCs"
+          checked={settings.minimap.friendlyNpcs}
+          onChange={(checked) => updateMinimapSetting("friendlyNpcs", checked)}
         />
       </section>
 
@@ -1362,6 +1407,18 @@ function SettingsPanel({
           onChange={(checked) => updateNameplateSetting("unfriendlyNpcs", checked)}
         />
       </section>
+    </div>
+  );
+}
+
+function CardinalCompass({ yaw }: { yaw: number }) {
+  const counterRotateStyle = { transform: `translate(-50%, -50%) rotate(${-yaw}rad)` };
+  return (
+    <div className="minimap-cardinals" aria-hidden="true" style={{ transform: `rotate(${yaw}rad)` }}>
+      <span className="minimap-cardinal north" style={counterRotateStyle}>N</span>
+      <span className="minimap-cardinal east" style={counterRotateStyle}>E</span>
+      <span className="minimap-cardinal south" style={counterRotateStyle}>S</span>
+      <span className="minimap-cardinal west" style={counterRotateStyle}>W</span>
     </div>
   );
 }
@@ -1542,6 +1599,67 @@ function applyHudPositionStyle(element: HTMLElement | null | undefined, style: C
   setCssProperty(element, "transform", style.transform);
 }
 
+function getWorldMapLocalMarkerStyle(player: PlayerSnapshot): CSSProperties {
+  return {
+    ...getWorldMapPointStyle(player.x, player.z),
+    transform: `translate(-50%, -50%) rotate(${player.yaw}rad)`,
+  };
+}
+
+function shouldShowNpcOnMaps({
+  localPlayer,
+  npc,
+  questLog,
+  revealAllNpcsOnMinimap,
+  showFriendlyNpcs,
+}: {
+  localPlayer: PlayerSnapshot | null;
+  npc: NpcSnapshot;
+  questLog: PlayerSnapshot["quests"];
+  revealAllNpcsOnMinimap: boolean;
+  showFriendlyNpcs: boolean;
+}) {
+  if (!isNpcAliveForMap(npc)) return false;
+  if (revealAllNpcsOnMinimap) return true;
+  if (!localPlayer) return false;
+
+  const distance = Math.hypot(npc.x - localPlayer.x, npc.z - localPlayer.z);
+  if (distance > MINIMAP_NPC_REVEAL_RANGE) return false;
+
+  if (getNpcQuestMarker(npc, questLog)) return true;
+
+  const disposition = getNpcDisposition(npc);
+  if (disposition === "hostile") return true;
+  if (disposition === "friendly") return showFriendlyNpcs;
+  return false;
+}
+
+function isNpcAliveForMap(npc: NpcSnapshot) {
+  return npc.isImmortal || npc.health > 0;
+}
+
+function playerRevealsAllNpcsOnMinimap(player: PlayerSnapshot | null) {
+  return player?.equipment.some((slot) => (
+    Boolean(slot.itemId) && doesItemRevealAllNpcsOnMinimap(slot.itemId as ItemId)
+  )) ?? false;
+}
+
+function getNpcMapDotClassName(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
+  const markerClass = questMarker === "turnIn"
+    ? " quest-turn-in"
+    : questMarker === "available"
+      ? " quest-available"
+      : "";
+  return `map-dot npc ${getNpcDisposition(npc)}${markerClass}`;
+}
+
+function getTweetIntentUrl() {
+  const url = new URL("https://twitter.com/intent/tweet");
+  url.searchParams.set("text", SOCIAL.tweetText);
+  url.searchParams.set("url", SOCIAL.mferlandUrl);
+  return url.toString();
+}
+
 function setCssProperty(element: HTMLElement, property: string, value: CSSProperties[keyof CSSProperties]) {
   if (value === undefined || value === null) return;
   const next = String(value);
@@ -1672,11 +1790,21 @@ function QuestTurnInPanel({
 
 function QuestStatusPanel({
   notice,
+  onShareQuestLink,
   onDismiss,
 }: {
   notice: QuestStatusNotice;
+  onShareQuestLink: (message: ClientShareQuestLink) => void;
   onDismiss: () => void;
 }) {
+  const isTweetQuest = notice.questId === "tweet-town-link";
+
+  function openTweetQuest() {
+    const url = getTweetIntentUrl();
+    window.open(url, "_blank", "noopener,noreferrer");
+    onShareQuestLink({ questId: notice.questId, url: SOCIAL.mferlandUrl });
+  }
+
   return (
     <section className="quest-dialogue-panel status" role="dialog" aria-label={`Quest status: ${notice.title}`} data-testid="quest-status-panel">
       <button className="quest-offer-close" type="button" title="Close" aria-label="Close quest status" onClick={onDismiss}>
@@ -1696,6 +1824,12 @@ function QuestStatusPanel({
       </div>
       <QuestRewardList rewards={notice.rewardPreview} />
       <div className="quest-dialogue-actions">
+        {isTweetQuest && (
+          <button className="quest-accept-btn" type="button" onClick={openTweetQuest} data-testid="quest-share-link-button">
+            <ExternalLink size={17} />
+            open tweet
+          </button>
+        )}
         <button className="quest-secondary-btn" type="button" onClick={onDismiss} data-testid="quest-status-close-button">
           Close
         </button>
@@ -1823,6 +1957,7 @@ function getInventoryItemTitle(
     equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
     equipment ? formatItemStats(item.id, item.chainTier) : "",
     consumable ? formatConsumableEffect(item.id) : "",
+    formatItemUtility(item.id),
     comparison?.text ?? "",
     equipped ? "Currently equipped" : equipment ? "Click to equip" : consumable ? "Click to use, drag to hotbar" : "",
   ].filter(Boolean).join("\n");
@@ -1839,8 +1974,13 @@ function getLootItemTitle(item: { id: ItemId; count: number }) {
     equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
     equipment ? formatItemStats(item.id) : "",
     consumable ? formatConsumableEffect(item.id) : "",
+    formatItemUtility(item.id),
     "Click to loot",
   ].filter(Boolean).join("\n");
+}
+
+function formatItemUtility(itemId: ItemId) {
+  return doesItemRevealAllNpcsOnMinimap(itemId) ? "Minimap: reveals every NPC while equipped" : "";
 }
 
 function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot | null) {

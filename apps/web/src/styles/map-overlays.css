@@ -123,6 +123,52 @@
   z-index: 4;
 }
 
+.minimap-cardinals {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  pointer-events: none;
+  transform-origin: center;
+  z-index: 7;
+}
+
+.minimap-cardinal {
+  position: absolute;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid rgba(16, 16, 16, 0.5);
+  border-radius: 50%;
+  background: rgba(255, 244, 178, 0.86);
+  color: #101010;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+}
+
+.minimap-cardinal.north {
+  left: 50%;
+  top: 0;
+}
+
+.minimap-cardinal.east {
+  left: 100%;
+  top: 50%;
+}
+
+.minimap-cardinal.south {
+  left: 50%;
+  top: 100%;
+}
+
+.minimap-cardinal.west {
+  left: 0;
+  top: 50%;
+}
+
 .map-dot {
   position: absolute;
   width: 9px;
@@ -152,6 +198,10 @@
   transform: translateX(-50%);
 }
 
+.map-dot.local.directional {
+  transform-origin: center;
+}
+
 .map-dot.npc {
   width: 10px;
   height: 10px;
@@ -168,6 +218,19 @@
 .map-dot.npc.hostile {
   background: var(--mfer-red);
   border-color: #260b08;
+}
+
+.map-dot.npc.quest-available,
+.map-dot.npc.quest-turn-in {
+  box-shadow:
+    0 0 0 2px #101010,
+    0 0 0 5px rgba(247, 214, 78, 0.82);
+}
+
+.map-dot.npc.quest-turn-in {
+  box-shadow:
+    0 0 0 2px #101010,
+    0 0 0 5px rgba(73, 193, 100, 0.82);
 }
 
 .map-dot.landmark {

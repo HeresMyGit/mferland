@@ -14,6 +14,7 @@ import {
   type ClientInput,
   type ClientLootCorpse,
   type ClientSelectTalent,
+  type ClientShareQuestLink,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatEvent,
@@ -377,6 +378,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("completeQuest", message);
   }, []);
 
+  const sendShareQuestLink = useCallback((message: ClientShareQuestLink) => {
+    roomRef.current?.send("shareQuestLink", message);
+  }, []);
+
   const dismissQuestOffer = useCallback(() => {
     setQuestOffer(null);
   }, []);
@@ -502,6 +507,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendInteract,
     sendAcceptQuest,
     sendCompleteQuest,
+    sendShareQuestLink,
     dismissQuestOffer,
     dismissQuestTurnIn,
     dismissQuestStatus,

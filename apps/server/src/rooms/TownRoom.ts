@@ -38,6 +38,7 @@ import {
   type ClientInput,
   type ClientLootCorpse,
   type ClientSelectTalent,
+  type ClientShareQuestLink,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatActionId,
@@ -99,7 +100,10 @@ import {
   getNpcQuestInteraction,
   isQuestAvailable,
   makeQuestOffer,
+  makeQuestTurnIn,
   normalizeQuestId,
+  progressMferGptMentionQuest,
+  progressSocialQuest,
   startQuest,
   progressDefeatQuests,
 } from "../systems/quests.js";
@@ -379,6 +383,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("chat", (client, message: { text?: string }) => {
       void this.handleChatMessage(client, message);
+    });
+
+    this.onMessage("shareQuestLink", (client, message: Partial<ClientShareQuestLink> = {}) => {
+      this.handleShareQuestLink(client, message);
     });
 
     this.onMessage("emote", (client, message: Partial<ClientEmote> = {}) => {
@@ -770,6 +778,10 @@ export class TownRoom extends Room<TownState> {
     };
     this.broadcast("chat", payload);
 
+    if (progressMferGptMentionQuest(player, text)) {
+      this.persistPlayerProgress(client.sessionId, player);
+    }
+
     const prompt = getMferGptPrompt(text);
     if (!prompt) return;
 
@@ -813,6 +825,21 @@ export class TownRoom extends Room<TownState> {
         latencyMs: Date.now() - startedAt,
         error,
       });
+    }
+  }
+
+  private handleShareQuestLink(client: Client, message: Partial<ClientShareQuestLink>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const questId = normalizeQuestId(message?.questId);
+    if (!questId || !progressSocialQuest(player, questId)) return;
+
+    this.persistPlayerProgress(client.sessionId, player);
+    const turnInNpc = this.state.npcs.get(getQuestTurnInNpcId(questId));
+    const quest = player.quests.get(questId);
+    if (turnInNpc && quest?.status === "ready" && distanceToNpc(player, turnInNpc) <= 3.75) {
+      client.send("questTurnIn", makeQuestTurnIn(questId, turnInNpc, quest));
     }
   }
 

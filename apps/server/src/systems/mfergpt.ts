@@ -266,6 +266,22 @@ function getActiveQuestHint(
     return `for ${quest.title}, keep clearing wild hogs near the loop. you have ${progress}/${required} hog livers.`;
   }
 
+  if (questId === "boar-bristle-cull") {
+    return `for ${quest.title}, kill wild boars around red-eye farm. progress is ${progress}/${required}.`;
+  }
+
+  if (questId === "farmhand-bandanas") {
+    return `for ${quest.title}, kill red-eye farmhands near the busted farm. progress is ${progress}/${required}.`;
+  }
+
+  if (questId === "mfergpt-checkin") {
+    return `for ${quest.title}, put @mfergpt anywhere in chat. that's enough.`;
+  }
+
+  if (questId === "tweet-town-link") {
+    return `for ${quest.title}, use the quest button to open the tweet composer. don't click tweet unless you mean it.`;
+  }
+
   if (questId === "field-camp-delivery") {
     return `follow the dirt route past red-eye farm to route post, then talk to ${turnInNpcName}.`;
   }

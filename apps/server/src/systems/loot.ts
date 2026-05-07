@@ -83,9 +83,7 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       }
     }
 
-    const bandanaDropRate = !isRidgeRaider(npc) && canDropQuestItem(player, "farmhand-bandanas") && "dropRate" in QUESTS["farmhand-bandanas"]
-      ? QUESTS["farmhand-bandanas"].dropRate
-      : !isRidgeRaider(npc) ? 0.35 : 0;
+    const bandanaDropRate = !isRidgeRaider(npc) ? 0.35 : 0;
     if (bandanaDropRate > 0 && Math.random() < bandanaDropRate) {
       addLootItem(npc, "farmhand-bandana", 1);
     }

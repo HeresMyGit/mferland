@@ -23,15 +23,15 @@ export const PROGRESSION = {
   nearbyCreditRadius: 16,
   levelXpThresholds: [
     0,
-    80,
-    200,
-    380,
-    620,
-    920,
-    1280,
-    1700,
-    2180,
-    2720,
+    120,
+    420,
+    760,
+    1160,
+    1640,
+    2200,
+    2840,
+    3560,
+    4360,
   ],
   mobXpRewards: {
     enemy: 18,
@@ -147,6 +147,11 @@ export const MFERGPT = {
   maxTemporaryEnemies: 4,
   temporaryEnemyLifetimeMs: 90_000,
   townEventLifetimeMs: 60_000,
+} as const;
+
+export const SOCIAL = {
+  mferlandUrl: "https://mferland.xyz",
+  tweetText: "gm, i'm in mferland",
 } as const;
 
 export const FARMER_COMBAT = {

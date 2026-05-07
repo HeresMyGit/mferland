@@ -355,7 +355,7 @@ function makeFarmerSpecs() {
   return [
     { id: "farmhand-bran", name: "red-eye mfer bran", x: -77.5, z: 86.5, yaw: -0.7, style: "melee" },
     { id: "farmhand-mae", name: "red-eye mfer mae", x: -87.5, z: 91.5, yaw: 0.8, style: "melee" },
-    { id: "field-mage-sol", name: "drop-loop mfer sol", x: -73.2, z: 99.8, yaw: -1.6, style: "caster" },
+    { id: "field-mage-sol", name: "signal-sick mfer sol", x: -73.2, z: 99.8, yaw: -1.6, style: "caster" },
     { id: "farmhand-jo", name: "red-eye mfer jo", x: -94.5, z: 102.4, yaw: 0.4, style: "melee" },
     { id: "field-mage-ren", name: "rumor-loop mfer ren", x: -84.8, z: 108.6, yaw: 2.2, style: "caster" },
   ].map((farmer) => ({
@@ -372,7 +372,7 @@ function makeFarmerSpecs() {
     combatStyle: farmer.style as "melee" | "caster",
     dialogue: farmer.style === "caster"
       ? "been farming the same rumor for three nights."
-      : "one more loop, one more drop. eyes cooked.",
+      : "one more loop, one more bad signal. eyes cooked.",
   }));
 }
 
