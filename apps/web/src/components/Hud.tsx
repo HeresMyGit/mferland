@@ -1,4 +1,4 @@
-import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Check, Dumbbell, ExternalLink, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
@@ -231,13 +231,14 @@ export function Hud({
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const revealAllNpcsOnMinimap = playerRevealsAllNpcsOnMinimap(localPlayer);
-  const visibleMapNpcs = Array.from(npcs.values()).filter((npc) => shouldShowNpcOnMaps({
-    localPlayer,
-    npc,
-    questLog,
-    revealAllNpcsOnMinimap,
-    showFriendlyNpcs: settings.minimap.friendlyNpcs,
-  }));
+  const visibleMapNpcs = Array.from(npcs.values())
+    .map((npc) => ({ npc, questMarker: getNpcQuestMarker(npc, questLog) }))
+    .filter(({ npc, questMarker }) => shouldShowNpcOnMaps({
+      localPlayer,
+      npc,
+      questMarker,
+      revealAllNpcsOnMinimap,
+    }));
   const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const showSeasonGold = localPlayer?.identityType === "wallet";
@@ -523,39 +524,63 @@ export function Hud({
     showTooltip(element.dataset.tooltip, rect.left + rect.width / 2, rect.bottom);
   }
 
-  useEffect(() => {
-    const onTooltipOver = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
-      const element = getTooltipElement(event.target);
-      if (!element) return;
-      if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
-      showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
-    };
-    const onTooltipMove = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
-      if (!getTooltipElement(event.target)) return;
-      moveTooltip(event.clientX, event.clientY);
-    };
-    const onTooltipOut = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
-      const element = getTooltipElement(event.target);
-      if (!element) return;
-      if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
-      hideTooltip();
-    };
+  function handleTooltipPointerOver(event: PointerEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+  }
 
-    window.addEventListener("mouseover", onTooltipOver);
-    window.addEventListener("mousemove", onTooltipMove);
-    window.addEventListener("mouseout", onTooltipOut);
-    window.addEventListener("pointerover", onTooltipOver);
-    window.addEventListener("pointermove", onTooltipMove);
-    window.addEventListener("pointerout", onTooltipOut);
-    return () => {
-      window.removeEventListener("mouseover", onTooltipOver);
-      window.removeEventListener("mousemove", onTooltipMove);
-      window.removeEventListener("mouseout", onTooltipOut);
-      window.removeEventListener("pointerover", onTooltipOver);
-      window.removeEventListener("pointermove", onTooltipMove);
-      window.removeEventListener("pointerout", onTooltipOut);
+  function handleTooltipPointerMove(event: PointerEvent<HTMLElement>) {
+    if (!getTooltipElement(event.target)) return;
+    moveTooltip(event.clientX, event.clientY);
+  }
+
+  function handleTooltipPointerOut(event: PointerEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    hideTooltip();
+  }
+
+  function handleTooltipMouseOver(event: ReactMouseEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+  }
+
+  function handleTooltipMouseMove(event: ReactMouseEvent<HTMLElement>) {
+    if (!getTooltipElement(event.target)) return;
+    moveTooltip(event.clientX, event.clientY);
+  }
+
+  function handleTooltipMouseOut(event: ReactMouseEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    hideTooltip();
+  }
+
+  function handleTooltipClick(event: ReactMouseEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+  }
+
+  function getMapAnnotationTooltipProps(text: string) {
+    return {
+      "data-tooltip": text,
+      title: text,
+      onClick: (event: ReactMouseEvent<HTMLElement>) => showTooltip(text, event.clientX, event.clientY),
+      onMouseEnter: (event: ReactMouseEvent<HTMLElement>) => showTooltip(text, event.clientX, event.clientY),
+      onMouseLeave: hideTooltip,
+      onMouseMove: (event: ReactMouseEvent<HTMLElement>) => moveTooltip(event.clientX, event.clientY),
+      onPointerEnter: (event: PointerEvent<HTMLElement>) => showTooltip(text, event.clientX, event.clientY),
+      onPointerLeave: hideTooltip,
+      onPointerMove: (event: PointerEvent<HTMLElement>) => moveTooltip(event.clientX, event.clientY),
     };
-  }, []);
+  }
 
   function setDragState(nextDragState: DragState | null) {
     dragStateRef.current = nextDragState;
@@ -668,6 +693,13 @@ export function Hud({
       className="hud"
       onFocusCapture={handleTooltipFocus}
       onBlurCapture={hideTooltip}
+      onPointerOverCapture={handleTooltipPointerOver}
+      onPointerMoveCapture={handleTooltipPointerMove}
+      onPointerOutCapture={handleTooltipPointerOut}
+      onMouseOverCapture={handleTooltipMouseOver}
+      onMouseMoveCapture={handleTooltipMouseMove}
+      onMouseOutCapture={handleTooltipMouseOut}
+      onClickCapture={handleTooltipClick}
     >
       <section className="player-card">
         <button
@@ -807,7 +839,9 @@ export function Hud({
               key={hub.id}
               ref={(element) => setHudElementRef(minimapHubRefs, hub.id, element)}
               className={`minimap-hub ${hub.kind}`}
-              title={hub.name}
+              aria-label={hub.name}
+              data-map-annotation="hub"
+              {...getMapAnnotationTooltipProps(getMapHubTooltip(hub))}
               style={getMinimapCircleStyle(localPlayer, hub.x, hub.z, hub.diameter)}
             />
           ))}
@@ -824,32 +858,39 @@ export function Hud({
               key={landmark.id}
               ref={(element) => setHudElementRef(minimapLandmarkRefs, landmark.id, element)}
               className={`map-dot landmark ${landmark.kind}`}
-              title={landmark.name}
+              aria-label={landmark.name}
+              data-map-annotation="landmark"
+              {...getMapAnnotationTooltipProps(getMapLandmarkTooltip(landmark))}
               style={getMinimapPointStyle(localPlayer, landmark.x, landmark.z)}
             />
           ))}
           <div className="minimap-ring" />
           <div className="minimap-vision-cone" />
-          <CardinalCompass yaw={localPlayer?.yaw ?? 0} />
+          <CardinalCompass localPlayer={localPlayer} />
           {Array.from(players.entries()).map(([id, player]) => (
             <span
               key={id}
               ref={(element) => setHudElementRef(minimapPlayerRefs, id, element)}
               className={id === localSessionId ? "map-dot local" : "map-dot"}
+              aria-label={id === localSessionId ? "you" : player.name}
+              data-map-annotation="player"
+              {...getMapAnnotationTooltipProps(getPlayerMapTooltip(player, id === localSessionId))}
               style={{
                 ...getMinimapPointStyle(localPlayer, player.x, player.z),
                 backgroundColor: id === localSessionId ? MFER_COLORS.local : colorFromSeed(player.avatarSeed),
               }}
             />
           ))}
-          {visibleMapNpcs.map((npc) => {
-            const questMarker = getNpcQuestMarker(npc, questLog);
+          {visibleMapNpcs.map(({ npc, questMarker }) => {
             return (
               <span
                 key={npc.id}
                 ref={(element) => setHudElementRef(minimapNpcRefs, npc.id, element)}
                 className={getNpcMapDotClassName(npc, questMarker)}
-                title={npc.name}
+                aria-label={npc.name}
+                data-map-annotation="npc"
+                data-quest-marker={questMarker ?? undefined}
+                {...getMapAnnotationTooltipProps(getNpcMapTooltip(npc, questMarker))}
                 style={{
                   ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
                 }}
@@ -884,7 +925,9 @@ export function Hud({
                 <span
                   key={hub.id}
                   className={`world-map-hub ${hub.kind}`}
-                  title={hub.name}
+                  aria-label={hub.name}
+                  data-map-annotation="hub"
+                  {...getMapAnnotationTooltipProps(getMapHubTooltip(hub))}
                   style={getWorldMapCircleStyle(hub.x, hub.z, hub.diameter)}
                 >
                   <em>{hub.name}</em>
@@ -901,21 +944,25 @@ export function Hud({
                 <span
                   key={landmark.id}
                   className={`world-map-landmark ${landmark.kind}`}
-                  title={landmark.name}
+                  aria-label={landmark.name}
+                  data-map-annotation="landmark"
+                  {...getMapAnnotationTooltipProps(getMapLandmarkTooltip(landmark))}
                   style={getWorldMapPointStyle(landmark.x, landmark.z)}
                 >
                   <i />
                   <em>{landmark.label}</em>
                 </span>
               ))}
-              {visibleMapNpcs.map((npc) => {
-                const questMarker = getNpcQuestMarker(npc, questLog);
+              {visibleMapNpcs.map(({ npc, questMarker }) => {
                 return (
                   <span
                     key={npc.id}
                     ref={(element) => setHudElementRef(worldMapNpcRefs, npc.id, element)}
                     className={getNpcMapDotClassName(npc, questMarker)}
-                    title={npc.name}
+                    aria-label={npc.name}
+                    data-map-annotation="npc"
+                    data-quest-marker={questMarker ?? undefined}
+                    {...getMapAnnotationTooltipProps(getNpcMapTooltip(npc, questMarker))}
                     style={getWorldMapPointStyle(npc.x, npc.z)}
                   />
                 );
@@ -926,6 +973,9 @@ export function Hud({
                     worldMapLocalRef.current = element;
                   }}
                   className="map-dot local directional"
+                  aria-label="you"
+                  data-map-annotation="player"
+                  {...getMapAnnotationTooltipProps(getPlayerMapTooltip(localPlayer, true))}
                   style={getWorldMapLocalMarkerStyle(localPlayer)}
                 />
               )}
@@ -1304,16 +1354,6 @@ function SettingsPanel({
     });
   }
 
-  function updateMinimapSetting(key: keyof GameSettings["minimap"], value: boolean) {
-    onChange({
-      ...settings,
-      minimap: {
-        ...settings.minimap,
-        [key]: value,
-      },
-    });
-  }
-
   function updateNameplateSetting(key: keyof NameplateVisibility, value: boolean) {
     onChange({
       ...settings,
@@ -1351,15 +1391,6 @@ function SettingsPanel({
           step={0.05}
           disabled={!settings.audio.enabled}
           onChange={(value) => updateAudioSetting("volume", value)}
-        />
-      </section>
-
-      <section className="settings-section">
-        <strong>Minimap</strong>
-        <SettingsToggle
-          label="Friendly NPCs"
-          checked={settings.minimap.friendlyNpcs}
-          onChange={(checked) => updateMinimapSetting("friendlyNpcs", checked)}
         />
       </section>
 
@@ -1411,14 +1442,15 @@ function SettingsPanel({
   );
 }
 
-function CardinalCompass({ yaw }: { yaw: number }) {
-  const counterRotateStyle = { transform: `translate(-50%, -50%) rotate(${-yaw}rad)` };
+type CardinalDirection = "north" | "east" | "south" | "west";
+
+function CardinalCompass({ localPlayer }: { localPlayer: PlayerSnapshot | null }) {
   return (
-    <div className="minimap-cardinals" aria-hidden="true" style={{ transform: `rotate(${yaw}rad)` }}>
-      <span className="minimap-cardinal north" style={counterRotateStyle}>N</span>
-      <span className="minimap-cardinal east" style={counterRotateStyle}>E</span>
-      <span className="minimap-cardinal south" style={counterRotateStyle}>S</span>
-      <span className="minimap-cardinal west" style={counterRotateStyle}>W</span>
+    <div className="minimap-cardinals" aria-hidden="true">
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "north")}>N</span>
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "east")}>E</span>
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "south")}>S</span>
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "west")}>W</span>
     </div>
   );
 }
@@ -1606,18 +1638,41 @@ function getWorldMapLocalMarkerStyle(player: PlayerSnapshot): CSSProperties {
   };
 }
 
+function getMinimapCardinalStyle(localPlayer: PlayerSnapshot | null, direction: CardinalDirection): CSSProperties {
+  if (!localPlayer) {
+    const fallback: Record<CardinalDirection, CSSProperties> = {
+      north: { left: "50%", top: "8%" },
+      east: { left: "92%", top: "50%" },
+      south: { left: "50%", top: "92%" },
+      west: { left: "8%", top: "50%" },
+    };
+    return { ...fallback[direction], transform: "translate(-50%, -50%)" };
+  }
+
+  const offset = MINIMAP_NPC_REVEAL_RANGE;
+  const [dx, dz] = {
+    north: [0, -offset],
+    east: [offset, 0],
+    south: [0, offset],
+    west: [-offset, 0],
+  }[direction];
+
+  return {
+    ...getMinimapPointStyle(localPlayer, localPlayer.x + dx, localPlayer.z + dz),
+    transform: "translate(-50%, -50%)",
+  };
+}
+
 function shouldShowNpcOnMaps({
   localPlayer,
   npc,
-  questLog,
+  questMarker,
   revealAllNpcsOnMinimap,
-  showFriendlyNpcs,
 }: {
   localPlayer: PlayerSnapshot | null;
   npc: NpcSnapshot;
-  questLog: PlayerSnapshot["quests"];
+  questMarker: QuestMarkerType | null;
   revealAllNpcsOnMinimap: boolean;
-  showFriendlyNpcs: boolean;
 }) {
   if (!isNpcAliveForMap(npc)) return false;
   if (revealAllNpcsOnMinimap) return true;
@@ -1626,11 +1681,10 @@ function shouldShowNpcOnMaps({
   const distance = Math.hypot(npc.x - localPlayer.x, npc.z - localPlayer.z);
   if (distance > MINIMAP_NPC_REVEAL_RANGE) return false;
 
-  if (getNpcQuestMarker(npc, questLog)) return true;
+  if (questMarker) return true;
 
   const disposition = getNpcDisposition(npc);
   if (disposition === "hostile") return true;
-  if (disposition === "friendly") return showFriendlyNpcs;
   return false;
 }
 
@@ -1651,6 +1705,38 @@ function getNpcMapDotClassName(npc: NpcSnapshot, questMarker: QuestMarkerType | 
       ? " quest-available"
       : "";
   return `map-dot npc ${getNpcDisposition(npc)}${markerClass}`;
+}
+
+function getMapHubTooltip(hub: (typeof MINIMAP_HUBS)[number]) {
+  return `${hub.name}\nMap: area\nLocation: ${formatMapCoordinates(hub.x, hub.z)}`;
+}
+
+function getMapLandmarkTooltip(landmark: (typeof MINIMAP_LANDMARKS)[number]) {
+  const kind = landmark.kind === "relay" ? "relay marker" : "route marker";
+  return `${landmark.name}\nMap: ${kind}\nLocation: ${formatMapCoordinates(landmark.x, landmark.z)}`;
+}
+
+function getPlayerMapTooltip(player: PlayerSnapshot, isLocal: boolean) {
+  const title = isLocal ? "You" : player.name;
+  return `${title}\nLevel ${player.level} ${player.identityType} mfer\nLocation: ${formatMapCoordinates(player.x, player.z)}`;
+}
+
+function getNpcMapTooltip(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
+  const questLine = questMarker === "turnIn"
+    ? "Quest: ready to turn in (?)"
+    : questMarker === "available"
+      ? "Quest: available (!)"
+      : "";
+  return [
+    npc.name,
+    `Status: ${getNpcDisposition(npc)} ${npc.model}`,
+    questLine,
+    `Location: ${formatMapCoordinates(npc.x, npc.z)}`,
+  ].filter(Boolean).join("\n");
+}
+
+function formatMapCoordinates(x: number, z: number) {
+  return `${Math.round(x)}, ${Math.round(z)}`;
 }
 
 function getTweetIntentUrl() {

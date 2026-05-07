@@ -150,7 +150,7 @@ export const MFERGPT = {
 } as const;
 
 export const SOCIAL = {
-  mferlandUrl: "https://mferland.xyz",
+  mferlandUrl: "https://game.mfergpt.lol",
   tweetText: "gm, i'm in mferland",
 } as const;
 
