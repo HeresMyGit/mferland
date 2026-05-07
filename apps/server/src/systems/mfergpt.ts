@@ -242,7 +242,7 @@ function getActiveQuestHint(
   status: string,
   progress: number,
   required: number,
-  _flags: string,
+  flags: string,
   npcs: MapSchema<NpcState>,
 ) {
   const quest = QUESTS[questId];
@@ -251,6 +251,52 @@ function getActiveQuestHint(
 
   if (status === "ready") {
     return `${quest.title} is ready. turn it in to ${turnInNpcName}.`;
+  }
+
+  if (questId === "feral-farmers" && "objectives" in quest) {
+    const completed = new Set(flags.split(",").filter(Boolean));
+    const missing = quest.objectives
+      .filter((objective) => !completed.has(objective.id))
+      .map((objective) => objective.label.replace("Defeat ", ""));
+    return missing.length > 0
+      ? `for ${quest.title}, head to red-eye farm and handle ${missing.join(", ")}.`
+      : `${quest.title} is basically done. check back with ${turnInNpcName}.`;
+  }
+
+  if (questId === "hog-livers") {
+    return `for ${quest.title}, keep clearing wild hogs near the loop. you have ${progress}/${required} hog livers.`;
+  }
+
+  if (questId === "boar-bristle-cull") {
+    return `for ${quest.title}, kill wild boars around red-eye farm. progress is ${progress}/${required}.`;
+  }
+
+  if (questId === "farmhand-bandanas") {
+    return `for ${quest.title}, kill red-eye farmhands near the busted farm. progress is ${progress}/${required}.`;
+  }
+
+  if (questId === "mfergpt-checkin") {
+    return `for ${quest.title}, put @mfergpt anywhere in chat. that's enough.`;
+  }
+
+  if (questId === "tweet-town-link") {
+    return `for ${quest.title}, use the quest button to open the tweet composer. don't click tweet unless you mean it.`;
+  }
+
+  if (questId === "field-camp-delivery") {
+    return `follow the dirt route past red-eye farm to route post, then talk to ${turnInNpcName}.`;
+  }
+
+  if (questId === "ridge-dispatch") {
+    return `take the east cut, follow 0.069 mile and 4:20 turn, then talk to ${turnInNpcName}.`;
+  }
+
+  if (questId === "route-patrol-daily") {
+    return `for ${quest.title}, clear hogs or red-eyes along the road. progress is ${progress}/${required}.`;
+  }
+
+  if (questId === "hog-loop") {
+    return `for ${quest.title}, sweep wild hogs around red-eye farm and route post. progress is ${progress}/${required}.`;
   }
 
   if (questHint) {
@@ -264,7 +310,7 @@ function getActiveQuestHint(
   return `for ${quest.title}, handle: ${quest.objectiveLabel}. progress is ${progress}/${required}.`;
 }
 
-const MFERGPT_QUEST_HINTS = {
+const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "mfer-beginnings": "pick up one honest lap from OG porch mfer, then head to board mfer by the corkboard.",
   "dao-tour": "board mfer sends you fountain-side. find fountain rail mfer; the board's done enough.",
   "fountain-vibes": "do the plaza loop, then take it back to OG porch mfer.",
@@ -281,7 +327,7 @@ const MFERGPT_QUEST_HINTS = {
   "cut-the-static": "drop runner vex, off-route pax, and the broken mferGPT shell.",
   "baron-of-static": "bring people. the Static Baron is one big body made out of bad feed.",
   "ogre-raid-daily": "once the relay is charged, drop too much signal and go tell relay shack mfer.",
-} as const satisfies Partial<Record<QuestId, string>>;
+};
 
 function describeSafePublicState({ player, players, npcs }: MferGptContext) {
   let playerCount = 0;

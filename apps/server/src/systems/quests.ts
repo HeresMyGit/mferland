@@ -98,6 +98,22 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
     return `${QUESTS[questId].title}: ask @mferGPT where to go next. use the word hint, quest, or where next so the agent knows you're asking for direction.`;
   }
 
+  if (questId === "mfergpt-checkin") {
+    return `${QUESTS[questId].title}: say @mfergpt in chat. any message with the mention counts.`;
+  }
+
+  if (questId === "tweet-town-link") {
+    return `${QUESTS[questId].title}: open the tweet composer, post only if you mean it, then claim the ping.`;
+  }
+
+  if (questId === "boar-bristle-cull") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild boars killed.`;
+  }
+
+  if (questId === "farmhand-bandanas") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} red-eye farmhands killed.`;
+  }
+
   if (questId === "hog-livers") {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog loop livers in the bag. ugly drop rate, normal town problem.`;
   }
@@ -137,6 +153,14 @@ function getQuestCompletionResponse(questId: QuestId) {
     return "good. you found the board. don't start respecting it.";
   }
 
+  if (questId === "mfergpt-checkin") {
+    return "mferGPT heard the signal. somehow that counts as onboarding.";
+  }
+
+  if (questId === "tweet-town-link") {
+    return "mferGPT logs the town link ping. no bot touched the tweet button.";
+  }
+
   if (questId === "sealed-note") {
     return "yep. that's for me. town still runs on folded notes and side-eye.";
   }
@@ -145,8 +169,12 @@ function getQuestCompletionResponse(questId: QuestId) {
     return "good. if the agent says farm first, take that as practical advice, not prophecy.";
   }
 
+  if (questId === "boar-bristle-cull") {
+    return "hogwatch mfer says the farm road is slightly less boar-shaped now.";
+  }
+
   if (questId === "farmhand-bandanas") {
-    return "perfect. even cooked mfers leave behind usable material.";
+    return "drip mfer can stitch ugly little warning flags now that fewer red-eyes are standing.";
   }
 
   if (questId === "dao-tour") {
@@ -201,6 +229,7 @@ function getQuestCompletionResponse(questId: QuestId) {
 }
 
 function getFinishedQuestDialogue(npcId: string) {
+  if (npcId === "mfergpt") return "signal's clean enough for now.";
   if (npcId === "og-mfer") return "town's still standing. good enough.";
   if (npcId === "wearables-mfer") return "good town. better hats.";
   if (npcId === "dao-mfer") return "nothing here is that organized.";
@@ -210,11 +239,11 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "pen-keeper-mfer") return "hog loop resets faster than shame.";
   if (npcId === "ridge-guide-mfer") return "static's louder uptrail.";
   if (npcId === "beacon-keeper-mfer") return "too much signal makes one big stupid body.";
-  if (npcId === "mfergpt") return "hog farm first if you haven't handled it. then uptrail when the road lets you.";
   return "nothing else for now.";
 }
 
 function getNpcDisplayName(npcId: string) {
+  if (npcId === "mfergpt") return "mferGPT";
   if (npcId === "og-mfer") return "OG porch mfer";
   if (npcId === "wearables-mfer") return "drip desk mfer";
   if (npcId === "dao-mfer") return "board mfer";
@@ -224,7 +253,6 @@ function getNpcDisplayName(npcId: string) {
   if (npcId === "pen-keeper-mfer") return "loop booth mfer";
   if (npcId === "ridge-guide-mfer") return "ridge post mfer";
   if (npcId === "beacon-keeper-mfer") return "relay shack mfer";
-  if (npcId === "mfergpt") return "mferGPT";
   return "the right mfer";
 }
 
@@ -402,6 +430,16 @@ export function progressMferGptHintQuest(player: PlayerState) {
   quest.progress = quest.required;
   quest.status = "ready";
   return true;
+}
+
+export function progressMferGptMentionQuest(player: PlayerState, text: string) {
+  if (!text.toLowerCase().includes("@mfergpt")) return false;
+  return progressQuest(player, "mfergpt-checkin", 1);
+}
+
+export function progressSocialQuest(player: PlayerState, questId: QuestId) {
+  if (questId !== "tweet-town-link") return false;
+  return progressQuest(player, questId, 1);
 }
 
 function isDefeatQuestTarget(questId: QuestId, npc: NpcState) {

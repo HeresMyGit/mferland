@@ -1,19 +1,23 @@
-import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Dumbbell, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, Check, Dumbbell, ExternalLink, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
+  COMBAT,
   EMOTES,
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
+  SOCIAL,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
   STAT_LABELS,
+  doesItemRevealAllNpcsOnMinimap,
   getLevelProgress,
   getInventoryItemKey,
   getItemConsumable,
   getItemEquipment,
   getNpcDisposition,
+  getNpcQuestMarker,
   normalizeChainGearTier,
   type ActionId,
   type ChatMessage,
@@ -26,6 +30,7 @@ import {
   type ClientEquipItem,
   type ClientLootCorpse,
   type ClientSelectTalent,
+  type ClientShareQuestLink,
   type ClientUnequipItem,
   type ClientUseItem,
   type EquipmentSlotId,
@@ -35,6 +40,7 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
+  type QuestMarkerType,
   type QuestStatusNotice,
   type QuestTurnIn,
   type TargetSelection,
@@ -75,6 +81,7 @@ const TOOLTIP_MAX_HEIGHT = 220;
 const TOOLTIP_OFFSET = 16;
 const LOW_HEALTH_PERCENT = 32;
 const RECENT_DAMAGE_FLASH_MS = 900;
+const MINIMAP_NPC_REVEAL_RANGE = COMBAT.actions.shoot.maxRange + 8;
 const EMOTE_OPTIONS: Array<{ id: EmoteId; Icon: LucideIcon }> = [
   { id: "wave", Icon: Hand },
   { id: "dance", Icon: Music },
@@ -126,6 +133,7 @@ type HudProps = {
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onCompleteQuest: (message: ClientCompleteQuest) => void;
+  onShareQuestLink: (message: ClientShareQuestLink) => void;
   onDismissQuestOffer: () => void;
   onDismissQuestTurnIn: () => void;
   onDismissQuestStatus: () => void;
@@ -173,6 +181,7 @@ export function Hud({
   onReplaceActionSlots,
   onAcceptQuest,
   onCompleteQuest,
+  onShareQuestLink,
   onDismissQuestOffer,
   onDismissQuestTurnIn,
   onDismissQuestStatus,
@@ -226,6 +235,16 @@ export function Hud({
   const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
+  const revealAllNpcsOnMinimap = playerRevealsAllNpcsOnMinimap(localPlayer);
+  const visibleMapNpcs = Array.from(npcs.values())
+    .map((npc) => ({ npc, questMarker: getNpcQuestMarker(npc, questLog) }))
+    .filter(({ npc, questMarker }) => shouldShowNpcOnMaps({
+      localPlayer,
+      npc,
+      questMarker,
+      revealAllNpcsOnMinimap,
+    }));
+  const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const showSeasonGold = localPlayer?.identityType === "wallet";
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
@@ -297,7 +316,7 @@ export function Hud({
 
       if (isMapOpen && local) {
         revealExploredCells(local);
-        applyHudPositionStyle(worldMapLocalRef.current, getWorldMapPointStyle(local.x, local.z));
+        applyHudPositionStyle(worldMapLocalRef.current, getWorldMapLocalMarkerStyle(local));
         for (const [id, element] of worldMapNpcRefs.current) {
           const npc = npcs.get(id);
           if (!npc) continue;
@@ -520,39 +539,63 @@ export function Hud({
     showTooltip(element.dataset.tooltip, rect.left + rect.width / 2, rect.bottom);
   }
 
-  useEffect(() => {
-    const onTooltipOver = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
-      const element = getTooltipElement(event.target);
-      if (!element) return;
-      if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
-      showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
-    };
-    const onTooltipMove = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
-      if (!getTooltipElement(event.target)) return;
-      moveTooltip(event.clientX, event.clientY);
-    };
-    const onTooltipOut = (event: globalThis.MouseEvent | globalThis.PointerEvent) => {
-      const element = getTooltipElement(event.target);
-      if (!element) return;
-      if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
-      hideTooltip();
-    };
+  function handleTooltipPointerOver(event: PointerEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+  }
 
-    window.addEventListener("mouseover", onTooltipOver);
-    window.addEventListener("mousemove", onTooltipMove);
-    window.addEventListener("mouseout", onTooltipOut);
-    window.addEventListener("pointerover", onTooltipOver);
-    window.addEventListener("pointermove", onTooltipMove);
-    window.addEventListener("pointerout", onTooltipOut);
-    return () => {
-      window.removeEventListener("mouseover", onTooltipOver);
-      window.removeEventListener("mousemove", onTooltipMove);
-      window.removeEventListener("mouseout", onTooltipOut);
-      window.removeEventListener("pointerover", onTooltipOver);
-      window.removeEventListener("pointermove", onTooltipMove);
-      window.removeEventListener("pointerout", onTooltipOut);
+  function handleTooltipPointerMove(event: PointerEvent<HTMLElement>) {
+    if (!getTooltipElement(event.target)) return;
+    moveTooltip(event.clientX, event.clientY);
+  }
+
+  function handleTooltipPointerOut(event: PointerEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    hideTooltip();
+  }
+
+  function handleTooltipMouseOver(event: ReactMouseEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+  }
+
+  function handleTooltipMouseMove(event: ReactMouseEvent<HTMLElement>) {
+    if (!getTooltipElement(event.target)) return;
+    moveTooltip(event.clientX, event.clientY);
+  }
+
+  function handleTooltipMouseOut(event: ReactMouseEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    hideTooltip();
+  }
+
+  function handleTooltipClick(event: ReactMouseEvent<HTMLElement>) {
+    const element = getTooltipElement(event.target);
+    if (!element) return;
+    showTooltip(element.dataset.tooltip, event.clientX, event.clientY);
+  }
+
+  function getMapAnnotationTooltipProps(text: string) {
+    return {
+      "data-tooltip": text,
+      title: text,
+      onClick: (event: ReactMouseEvent<HTMLElement>) => showTooltip(text, event.clientX, event.clientY),
+      onMouseEnter: (event: ReactMouseEvent<HTMLElement>) => showTooltip(text, event.clientX, event.clientY),
+      onMouseLeave: hideTooltip,
+      onMouseMove: (event: ReactMouseEvent<HTMLElement>) => moveTooltip(event.clientX, event.clientY),
+      onPointerEnter: (event: PointerEvent<HTMLElement>) => showTooltip(text, event.clientX, event.clientY),
+      onPointerLeave: hideTooltip,
+      onPointerMove: (event: PointerEvent<HTMLElement>) => moveTooltip(event.clientX, event.clientY),
     };
-  }, []);
+  }
 
   function setDragState(nextDragState: DragState | null) {
     dragStateRef.current = nextDragState;
@@ -665,6 +708,13 @@ export function Hud({
       className={hudClassName}
       onFocusCapture={handleTooltipFocus}
       onBlurCapture={hideTooltip}
+      onPointerOverCapture={handleTooltipPointerOver}
+      onPointerMoveCapture={handleTooltipPointerMove}
+      onPointerOutCapture={handleTooltipPointerOut}
+      onMouseOverCapture={handleTooltipMouseOver}
+      onMouseMoveCapture={handleTooltipMouseMove}
+      onMouseOutCapture={handleTooltipMouseOut}
+      onClickCapture={handleTooltipClick}
     >
       <section className="player-card">
         <button
@@ -738,6 +788,7 @@ export function Hud({
       {questStatus && (
         <QuestStatusPanel
           notice={questStatus}
+          onShareQuestLink={onShareQuestLink}
           onDismiss={onDismissQuestStatus}
         />
       )}
@@ -804,7 +855,9 @@ export function Hud({
               key={hub.id}
               ref={(element) => setHudElementRef(minimapHubRefs, hub.id, element)}
               className={`minimap-hub ${hub.kind}`}
-              title={hub.name}
+              aria-label={hub.name}
+              data-map-annotation="hub"
+              {...getMapAnnotationTooltipProps(getMapHubTooltip(hub))}
               style={getMinimapCircleStyle(localPlayer, hub.x, hub.z, hub.diameter)}
             />
           ))}
@@ -821,34 +874,45 @@ export function Hud({
               key={landmark.id}
               ref={(element) => setHudElementRef(minimapLandmarkRefs, landmark.id, element)}
               className={`map-dot landmark ${landmark.kind}`}
-              title={landmark.name}
+              aria-label={landmark.name}
+              data-map-annotation="landmark"
+              {...getMapAnnotationTooltipProps(getMapLandmarkTooltip(landmark))}
               style={getMinimapPointStyle(localPlayer, landmark.x, landmark.z)}
             />
           ))}
           <div className="minimap-ring" />
           <div className="minimap-vision-cone" />
+          <CardinalCompass localPlayer={localPlayer} />
           {Array.from(players.entries()).map(([id, player]) => (
             <span
               key={id}
               ref={(element) => setHudElementRef(minimapPlayerRefs, id, element)}
               className={id === localSessionId ? "map-dot local" : "map-dot"}
+              aria-label={id === localSessionId ? "you" : player.name}
+              data-map-annotation="player"
+              {...getMapAnnotationTooltipProps(getPlayerMapTooltip(player, id === localSessionId))}
               style={{
                 ...getMinimapPointStyle(localPlayer, player.x, player.z),
                 backgroundColor: id === localSessionId ? MFER_COLORS.local : colorFromSeed(player.avatarSeed),
               }}
             />
           ))}
-          {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
-            <span
-              key={npc.id}
-              ref={(element) => setHudElementRef(minimapNpcRefs, npc.id, element)}
-              className={`map-dot npc ${getNpcDisposition(npc)}`}
-              title={npc.name}
-              style={{
-                ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
-              }}
-            />
-          ))}
+          {visibleMapNpcs.map(({ npc, questMarker }) => {
+            return (
+              <span
+                key={npc.id}
+                ref={(element) => setHudElementRef(minimapNpcRefs, npc.id, element)}
+                className={getNpcMapDotClassName(npc, questMarker)}
+                aria-label={npc.name}
+                data-map-annotation="npc"
+                data-quest-marker={questMarker ?? undefined}
+                {...getMapAnnotationTooltipProps(getNpcMapTooltip(npc, questMarker))}
+                style={{
+                  ...getMinimapPointStyle(localPlayer, npc.x, npc.z),
+                }}
+              />
+            );
+          })}
         </div>
         <div className="online-row">
           <span>mfers: {playerCount}</span>
@@ -877,7 +941,9 @@ export function Hud({
                 <span
                   key={hub.id}
                   className={`world-map-hub ${hub.kind}`}
-                  title={hub.name}
+                  aria-label={hub.name}
+                  data-map-annotation="hub"
+                  {...getMapAnnotationTooltipProps(getMapHubTooltip(hub))}
                   style={getWorldMapCircleStyle(hub.x, hub.z, hub.diameter)}
                 >
                   <em>{hub.name}</em>
@@ -894,29 +960,39 @@ export function Hud({
                 <span
                   key={landmark.id}
                   className={`world-map-landmark ${landmark.kind}`}
-                  title={landmark.name}
+                  aria-label={landmark.name}
+                  data-map-annotation="landmark"
+                  {...getMapAnnotationTooltipProps(getMapLandmarkTooltip(landmark))}
                   style={getWorldMapPointStyle(landmark.x, landmark.z)}
                 >
                   <i />
                   <em>{landmark.label}</em>
                 </span>
               ))}
-              {Array.from(npcs.values()).filter((npc) => npc.isImmortal || npc.health > 0).map((npc) => (
-                <span
-                  key={npc.id}
-                  ref={(element) => setHudElementRef(worldMapNpcRefs, npc.id, element)}
-                  className={`map-dot npc ${getNpcDisposition(npc)}`}
-                  title={npc.name}
-                  style={getWorldMapPointStyle(npc.x, npc.z)}
-                />
-              ))}
+              {visibleMapNpcs.map(({ npc, questMarker }) => {
+                return (
+                  <span
+                    key={npc.id}
+                    ref={(element) => setHudElementRef(worldMapNpcRefs, npc.id, element)}
+                    className={getNpcMapDotClassName(npc, questMarker)}
+                    aria-label={npc.name}
+                    data-map-annotation="npc"
+                    data-quest-marker={questMarker ?? undefined}
+                    {...getMapAnnotationTooltipProps(getNpcMapTooltip(npc, questMarker))}
+                    style={getWorldMapPointStyle(npc.x, npc.z)}
+                  />
+                );
+              })}
               {localPlayer && (
                 <span
                   ref={(element) => {
                     worldMapLocalRef.current = element;
                   }}
-                  className="map-dot local"
-                  style={getWorldMapPointStyle(localPlayer.x, localPlayer.z)}
+                  className="map-dot local directional"
+                  aria-label="you"
+                  data-map-annotation="player"
+                  {...getMapAnnotationTooltipProps(getPlayerMapTooltip(localPlayer, true))}
+                  style={getWorldMapLocalMarkerStyle(localPlayer)}
                 />
               )}
             </div>
@@ -1000,7 +1076,7 @@ export function Hud({
                   const item = itemId ? ITEMS[itemId] : null;
                   const chainLabel = slot ? formatChainGearLabel(slot) : "";
                   const title = itemId && item
-                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier)}\nClick to unequip`
+                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier)}\n${formatItemUtility(itemId)}\nClick to unequip`
                     : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
                   return (
                     <button
@@ -1064,14 +1140,14 @@ export function Hud({
             <div className="world-map-header">
               <div>
                 <strong>stash</strong>
-                <span>{localPlayer?.inventory.length ?? 0} stacks</span>
+                <span>{visibleInventory.length} stacks</span>
               </div>
               <button type="button" title="Close stash" aria-label="Close stash" onClick={() => setIsInventoryOpen(false)}>
                 <X size={22} />
               </button>
             </div>
             <div className="inventory-grid">
-              {localPlayer && localPlayer.inventory.length > 0 ? localPlayer.inventory.map((item) => {
+              {visibleInventory.length > 0 ? visibleInventory.map((item) => {
                 const equipment = getItemEquipment(item.id);
                 const consumable = getItemConsumable(item.id);
                 const comparison = getItemComparison(item, localPlayer);
@@ -1388,6 +1464,19 @@ function SettingsPanel({
   );
 }
 
+type CardinalDirection = "north" | "east" | "south" | "west";
+
+function CardinalCompass({ localPlayer }: { localPlayer: PlayerSnapshot | null }) {
+  return (
+    <div className="minimap-cardinals" aria-hidden="true">
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "north")}>N</span>
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "east")}>E</span>
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "south")}>S</span>
+      <span className="minimap-cardinal" style={getMinimapCardinalStyle(localPlayer, "west")}>W</span>
+    </div>
+  );
+}
+
 function SettingsToggle({
   label,
   checked,
@@ -1564,6 +1653,121 @@ function applyHudPositionStyle(element: HTMLElement | null | undefined, style: C
   setCssProperty(element, "transform", style.transform);
 }
 
+function getWorldMapLocalMarkerStyle(player: PlayerSnapshot): CSSProperties {
+  return {
+    ...getWorldMapPointStyle(player.x, player.z),
+    transform: `translate(-50%, -50%) rotate(${player.yaw}rad)`,
+  };
+}
+
+function getMinimapCardinalStyle(localPlayer: PlayerSnapshot | null, direction: CardinalDirection): CSSProperties {
+  if (!localPlayer) {
+    const fallback: Record<CardinalDirection, CSSProperties> = {
+      north: { left: "50%", top: "8%" },
+      east: { left: "92%", top: "50%" },
+      south: { left: "50%", top: "92%" },
+      west: { left: "8%", top: "50%" },
+    };
+    return { ...fallback[direction], transform: "translate(-50%, -50%)" };
+  }
+
+  const offset = MINIMAP_NPC_REVEAL_RANGE;
+  const [dx, dz] = {
+    north: [0, -offset],
+    east: [offset, 0],
+    south: [0, offset],
+    west: [-offset, 0],
+  }[direction];
+
+  return {
+    ...getMinimapPointStyle(localPlayer, localPlayer.x + dx, localPlayer.z + dz),
+    transform: "translate(-50%, -50%)",
+  };
+}
+
+function shouldShowNpcOnMaps({
+  localPlayer,
+  npc,
+  questMarker,
+  revealAllNpcsOnMinimap,
+}: {
+  localPlayer: PlayerSnapshot | null;
+  npc: NpcSnapshot;
+  questMarker: QuestMarkerType | null;
+  revealAllNpcsOnMinimap: boolean;
+}) {
+  if (!isNpcAliveForMap(npc)) return false;
+  if (revealAllNpcsOnMinimap) return true;
+  if (!localPlayer) return false;
+
+  const distance = Math.hypot(npc.x - localPlayer.x, npc.z - localPlayer.z);
+  if (distance > MINIMAP_NPC_REVEAL_RANGE) return false;
+
+  if (questMarker) return true;
+
+  const disposition = getNpcDisposition(npc);
+  if (disposition === "hostile") return true;
+  return false;
+}
+
+function isNpcAliveForMap(npc: NpcSnapshot) {
+  return npc.isImmortal || npc.health > 0;
+}
+
+function playerRevealsAllNpcsOnMinimap(player: PlayerSnapshot | null) {
+  return player?.equipment.some((slot) => (
+    Boolean(slot.itemId) && doesItemRevealAllNpcsOnMinimap(slot.itemId as ItemId)
+  )) ?? false;
+}
+
+function getNpcMapDotClassName(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
+  const markerClass = questMarker === "turnIn"
+    ? " quest-turn-in"
+    : questMarker === "available"
+      ? " quest-available"
+      : "";
+  return `map-dot npc ${getNpcDisposition(npc)}${markerClass}`;
+}
+
+function getMapHubTooltip(hub: (typeof MINIMAP_HUBS)[number]) {
+  return `${hub.name}\nMap: area\nLocation: ${formatMapCoordinates(hub.x, hub.z)}`;
+}
+
+function getMapLandmarkTooltip(landmark: (typeof MINIMAP_LANDMARKS)[number]) {
+  const kind = landmark.kind === "relay" ? "relay marker" : "route marker";
+  return `${landmark.name}\nMap: ${kind}\nLocation: ${formatMapCoordinates(landmark.x, landmark.z)}`;
+}
+
+function getPlayerMapTooltip(player: PlayerSnapshot, isLocal: boolean) {
+  const title = isLocal ? "You" : player.name;
+  return `${title}\nLevel ${player.level} ${player.identityType} mfer\nLocation: ${formatMapCoordinates(player.x, player.z)}`;
+}
+
+function getNpcMapTooltip(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
+  const questLine = questMarker === "turnIn"
+    ? "Quest: ready to turn in (?)"
+    : questMarker === "available"
+      ? "Quest: available (!)"
+      : "";
+  return [
+    npc.name,
+    `Status: ${getNpcDisposition(npc)} ${npc.model}`,
+    questLine,
+    `Location: ${formatMapCoordinates(npc.x, npc.z)}`,
+  ].filter(Boolean).join("\n");
+}
+
+function formatMapCoordinates(x: number, z: number) {
+  return `${Math.round(x)}, ${Math.round(z)}`;
+}
+
+function getTweetIntentUrl() {
+  const url = new URL("https://twitter.com/intent/tweet");
+  url.searchParams.set("text", SOCIAL.tweetText);
+  url.searchParams.set("url", SOCIAL.mferlandUrl);
+  return url.toString();
+}
+
 function setCssProperty(element: HTMLElement, property: string, value: CSSProperties[keyof CSSProperties]) {
   if (value === undefined || value === null) return;
   const next = String(value);
@@ -1694,11 +1898,21 @@ function QuestTurnInPanel({
 
 function QuestStatusPanel({
   notice,
+  onShareQuestLink,
   onDismiss,
 }: {
   notice: QuestStatusNotice;
+  onShareQuestLink: (message: ClientShareQuestLink) => void;
   onDismiss: () => void;
 }) {
+  const isTweetQuest = notice.questId === "tweet-town-link";
+
+  function openTweetQuest() {
+    const url = getTweetIntentUrl();
+    window.open(url, "_blank", "noopener,noreferrer");
+    onShareQuestLink({ questId: notice.questId, url: SOCIAL.mferlandUrl });
+  }
+
   return (
     <section className="quest-dialogue-panel status" role="dialog" aria-label={`Quest status: ${notice.title}`} data-testid="quest-status-panel">
       <button className="quest-offer-close" type="button" title="Close" aria-label="Close quest status" onClick={onDismiss}>
@@ -1718,6 +1932,12 @@ function QuestStatusPanel({
       </div>
       <QuestRewardList rewards={notice.rewardPreview} />
       <div className="quest-dialogue-actions">
+        {isTweetQuest && (
+          <button className="quest-accept-btn" type="button" onClick={openTweetQuest} data-testid="quest-share-link-button">
+            <ExternalLink size={17} />
+            open tweet
+          </button>
+        )}
         <button className="quest-secondary-btn" type="button" onClick={onDismiss} data-testid="quest-status-close-button">
           Close
         </button>
@@ -1845,6 +2065,7 @@ function getInventoryItemTitle(
     equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
     equipment ? formatItemStats(item.id, item.chainTier) : "",
     consumable ? formatConsumableEffect(item.id) : "",
+    formatItemUtility(item.id),
     comparison?.text ?? "",
     equipped ? "Currently equipped" : equipment ? "Click to equip" : consumable ? "Click to use, drag to hotbar" : "",
   ].filter(Boolean).join("\n");
@@ -1861,8 +2082,13 @@ function getLootItemTitle(item: { id: ItemId; count: number }) {
     equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
     equipment ? formatItemStats(item.id) : "",
     consumable ? formatConsumableEffect(item.id) : "",
+    formatItemUtility(item.id),
     "Click to loot",
   ].filter(Boolean).join("\n");
+}
+
+function formatItemUtility(itemId: ItemId) {
+  return doesItemRevealAllNpcsOnMinimap(itemId) ? "Minimap: reveals every NPC while equipped" : "";
 }
 
 function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot | null) {

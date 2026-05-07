@@ -52,6 +52,7 @@ export type ItemDefinition = {
   chainTokenId?: string;
   equipment?: EquipmentDefinition;
   consumable?: ConsumableDefinition;
+  revealsAllNpcsOnMinimap?: boolean;
 };
 
 export const ITEMS = {
@@ -408,8 +409,8 @@ export const ITEMS = {
   },
   "static-loop-ring": {
     id: "static-loop-ring",
-    name: "quiet loop ring",
-    description: "small relay ring that hums right before your next move lines up.",
+    name: "relay loop ring",
+    description: "rare little circuit that hums when moves are ready and pings every nearby body on the minimap.",
     quality: "rare",
     iconColor: "#9f7dff",
     stackable: false,
@@ -422,6 +423,7 @@ export const ITEMS = {
         maxMana: 16,
       },
     },
+    revealsAllNpcsOnMinimap: true,
   },
 } as const satisfies Record<string, ItemDefinition>;
 
@@ -524,6 +526,10 @@ export function isEquipmentItem(itemId: keyof typeof ITEMS) {
 
 export function isConsumableItem(itemId: keyof typeof ITEMS) {
   return getItemConsumable(itemId) !== null;
+}
+
+export function doesItemRevealAllNpcsOnMinimap(itemId: keyof typeof ITEMS) {
+  return Boolean((ITEMS[itemId] as ItemDefinition).revealsAllNpcsOnMinimap);
 }
 
 export function isEquipmentCompatibleWithSlot(itemId: keyof typeof ITEMS, slotId: EquipmentSlotId) {
