@@ -226,7 +226,7 @@ npm run launch:build
 npm run launch:server
 ```
 
-`launch:server` binds the game process to `127.0.0.1` and serves `apps/web/dist` through the same HTTP server as the WebSocket. Before inviting anyone, open `https://game.mfergpt.lol/?invite=...` and confirm:
+`launch:server` binds the game process to `0.0.0.0`, serves `apps/web/dist` through the same HTTP server as the WebSocket, and exposes the local/LAN-only admin dashboard at `http://<mac-lan-ip>:2567/admin`. The dashboard rejects public hostnames such as `game.mfergpt.lol`; keep it on loopback or your private LAN only. Before inviting anyone, open `https://game.mfergpt.lol/?invite=...` and confirm:
 
 - wallet entry works.
 - Character panel shows wallet and Season Gold.
@@ -235,6 +235,7 @@ npm run launch:server
 - wallet is on the configured local chain.
 - `$mfer/WETH` and `MFERGPT/WETH` market labels show cached DB quotes or a clear cache error.
 - ETH, `$mfer`, and `$mfergpt` pass buttons show wallet prompts.
+- local dashboard loads from `http://<mac-lan-ip>:2567/admin` on your LAN and is blocked through the public game hostname.
 - `npm run support:admin -- analytics-summary --since 24h` shows a `session_joined` row after a wallet/guest smoke.
 
 Do not perform a real purchase from Josh's main wallet during smoke. Use a disposable wallet or a manual grant if needed.

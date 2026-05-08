@@ -95,7 +95,8 @@ server.listen(port, host, () => {
   console.log(`mferland server listening on ws://localhost:${port}`);
   if (isLanHost(host)) {
     for (const address of getLanAddresses()) {
-      console.log(`mferland LAN join: http://${address}:5173`);
+      const webPort = process.env.MFERLAND_SERVE_WEB_DIST === "1" ? port : 5173;
+      console.log(`mferland LAN join: http://${address}:${webPort}`);
       console.log(`mferland LAN server: ws://${address}:${port}`);
     }
     for (const url of getAdminDashboardLanUrls(port)) {

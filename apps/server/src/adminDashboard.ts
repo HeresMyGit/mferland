@@ -62,7 +62,7 @@ export function serveAdminDashboard(req: IncomingMessage, res: ServerResponse, u
   }
 
   if (!isAdminRequestAllowed(req)) {
-    writeText(res, 403, "admin dashboard is only available from loopback or private LAN addresses\n");
+    writeText(res, 403, "admin dashboard is only available from loopback or private LAN addresses and hostnames\n");
     return true;
   }
 
@@ -853,7 +853,24 @@ function writeText(res: ServerResponse, status: number, text: string) {
 }
 
 function isAdminRequestAllowed(req: IncomingMessage) {
-  return isLocalNetworkAddress(req.socket.remoteAddress ?? "");
+  return isLocalNetworkAddress(req.socket.remoteAddress ?? "") && isLocalNetworkHost(req.headers.host ?? "");
+}
+
+function isLocalNetworkHost(host: string) {
+  const hostname = normalizeHostHeader(host);
+  if (!hostname) return false;
+  if (hostname === "localhost" || hostname.endsWith(".local")) return true;
+  return isLocalNetworkAddress(hostname);
+}
+
+function normalizeHostHeader(host: string) {
+  const trimmed = host.trim().toLowerCase();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("[")) {
+    const closeIndex = trimmed.indexOf("]");
+    return closeIndex >= 0 ? trimmed.slice(1, closeIndex) : "";
+  }
+  return trimmed.split(":")[0] ?? "";
 }
 
 function isLocalNetworkAddress(address: string) {

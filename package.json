@@ -30,7 +30,7 @@
     "build": "npm run build -w @mferland/shared && npm run build -w @mferland/server && npm run build -w @mferland/web",
     "build:agent": "npm run build -w @mferland/agent",
     "launch:build": "npm run build && npm run build:agent",
-    "launch:server": "HOST=127.0.0.1 MFERLAND_SERVE_WEB_DIST=1 npm run start -w @mferland/server",
+    "launch:server": "HOST=0.0.0.0 MFERLAND_SERVE_WEB_DIST=1 npm run start -w @mferland/server",
     "typecheck": "npm run typecheck -w @mferland/shared && npm run build -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web && npm run typecheck -w @mferland/agent"
   },
   "devDependencies": {
