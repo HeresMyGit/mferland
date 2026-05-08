@@ -297,7 +297,7 @@ function AuthGate({
         )}
         <div className="auth-scene-vignette" />
       </div>
-      {showAuthLoader && <MferHeadLoader onCappedProgressComplete={handleLoaderReachedCap} />}
+      {showAuthLoader && <MferHeadLoader ready={previewReady} onCappedProgressComplete={handleLoaderReachedCap} />}
       <section className="auth-title-lockup" aria-label="mferland">
         <div className="brand-mark">
           <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
@@ -1048,7 +1048,7 @@ function GameShell({
           lightweightRender={cryptoSmokeMode}
         />
       </Canvas>
-      {renderGameLoader && <MferHeadLoader onCappedProgressComplete={handleGameLoaderReachedCap} />}
+      {renderGameLoader && <MferHeadLoader ready={!showGameLoader} onCappedProgressComplete={handleGameLoaderReachedCap} />}
 
       {!hideCaptureHud && (
         <>

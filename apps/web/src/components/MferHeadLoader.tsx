@@ -1,4 +1,5 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useProgress } from "@react-three/drei";
 import { Canvas, useFrame, useLoader } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -7,19 +8,26 @@ import { getClientRenderPerformanceProfile } from "../game/performance";
 
 type MferHeadLoaderProps = {
   label?: string;
+  ready?: boolean;
   onCappedProgressComplete?: () => void;
 };
 
 const LOADING_CAP_PERCENT = 69;
-const LOADING_CAP_MS = 1450;
+const LOADING_PRE_READY_CAP_PERCENT = LOADING_CAP_PERCENT - 1;
 const LOADING_HOLD_MS = 260;
 const MFER_HEAD_MODEL_URL = "/models/sartoshi-head.glb";
 
-export function MferHeadLoader({ label = "loading mfer", onCappedProgressComplete }: MferHeadLoaderProps) {
+export function MferHeadLoader({ label = "loading mfer", ready = true, onCappedProgressComplete }: MferHeadLoaderProps) {
   const [headReady, setHeadReady] = useState(false);
+  const { progress: assetProgress } = useProgress();
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
   const handleHeadReady = useCallback(() => setHeadReady(true), []);
-  const progress = useCappedMferLoadingProgress(headReady, onCappedProgressComplete);
+  const progress = useCappedMferLoadingProgress({
+    enabled: headReady,
+    assetProgress,
+    ready,
+    onCappedProgressComplete,
+  });
   const statusText = `${label}... ${progress}%`;
 
   return (
@@ -44,46 +52,49 @@ export function MferHeadLoader({ label = "loading mfer", onCappedProgressComplet
   );
 }
 
-function useCappedMferLoadingProgress(enabled: boolean, onCappedProgressComplete?: () => void) {
+function useCappedMferLoadingProgress({
+  enabled,
+  assetProgress,
+  ready,
+  onCappedProgressComplete,
+}: {
+  enabled: boolean;
+  assetProgress: number;
+  ready: boolean;
+  onCappedProgressComplete?: () => void;
+}) {
   const [progress, setProgress] = useState(0);
   const completeRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) {
       setProgress(0);
+      completeRef.current = false;
       return;
     }
 
-    completeRef.current = false;
-    let frameId = 0;
-    let holdTimeoutId = 0;
-    const startAt = performance.now();
+    const normalizedAssetProgress = Number.isFinite(assetProgress)
+      ? Math.min(100, Math.max(0, assetProgress))
+      : 0;
+    const scaledAssetProgress = normalizedAssetProgress <= 0
+      ? 0
+      : Math.max(1, Math.round((normalizedAssetProgress / 100) * LOADING_PRE_READY_CAP_PERCENT));
+    const nextProgress = ready
+      ? LOADING_CAP_PERCENT
+      : Math.min(LOADING_PRE_READY_CAP_PERCENT, scaledAssetProgress);
 
-    function tick(now: number) {
-      const elapsedRatio = Math.min(1, (now - startAt) / LOADING_CAP_MS);
-      const easedRatio = 1 - Math.pow(1 - elapsedRatio, 2);
-      const nextProgress = Math.min(LOADING_CAP_PERCENT, Math.round(easedRatio * LOADING_CAP_PERCENT));
-      setProgress(nextProgress);
+    setProgress((currentProgress) => Math.max(currentProgress, nextProgress));
+  }, [assetProgress, enabled, ready]);
 
-      if (nextProgress >= LOADING_CAP_PERCENT) {
-        if (!completeRef.current) {
-          completeRef.current = true;
-          holdTimeoutId = window.setTimeout(() => {
-            onCappedProgressComplete?.();
-          }, LOADING_HOLD_MS);
-        }
-        return;
-      }
+  useEffect(() => {
+    if (!enabled || !ready || progress < LOADING_CAP_PERCENT || completeRef.current) return;
 
-      frameId = window.requestAnimationFrame(tick);
-    }
-
-    frameId = window.requestAnimationFrame(tick);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.clearTimeout(holdTimeoutId);
-    };
-  }, [enabled, onCappedProgressComplete]);
+    completeRef.current = true;
+    const timeoutId = window.setTimeout(() => {
+      onCappedProgressComplete?.();
+    }, LOADING_HOLD_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [enabled, onCappedProgressComplete, progress, ready]);
 
   return progress;
 }
