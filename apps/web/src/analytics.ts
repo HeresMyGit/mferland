@@ -18,8 +18,9 @@ export function initializeAnalytics() {
   if (initialized) return true;
 
   window.dataLayer = window.dataLayer ?? [];
-  window.gtag = window.gtag ?? function gtag(...args: unknown[]) {
-    window.dataLayer?.push(args);
+  window.gtag = window.gtag ?? function gtag() {
+    // gtag.js expects the browser Arguments object here; a rest array initializes but does not emit collect beacons.
+    window.dataLayer?.push(arguments);
   };
 
   if (!document.getElementById(GA_SCRIPT_ID)) {
