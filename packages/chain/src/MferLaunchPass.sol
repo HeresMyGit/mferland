@@ -8,6 +8,7 @@ interface IMferGptBurnable {
 }
 
 interface IMferPayment {
+    function balanceOf(address account) external view returns (uint256);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
@@ -44,6 +45,8 @@ contract MferLaunchPass {
     error MissingToken();
     error NotTokenOwner();
     error PaymentFailed();
+    error PaymentExceedsMaximum();
+    error TreasuryTransferFailed();
     error ReentrantCall();
 
     constructor(
@@ -119,20 +122,21 @@ contract MferLaunchPass {
         if (msg.value != ethPrice) revert WrongEthAmount();
         tokenId = _mint(msg.sender);
         (bool sent,) = treasury.call{value: msg.value}("");
-        require(sent, "treasury transfer failed");
+        if (!sent) revert TreasuryTransferFailed();
         emit PassPurchased(msg.sender, tokenId, "ETH", msg.value);
     }
 
-    function mintWithMfer() external nonReentrant returns (uint256 tokenId) {
+    function mintWithMfer(uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
         uint256 price = mferPrice;
-        bool paid = mfer.transferFrom(msg.sender, treasury, price);
-        require(paid, "mfer transfer failed");
+        _validateMaxPayment(price, maxPayment);
+        _transferExact(mfer, msg.sender, treasury, price);
         tokenId = _mint(msg.sender);
         emit PassPurchased(msg.sender, tokenId, "MFER", price);
     }
 
-    function mintWithMferGpt() external nonReentrant returns (uint256 tokenId) {
+    function mintWithMferGpt(uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
         uint256 price = mferGptPrice;
+        _validateMaxPayment(price, maxPayment);
         uint256 balanceBefore = mfergpt.balanceOf(msg.sender);
         uint256 supplyBefore = mfergpt.totalSupply();
         mfergpt.burnFrom(msg.sender, price);
@@ -173,5 +177,15 @@ contract MferLaunchPass {
         ownerOf[tokenId] = to;
         balanceOf[to] += 1;
         emit Transfer(address(0), to, tokenId);
+    }
+
+    function _validateMaxPayment(uint256 amount, uint256 maximum) internal pure {
+        if (amount > maximum) revert PaymentExceedsMaximum();
+    }
+
+    function _transferExact(IMferPayment token, address from, address to, uint256 amount) internal {
+        uint256 treasuryBefore = token.balanceOf(to);
+        bool paid = token.transferFrom(from, to, amount);
+        if (!paid || token.balanceOf(to) != treasuryBefore + amount) revert PaymentFailed();
     }
 }

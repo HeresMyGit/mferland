@@ -112,8 +112,8 @@ Do not leave the local `621 $mfer` assumption in production unless we intentiona
 The current `MferLaunchPass` already fits the soft-launch recommendation:
 
 - ETH price is fixed onchain.
-- `$mfer` price is fixed onchain and paid to treasury.
-- `$mfergpt` price is fixed onchain and burned.
+- `$mfer` price is fixed onchain, bounded by a user-supplied max payment at mint time, paid to treasury, and verified by treasury balance delta. Fee-on-transfer or no-op token behavior will revert.
+- `$mfergpt` price is fixed onchain, bounded by a user-supplied max payment at mint time, and burned with balance/supply checks.
 - owner can update pricing with `setPricing(...)`.
 
 Before production deployment, choose the actual `$mfer` quote and set the production constructor or post-deploy pricing accordingly.

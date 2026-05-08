@@ -96,13 +96,13 @@ So:
 - `$mfer` uses `1_000` bps discount, which is 10% off.
 - `$mfergpt` uses `2_500` bps discount, which is 25% off.
 
-The UI reads `discountedTokenPrice(gearType, discountBps)` before approval so it can approve exactly the expected payment amount. The buy functions also recalculate the same price onchain, so editing the browser cannot make the store undercharge.
+The UI reads `discountedTokenPrice(gearType, discountBps)` before approval so it can approve exactly the expected payment amount. Token buy functions also take that quote as a max payment and recalculate the price onchain, so editing the browser cannot make the store undercharge and a price update cannot pull more than the quoted amount.
 
 Current payment behavior:
 
 - ETH: exact native price is forwarded to treasury.
-- `$mfer`: discounted token price is transferred to treasury.
-- `$mfergpt`: discounted token price is burned from the buyer.
+- `$mfer`: discounted token price is transferred to treasury, and the store verifies the treasury balance increased by the exact amount. Fee-on-transfer or no-op payment tokens are rejected.
+- `$mfergpt`: discounted token price is burned from the buyer with exact balance/supply checks.
 
 ## Season 0 Launch Pass
 
@@ -119,7 +119,7 @@ Current local terms:
 - `$mfergpt` price: `690 MFERGPT`, burned from the buyer
 - Treasury: the same local treasury as the gear store
 
-The pass has owner-controlled price and treasury setters, but mints still enforce exact ETH payment, exact `$mfergpt` allowance/burn, and the supply cap onchain.
+The pass has owner-controlled price and treasury setters, but mints still enforce exact ETH payment, user-supplied max token payment limits, exact `$mfer` treasury receipt, exact `$mfergpt` allowance/burn, and the supply cap onchain.
 This contract is a local proof path for the first tester purchase surface, not yet an audited production deployment.
 
 ## Base Token Parity

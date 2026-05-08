@@ -5,6 +5,7 @@ import {MferGearNFT} from "./MferGearNFT.sol";
 import {MferGold} from "./MferGold.sol";
 
 interface IERC20Payment {
+    function balanceOf(address account) external view returns (uint256);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
@@ -38,6 +39,7 @@ contract MferGearStore {
         address indexed buyer, uint16 indexed gearType, uint256 indexed tokenId, string paymentToken, uint256 paid
     );
     event GearUpgraded(address indexed owner, uint256 indexed tokenId, uint8 tier, uint256 goldBurned);
+    event UpgradeCostSet(uint8 indexed currentTier, uint256 goldCost);
 
     error NotOwner();
     error InvalidAddress();
@@ -47,6 +49,8 @@ contract MferGearStore {
     error WrongEthAmount();
     error NotTokenOwner();
     error MaxTier();
+    error PaymentExceedsMaximum();
+    error TreasuryTransferFailed();
     error ReentrantCall();
 
     constructor(
@@ -106,6 +110,7 @@ contract MferGearStore {
 
     function setUpgradeCost(uint8 currentTier, uint256 goldCost) external onlyOwner {
         upgradeGoldCostByTier[currentTier] = goldCost;
+        emit UpgradeCostSet(currentTier, goldCost);
     }
 
     function buyWithEth(uint16 gearType) external payable nonReentrant returns (uint256 tokenId) {
@@ -114,32 +119,34 @@ contract MferGearStore {
         if (msg.value != price) revert WrongEthAmount();
 
         (bool sent,) = treasury.call{value: msg.value}("");
-        require(sent, "treasury transfer failed");
+        if (!sent) revert TreasuryTransferFailed();
         tokenId = gear.mintTo(msg.sender, gearType);
         emit GearPurchased(msg.sender, gearType, tokenId, "ETH", msg.value);
     }
 
-    function buyWithMfer(uint16 gearType) external nonReentrant returns (uint256 tokenId) {
+    function buyWithMfer(uint16 gearType, uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
         uint256 price = discountedTokenPrice(gearType, MFER_DISCOUNT_BPS);
-        bool paid = mfer.transferFrom(msg.sender, treasury, price);
-        if (!paid) revert PaymentFailed();
+        _validateMaxPayment(price, maxPayment);
+        _transferExact(mfer, msg.sender, treasury, price);
         tokenId = gear.mintTo(msg.sender, gearType);
         emit GearPurchased(msg.sender, gearType, tokenId, "MFER", price);
     }
 
-    function buyWithMferGpt(uint16 gearType) external nonReentrant returns (uint256 tokenId) {
+    function buyWithMferGpt(uint16 gearType, uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
         uint256 price = discountedTokenPrice(gearType, MFERGPT_DISCOUNT_BPS);
+        _validateMaxPayment(price, maxPayment);
         _burnExact(mfergpt, msg.sender, price);
         tokenId = gear.mintTo(msg.sender, gearType);
         emit GearPurchased(msg.sender, gearType, tokenId, "MFERGPT", price);
     }
 
-    function upgradeWithGold(uint256 tokenId) external nonReentrant {
+    function upgradeWithGold(uint256 tokenId, uint256 maxGoldCost) external nonReentrant {
         if (gear.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
         (, uint8 currentTier) = gear.gear(tokenId);
         if (currentTier >= MAX_GEAR_TIER) revert MaxTier();
 
         uint256 cost = upgradeGoldCostByTier[currentTier];
+        _validateMaxPayment(cost, maxGoldCost);
         _burnExact(gold, msg.sender, cost);
         gear.upgradeTier(tokenId, MAX_GEAR_TIER);
         (, uint8 nextTier) = gear.gear(tokenId);
@@ -147,6 +154,7 @@ contract MferGearStore {
     }
 
     function discountedTokenPrice(uint16 gearType, uint256 discountBps) public view returns (uint256) {
+        if (discountBps >= BASIS_POINTS) revert InvalidPrice();
         uint256 price = tokenPriceByGearType[gearType];
         if (price == 0) revert NotListed();
         uint256 discountedPrice = price * (BASIS_POINTS - discountBps) / BASIS_POINTS;
@@ -161,5 +169,15 @@ contract MferGearStore {
         if (token.balanceOf(from) + amount != balanceBefore || token.totalSupply() + amount != supplyBefore) {
             revert PaymentFailed();
         }
+    }
+
+    function _validateMaxPayment(uint256 amount, uint256 maximum) internal pure {
+        if (amount > maximum) revert PaymentExceedsMaximum();
+    }
+
+    function _transferExact(IERC20Payment token, address from, address to, uint256 amount) internal {
+        uint256 treasuryBefore = token.balanceOf(to);
+        bool paid = token.transferFrom(from, to, amount);
+        if (!paid || token.balanceOf(to) != treasuryBefore + amount) revert PaymentFailed();
     }
 }

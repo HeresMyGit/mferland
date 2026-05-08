@@ -158,7 +158,7 @@ contract CryptoSuiteTest {
         uint256 supplyBefore = mfergpt.totalSupply();
         mfergpt.approve(address(launchPass), LAUNCH_PASS_MFERGPT_PRICE);
 
-        uint256 tokenId = launchPass.mintWithMferGpt();
+        uint256 tokenId = launchPass.mintWithMferGpt(LAUNCH_PASS_MFERGPT_PRICE);
 
         assertEq(tokenId, 1);
         assertEq(launchPass.ownerOf(tokenId), address(this));
@@ -170,7 +170,7 @@ contract CryptoSuiteTest {
         uint256 treasuryBefore = mfer.balanceOf(address(0xBEEF));
         mfer.approve(address(launchPass), LAUNCH_PASS_MFER_PRICE);
 
-        uint256 tokenId = launchPass.mintWithMfer();
+        uint256 tokenId = launchPass.mintWithMfer(LAUNCH_PASS_MFER_PRICE);
 
         assertEq(tokenId, 1);
         assertEq(launchPass.ownerOf(tokenId), address(this));
@@ -188,7 +188,7 @@ contract CryptoSuiteTest {
     function testLaunchPassRequiresMferGptAllowance() public {
         mfergpt.approve(address(launchPass), LAUNCH_PASS_MFERGPT_PRICE - 1);
 
-        try launchPass.mintWithMferGpt() {
+        try launchPass.mintWithMferGpt(LAUNCH_PASS_MFERGPT_PRICE) {
             fail("launch pass should require full mferGPT allowance");
         } catch {}
     }
@@ -196,9 +196,32 @@ contract CryptoSuiteTest {
     function testLaunchPassRequiresMferAllowance() public {
         mfer.approve(address(launchPass), LAUNCH_PASS_MFER_PRICE - 1);
 
-        try launchPass.mintWithMfer() {
+        try launchPass.mintWithMfer(LAUNCH_PASS_MFER_PRICE) {
             fail("launch pass should require full mfer allowance");
         } catch {}
+    }
+
+    function testLaunchPassTokenMintsCannotSpendAboveQuotedMaximum() public {
+        mfer.approve(address(launchPass), 1_000 ether);
+        mfergpt.approve(address(launchPass), 1_000 ether);
+
+        launchPass.setPricing(
+            LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFER_PRICE + 1 ether,
+            LAUNCH_PASS_MFERGPT_PRICE + 1 ether
+        );
+
+        try launchPass.mintWithMfer(LAUNCH_PASS_MFER_PRICE) {
+            fail("launch pass should reject mfer price increases above the user quote");
+        } catch {}
+
+        try launchPass.mintWithMferGpt(LAUNCH_PASS_MFERGPT_PRICE) {
+            fail("launch pass should reject mferGPT price increases above the user quote");
+        } catch {}
+
+        assertEq(launchPass.nextTokenId(), 1);
+        assertEq(mfer.balanceOf(address(this)), 1_000 ether);
+        assertEq(mfergpt.balanceOf(address(this)), 1_000 ether);
     }
 
     function testLaunchPassEnforcesMaxSupply() public {
@@ -230,7 +253,7 @@ contract CryptoSuiteTest {
         uint256 lighterPrice = store.discountedTokenPrice(LUCKY_LIGHTER, store.MFER_DISCOUNT_BPS());
         assertEq(lighterPrice, LUCKY_LIGHTER_TOKEN_PRICE * 9 / 10);
         mfer.approve(address(store), lighterPrice);
-        uint256 lighterTokenId = store.buyWithMfer(LUCKY_LIGHTER);
+        uint256 lighterTokenId = store.buyWithMfer(LUCKY_LIGHTER, lighterPrice);
 
         assertEq(deckTokenId, 1);
         assertEq(lidTokenId, 2);
@@ -280,7 +303,7 @@ contract CryptoSuiteTest {
         assertEq(price, 90 ether);
 
         mfer.approve(address(store), price);
-        uint256 tokenId = store.buyWithMfer(BEATER_DECK);
+        uint256 tokenId = store.buyWithMfer(BEATER_DECK, price);
 
         assertEq(gear.ownerOf(tokenId), address(this));
         assertEq(mfer.balanceOf(address(0xBEEF)), 90 ether);
@@ -291,7 +314,7 @@ contract CryptoSuiteTest {
         uint256 price = store.discountedTokenPrice(BEATER_DECK, store.MFER_DISCOUNT_BPS());
         mfer.approve(address(store), price - 1);
 
-        try store.buyWithMfer(BEATER_DECK) {
+        try store.buyWithMfer(BEATER_DECK, price) {
             fail("discounted price should require full discounted allowance");
         } catch {}
     }
@@ -302,7 +325,7 @@ contract CryptoSuiteTest {
         uint256 supplyBefore = mfergpt.totalSupply();
 
         mfergpt.approve(address(store), price);
-        uint256 tokenId = store.buyWithMferGpt(BEATER_DECK);
+        uint256 tokenId = store.buyWithMferGpt(BEATER_DECK, price);
 
         assertEq(gear.ownerOf(tokenId), address(this));
         assertEq(mfergpt.balanceOf(address(0xBEEF)), 0);
@@ -314,9 +337,30 @@ contract CryptoSuiteTest {
         uint256 price = store.discountedTokenPrice(BEATER_DECK, store.MFERGPT_DISCOUNT_BPS());
         mfergpt.approve(address(store), price - 1);
 
-        try store.buyWithMferGpt(BEATER_DECK) {
+        try store.buyWithMferGpt(BEATER_DECK, price) {
             fail("burned token payment should require full discounted allowance");
         } catch {}
+    }
+
+    function testGearTokenPurchasesCannotSpendAboveQuotedMaximum() public {
+        uint256 mferPrice = store.discountedTokenPrice(BEATER_DECK, store.MFER_DISCOUNT_BPS());
+        uint256 mferGptPrice = store.discountedTokenPrice(BEATER_DECK, store.MFERGPT_DISCOUNT_BPS());
+        mfer.approve(address(store), 1_000 ether);
+        mfergpt.approve(address(store), 1_000 ether);
+
+        store.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE * 2);
+
+        try store.buyWithMfer(BEATER_DECK, mferPrice) {
+            fail("gear store should reject mfer price increases above the user quote");
+        } catch {}
+
+        try store.buyWithMferGpt(BEATER_DECK, mferGptPrice) {
+            fail("gear store should reject mferGPT price increases above the user quote");
+        } catch {}
+
+        assertEq(gear.nextTokenId(), 1);
+        assertEq(mfer.balanceOf(address(this)), 1_000 ether);
+        assertEq(mfergpt.balanceOf(address(this)), 1_000 ether);
     }
 
     function testGearStoreRejectsFalseReturningMferPayment() public {
@@ -333,11 +377,49 @@ contract CryptoSuiteTest {
         falseGear.setMinter(address(falseStore));
         falseStore.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE);
 
-        try falseStore.buyWithMfer(BEATER_DECK) {
+        try falseStore.buyWithMfer(BEATER_DECK, GEAR_TOKEN_PRICE * 9 / 10) {
             fail("false-returning token payment should revert");
         } catch {}
 
         assertEq(falseGear.nextTokenId(), 1);
+    }
+
+    function testMferPaymentsMustActuallyReachTreasury() public {
+        NoOpTransferToken noOpMfer = new NoOpTransferToken();
+        MferGearNFT noOpGear = new MferGearNFT("noop gear", "NGEAR", address(this));
+        MferGearStore noOpStore = new MferGearStore(
+            noOpGear,
+            gold,
+            IERC20Payment(address(noOpMfer)),
+            IBurnableToken(address(mfergpt)),
+            payable(address(0xBEEF)),
+            address(this)
+        );
+        noOpGear.setMinter(address(noOpStore));
+        noOpStore.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE);
+
+        try noOpStore.buyWithMfer(BEATER_DECK, GEAR_TOKEN_PRICE * 9 / 10) {
+            fail("no-op gear mfer payment should revert");
+        } catch {}
+        assertEq(noOpGear.nextTokenId(), 1);
+
+        MferLaunchPass noOpPass = new MferLaunchPass(
+            "noop pass",
+            "NPASS",
+            IMferPayment(address(noOpMfer)),
+            IMferGptBurnable(address(mfergpt)),
+            payable(address(0xBEEF)),
+            address(this),
+            LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFER_PRICE,
+            LAUNCH_PASS_MFERGPT_PRICE,
+            500
+        );
+
+        try noOpPass.mintWithMfer(LAUNCH_PASS_MFER_PRICE) {
+            fail("no-op pass mfer payment should revert");
+        } catch {}
+        assertEq(noOpPass.nextTokenId(), 1);
     }
 
     function testBurnTokenPaymentsMustActuallyBurn() public {
@@ -354,7 +436,7 @@ contract CryptoSuiteTest {
         burnGear.setMinter(address(burnStore));
         burnStore.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE);
 
-        try burnStore.buyWithMferGpt(BEATER_DECK) {
+        try burnStore.buyWithMferGpt(BEATER_DECK, GEAR_TOKEN_PRICE * 75 / 100) {
             fail("no-op gear burn payment should revert");
         } catch {}
         assertEq(burnGear.nextTokenId(), 1);
@@ -372,7 +454,7 @@ contract CryptoSuiteTest {
             500
         );
 
-        try burnPass.mintWithMferGpt() {
+        try burnPass.mintWithMferGpt(LAUNCH_PASS_MFERGPT_PRICE) {
             fail("no-op pass burn payment should revert");
         } catch {}
         assertEq(burnPass.nextTokenId(), 1);
@@ -399,19 +481,35 @@ contract CryptoSuiteTest {
         rewards.distributeQuestReward(address(this), keccak256("daily-quest"), 250 ether);
         gold.approve(address(store), 175 ether);
 
-        store.upgradeWithGold(tokenId);
+        store.upgradeWithGold(tokenId, 50 ether);
         (, uint8 tierTwo) = gear.gear(tokenId);
         assertEq(uint256(tierTwo), 2);
         assertEq(gold.balanceOf(address(this)), 200 ether);
 
-        store.upgradeWithGold(tokenId);
+        store.upgradeWithGold(tokenId, 125 ether);
         (, uint8 tierThree) = gear.gear(tokenId);
         assertEq(uint256(tierThree), 3);
         assertEq(gold.balanceOf(address(this)), 75 ether);
 
-        try store.upgradeWithGold(tokenId) {
+        try store.upgradeWithGold(tokenId, 125 ether) {
             fail("tier 3 gear should not upgrade further");
         } catch {}
+    }
+
+    function testGearUpgradeCannotBurnAboveQuotedMaximum() public {
+        uint256 tokenId = store.buyWithEth{value: GEAR_ETH_PRICE}(BEATER_DECK);
+        rewards.distributeQuestReward(address(this), keccak256("price-change-quest"), 250 ether);
+        gold.approve(address(store), 250 ether);
+
+        store.setUpgradeCost(1, 200 ether);
+
+        try store.upgradeWithGold(tokenId, 50 ether) {
+            fail("gear upgrade should reject gold cost increases above the user quote");
+        } catch {}
+
+        (, uint8 tier) = gear.gear(tokenId);
+        assertEq(uint256(tier), 1);
+        assertEq(gold.balanceOf(address(this)), 250 ether);
     }
 
     function testOnlyTokenOwnerCanUpgradeGear() public {
@@ -434,7 +532,7 @@ contract CryptoSuiteTest {
         rewards.distributeQuestReward(address(this), keccak256("road-lid-upgrade"), 250 ether);
         gold.approve(address(store), 50 ether);
 
-        store.upgradeWithGold(tokenId);
+        store.upgradeWithGold(tokenId, 50 ether);
 
         (uint16 gearType, uint8 tier) = gear.gear(tokenId);
         assertEq(uint256(gearType), uint256(ROAD_LID));
@@ -567,13 +665,27 @@ contract GearUpgradeAttack {
     }
 
     function upgrade(uint256 tokenId) external {
-        store.upgradeWithGold(tokenId);
+        store.upgradeWithGold(tokenId, 50 ether);
     }
 }
 
 contract FalseReturnToken is IERC20Payment {
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
+    }
+
     function transferFrom(address, address, uint256) external pure returns (bool) {
         return false;
+    }
+}
+
+contract NoOpTransferToken is IERC20Payment {
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return true;
     }
 }
 

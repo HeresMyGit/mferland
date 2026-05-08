@@ -83,7 +83,6 @@ const LOCAL_CHAIN_CONFIG: CryptoStoreChainConfig = {
   rpcUrl: "http://127.0.0.1:8545",
   nativeCurrency: { name: "Anvil ETH", symbol: "ETH", decimals: 18 },
 };
-const MAX_APPROVAL = 1_000_000n * 10n ** 18n;
 const TEST_GOLD_GRANT = 250n * 10n ** 18n;
 const LAUNCH_PASS_LABEL = "Season 0 pass";
 const STORE_GEAR_COLLECTION = [
@@ -96,17 +95,18 @@ const SELECTORS = {
   approve: "0x095ea7b3",
   balanceOf: "0x70a08231",
   buyWithEth: "0x91b019a6",
-  buyWithMfer: "0x78f753c6",
-  buyWithMferGpt: "0x42cebb36",
+  buyWithMfer: "0x15fcdaba",
+  buyWithMferGpt: "0xa461584e",
   discountedTokenPrice: "0xbb6505a5",
   ethPrice: "0xff186b2e",
   gear: "0xbea80cea",
   mferPrice: "0x4c3071ae",
   mferGptPrice: "0x4774d971",
   mintPassWithEth: "0x0ad641f1",
-  mintPassWithMfer: "0xd39b84af",
-  mintPassWithMferGpt: "0x4c19163b",
-  upgradeWithGold: "0x36327c6c",
+  mintPassWithMfer: "0xeb0660cf",
+  mintPassWithMferGpt: "0x61ee044c",
+  upgradeGoldCostByTier: "0xeb91fa83",
+  upgradeWithGold: "0x3ba3c9ed",
   distributeQuestReward: "0x26bfdb66",
 };
 const GEAR_PURCHASED_TOPIC = "0xe90bb5970d4f1919d67686ba913696996929bafae6e827c0a61589d8e057e099";
@@ -392,7 +392,11 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         encodeUint(DISCOUNT_BPS.mfer),
       ));
       await approve(provider, addresses.mfer, addresses.store, price);
-      const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithMfer, encodeUint(purchasedGearType)));
+      const receipt = await sendTransaction(
+        provider,
+        addresses.store,
+        callData(SELECTORS.buyWithMfer, encodeUint(purchasedGearType), encodeUint(price)),
+      );
       registerMintedGear(receipt, purchasedGearType);
       },
     });
@@ -415,7 +419,11 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         encodeUint(DISCOUNT_BPS.mfergpt),
       ));
       await approve(provider, addresses.mfergpt, addresses.store, price);
-      const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithMferGpt, encodeUint(purchasedGearType)));
+      const receipt = await sendTransaction(
+        provider,
+        addresses.store,
+        callData(SELECTORS.buyWithMferGpt, encodeUint(purchasedGearType), encodeUint(price)),
+      );
       registerMintedGear(receipt, purchasedGearType);
       },
     });
@@ -448,7 +456,11 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       const provider = await prepareWallet(["launchPass", "mfer"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferPrice));
       await approve(provider, addresses.mfer, addresses.launchPass, price);
-      const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithMfer));
+      const receipt = await sendTransaction(
+        provider,
+        addresses.launchPass,
+        callData(SELECTORS.mintPassWithMfer, encodeUint(price)),
+      );
       registerMintedLaunchPass(receipt);
       },
     });
@@ -465,7 +477,11 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       const provider = await prepareWallet(["launchPass", "mfergpt"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferGptPrice));
       await approve(provider, addresses.mfergpt, addresses.launchPass, price);
-      const receipt = await sendTransaction(provider, addresses.launchPass, callData(SELECTORS.mintPassWithMferGpt));
+      const receipt = await sendTransaction(
+        provider,
+        addresses.launchPass,
+        callData(SELECTORS.mintPassWithMferGpt, encodeUint(price)),
+      );
       registerMintedLaunchPass(receipt);
       },
     });
@@ -481,8 +497,10 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       action: async () => {
       const provider = await prepareWallet(["store", "gear", "gold"]);
       const tokenId = parseTokenId(upgradeTokenId);
-      await approve(provider, addresses.gold, addresses.store, MAX_APPROVAL);
-      await sendTransaction(provider, addresses.store, callData(SELECTORS.upgradeWithGold, encodeUint(tokenId)));
+      const current = await readGear(provider, addresses.gear, tokenId);
+      const cost = await readUint(provider, addresses.store, callData(SELECTORS.upgradeGoldCostByTier, encodeUint(current.tier)));
+      await approve(provider, addresses.gold, addresses.store, cost);
+      await sendTransaction(provider, addresses.store, callData(SELECTORS.upgradeWithGold, encodeUint(tokenId), encodeUint(cost)));
       const updated = await readGear(provider, addresses.gear, tokenId);
       onUpdateChainGearTier({ tokenId: tokenId.toString(), tier: updated.tier });
       },
