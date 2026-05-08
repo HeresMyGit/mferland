@@ -84,7 +84,8 @@ export function MferPortrait({
   className = "mfer-portrait-art",
   title = "mfer portrait",
 }: MferPortraitProps) {
-  const query = useMemo(() => makeOriginalMferQuery(traits, background), [background, traits]);
+  const traitsKey = getMferPortraitTraitsKey(traits);
+  const query = useMemo(() => makeOriginalMferQuery(traits, background), [background, traitsKey]);
   const [composedSrc, setComposedSrc] = useState<string | null>(null);
   const [compositionDone, setCompositionDone] = useState(false);
   const [match, setMatch] = useState<OriginalMferPortraitMatch | null>(() => portraitCache.get(query.cacheKey) ?? null);
@@ -252,6 +253,10 @@ function makeOriginalMferQuery(traits: MferTraits, requestedBackground?: Origina
 
 function assignIfPresent(target: Record<string, string>, category: string, value: string | null) {
   if (value) target[category] = value;
+}
+
+function getMferPortraitTraitsKey(traits: MferTraits) {
+  return JSON.stringify(Object.entries(traits).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function makeLayerTraits(traits: MferTraits, officialTraits: Record<string, string>) {

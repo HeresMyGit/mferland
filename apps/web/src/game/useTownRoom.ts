@@ -759,7 +759,9 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.walletAddress !== player.walletAddress || changed;
   changed = target.avatarSeed !== player.avatarSeed || changed;
   const nextAppearanceTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
-  changed = appearanceTraitsKey(target.appearanceTraits) !== appearanceTraitsKey(nextAppearanceTraits) || changed;
+  const nextAppearanceTraitsKey = appearanceTraitsKey(nextAppearanceTraits);
+  const appearanceTraitsChanged = appearanceTraitsKey(target.appearanceTraits) !== nextAppearanceTraitsKey;
+  changed = appearanceTraitsChanged || changed;
   changed = target.level !== player.level || changed;
   changed = target.xp !== player.xp || changed;
   changed = target.talentPoints !== player.talentPoints || changed;
@@ -800,7 +802,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.identityType = player.identityType;
   target.walletAddress = player.walletAddress;
   target.avatarSeed = player.avatarSeed;
-  target.appearanceTraits = nextAppearanceTraits;
+  if (appearanceTraitsChanged) target.appearanceTraits = nextAppearanceTraits;
   target.level = player.level;
   target.xp = player.xp;
   target.talentPoints = player.talentPoints;
