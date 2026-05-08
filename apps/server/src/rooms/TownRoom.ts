@@ -12,6 +12,7 @@ import {
   PLAYER,
   PROGRESSION,
   QUESTS,
+  ROOM_NAME,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
@@ -249,9 +250,123 @@ type HealTarget =
   | { kind: "player"; id: string; unit: PlayerState }
   | { kind: "npc"; id: string; unit: NpcState };
 
+export type AdminQuestSnapshot = {
+  id: QuestId;
+  status: "active" | "ready" | "completed";
+  progress: number;
+  required: number;
+  flags: string;
+  completedAt: number;
+};
+
+export type AdminInventoryItemSnapshot = {
+  key: string;
+  id: ItemId;
+  chainTokenId: string;
+  chainTier: number;
+  count: number;
+};
+
+export type AdminEquipmentSlotSnapshot = {
+  slot: string;
+  itemId: ItemId | "";
+  chainTokenId: string;
+  chainTier: number;
+};
+
+export type AdminTalentSnapshot = {
+  id: string;
+  tree: string;
+  nodeId: string;
+  rank: number;
+};
+
+export type AdminPlayerSnapshot = {
+  sessionId: string;
+  characterId: string;
+  name: string;
+  identityType: IdentityType;
+  walletAddress: string;
+  avatarSeed: number;
+  status: "online" | "dead";
+  joinedAt: number;
+  onlineForMs: number;
+  lastInputAt: number;
+  lastChatAt: number;
+  lastInteractAt: number;
+  position: { x: number; y: number; z: number; yaw: number };
+  animation: string;
+  level: number;
+  xp: number;
+  talentPoints: number;
+  season0Points: number;
+  season0DailyPoints: number;
+  health: number;
+  maxHealth: number;
+  mana: number;
+  maxMana: number;
+  healthRegenPer5: number;
+  manaRegenPer5: number;
+  walkSpeed: number;
+  runSpeed: number;
+  strength: number;
+  dexterity: number;
+  magic: number;
+  castingAction: string;
+  castTargetKind: string;
+  castTargetId: string;
+  lastDamagedAt: number;
+  quests: AdminQuestSnapshot[];
+  questCounts: Record<AdminQuestSnapshot["status"], number>;
+  inventory: AdminInventoryItemSnapshot[];
+  equipment: AdminEquipmentSlotSnapshot[];
+  talents: AdminTalentSnapshot[];
+};
+
+export type AdminNpcSnapshot = {
+  id: string;
+  name: string;
+  role: string;
+  model: string;
+  health: number;
+  maxHealth: number;
+  isImmortal: boolean;
+  alive: boolean;
+  position: { x: number; y: number; z: number; yaw: number };
+  animation: string;
+  questId: string;
+  aggroTargetId: string;
+  combatStyle: string;
+  hasLoot: boolean;
+  loot: AdminInventoryItemSnapshot[];
+  defeatedAt: number;
+  respawnAt: number;
+  despawnAt: number;
+  frozenUntil: number;
+  slowedUntil: number;
+};
+
+export type AdminRoomSnapshot = {
+  roomId: string;
+  roomName: string;
+  createdAt: number;
+  updatedAt: number;
+  clients: number;
+  maxClients: number;
+  players: AdminPlayerSnapshot[];
+  npcs: AdminNpcSnapshot[];
+};
+
+const activeTownRooms = new Set<TownRoom>();
+
+export function getTownAdminSnapshots(now = Date.now()): AdminRoomSnapshot[] {
+  return [...activeTownRooms].map((room) => room.getAdminSnapshot(now));
+}
+
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
 
+  private readonly roomCreatedAt = Date.now();
   private readonly inputs = new Map<string, TrackedInput>();
   private readonly jumpHeld = new Map<string, boolean>();
   private readonly lastChatAt = new Map<string, number>();
@@ -276,6 +391,7 @@ export class TownRoom extends Room<TownState> {
   }
 
   onCreate() {
+    activeTownRooms.add(this);
     this.setState(new TownState());
     spawnNpcs(this.state.npcs);
     void this.loadSavedDebugPlacementMap();
@@ -575,6 +691,32 @@ export class TownRoom extends Room<TownState> {
     this.pendingDebugPlacementSaves.delete(client.sessionId);
     clearConsumableCooldownsForPlayer(this.consumableCooldowns, client.sessionId);
     this.removePlayerThreat(client.sessionId);
+  }
+
+  onDispose() {
+    activeTownRooms.delete(this);
+  }
+
+  getAdminSnapshot(now = Date.now()): AdminRoomSnapshot {
+    return {
+      roomId: this.roomId,
+      roomName: ROOM_NAME,
+      createdAt: this.roomCreatedAt,
+      updatedAt: now,
+      clients: this.clients.length,
+      maxClients: this.maxClients,
+      players: snapshotPlayers({
+        players: this.state.players,
+        persistentCharacterIds: this.persistentCharacterIds,
+        sessionJoinedAt: this.sessionJoinedAt,
+        inputs: this.inputs,
+        lastChatAt: this.lastChatAt,
+        lastInteractAt: this.lastInteractAt,
+        deadSessionIds: this.deadSessionIds,
+        now,
+      }),
+      npcs: snapshotNpcs(this.state.npcs),
+    };
   }
 
   private async handleDebugSavePlacements(client: Client, message: DebugPlacementSaveMessage) {
@@ -2059,4 +2201,196 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     equipment,
     talents,
   };
+}
+
+function snapshotPlayers({
+  players,
+  persistentCharacterIds,
+  sessionJoinedAt,
+  inputs,
+  lastChatAt,
+  lastInteractAt,
+  deadSessionIds,
+  now,
+}: {
+  players: TownState["players"];
+  persistentCharacterIds: Map<string, string>;
+  sessionJoinedAt: Map<string, number>;
+  inputs: Map<string, TrackedInput>;
+  lastChatAt: Map<string, number>;
+  lastInteractAt: Map<string, number>;
+  deadSessionIds: Set<string>;
+  now: number;
+}) {
+  const snapshots: AdminPlayerSnapshot[] = [];
+  players.forEach((player, sessionId) => {
+    const joinedAt = sessionJoinedAt.get(sessionId) ?? 0;
+    const quests = snapshotQuests(player.quests);
+    snapshots.push({
+      sessionId,
+      characterId: persistentCharacterIds.get(sessionId) ?? "",
+      name: player.name,
+      identityType: player.identityType,
+      walletAddress: player.walletAddress,
+      avatarSeed: player.avatarSeed,
+      status: player.health <= 0 || deadSessionIds.has(sessionId) ? "dead" : "online",
+      joinedAt,
+      onlineForMs: joinedAt > 0 ? Math.max(0, now - joinedAt) : 0,
+      lastInputAt: inputs.get(sessionId)?.receivedAt ?? 0,
+      lastChatAt: lastChatAt.get(sessionId) ?? 0,
+      lastInteractAt: lastInteractAt.get(sessionId) ?? 0,
+      position: {
+        x: roundAdminNumber(player.x),
+        y: roundAdminNumber(player.y),
+        z: roundAdminNumber(player.z),
+        yaw: roundAdminNumber(player.yaw),
+      },
+      animation: player.animation,
+      level: player.level,
+      xp: player.xp,
+      talentPoints: player.talentPoints,
+      season0Points: player.season0Points,
+      season0DailyPoints: player.season0DailyPoints,
+      health: roundAdminNumber(player.health),
+      maxHealth: roundAdminNumber(player.maxHealth),
+      mana: roundAdminNumber(player.mana),
+      maxMana: roundAdminNumber(player.maxMana),
+      healthRegenPer5: roundAdminNumber(player.healthRegenPer5),
+      manaRegenPer5: roundAdminNumber(player.manaRegenPer5),
+      walkSpeed: roundAdminNumber(player.walkSpeed),
+      runSpeed: roundAdminNumber(player.runSpeed),
+      strength: roundAdminNumber(player.strength),
+      dexterity: roundAdminNumber(player.dexterity),
+      magic: roundAdminNumber(player.magic),
+      castingAction: player.castingAction,
+      castTargetKind: player.castTargetKind,
+      castTargetId: player.castTargetId,
+      lastDamagedAt: player.lastDamagedAt,
+      quests,
+      questCounts: countAdminQuests(quests),
+      inventory: snapshotInventory(player.inventory),
+      equipment: snapshotEquipment(player.equipment),
+      talents: snapshotTalents(player.talents),
+    });
+  });
+  return snapshots.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function snapshotNpcs(npcs: TownState["npcs"]) {
+  const snapshots: AdminNpcSnapshot[] = [];
+  npcs.forEach((npc) => {
+    snapshots.push({
+      id: npc.id,
+      name: npc.name,
+      role: npc.role,
+      model: npc.model,
+      health: roundAdminNumber(npc.health),
+      maxHealth: roundAdminNumber(npc.maxHealth),
+      isImmortal: npc.isImmortal,
+      alive: npc.health > 0 && npc.defeatedAt <= 0,
+      position: {
+        x: roundAdminNumber(npc.x),
+        y: roundAdminNumber(npc.y),
+        z: roundAdminNumber(npc.z),
+        yaw: roundAdminNumber(npc.yaw),
+      },
+      animation: npc.animation,
+      questId: npc.questId,
+      aggroTargetId: npc.aggroTargetId,
+      combatStyle: npc.combatStyle,
+      hasLoot: npc.hasLoot,
+      loot: snapshotInventory(npc.loot),
+      defeatedAt: npc.defeatedAt,
+      respawnAt: npc.respawnAt,
+      despawnAt: npc.despawnAt,
+      frozenUntil: npc.frozenUntil,
+      slowedUntil: npc.slowedUntil,
+    });
+  });
+  return snapshots.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function snapshotQuests(quests: PlayerState["quests"]) {
+  const snapshots: AdminQuestSnapshot[] = [];
+  quests.forEach((quest, key) => {
+    snapshots.push({
+      id: (quest.id || key) as QuestId,
+      status: quest.status,
+      progress: quest.progress,
+      required: quest.required,
+      flags: quest.flags,
+      completedAt: quest.completedAt,
+    });
+  });
+  return snapshots.sort((a, b) => {
+    const statusOrder = questStatusOrder(a.status) - questStatusOrder(b.status);
+    return statusOrder || a.id.localeCompare(b.id);
+  });
+}
+
+function countAdminQuests(quests: AdminQuestSnapshot[]) {
+  const counts: Record<AdminQuestSnapshot["status"], number> = {
+    active: 0,
+    ready: 0,
+    completed: 0,
+  };
+  for (const quest of quests) counts[quest.status] += 1;
+  return counts;
+}
+
+function questStatusOrder(status: AdminQuestSnapshot["status"]) {
+  switch (status) {
+    case "ready":
+      return 0;
+    case "active":
+      return 1;
+    case "completed":
+      return 2;
+  }
+}
+
+function snapshotInventory(items: PlayerState["inventory"] | NpcState["loot"]) {
+  const snapshots: AdminInventoryItemSnapshot[] = [];
+  items.forEach((item, key) => {
+    const chainTier = "chainTier" in item && typeof item.chainTier === "number" ? item.chainTier : 1;
+    snapshots.push({
+      key,
+      id: item.id,
+      chainTokenId: normalizeChainTokenId(item.chainTokenId),
+      chainTier: normalizeChainGearTier(chainTier),
+      count: item.count,
+    });
+  });
+  return snapshots.sort((a, b) => a.id.localeCompare(b.id) || a.chainTokenId.localeCompare(b.chainTokenId));
+}
+
+function snapshotEquipment(equipment: PlayerState["equipment"]) {
+  const snapshots: AdminEquipmentSlotSnapshot[] = [];
+  equipment.forEach((slot, key) => {
+    snapshots.push({
+      slot: slot.slot || key,
+      itemId: slot.itemId,
+      chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+      chainTier: normalizeChainGearTier(slot.chainTier),
+    });
+  });
+  return snapshots.sort((a, b) => a.slot.localeCompare(b.slot));
+}
+
+function snapshotTalents(talents: PlayerState["talents"]) {
+  const snapshots: AdminTalentSnapshot[] = [];
+  talents.forEach((talent, key) => {
+    snapshots.push({
+      id: talent.id || key,
+      tree: talent.tree,
+      nodeId: talent.nodeId,
+      rank: talent.rank,
+    });
+  });
+  return snapshots.sort((a, b) => a.tree.localeCompare(b.tree) || a.nodeId.localeCompare(b.nodeId));
+}
+
+function roundAdminNumber(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
 }

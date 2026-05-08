@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
+import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { closeDatabase } from "./db/client.js";
 import { areDebugMessagesEnabled, readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
@@ -78,6 +79,8 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (serveAdminDashboard(req, res, url)) return;
+
   if (serveWebDist(req, res, url)) return;
 
   res.writeHead(200, { "content-type": "text/plain" });
@@ -94,6 +97,9 @@ server.listen(port, host, () => {
     for (const address of getLanAddresses()) {
       console.log(`mferland LAN join: http://${address}:5173`);
       console.log(`mferland LAN server: ws://${address}:${port}`);
+    }
+    for (const url of getAdminDashboardLanUrls(port)) {
+      console.log(`mferland LAN admin: ${url}`);
     }
   } else {
     console.log(`mferland server host: ${host}`);
