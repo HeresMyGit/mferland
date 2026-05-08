@@ -56,6 +56,7 @@ function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "wearables-mfer") return "drip";
   if (npc.id === "gate-guard") return "watch";
   if (npc.id === "fountain-mfer") return "plaza";
+  if (npc.id === "crypto-mfer") return "crypto";
   if (npc.id === "hogwatch-mfer") return "hogwatch";
   if (npc.id === "field-guide-mfer") return "route board";
   if (npc.id === "pen-keeper-mfer") return "loop booth";

@@ -82,6 +82,16 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       dialogue: "town can look busted and still not dress like a reply guy.",
     },
     {
+      id: "crypto-mfer",
+      name: "crypto mfer",
+      role: "merchant",
+      x: -5.4,
+      z: 11.8,
+      yaw: -2.35,
+      leashRadius: 1.2,
+      dialogue: "wallets, passes, upgrades. testnet first, mainnet when the town deserves it.",
+    },
+    {
       id: "gate-guard",
       name: "gate mfer",
       role: "guard",

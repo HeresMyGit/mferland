@@ -306,6 +306,18 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
     return;
   }
 
+  if (npc.id === "crypto-mfer") {
+    traits.type = pick(rand, ["plain", "based"]);
+    traits.eyes = traits.type === "based" ? "mfercoin" : "matrix";
+    traits.headphones = "gold";
+    traits.hat_under_headphones = "cap_monochrome";
+    traits.shirt = "hoodie_down_green";
+    traits.watch = "sub_rose";
+    traits.chain = "gold";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
   if (npc.id === "hogwatch-mfer") {
     traits.type = pick(rand, ["plain", "charcoal"]);
     traits.eyes = "shades";
