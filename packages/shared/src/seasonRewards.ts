@@ -19,6 +19,7 @@ export const SEASON_0_QUEST_REWARDS = {
   "dao-tour": { points: 5, cadence: "once", label: "board check" },
   "fountain-vibes": { points: 5, cadence: "once", label: "real town hall" },
   "sealed-note": { points: 10, cadence: "once", label: "don't open that" },
+  "farm-road-handoff": { points: 5, cadence: "once", label: "farm road handoff" },
   "ask-mfergpt": { points: 10, cadence: "once", label: "ask mferGPT" },
   "mfergpt-checkin": { points: 5, cadence: "once", label: "mferGPT check-in" },
   "tweet-town-link": { points: 5, cadence: "once", label: "town link post" },

@@ -271,6 +271,10 @@ function getActiveQuestHint(
     return `for ${quest.title}, kill wild boars around red-eye farm. progress is ${progress}/${required}.`;
   }
 
+  if (questId === "farm-road-handoff") {
+    return `for ${quest.title}, follow the dirt road to the busted farm and talk to ${turnInNpcName}.`;
+  }
+
   if (questId === "farmhand-bandanas") {
     return `for ${quest.title}, kill red-eye farmhands near the busted farm. progress is ${progress}/${required}.`;
   }
@@ -315,7 +319,8 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "dao-tour": "board mfer sends you fountain-side. find fountain rail mfer; the board's done enough.",
   "fountain-vibes": "do the plaza loop, then take it back to OG porch mfer.",
   "sealed-note": "carry the folded offchain note to drip desk mfer. don't open it just because you can.",
-  "ask-mfergpt": "hog farm first if you haven't. ask me where next, then check in with me and start with drip desk mfer's reply-loop rag job.",
+  "farm-road-handoff": "drip desk mfer points you to hogwatch mfer out by the busted farm road.",
+  "ask-mfergpt": "put @mfergpt anywhere in chat, then check back with mferGPT. after that, follow the farm road if drip has work open.",
   "farmhand-bandanas": "loop-burnt farm mfers drop reply-loop rags. bring back 2.",
   "feral-farmers": "head into the farm and take out loop-burnt bran, loop-burnt mae, and reply-loop sol.",
   "hog-livers": "wild hogs around the farm and loop drop hog loop livers. you need 5.",

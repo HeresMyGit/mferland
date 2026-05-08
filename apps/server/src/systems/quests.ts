@@ -5,6 +5,7 @@ import {
   getInventoryItemKey,
   getNpcQuestIds,
   getQuestObjectives,
+  getQuestNextQuestId,
   getQuestRepeatLabel,
   getQuestRequiredItemId,
   getQuestRewardItemIds,
@@ -143,8 +144,7 @@ function getQuestTravelDialogue(questId: QuestId) {
 }
 
 export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): QuestId | null {
-  const quest = QUESTS[questId];
-  const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
+  const nextQuestId = getQuestNextQuestId(questId);
   return nextQuestId && isQuestAvailable(player, nextQuestId) ? nextQuestId : null;
 }
 
@@ -162,7 +162,11 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "sealed-note") {
-    return "yep. that's for me. town still runs on folded notes and side-eye.";
+    return "yep. that's for me. town still runs on folded notes and side-eye. hogwatch mfer is next, out by the busted farm road.";
+  }
+
+  if (questId === "farm-road-handoff") {
+    return "good. farm road starts here. thin the boars before the red-eye crew gets any louder.";
   }
 
   if (questId === "ask-mfergpt") {
@@ -260,6 +264,9 @@ export function isQuestAvailable(player: PlayerState, questId: QuestId, now = Da
   const existingQuest = player.quests.get(questId);
   if (existingQuest) return isQuestReadyToRepeat(questId, existingQuest, now);
 
+  const nextQuestId = getQuestNextQuestId(questId);
+  if (nextQuestId && player.quests.get(nextQuestId)?.status === "completed") return false;
+
   const requiredQuestId = getQuestRequirement(questId);
   if (!requiredQuestId) return true;
 
@@ -330,7 +337,7 @@ function getQuestRewardPreview(questId: QuestId) {
   }
   const repeatLabel = getQuestRepeatLabel(questId);
   if (repeatLabel) rewards.push(repeatLabel);
-  const nextQuestId = "nextQuestId" in quest ? quest.nextQuestId : null;
+  const nextQuestId = getQuestNextQuestId(questId);
   if (nextQuestId) rewards.push(`Follow-up: ${QUESTS[nextQuestId].title}`);
   return rewards;
 }

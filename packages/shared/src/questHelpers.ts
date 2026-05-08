@@ -12,6 +12,11 @@ export function getQuestRequirement(questId: QuestId): QuestId | null {
   return "requiredQuestId" in quest ? quest.requiredQuestId : null;
 }
 
+export function getQuestNextQuestId(questId: QuestId): QuestId | null {
+  const quest = QUESTS[questId];
+  return "nextQuestId" in quest ? quest.nextQuestId : null;
+}
+
 export function getQuestTurnInNpcId(questId: QuestId): string {
   const quest = QUESTS[questId];
   return "turnInNpcId" in quest ? quest.turnInNpcId : quest.giverNpcId;
@@ -70,6 +75,9 @@ export function isQuestAutoReady(questId: QuestId): boolean {
 export function isQuestAvailableForSnapshots(questId: QuestId, quests: QuestSnapshot[] | undefined): boolean {
   const existingQuest = quests?.find((quest) => quest.id === questId);
   if (existingQuest) return isQuestReadyToRepeat(questId, existingQuest);
+
+  const nextQuestId = getQuestNextQuestId(questId);
+  if (nextQuestId && quests?.some((quest) => quest.id === nextQuestId && quest.status === "completed")) return false;
 
   const requiredQuestId = getQuestRequirement(questId);
   if (!requiredQuestId) return true;
