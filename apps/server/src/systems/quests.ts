@@ -108,27 +108,27 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   }
 
   if (questId === "boar-bristle-cull") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild boars killed.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild boars cleared around the farm road.`;
   }
 
   if (questId === "farmhand-bandanas") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} red-eye farmhands killed.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} red-eye farmhands dropped by the busted farm.`;
   }
 
   if (questId === "hog-livers") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog loop livers in the bag. ugly drop rate, normal town problem.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog loop livers collected from farm-road hogs. ugly drop rate, normal town problem.`;
   }
 
   if (questId === "route-patrol-daily") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} route problems cleared.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} farm-road enemies cleared near route board.`;
   }
 
   if (questId === "hog-loop") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hogs cleared from the loop.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild hogs cleared near loop booth.`;
   }
 
   if (questId === "signal-scraps") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} fried relay scraps collected. still buzzing, unfortunately.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} fried relay scraps collected on Signal Ridge. still buzzing, unfortunately.`;
   }
 
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
@@ -162,7 +162,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "sealed-note") {
-    return "yep. that's for me. town still runs on folded notes and side-eye. hogwatch mfer is next, out by the busted farm road.";
+    return "yep. that's for me. town still runs on folded notes and side-eye. i've got the farm-road handoff next.";
   }
 
   if (questId === "farm-road-handoff") {
@@ -232,6 +232,23 @@ function getQuestCompletionResponse(questId: QuestId) {
   return "errand handled.";
 }
 
+function getQuestCompletionText(questId: QuestId) {
+  const response = getQuestCompletionResponse(questId);
+  const nextDirection = getQuestCompletionNextDirection(questId);
+  return nextDirection ? `${response} ${nextDirection}` : response;
+}
+
+function getQuestCompletionNextDirection(questId: QuestId) {
+  const nextQuestId = getQuestNextQuestId(questId);
+  if (!nextQuestId) return "";
+
+  const turnInNpcId = getQuestTurnInNpcId(questId);
+  const nextGiverNpcId = QUESTS[nextQuestId].giverNpcId;
+  if (nextGiverNpcId === turnInNpcId) return `Next: pick up ${QUESTS[nextQuestId].title} here.`;
+
+  return `Next: talk to ${getNpcDisplayName(nextGiverNpcId)} for ${QUESTS[nextQuestId].title}.`;
+}
+
 function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "mfergpt") return "signal's clean enough for now.";
   if (npcId === "og-mfer") return "town's still standing. good enough.";
@@ -295,7 +312,7 @@ export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: Que
     npcId: npc.id,
     npcName: npc.name,
     title: quest.title,
-    completionText: getQuestCompletionResponse(questId),
+    completionText: getQuestCompletionText(questId),
     completedTaskSummary: getCompletedTaskSummary(questId, questState),
     objectiveLabel: getQuestTurnInLabel(questId),
     progress: Math.min(questState.progress, questState.required),
@@ -338,7 +355,7 @@ function getQuestRewardPreview(questId: QuestId) {
   const repeatLabel = getQuestRepeatLabel(questId);
   if (repeatLabel) rewards.push(repeatLabel);
   const nextQuestId = getQuestNextQuestId(questId);
-  if (nextQuestId) rewards.push(`Follow-up: ${QUESTS[nextQuestId].title}`);
+  if (nextQuestId) rewards.push(`Next: ${QUESTS[nextQuestId].title} from ${getNpcDisplayName(QUESTS[nextQuestId].giverNpcId)}`);
   return rewards;
 }
 

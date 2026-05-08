@@ -259,16 +259,16 @@ function getActiveQuestHint(
       .filter((objective) => !completed.has(objective.id))
       .map((objective) => objective.label.replace("Defeat ", ""));
     return missing.length > 0
-      ? `for ${quest.title}, head to red-eye farm and handle ${missing.join(", ")}.`
+      ? `for ${quest.title}, head to the busted farm and handle ${missing.join(", ")}.`
       : `${quest.title} is basically done. check back with ${turnInNpcName}.`;
   }
 
   if (questId === "hog-livers") {
-    return `for ${quest.title}, keep clearing wild hogs near the loop. you have ${progress}/${required} hog livers.`;
+    return `for ${quest.title}, keep clearing farm-road hogs between the busted farm and loop booth. you have ${progress}/${required} hog livers.`;
   }
 
   if (questId === "boar-bristle-cull") {
-    return `for ${quest.title}, kill wild boars around red-eye farm. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, kill wild boars around the farm road. progress is ${progress}/${required}.`;
   }
 
   if (questId === "farm-road-handoff") {
@@ -296,11 +296,11 @@ function getActiveQuestHint(
   }
 
   if (questId === "route-patrol-daily") {
-    return `for ${quest.title}, clear hogs or red-eyes along the road. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, clear hogs or red-eye farmhands near route board. progress is ${progress}/${required}.`;
   }
 
   if (questId === "hog-loop") {
-    return `for ${quest.title}, sweep wild hogs around red-eye farm and route post. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, sweep wild hogs near loop booth. progress is ${progress}/${required}.`;
   }
 
   if (questHint) {
@@ -321,17 +321,17 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "sealed-note": "carry the folded offchain note to drip desk mfer. don't open it just because you can.",
   "farm-road-handoff": "drip desk mfer points you to hogwatch mfer out by the busted farm road.",
   "ask-mfergpt": "put @mfergpt anywhere in chat, then check back with mferGPT. after that, follow the farm road if drip has work open.",
-  "farmhand-bandanas": "loop-burnt farm mfers drop reply-loop rags. bring back 2.",
-  "feral-farmers": "head into the farm and take out loop-burnt bran, loop-burnt mae, and reply-loop sol.",
-  "hog-livers": "wild hogs around the farm and loop drop hog loop livers. you need 5.",
+  "farmhand-bandanas": "drop 4 red-eye farmhands by the busted farm, then return to drip desk mfer.",
+  "feral-farmers": "head into the busted farm and take out red-eye mfer bran, red-eye mfer mae, and signal-sick mfer sol.",
+  "hog-livers": "farm-road hogs around the busted farm and loop booth drop hog loop livers. you need 5.",
   "field-camp-delivery": "take hogwatch's update north to route board mfer at the post.",
-  "route-patrol-daily": "clear 6 hogs or farm trouble along the road, then check back at route board mfer.",
-  "hog-loop": "loop booth mfer pays for 5 more hogs. ugly work, fast reset.",
+  "route-patrol-daily": "clear 6 hogs or red-eye farmhands near route board, then check back with route board mfer.",
+  "hog-loop": "loop booth mfer pays for 5 wild hogs near loop booth. ugly work, fast reset.",
   "ridge-dispatch": "follow the dirt cut east, hit the 0.069-mile stretch, take the 4:20 turn, and talk to ridge post mfer.",
-  "signal-scraps": "signal-jacked ridge crew drop fried relay scraps. bring back 4.",
-  "cut-the-static": "drop runner vex, off-route pax, and the broken mferGPT shell.",
-  "baron-of-static": "bring people. the Static Baron is one big body made out of bad feed.",
-  "ogre-raid-daily": "once the relay is charged, drop too much signal and go tell relay shack mfer.",
+  "signal-scraps": "signal-jacked ridge crew on Signal Ridge drop fried relay scraps. bring 4 back to ridge post mfer.",
+  "cut-the-static": "on Signal Ridge, drop runner vex, off-route pax, and the broken mferGPT shell. then report to relay shack mfer.",
+  "baron-of-static": "bring people to relay shack. the Static Baron is one big body made out of bad feed.",
+  "ogre-raid-daily": "once the relay is charged, drop too much signal at relay shack and go tell relay shack mfer.",
 };
 
 function describeSafePublicState({ player, players, npcs }: MferGptContext) {

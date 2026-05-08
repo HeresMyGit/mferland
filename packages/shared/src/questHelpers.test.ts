@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getNpcQuestMarker, isQuestAvailableForSnapshots } from "./questHelpers.js";
+import { getNpcQuestMarker, getQuestNextQuestId, isQuestAvailableForSnapshots } from "./questHelpers.js";
+import { QUESTS } from "./quests.js";
 import type { QuestId, QuestSnapshot } from "./types.js";
 
 function quest(id: QuestId, status: QuestSnapshot["status"]): QuestSnapshot {
@@ -10,9 +11,29 @@ function quest(id: QuestId, status: QuestSnapshot["status"]): QuestSnapshot {
     progress: status === "completed" || status === "ready" ? 1 : 0,
     required: 1,
     flags: "",
-    completedAt: status === "completed" ? 1 : 0,
+    completedAt: status === "completed" ? Date.now() : 0,
   };
 }
+
+const PRIMARY_QUEST_CHAIN: QuestId[] = [
+  "mfer-beginnings",
+  "dao-tour",
+  "fountain-vibes",
+  "sealed-note",
+  "farm-road-handoff",
+  "boar-bristle-cull",
+  "farmhand-bandanas",
+  "feral-farmers",
+  "hog-livers",
+  "field-camp-delivery",
+  "route-patrol-daily",
+  "hog-loop",
+  "ridge-dispatch",
+  "signal-scraps",
+  "cut-the-static",
+  "baron-of-static",
+  "ogre-raid-daily",
+];
 
 test("sealed-note completion routes players from drip to hogwatch before boar cull", () => {
   const afterSealedNote = [quest("sealed-note", "completed")];
@@ -33,4 +54,30 @@ test("bridge quests are not offered after their follow-up is already completed",
   ];
 
   assert.equal(isQuestAvailableForSnapshots("farm-road-handoff", progressedPastFarmHandoff), false);
+});
+
+test("primary quest chain exposes the next quest giver after every completion", () => {
+  const questLog: QuestSnapshot[] = [];
+
+  for (let index = 0; index < PRIMARY_QUEST_CHAIN.length - 1; index += 1) {
+    const questId = PRIMARY_QUEST_CHAIN[index] as QuestId;
+    const nextQuestId = PRIMARY_QUEST_CHAIN[index + 1] as QuestId;
+
+    assert.equal(getQuestNextQuestId(questId), nextQuestId);
+    questLog.push(quest(questId, "completed"));
+
+    assert.equal(
+      isQuestAvailableForSnapshots(nextQuestId, questLog),
+      true,
+      `${nextQuestId} should become available after ${questId}`,
+    );
+    assert.equal(
+      getNpcQuestMarker({ id: QUESTS[nextQuestId].giverNpcId }, questLog),
+      "available",
+      `${QUESTS[nextQuestId].giverNpcId} should mark ${nextQuestId}`,
+    );
+  }
+
+  const finalQuestId = PRIMARY_QUEST_CHAIN[PRIMARY_QUEST_CHAIN.length - 1] as QuestId;
+  assert.equal(getQuestNextQuestId(finalQuestId), null);
 });
