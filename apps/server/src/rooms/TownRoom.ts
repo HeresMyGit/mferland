@@ -1551,7 +1551,7 @@ export class TownRoom extends Room<TownState> {
     if (!questId || !isQuestAvailable(player, questId)) return;
 
     const npc = this.state.npcs.get(QUESTS[questId].giverNpcId);
-    if (!npc || distanceToNpc(player, npc) > 3.75) return;
+    if (!npc) return;
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
 
     startQuest(player, questId);
