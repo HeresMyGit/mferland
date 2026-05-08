@@ -7,6 +7,7 @@ import {
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
   ITEMS,
+  QUESTS,
   SOCIAL,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
@@ -40,6 +41,7 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
+  type QuestId,
   type QuestMarkerType,
   type QuestStatusNotice,
   type QuestTurnIn,
@@ -66,12 +68,16 @@ import {
   getExploredCellKeys,
   getExploredCellStyle,
   getMinimapCircleStyle,
+  getMinimapGuidancePoint,
   getMinimapPointStyle,
   getMinimapRoadStyle,
+  getWorldMapGuidancePoint,
   getWorldMapCircleStyle,
   getWorldMapPointStyle,
   getWorldMapRoadStyle,
+  type MapGuidancePoint,
 } from "./hud/mapUtils";
+import { getActiveQuestGuidance, getPrimaryQuestGuidanceTarget, type ActiveQuestGuidance, type QuestGuidanceTarget } from "./hud/questGuidance";
 import { formatTooltipLabel, getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
 
 const HUD_TICK_MS = 200;
@@ -221,6 +227,7 @@ export function Hud({
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
   const [isEmotesOpen, setIsEmotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeQuestId, setActiveQuestId] = useState<QuestId | null>(null);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const exploredCellKeyRef = useRef("");
   const minimapHubRefs = useRef(new Map<string, HTMLElement>());
@@ -262,6 +269,11 @@ export function Hud({
     () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
     [questLog],
   );
+  const activeQuest = activeQuestId
+    ? questLog.find((quest) => quest.id === activeQuestId && quest.status !== "completed") ?? null
+    : null;
+  const activeQuestGuidance = getActiveQuestGuidance(activeQuest, npcs, localPlayer);
+  const primaryActiveQuestTarget = getPrimaryQuestGuidanceTarget(activeQuestGuidance, localPlayer);
   const hasTrackedQuests = trackedQuests.length > 0;
   const clockMinute = Math.floor(now / 60000);
   const clockLabel = useMemo(
@@ -274,6 +286,18 @@ export function Hud({
     const timeout = window.setTimeout(() => setNow(Date.now()), hudTickDelay);
     return () => window.clearTimeout(timeout);
   }, [hudTickDelay, now]);
+
+  useEffect(() => {
+    const stillActive = activeQuestId
+      ? questLog.some((quest) => quest.id === activeQuestId && quest.status !== "completed")
+      : false;
+    if (stillActive) return;
+
+    const nextQuest = questLog.find((quest) => quest.status === "ready")
+      ?? questLog.find((quest) => quest.status === "active")
+      ?? null;
+    setActiveQuestId(nextQuest?.id ?? null);
+  }, [activeQuestId, questLog]);
 
   useEffect(() => {
     carriedSlotRef.current = carriedSlot;
@@ -763,7 +787,12 @@ export function Hud({
           </button>
         </div>
         {hasTrackedQuests ? trackedQuests.map((quest) => (
-          <Quest key={quest.id} quest={quest} />
+          <Quest
+            key={quest.id}
+            quest={quest}
+            active={quest.id === activeQuestId}
+            onActivate={setActiveQuestId}
+          />
         )) : (
           <p className="quest-empty">nothing running</p>
         )}
@@ -913,6 +942,13 @@ export function Hud({
               />
             );
           })}
+          {primaryActiveQuestTarget && (
+            <QuestGuidanceMarker
+              guidance={activeQuestGuidance}
+              target={primaryActiveQuestTarget}
+              point={getMinimapGuidancePoint(localPlayer, primaryActiveQuestTarget.x, primaryActiveQuestTarget.z)}
+            />
+          )}
         </div>
         <div className="online-row">
           <span>mfers: {playerCount}</span>
@@ -995,6 +1031,14 @@ export function Hud({
                   style={getWorldMapLocalMarkerStyle(localPlayer)}
                 />
               )}
+              {activeQuestGuidance?.targets.slice(0, 8).map((target) => (
+                <QuestGuidanceMarker
+                  key={target.id}
+                  guidance={activeQuestGuidance}
+                  target={target}
+                  point={getWorldMapGuidancePoint(target.x, target.z)}
+                />
+              ))}
             </div>
           </div>
         </section>
@@ -1014,7 +1058,13 @@ export function Hud({
             </div>
             <div className="quest-log-list">
               {questLog.length > 0 ? questLog.map((quest) => (
-                <Quest key={quest.id} quest={quest} full />
+                <Quest
+                  key={quest.id}
+                  quest={quest}
+                  full
+                  active={quest.id === activeQuestId}
+                  onActivate={quest.status === "completed" ? undefined : setActiveQuestId}
+                />
               )) : (
                 <p className="quest-empty">no errands yet</p>
               )}
@@ -1477,6 +1527,30 @@ function CardinalCompass({ localPlayer }: { localPlayer: PlayerSnapshot | null }
   );
 }
 
+function QuestGuidanceMarker({
+  guidance,
+  target,
+  point,
+}: {
+  guidance: ActiveQuestGuidance | null;
+  target: QuestGuidanceTarget;
+  point: MapGuidancePoint;
+}) {
+  const tooltip = getQuestGuidanceTooltip(guidance, target);
+  return (
+    <span
+      className={getQuestGuidanceMarkerClassName(target, point.atEdge)}
+      data-map-annotation="active-quest"
+      data-tooltip={tooltip}
+      title={tooltip}
+      aria-label={formatTooltipLabel(tooltip)}
+      style={point.style}
+    >
+      <em>{target.label}</em>
+    </span>
+  );
+}
+
 function SettingsToggle({
   label,
   checked,
@@ -1729,6 +1803,11 @@ function getNpcMapDotClassName(npc: NpcSnapshot, questMarker: QuestMarkerType | 
   return `map-dot npc ${getNpcDisposition(npc)}${markerClass}`;
 }
 
+function getQuestGuidanceMarkerClassName(target: QuestGuidanceTarget, atEdge: boolean) {
+  const kindClass = target.kind === "turnIn" ? "turn-in" : target.kind;
+  return ["active-quest-marker", kindClass, atEdge ? "edge" : ""].filter(Boolean).join(" ");
+}
+
 function getMapHubTooltip(hub: (typeof MINIMAP_HUBS)[number]) {
   return `${hub.name}\nMap: area\nLocation: ${formatMapCoordinates(hub.x, hub.z)}`;
 }
@@ -1736,6 +1815,15 @@ function getMapHubTooltip(hub: (typeof MINIMAP_HUBS)[number]) {
 function getMapLandmarkTooltip(landmark: (typeof MINIMAP_LANDMARKS)[number]) {
   const kind = landmark.kind === "relay" ? "relay marker" : "route marker";
   return `${landmark.name}\nMap: ${kind}\nLocation: ${formatMapCoordinates(landmark.x, landmark.z)}`;
+}
+
+function getQuestGuidanceTooltip(guidance: ActiveQuestGuidance | null, target: QuestGuidanceTarget) {
+  return [
+    guidance ? `Active: ${QUESTS[guidance.quest.id].title}` : "Active errand",
+    guidance?.summary,
+    target.label,
+    `Location: ${formatMapCoordinates(target.x, target.z)}`,
+  ].filter(Boolean).join("\n");
 }
 
 function getPlayerMapTooltip(player: PlayerSnapshot, isLocal: boolean) {

@@ -309,6 +309,13 @@
   box-shadow: none;
 }
 
+.quest-row.active {
+  border-color: rgba(255, 226, 96, 0.62);
+  background:
+    linear-gradient(90deg, rgba(255, 226, 96, 0.18), rgba(138, 242, 194, 0.08)),
+    rgba(13, 12, 9, 0.18);
+}
+
 .action-slot,
 .menu-dock button,
 .emote-popout-button,

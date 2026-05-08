@@ -2,10 +2,18 @@ import {
   QUESTS,
   getQuestObjectives,
   getQuestRepeatLabel,
+  type QuestId,
   type QuestSnapshot,
 } from "@mferland/shared";
 
-export function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: boolean }) {
+type QuestProps = {
+  quest: QuestSnapshot;
+  full?: boolean;
+  active?: boolean;
+  onActivate?: (questId: QuestId) => void;
+};
+
+export function Quest({ quest, full = false, active = false, onActivate }: QuestProps) {
   const definition = QUESTS[quest.id];
   const objectives = getQuestObjectives(quest.id);
   const repeatLabel = getQuestRepeatLabel(quest.id);
@@ -16,8 +24,16 @@ export function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: bo
       : definition.objectiveLabel;
   const progress = quest.status === "completed" ? "handled" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
 
-  return (
-    <div className={`quest-row ${quest.status} ${full ? "full" : ""}`}>
+  const isSelectable = quest.status !== "completed" && Boolean(onActivate);
+  const className = [
+    "quest-row",
+    quest.status,
+    full ? "full" : "",
+    active ? "active" : "",
+    isSelectable ? "selectable" : "",
+  ].filter(Boolean).join(" ");
+  const content = (
+    <>
       <div>
         <strong>
           {definition.title}
@@ -30,7 +46,30 @@ export function Quest({ quest, full = false }: { quest: QuestSnapshot; full?: bo
           <span>{statusText}</span>
         )}
       </div>
-      <em>{progress}</em>
+      <span className="quest-row-progress">
+        <em>{progress}</em>
+        {active && <b>active</b>}
+      </span>
+    </>
+  );
+
+  if (isSelectable) {
+    return (
+      <button
+        type="button"
+        className={className}
+        aria-pressed={active}
+        data-testid={`quest-row-${quest.id}`}
+        onClick={() => onActivate?.(quest.id)}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={className} data-testid={`quest-row-${quest.id}`}>
+      {content}
     </div>
   );
 }

@@ -267,6 +267,82 @@
   border-color: #2f1d55;
 }
 
+.active-quest-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 2px solid #101010;
+  border-radius: 50%;
+  background: #ffe260;
+  box-shadow:
+    0 0 0 2px rgba(16, 16, 16, 0.5),
+    0 0 0 6px rgba(255, 226, 96, 0.28),
+    0 0 14px rgba(255, 226, 96, 0.72);
+  transform: translate(-50%, -50%);
+  z-index: 14;
+}
+
+.active-quest-marker::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #101010;
+}
+
+.active-quest-marker.edge {
+  border-radius: 6px;
+}
+
+.active-quest-marker.edge::before {
+  width: 0;
+  height: 0;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid #101010;
+  border-left: 5px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  transform: translateY(-1px);
+}
+
+.active-quest-marker.turn-in {
+  background: #6be27f;
+  box-shadow:
+    0 0 0 2px rgba(16, 16, 16, 0.5),
+    0 0 0 6px rgba(107, 226, 127, 0.25),
+    0 0 14px rgba(107, 226, 127, 0.72);
+}
+
+.active-quest-marker.collect {
+  background: #5dd3ff;
+  box-shadow:
+    0 0 0 2px rgba(16, 16, 16, 0.5),
+    0 0 0 6px rgba(93, 211, 255, 0.24),
+    0 0 14px rgba(93, 211, 255, 0.72);
+}
+
+.active-quest-marker.kill {
+  background: #ff7278;
+  box-shadow:
+    0 0 0 2px rgba(16, 16, 16, 0.5),
+    0 0 0 6px rgba(255, 114, 120, 0.24),
+    0 0 14px rgba(255, 114, 120, 0.72);
+}
+
+.active-quest-marker.action {
+  background: #b69aff;
+  box-shadow:
+    0 0 0 2px rgba(16, 16, 16, 0.5),
+    0 0 0 6px rgba(182, 154, 255, 0.24),
+    0 0 14px rgba(182, 154, 255, 0.72);
+}
+
+.active-quest-marker em {
+  display: none;
+}
+
 .online-row {
   display: flex;
   gap: 12px;
@@ -2607,6 +2683,36 @@ button.menu-tile,
 
 .world-map .map-dot {
   z-index: 5;
+}
+
+.world-map .active-quest-marker {
+  z-index: 8;
+}
+
+.world-map .active-quest-marker em {
+  position: absolute;
+  left: 50%;
+  top: 21px;
+  display: block;
+  width: max-content;
+  max-width: 104px;
+  padding: 2px 5px;
+  border: 1px solid rgba(16, 16, 16, 0.72);
+  border-radius: 4px;
+  transform: translateX(-50%);
+  color: #101010;
+  background: rgba(255, 248, 224, 0.92);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 1000;
+  line-height: 1.1;
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.world-map .active-quest-marker.edge em {
+  display: none;
 }
 
 .world-map-landmark {

@@ -626,6 +626,25 @@
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+button.quest-row {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quest-row.selectable:hover {
+  background: rgba(255, 226, 96, 0.08);
+}
+
+.quest-row.active {
+  background: linear-gradient(90deg, rgba(255, 226, 96, 0.16), rgba(138, 242, 194, 0.08));
+}
+
 .quest-row.full {
   gap: 22px;
   padding: 13px 0;
@@ -679,6 +698,25 @@
   font-size: 13px;
   font-style: normal;
   font-weight: 800;
+}
+
+.quest-row-progress {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 52px;
+}
+
+.quest-row-progress b {
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 226, 96, 0.5);
+  border-radius: 4px;
+  color: #101010;
+  background: #ffe260;
+  font-size: 9px;
+  font-weight: 1000;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .quest-objectives {

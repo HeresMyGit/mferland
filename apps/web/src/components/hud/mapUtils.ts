@@ -9,6 +9,11 @@ export const MINIMAP_ROADS = WORLD_ROADS;
 export const MINIMAP_HUBS = WORLD_HUBS;
 export const MINIMAP_LANDMARKS = WORLD_LANDMARKS;
 
+export type MapGuidancePoint = {
+  style: CSSProperties;
+  atEdge: boolean;
+};
+
 function normalize(value: number, min: number, max: number) {
   return Math.max(7, Math.min(93, ((value - min) / (max - min)) * 100));
 }
@@ -25,6 +30,28 @@ export function getMinimapPointStyle(localPlayer: PlayerSnapshot | null, x: numb
   return {
     left: `${point.left}%`,
     top: `${point.top}%`,
+  };
+}
+
+export function getMinimapGuidancePoint(localPlayer: PlayerSnapshot | null, x: number, z: number): MapGuidancePoint {
+  if (!localPlayer) {
+    return {
+      style: {
+        left: `${normalize(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+        top: `${normalize(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+      },
+      atEdge: false,
+    };
+  }
+
+  const point = getMinimapLocalPoint(localPlayer, x, z, true);
+  return {
+    style: {
+      left: `${point.left}%`,
+      top: `${point.top}%`,
+      transform: getMapGuidanceTransform(point.atEdge, point.rotation),
+    },
+    atEdge: point.atEdge,
   };
 }
 
@@ -73,8 +100,10 @@ function getMinimapLocalPoint(localPlayer: PlayerSnapshot, x: number, z: number,
   let rotatedX = -(dx * Math.cos(yaw) - dz * Math.sin(yaw));
   let rotatedY = -dx * Math.sin(yaw) - dz * Math.cos(yaw);
   const distance = Math.hypot(rotatedX, rotatedY);
+  const atEdge = clampToEdge && distance > MINIMAP_RANGE_YARDS;
+  const rotation = distance > 0 ? Math.atan2(rotatedY, rotatedX) + Math.PI / 2 : 0;
 
-  if (clampToEdge && distance > MINIMAP_RANGE_YARDS) {
+  if (atEdge) {
     const edgeScale = MINIMAP_RANGE_YARDS / distance;
     rotatedX *= edgeScale;
     rotatedY *= edgeScale;
@@ -84,6 +113,8 @@ function getMinimapLocalPoint(localPlayer: PlayerSnapshot, x: number, z: number,
   return {
     left: 50 + rotatedX * scale,
     top: 50 + rotatedY * scale,
+    atEdge,
+    rotation,
   };
 }
 
@@ -126,6 +157,24 @@ export function getWorldMapPointStyle(x: number, z: number): CSSProperties {
   };
 }
 
+export function getWorldMapGuidancePoint(x: number, z: number): MapGuidancePoint {
+  const clampedX = clamp(x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX);
+  const clampedZ = clamp(z, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ);
+  const atEdge = clampedX !== x || clampedZ !== z;
+  const screenX = x < PLAZA_BOUNDS.minX ? -1 : x > PLAZA_BOUNDS.maxX ? 1 : 0;
+  const screenY = z < PLAZA_BOUNDS.minZ ? -1 : z > PLAZA_BOUNDS.maxZ ? 1 : 0;
+  const rotation = screenX || screenY ? Math.atan2(screenY, screenX) + Math.PI / 2 : 0;
+
+  return {
+    style: {
+      left: `${worldPercent(clampedX, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
+      top: `${worldPercent(clampedZ, PLAZA_BOUNDS.minZ, PLAZA_BOUNDS.maxZ)}%`,
+      transform: getMapGuidanceTransform(atEdge, rotation),
+    },
+    atEdge,
+  };
+}
+
 export function getWorldMapRoadStyle(road: { x: number; z: number; width: number; depth: number }): CSSProperties {
   return {
     left: `${worldPercent(road.x, PLAZA_BOUNDS.minX, PLAZA_BOUNDS.maxX)}%`,
@@ -146,4 +195,14 @@ export function getWorldMapCircleStyle(x: number, z: number, diameter: number): 
 
 function worldPercent(value: number, min: number, max: number) {
   return Math.max(2, Math.min(98, ((value - min) / (max - min)) * 100));
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getMapGuidanceTransform(atEdge: boolean, rotation: number) {
+  return atEdge
+    ? `translate(-50%, -50%) rotate(${rotation}rad)`
+    : "translate(-50%, -50%)";
 }
