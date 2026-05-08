@@ -22,7 +22,6 @@ const PRIMARY_QUEST_CHAIN: QuestId[] = [
   "sealed-note",
   "farm-road-handoff",
   "boar-bristle-cull",
-  "farmhand-bandanas",
   "feral-farmers",
   "hog-livers",
   "field-camp-delivery",

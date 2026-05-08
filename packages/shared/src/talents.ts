@@ -95,12 +95,12 @@ export const TALENTS = {
   "brawler:whirlwind": {
     tree: "brawler",
     nodeId: "whirlwind",
-    name: "spin out control",
-    description: "spin through nearby enemies with more snap.",
+    name: "tornado crash control",
+    description: "crash through nearby enemies with more snap.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "brawler:snap-swing", rank: 1 }],
-    effectText: "+3 spin out damage",
+    effectText: "+3 tornado crash damage",
     effectPerRank: {
       actionDamage: {
         whirlwind: 3,
@@ -124,10 +124,10 @@ export const TALENTS = {
     tree: "caster",
     nodeId: "sticker-sparks",
     name: "sticker sparks",
-    description: "burn post and cold take hit harder.",
+    description: "rugburn and slippage bolt hit harder.",
     maxRank: 3,
     requires: [{ talentId: "caster:deep-pockets", rank: 1 }],
-    effectText: "+3 burn post and +1 cold take damage per rank",
+    effectText: "+3 rugburn and +1 slippage bolt damage per rank",
     effectPerRank: {
       actionDamage: {
         fireblast: 3,
@@ -151,12 +151,12 @@ export const TALENTS = {
   "caster:ice-blast": {
     tree: "caster",
     nodeId: "ice-blast",
-    name: "freeze post bite",
+    name: "freeze assets bite",
     description: "put more bite behind your cold bolt.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "caster:flow-state", rank: 1 }],
-    effectText: "+3 freeze post damage",
+    effectText: "+3 freeze assets damage",
     effectPerRank: {
       actionDamage: {
         iceBlast: 3,

@@ -163,7 +163,8 @@ export function getActionReadyAt(player: PlayerSnapshot | null, actionId: Combat
 
 function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number) {
   const remainingMs = Math.max(0, getActionReadyAt(player, actionId) - now);
-  const cooldownMs = player ? getTalentActionCooldownMs(actionId, player.talents) : COMBAT.actions[actionId].cooldownMs;
+  const actionCooldownMs = player ? getTalentActionCooldownMs(actionId, player.talents) : COMBAT.actions[actionId].cooldownMs;
+  const cooldownMs = Math.max(actionCooldownMs, COMBAT.universalCooldownMs);
   return {
     remainingMs,
     percent: cooldownMs > 0 ? Math.min(100, (remainingMs / cooldownMs) * 100) : 0,

@@ -3,6 +3,7 @@ import {
   COMBAT,
   FARMER_COMBAT,
   PLAYER,
+  getNpcDisposition,
   resolveWorldCollision,
   stableHash,
   type CombatActionId,
@@ -27,6 +28,8 @@ const HOG_COMBAT = {
 };
 
 const CASTER_RETREAT_RANGE = 7.2;
+const ENEMY_ASSIST_AGGRO_RANGE = 7.5;
+const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const MFERGPT_PORTRAIT_IMAGE = "/portraits/npcs/mfergpt.png";
 
 export type NpcSpawnSpec = {
@@ -211,7 +214,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 64.5,
       yaw: -0.35,
       leashRadius: 1.3,
-      dialogue: "farm's full of loop-brained posters. go thin the herd.",
+      dialogue: "farm's full of crazed airdrop farmers. go thin the herd.",
       questId: "feral-farmers",
     },
     {
@@ -433,10 +436,10 @@ function makeWildHogSpecs() {
 
 function makeFarmerSpecs() {
   return [
-    { id: "farmhand-bran", name: "red-eye mfer bran", x: -77.5, z: 86.5, yaw: -0.7, style: "melee" },
-    { id: "farmhand-mae", name: "red-eye mfer mae", x: -87.5, z: 91.5, yaw: 0.8, style: "melee" },
+    { id: "farmhand-bran", name: "crazed airdrop farmer bran", x: -77.5, z: 86.5, yaw: -0.7, style: "melee" },
+    { id: "farmhand-mae", name: "crazed airdrop farmer mae", x: -87.5, z: 91.5, yaw: 0.8, style: "melee" },
     { id: "field-mage-sol", name: "signal-sick mfer sol", x: -73.2, z: 99.8, yaw: -1.6, style: "caster" },
-    { id: "farmhand-jo", name: "red-eye mfer jo", x: -94.5, z: 102.4, yaw: 0.4, style: "melee" },
+    { id: "farmhand-jo", name: "crazed airdrop farmer jo", x: -94.5, z: 102.4, yaw: 0.4, style: "melee" },
     { id: "field-mage-ren", name: "rumor-loop mfer ren", x: -84.8, z: 108.6, yaw: 2.2, style: "caster" },
   ].map((farmer) => ({
     id: farmer.id,
@@ -539,11 +542,13 @@ export function updateNpcs(
 
     if (npc.role === "farmer") {
       updateFarmerNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
+      spreadAggroToNearbyHostiles(npc, npcs, players);
       return;
     }
 
     if (npc.model === "hog" && npc.aggroTargetId) {
       updateHogNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
+      spreadAggroToNearbyHostiles(npc, npcs, players);
       return;
     }
 
@@ -692,7 +697,7 @@ function updateHogNpc(
   pendingCombatImpacts: PendingCombatImpact[],
 ) {
   const target = players.get(npc.aggroTargetId);
-  if (!target || target.health <= 0 || distanceToHome(npc, target) > HOG_COMBAT.leashRange) {
+  if (!target || target.health <= 0 || distanceToHome(npc, target) > getHogLeashRange(npc)) {
     npc.aggroTargetId = "";
     npc.attackReadyAt = 0;
     npc.targetX = npc.homeX;
@@ -740,7 +745,33 @@ function getFarmerLeashRange(npc: NpcState) {
   if (npc.id === "raid-ogre-mfer") return 82;
   if (npc.id === "static-baron-nox") return 56;
   if (!npc.aggroTargetId) return FARMER_COMBAT.leashRange;
-  return Math.max(FARMER_COMBAT.leashRange, COMBAT.actions.fireblast.maxRange + 2);
+  return Math.max(FARMER_COMBAT.leashRange, PLAYER_ATTACK_PULL_LEASH_RANGE);
+}
+
+function getHogLeashRange(npc: NpcState) {
+  if (!npc.aggroTargetId) return HOG_COMBAT.leashRange;
+  return Math.max(HOG_COMBAT.leashRange, PLAYER_ATTACK_PULL_LEASH_RANGE);
+}
+
+function spreadAggroToNearbyHostiles(
+  source: NpcState,
+  npcs: MapSchema<NpcState>,
+  players: MapSchema<PlayerState>,
+) {
+  if (!source.aggroTargetId || !isNpcAlive(source)) return;
+
+  const target = players.get(source.aggroTargetId);
+  if (!target || target.health <= 0) return;
+
+  npcs.forEach((candidate) => {
+    if (candidate.id === source.id || candidate.aggroTargetId) return;
+    if (!isNpcAlive(candidate) || candidate.isImmortal) return;
+    if (getNpcDisposition(candidate) !== "hostile") return;
+    if (Math.hypot(candidate.x - source.x, candidate.z - source.z) > ENEMY_ASSIST_AGGRO_RANGE) return;
+
+    candidate.aggroTargetId = source.aggroTargetId;
+    candidate.nextDecisionAt = 0;
+  });
 }
 
 function getPlayerSessionId(players: MapSchema<PlayerState>, target: PlayerState) {

@@ -63,6 +63,7 @@ import {
 import {
   aggroNeutralNpcOnPlayerAttackStart,
   applyCombatDamage,
+  applyPlayerUniversalCooldown,
   applyUnitHealing,
   clearPlayerCast,
   findCombatTarget,
@@ -131,6 +132,7 @@ import {
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const EMOTE_MIN_INTERVAL_MS = 900;
+const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 const CLIENT_ANALYTICS_EVENTS = new Set([
   "store_opened",
@@ -1125,6 +1127,7 @@ export class TownRoom extends Room<TownState> {
 
     if (actionId === "frostNova") {
       setActionReadyAt(player, actionId, now + action.cooldownMs);
+      applyPlayerUniversalCooldown(player, now);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       player.lastCastAt = now;
       applyFrostNova(
@@ -1143,6 +1146,7 @@ export class TownRoom extends Room<TownState> {
 
     if (actionId === "whirlwind") {
       setActionReadyAt(player, actionId, now + action.cooldownMs);
+      applyPlayerUniversalCooldown(player, now);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       player.lastCastAt = now;
       applyWhirlwind(
@@ -1170,6 +1174,7 @@ export class TownRoom extends Room<TownState> {
       if (healTarget.id !== client.sessionId || healTarget.kind !== "player") {
         player.yaw = Math.atan2(healTarget.unit.x - player.x, healTarget.unit.z - player.z);
       }
+      applyPlayerUniversalCooldown(player, now);
       player.castingAction = actionId;
       player.castStartedAt = now;
       player.castEndsAt = now + action.castTimeMs;
@@ -1189,6 +1194,7 @@ export class TownRoom extends Room<TownState> {
 
     if (actionId === "taunt") {
       setActionReadyAt(player, actionId, now + action.cooldownMs);
+      applyPlayerUniversalCooldown(player, now);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       player.lastCastAt = now;
       this.forceNpcTarget(client.sessionId, target, now);
@@ -1198,6 +1204,7 @@ export class TownRoom extends Room<TownState> {
 
     if (action.castTimeMs > 0) {
       player.lastCastAt = now;
+      applyPlayerUniversalCooldown(player, now);
       player.castingAction = actionId;
       player.castStartedAt = now;
       player.castEndsAt = now + action.castTimeMs;
@@ -1207,6 +1214,7 @@ export class TownRoom extends Room<TownState> {
     }
 
     setActionReadyAt(player, actionId, now + action.cooldownMs);
+    applyPlayerUniversalCooldown(player, now);
     player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
     player.lastCastAt = now;
     aggroNeutralNpcOnPlayerAttackStart(target, client.sessionId, player);
@@ -1421,7 +1429,7 @@ export class TownRoom extends Room<TownState> {
 
   private isThreatTargetEligible(npc: NpcState, player: PlayerState | undefined) {
     if (!player || player.health <= 0) return false;
-    return Math.hypot(player.x - npc.homeX, player.z - npc.homeZ) <= Math.max(npc.leashRadius + 8, COMBAT.actions.fireblast.maxRange + 4);
+    return Math.hypot(player.x - npc.homeX, player.z - npc.homeZ) <= Math.max(npc.leashRadius + 8, PLAYER_ATTACK_PULL_LEASH_RANGE);
   }
 
   private removePlayerThreat(sessionId: string) {

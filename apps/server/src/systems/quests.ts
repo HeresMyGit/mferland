@@ -111,10 +111,6 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild boars cleared around the farm road.`;
   }
 
-  if (questId === "farmhand-bandanas") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} red-eye farmhands dropped by the busted farm.`;
-  }
-
   if (questId === "hog-livers") {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog loop livers collected from farm-road hogs. ugly drop rate, normal town problem.`;
   }
@@ -166,7 +162,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "farm-road-handoff") {
-    return "good. farm road starts here. thin the boars before the red-eye crew gets any louder.";
+    return "good. farm road starts here. thin the boars before the crazed airdrop farmers get any louder.";
   }
 
   if (questId === "ask-mfergpt") {
@@ -175,10 +171,6 @@ function getQuestCompletionResponse(questId: QuestId) {
 
   if (questId === "boar-bristle-cull") {
     return "hogwatch mfer says the farm road is slightly less boar-shaped now.";
-  }
-
-  if (questId === "farmhand-bandanas") {
-    return "drip mfer can stitch ugly little warning flags now that fewer red-eyes are standing.";
   }
 
   if (questId === "dao-tour") {

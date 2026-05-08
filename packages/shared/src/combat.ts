@@ -4,6 +4,7 @@ export const COMBAT = {
   defeatedDespawnMs: 6500,
   defeatedRespawnMs: 12000,
   castPushbackMs: 500,
+  universalCooldownMs: 1000,
   fireblastProjectileSpeed: 24,
   fireblastMinTravelMs: 320,
   fireblastMaxTravelMs: 1100,
@@ -22,7 +23,7 @@ export const COMBAT = {
       threatBonus: 24,
     },
     shoot: {
-      label: "peg",
+      label: "snipe",
       description: "A longer-range shot for enemies that are not in your face.",
       damage: 10,
       cooldownMs: 2000,
@@ -44,7 +45,7 @@ export const COMBAT = {
       requiresStationary: false,
     },
     fireblast: {
-      label: "burn post",
+      label: "rugburn",
       description: "A heavy casted hit that asks you to stand still.",
       damage: 20,
       cooldownMs: 0,
@@ -55,7 +56,7 @@ export const COMBAT = {
       requiresStationary: true,
     },
     frostNova: {
-      label: "cold take",
+      label: "slippage bolt",
       description: "A close burst that freezes nearby enemies.",
       damage: 5,
       cooldownMs: 12000,
@@ -67,7 +68,7 @@ export const COMBAT = {
       freezeMs: 3000,
     },
     heal: {
-      label: "patch up",
+      label: "top off",
       description: "A casted heal for yourself or a friendly target.",
       damage: 0,
       healing: 34,
@@ -94,7 +95,7 @@ export const COMBAT = {
       threat: 140,
     },
     whirlwind: {
-      label: "spin out",
+      label: "tornado crash",
       description: "Hit nearby enemies and keep their attention.",
       damage: 9,
       cooldownMs: 9000,
@@ -119,7 +120,7 @@ export const COMBAT = {
       splashRadius: 8,
     },
     iceBlast: {
-      label: "freeze post",
+      label: "freeze assets",
       description: "A casted cold bolt that slows the target.",
       damage: 14,
       cooldownMs: 0,

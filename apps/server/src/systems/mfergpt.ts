@@ -275,10 +275,6 @@ function getActiveQuestHint(
     return `for ${quest.title}, follow the dirt road to the busted farm and talk to ${turnInNpcName}.`;
   }
 
-  if (questId === "farmhand-bandanas") {
-    return `for ${quest.title}, kill red-eye farmhands near the busted farm. progress is ${progress}/${required}.`;
-  }
-
   if (questId === "mfergpt-checkin") {
     return `for ${quest.title}, put @mfergpt anywhere in chat. that's enough.`;
   }
@@ -288,7 +284,7 @@ function getActiveQuestHint(
   }
 
   if (questId === "field-camp-delivery") {
-    return `follow the dirt route past red-eye farm to route post, then talk to ${turnInNpcName}.`;
+    return `follow the dirt route southwest past the busted farm to route board, then talk to ${turnInNpcName}.`;
   }
 
   if (questId === "ridge-dispatch") {
@@ -296,7 +292,7 @@ function getActiveQuestHint(
   }
 
   if (questId === "route-patrol-daily") {
-    return `for ${quest.title}, clear hogs or red-eye farmhands near route board. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, clear hogs or crazed airdrop farmers near route board. progress is ${progress}/${required}.`;
   }
 
   if (questId === "hog-loop") {
@@ -321,11 +317,10 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "sealed-note": "carry the folded offchain note to drip desk mfer. don't open it just because you can.",
   "farm-road-handoff": "drip desk mfer points you to hogwatch mfer out by the busted farm road.",
   "ask-mfergpt": "put @mfergpt anywhere in chat, then check back with mferGPT. after that, follow the farm road if drip has work open.",
-  "farmhand-bandanas": "drop 4 red-eye farmhands by the busted farm, then return to drip desk mfer.",
-  "feral-farmers": "head into the busted farm and take out red-eye mfer bran, red-eye mfer mae, and signal-sick mfer sol.",
+  "feral-farmers": "head into the busted farm and take out crazed airdrop farmer bran, crazed airdrop farmer mae, and signal-sick mfer sol.",
   "hog-livers": "farm-road hogs around the busted farm and loop booth drop hog loop livers. you need 5.",
-  "field-camp-delivery": "take hogwatch's update north to route board mfer at the post.",
-  "route-patrol-daily": "clear 6 hogs or red-eye farmhands near route board, then check back with route board mfer.",
+  "field-camp-delivery": "take hogwatch's update southwest to route board mfer at the post.",
+  "route-patrol-daily": "clear 6 hogs or crazed airdrop farmers near route board, then check back with route board mfer.",
   "hog-loop": "loop booth mfer pays for 5 wild hogs near loop booth. ugly work, fast reset.",
   "ridge-dispatch": "follow the dirt cut east, hit the 0.069-mile stretch, take the 4:20 turn, and talk to ridge post mfer.",
   "signal-scraps": "signal-jacked ridge crew on Signal Ridge drop fried relay scraps. bring 4 back to ridge post mfer.",

@@ -64,6 +64,13 @@ export function setActionReadyAt(player: PlayerState, actionId: CombatActionId, 
   else player.iceBlastReadyAt = readyAt;
 }
 
+export function applyPlayerUniversalCooldown(player: PlayerState, now: number) {
+  const readyAt = now + COMBAT.universalCooldownMs;
+  for (const actionId of Object.keys(COMBAT.actions) as CombatActionId[]) {
+    setActionReadyAt(player, actionId, Math.max(getActionReadyAt(player, actionId), readyAt));
+  }
+}
+
 export function isPlayerStationary(player: PlayerState, input: TrackedInput | undefined, now: number) {
   if (player.y > 0.05) return false;
   if (!input || now - input.receivedAt >= 350) return true;

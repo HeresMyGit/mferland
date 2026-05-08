@@ -154,7 +154,6 @@ function getDefeatTargets(questId: QuestId, npcs: Map<string, NpcSnapshot>): Que
 }
 
 function isDefeatTargetForQuest(questId: QuestId, npc: NpcSnapshot) {
-  if (questId === "farmhand-bandanas") return npc.role === "farmer" && isFarmRoadEnemy(npc);
   if (questId === "route-patrol-daily") return npc.model === "hog" || (npc.role === "farmer" && isFarmRoadEnemy(npc));
 
   const definition = QUESTS[questId];
