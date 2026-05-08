@@ -85,6 +85,7 @@ const HIDDEN_CAPTURE_NAMEPLATES = {
 };
 const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
+const CRYPTO_STORE_NPC_IDS = new Set(["crypto-mfer"]);
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -135,6 +136,10 @@ function isInviteRequired() {
 
 function isCryptoStoreEnabled() {
   return import.meta.env.VITE_ENABLE_CRYPTO_STORE !== "0";
+}
+
+function isCryptoStoreNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return Boolean(npc && CRYPTO_STORE_NPC_IDS.has(npc.id));
 }
 
 export function App() {
@@ -617,7 +622,7 @@ function GameShell({
     const selectedNpc = findInteractableNpcInRange(localPlayer, room.npcs, npcId);
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
-      if (cryptoStoreEnabled && selectedNpc.role === "merchant") openCryptoStore(selectedNpc);
+      if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
   }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, room.npcs, room.sendInteract]);
@@ -628,7 +633,7 @@ function GameShell({
       : null;
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
-    if (cryptoStoreEnabled && nearestNpc?.role === "merchant") openCryptoStore(nearestNpc);
+    if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
   }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
