@@ -244,6 +244,8 @@
     bottom: auto;
   }
 
+  .crypto-store-overview,
+  .crypto-store-flow-grid,
   .crypto-store-config,
   .crypto-store-balance-grid,
   .crypto-store-collection,
@@ -253,6 +255,22 @@
   .crypto-pass-actions,
   .crypto-upgrade-row {
     grid-template-columns: 1fr;
+  }
+
+  .crypto-pass-flow,
+  .crypto-gear-flow,
+  .crypto-upgrade-flow,
+  .crypto-market-flow {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .crypto-store-account {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .crypto-store-account code {
+    grid-column: 1 / -1;
   }
 
   .debug-placement-editor {

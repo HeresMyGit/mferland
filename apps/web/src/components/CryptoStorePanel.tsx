@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Coins, Flame, Gem, PlugZap, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Coins, Flame, Gem, PlugZap, RefreshCw, X } from "lucide-react";
 import { useAccount } from "wagmi";
-import { type ClientDebugRegisterChainGear, type ClientDebugUpdateChainGearTier, type NpcSnapshot } from "@mferland/shared";
+import {
+  ITEMS,
+  getChainGearItemId,
+  type ClientDebugRegisterChainGear,
+  type ClientDebugUpdateChainGearTier,
+  type NpcSnapshot,
+} from "@mferland/shared";
 import { trackEvent, type AnalyticsProperties } from "../analytics";
 import { waitForTransactionReceipt, type EthereumProvider } from "../crypto/transactionReceipts";
+import { ItemIcon } from "./hud/ItemIcon";
 
 type CryptoStoreAddresses = {
   store: string;
@@ -152,12 +159,18 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
   const [isBusy, setIsBusy] = useState(false);
   const [balances, setBalances] = useState<CryptoStoreBalances>(EMPTY_BALANCES);
   const [marketQuotes, setMarketQuotes] = useState<CryptoMarketQuotesState>(EMPTY_MARKET_QUOTES);
+  const [showContractConfig, setShowContractConfig] = useState(false);
   const shortAccount = useMemo(() => account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "not connected", [account]);
   const chainIdHex = useMemo(() => toChainIdHex(chainConfig.chainId), [chainConfig.chainId]);
   const selectedStoreGear = useMemo(
     () => STORE_GEAR_COLLECTION.find((gear) => String(gear.gearType) === gearType) ?? null,
     [gearType],
   );
+  const selectedStoreGearItemId = useMemo(() => {
+    const parsedGearType = Number(gearType);
+    return Number.isInteger(parsedGearType) ? getChainGearItemId(parsedGearType) : null;
+  }, [gearType]);
+  const configuredContractCount = useMemo(() => Object.values(addresses).filter(isAddress).length, [addresses]);
   const mferQuote = useMemo(() => findMarketQuote(marketQuotes.quotes, "$mfer"), [marketQuotes.quotes]);
   const mferGptQuote = useMemo(() => findMarketQuote(marketQuotes.quotes, "MFERGPT"), [marketQuotes.quotes]);
 
@@ -562,175 +575,232 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         </button>
       </div>
 
-      <div className="crypto-store-account">
-        <span>{chainConfig.chainName} {chainConfig.chainId}</span>
-        <code>{shortAccount}</code>
-        <button type="button" disabled={isBusy} onClick={() => void connectWallet()}>
-          <PlugZap size={16} />
-          connect
-        </button>
-      </div>
-
-      <div className="crypto-store-balances" aria-label="wallet balances">
-        <div className="crypto-store-balances-head">
-          <span>wallet balances</span>
-          <button
-            type="button"
-            title="Refresh balances"
-            aria-label="Refresh balances"
-            disabled={isBusy || balances.state === "loading"}
-            onClick={() => void refreshBalances()}
-          >
-            <RefreshCw size={14} />
+      <div className="crypto-store-overview">
+        <div className="crypto-store-account">
+          <span>{chainConfig.chainName} {chainConfig.chainId}</span>
+          <code>{shortAccount}</code>
+          <button type="button" disabled={isBusy} onClick={() => void connectWallet()}>
+            <PlugZap size={16} />
+            connect
           </button>
         </div>
-        <div className="crypto-store-balance-grid">
-          <div>
-            <span>ETH</span>
-            <strong>{balances.eth}</strong>
+
+        <div className="crypto-store-balances" aria-label="wallet balances">
+          <div className="crypto-store-balances-head">
+            <span>wallet balances</span>
+            <button
+              type="button"
+              title="Refresh balances"
+              aria-label="Refresh balances"
+              disabled={isBusy || balances.state === "loading"}
+              onClick={() => void refreshBalances()}
+            >
+              <RefreshCw size={14} />
+            </button>
           </div>
-          <div>
-            <span>$mfer</span>
-            <strong>{balances.mfer}</strong>
+          <div className="crypto-store-balance-grid">
+            <div>
+              <span>ETH</span>
+              <strong>{balances.eth}</strong>
+            </div>
+            <div>
+              <span>$mfer</span>
+              <strong>{balances.mfer}</strong>
+            </div>
+            <div>
+              <span>$mfergpt</span>
+              <strong>{balances.mfergpt}</strong>
+            </div>
           </div>
-          <div>
-            <span>$mfergpt</span>
-            <strong>{balances.mfergpt}</strong>
+          {balances.state === "error" && balances.error ? <em>{balances.error}</em> : null}
+        </div>
+      </div>
+
+      <div className="crypto-store-flow-grid">
+        <section className="crypto-store-flow crypto-pass-flow" aria-label="launch pass">
+          <div className="crypto-store-flow-head">
+            <div>
+              <strong>{LAUNCH_PASS_LABEL}</strong>
+              <span>contract price / pass id {launchPassTokenId || "--"}</span>
+            </div>
           </div>
-        </div>
-        {balances.state === "error" && balances.error ? <em>{balances.error}</em> : null}
+
+          <div className="crypto-store-actions crypto-pass-actions">
+            <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithEth()}>
+              <Gem size={16} />
+              mint ETH
+            </button>
+            <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMfer()}>
+              <Coins size={16} />
+              mint $mfer
+            </button>
+            <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMferGpt()}>
+              <Flame size={16} />
+              mint $mfergpt
+            </button>
+          </div>
+        </section>
+
+        <section className="crypto-store-flow crypto-gear-flow" aria-label="gear purchase">
+          <div className="crypto-store-flow-head">
+            <div className="crypto-store-gear-heading">
+              {selectedStoreGearItemId ? <ItemIcon itemId={selectedStoreGearItemId} /> : null}
+              <div>
+                <strong>{selectedStoreGearItemId ? ITEMS[selectedStoreGearItemId].name : selectedStoreGear?.label ?? "custom gear"}</strong>
+                <span>gear type {gearType} / {ethPrice} ETH / {selectedStoreGear?.tokenPriceLabel ?? "contract"} token base</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="crypto-store-collection" aria-label="gear collection">
+            {STORE_GEAR_COLLECTION.map((gear) => {
+              const itemId = getChainGearItemId(gear.gearType);
+              const itemName = itemId ? ITEMS[itemId].name : gear.label;
+              const isSelected = String(gear.gearType) === gearType;
+
+              return (
+                <button
+                  key={gear.gearType}
+                  type="button"
+                  className={isSelected ? "selected" : undefined}
+                  title={itemName}
+                  aria-label={`${itemName}, ${gear.ethPrice} ETH, ${gear.tokenPriceLabel} token base`}
+                  aria-pressed={isSelected}
+                  disabled={isBusy}
+                  onClick={() => selectStoreGear(gear)}
+                >
+                  {itemId ? <ItemIcon itemId={itemId} /> : null}
+                  <span>{gear.ethPrice} ETH</span>
+                  <em>{gear.tokenPriceLabel} token</em>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="crypto-store-item">
+            <div className="crypto-store-gear-heading">
+              {selectedStoreGearItemId ? <ItemIcon itemId={selectedStoreGearItemId} /> : null}
+              <div>
+                <strong>gear checkout</strong>
+                <span>selected {selectedStoreGearItemId ? ITEMS[selectedStoreGearItemId].name : selectedStoreGear?.label ?? "custom gear"}</span>
+              </div>
+            </div>
+            <label>
+              <span>gear</span>
+              <input value={gearType} inputMode="numeric" onChange={(event) => setGearType(event.target.value)} />
+            </label>
+            <label>
+              <span>ETH</span>
+              <input value={ethPrice} inputMode="decimal" onChange={(event) => setEthPrice(event.target.value)} />
+            </label>
+          </div>
+
+          <div className="crypto-store-actions">
+            <button type="button" disabled={isBusy} onClick={() => void buyWithEth()}>
+              <Gem size={16} />
+              buy ETH
+            </button>
+            <button type="button" disabled={isBusy} onClick={() => void buyWithMfer()}>
+              <Coins size={16} />
+              buy $mfer -10%
+            </button>
+            <button type="button" disabled={isBusy} onClick={() => void buyWithMferGpt()}>
+              <Flame size={16} />
+              buy $mfergpt -25%
+            </button>
+          </div>
+        </section>
+
+        <section className="crypto-store-flow crypto-upgrade-flow" aria-label="gear upgrade">
+          <div className="crypto-store-flow-head">
+            <div>
+              <strong>upgrade gear</strong>
+              <span>token id {upgradeTokenId || "--"} / gold cost onchain</span>
+            </div>
+          </div>
+          <div className="crypto-upgrade-row">
+            <label>
+              <span>token id</span>
+              <input value={upgradeTokenId} inputMode="numeric" onChange={(event) => setUpgradeTokenId(event.target.value)} />
+            </label>
+            {import.meta.env.DEV ? (
+              <button type="button" disabled={isBusy} onClick={() => void grantTestGold()}>
+                <Coins size={16} />
+                test gold
+              </button>
+            ) : null}
+            <button type="button" disabled={isBusy} onClick={() => void upgradeGear()}>
+              <Flame size={16} />
+              upgrade
+            </button>
+          </div>
+        </section>
+
+        <section className="crypto-store-flow crypto-market-flow" aria-label="market quotes">
+          <div className="crypto-store-flow-head">
+            <div>
+              <strong>market</strong>
+              <span>cached quotes</span>
+            </div>
+          </div>
+          <div className="crypto-market-quotes">
+            <div>
+              <span>$mfer/WETH</span>
+              <strong>{formatMarketQuote(mferQuote)}</strong>
+              <em>{formatMarketQuoteMeta(mferQuote, marketQuotes)}</em>
+            </div>
+            <div>
+              <span>MFERGPT/WETH</span>
+              <strong>{formatMarketQuote(mferGptQuote)}</strong>
+              <em>{formatMarketQuoteMeta(mferGptQuote, marketQuotes)}</em>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <div className="crypto-store-config">
-        <label>
-          <span>store</span>
-          <input value={addresses.store} placeholder="0x..." onChange={(event) => updateAddress("store", event.target.value)} />
-        </label>
-        <label>
-          <span>gear nft</span>
-          <input value={addresses.gear} placeholder="0x..." onChange={(event) => updateAddress("gear", event.target.value)} />
-        </label>
-        <label>
-          <span>gold</span>
-          <input value={addresses.gold} placeholder="0x..." onChange={(event) => updateAddress("gold", event.target.value)} />
-        </label>
-        <label>
-          <span>$mfer</span>
-          <input value={addresses.mfer} placeholder="0x..." onChange={(event) => updateAddress("mfer", event.target.value)} />
-        </label>
-        <label>
-          <span>$mfergpt</span>
-          <input value={addresses.mfergpt} placeholder="0x..." onChange={(event) => updateAddress("mfergpt", event.target.value)} />
-        </label>
-        <label>
-          <span>rewards</span>
-          <input value={addresses.rewards} placeholder="0x..." onChange={(event) => updateAddress("rewards", event.target.value)} />
-        </label>
-        <label>
-          <span>launch pass</span>
-          <input value={addresses.launchPass} placeholder="0x..." onChange={(event) => updateAddress("launchPass", event.target.value)} />
-        </label>
-      </div>
-
-      <div className="crypto-store-item crypto-pass-item">
-        <div>
-          <strong>{LAUNCH_PASS_LABEL}</strong>
-          <span>token distribution eligibility / contract price set onchain</span>
-        </div>
-        <label>
-          <span>pass id</span>
-          <input value={launchPassTokenId || "--"} readOnly />
-        </label>
-      </div>
-
-      <div className="crypto-market-quotes" aria-label="market quotes">
-        <div>
-          <span>$mfer/WETH</span>
-          <strong>{formatMarketQuote(mferQuote)}</strong>
-          <em>{formatMarketQuoteMeta(mferQuote, marketQuotes)}</em>
-        </div>
-        <div>
-          <span>MFERGPT/WETH</span>
-          <strong>{formatMarketQuote(mferGptQuote)}</strong>
-          <em>{formatMarketQuoteMeta(mferGptQuote, marketQuotes)}</em>
-        </div>
-      </div>
-
-      <div className="crypto-store-actions crypto-pass-actions">
-        <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithEth()}>
-          <Gem size={16} />
-          pass ETH
+      <div className="crypto-store-contracts">
+        <button
+          type="button"
+          className="crypto-store-contract-toggle"
+          aria-expanded={showContractConfig}
+          onClick={() => setShowContractConfig((current) => !current)}
+        >
+          {showContractConfig ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          <span>contract addresses</span>
+          <strong>{configuredContractCount}/7</strong>
         </button>
-        <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMfer()}>
-          <Coins size={16} />
-          pass $mfer -10%
-        </button>
-        <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMferGpt()}>
-          <Flame size={16} />
-          pass $mfergpt
-        </button>
-      </div>
-
-      <div className="crypto-store-collection" aria-label="gear collection">
-        {STORE_GEAR_COLLECTION.map((gear) => (
-          <button
-            key={gear.gearType}
-            type="button"
-            className={String(gear.gearType) === gearType ? "selected" : undefined}
-            disabled={isBusy}
-            onClick={() => selectStoreGear(gear)}
-          >
-            <strong>{gear.label}</strong>
-            <span>{gear.ethPrice} ETH / {gear.tokenPriceLabel} token</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="crypto-store-item">
-        <div>
-          <strong>{selectedStoreGear?.label ?? "custom gear"}</strong>
-          <span>gear type {gearType} / {ethPrice} ETH / {selectedStoreGear?.tokenPriceLabel ?? "contract"} token base</span>
-        </div>
-        <label>
-          <span>gear</span>
-          <input value={gearType} inputMode="numeric" onChange={(event) => setGearType(event.target.value)} />
-        </label>
-        <label>
-          <span>ETH</span>
-          <input value={ethPrice} inputMode="decimal" onChange={(event) => setEthPrice(event.target.value)} />
-        </label>
-      </div>
-
-      <div className="crypto-store-actions">
-        <button type="button" disabled={isBusy} onClick={() => void buyWithEth()}>
-          <Gem size={16} />
-          ETH full
-        </button>
-        <button type="button" disabled={isBusy} onClick={() => void buyWithMfer()}>
-          <Coins size={16} />
-          $mfer -10%
-        </button>
-        <button type="button" disabled={isBusy} onClick={() => void buyWithMferGpt()}>
-          <Flame size={16} />
-          $mfergpt -25%
-        </button>
-      </div>
-
-      <div className="crypto-upgrade-row">
-        <label>
-          <span>token id</span>
-          <input value={upgradeTokenId} inputMode="numeric" onChange={(event) => setUpgradeTokenId(event.target.value)} />
-        </label>
-        {import.meta.env.DEV ? (
-          <button type="button" disabled={isBusy} onClick={() => void grantTestGold()}>
-            <Coins size={16} />
-            grant test gold
-          </button>
+        {showContractConfig ? (
+          <div className="crypto-store-config">
+            <label>
+              <span>store</span>
+              <input value={addresses.store} placeholder="0x..." onChange={(event) => updateAddress("store", event.target.value)} />
+            </label>
+            <label>
+              <span>gear nft</span>
+              <input value={addresses.gear} placeholder="0x..." onChange={(event) => updateAddress("gear", event.target.value)} />
+            </label>
+            <label>
+              <span>gold</span>
+              <input value={addresses.gold} placeholder="0x..." onChange={(event) => updateAddress("gold", event.target.value)} />
+            </label>
+            <label>
+              <span>$mfer</span>
+              <input value={addresses.mfer} placeholder="0x..." onChange={(event) => updateAddress("mfer", event.target.value)} />
+            </label>
+            <label>
+              <span>$mfergpt</span>
+              <input value={addresses.mfergpt} placeholder="0x..." onChange={(event) => updateAddress("mfergpt", event.target.value)} />
+            </label>
+            <label>
+              <span>rewards</span>
+              <input value={addresses.rewards} placeholder="0x..." onChange={(event) => updateAddress("rewards", event.target.value)} />
+            </label>
+            <label>
+              <span>launch pass</span>
+              <input value={addresses.launchPass} placeholder="0x..." onChange={(event) => updateAddress("launchPass", event.target.value)} />
+            </label>
+          </div>
         ) : null}
-        <button type="button" disabled={isBusy} onClick={() => void upgradeGear()}>
-          <Flame size={16} />
-          burn gold upgrade
-        </button>
       </div>
 
       <p className="crypto-store-status">{status}</p>
