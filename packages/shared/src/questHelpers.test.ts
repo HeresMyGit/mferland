@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getNpcQuestMarker, getQuestNextQuestId, isQuestAvailableForSnapshots } from "./questHelpers.js";
+import {
+  getNpcQuestMarker,
+  getQuestNextQuestId,
+  getQuestRepeatCooldownMs,
+  getQuestRepeatLabel,
+  isQuestAvailableForSnapshots,
+} from "./questHelpers.js";
 import { QUESTS } from "./quests.js";
 import type { QuestId, QuestSnapshot } from "./types.js";
 
@@ -80,4 +86,9 @@ test("primary quest chain exposes the next quest giver after every completion", 
 
   const finalQuestId = PRIMARY_QUEST_CHAIN[PRIMARY_QUEST_CHAIN.length - 1] as QuestId;
   assert.equal(getQuestNextQuestId(finalQuestId), null);
+});
+
+test("hog loop uses a production daily cooldown", () => {
+  assert.equal(getQuestRepeatCooldownMs("hog-loop"), 86_400_000);
+  assert.equal(getQuestRepeatLabel("hog-loop"), "daily");
 });

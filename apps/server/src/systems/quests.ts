@@ -206,7 +206,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "hog-loop") {
-    return "clean enough. give it five minutes and the mud will get ideas again.";
+    return "clean enough. give it a day and the mud will get ideas again.";
   }
 
   if (questId === "ridge-dispatch") {
@@ -258,7 +258,7 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "fountain-mfer") return "good fountain. good smoke. good enough.";
   if (npcId === "hogwatch-mfer") return "farm's still full of loop-brain. keep it thin.";
   if (npcId === "field-guide-mfer") return "camp stays up if the road stays quiet.";
-  if (npcId === "pen-keeper-mfer") return "hog loop resets faster than shame.";
+  if (npcId === "pen-keeper-mfer") return "hog loop resets daily because shame has no cooldown.";
   if (npcId === "ridge-guide-mfer") return "static's louder uptrail.";
   if (npcId === "beacon-keeper-mfer") return "too much signal makes one big stupid body.";
   return "nothing else for now.";

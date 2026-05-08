@@ -257,7 +257,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 136.7,
       yaw: -0.8,
       leashRadius: 1.2,
-      dialogue: "the hog loop resets faster than shame.",
+      dialogue: "the hog loop resets daily because shame has no cooldown.",
       questId: "hog-loop",
     },
     {

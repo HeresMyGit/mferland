@@ -321,7 +321,7 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "hog-livers": "farm-road hogs around the busted farm and loop booth drop hog loop livers. you need 5.",
   "field-camp-delivery": "take hogwatch's update southwest to route board mfer at the post.",
   "route-patrol-daily": "clear 6 hogs or crazed airdrop farmers near route board, then check back with route board mfer.",
-  "hog-loop": "loop booth mfer pays for 5 wild hogs near loop booth. ugly work, fast reset.",
+  "hog-loop": "loop booth mfer pays daily for 5 wild hogs near loop booth. ugly work, steady reset.",
   "ridge-dispatch": "follow the dirt cut east, hit the 0.069-mile stretch, take the 4:20 turn, and talk to ridge post mfer.",
   "signal-scraps": "signal-jacked ridge crew on Signal Ridge drop fried relay scraps. bring 4 back to ridge post mfer.",
   "cut-the-static": "on Signal Ridge, drop runner vex, off-route pax, and the broken mferGPT shell. then report to relay shack mfer.",
