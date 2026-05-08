@@ -9,26 +9,26 @@ import { getClientRenderPerformanceProfile } from "../game/performance";
 type MferHeadLoaderProps = {
   label?: string;
   ready?: boolean;
-  onCappedProgressComplete?: () => void;
+  onComplete?: () => void;
 };
 
-const LOADING_CAP_PERCENT = 69;
-const LOADING_PRE_READY_CAP_PERCENT = LOADING_CAP_PERCENT - 1;
-const LOADING_HOLD_MS = 260;
 const MFER_HEAD_MODEL_URL = "/models/sartoshi-head.glb";
 
-export function MferHeadLoader({ label = "loading mfer", ready = true, onCappedProgressComplete }: MferHeadLoaderProps) {
+export function MferHeadLoader({ label = "loading mfer", ready = true, onComplete }: MferHeadLoaderProps) {
   const [headReady, setHeadReady] = useState(false);
-  const { progress: assetProgress } = useProgress();
+  const { active, progress: assetProgress, loaded, total } = useProgress();
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
   const handleHeadReady = useCallback(() => setHeadReady(true), []);
-  const progress = useCappedMferLoadingProgress({
+  const loadingState = useRealMferLoadingState({
     enabled: headReady,
+    active,
     assetProgress,
+    loaded,
+    total,
     ready,
-    onCappedProgressComplete,
+    onComplete,
   });
-  const statusText = `${label}... ${progress}%`;
+  const statusText = getLoaderStatusText(label, loadingState);
 
   return (
     <div className="mfer-loading-screen" role="status" aria-live="polite" aria-label={statusText}>
@@ -52,51 +52,77 @@ export function MferHeadLoader({ label = "loading mfer", ready = true, onCappedP
   );
 }
 
-function useCappedMferLoadingProgress({
+type RealLoadingState =
+  | { kind: "loading"; progress: number; loaded: number; total: number }
+  | { kind: "preparing"; loaded: number; total: number }
+  | { kind: "ready" };
+
+function useRealMferLoadingState({
   enabled,
+  active,
   assetProgress,
+  loaded,
+  total,
   ready,
-  onCappedProgressComplete,
+  onComplete,
 }: {
   enabled: boolean;
+  active: boolean;
   assetProgress: number;
+  loaded: number;
+  total: number;
   ready: boolean;
-  onCappedProgressComplete?: () => void;
-}) {
-  const [progress, setProgress] = useState(0);
+  onComplete?: () => void;
+}): RealLoadingState {
   const completeRef = useRef(false);
+  const normalizedLoaded = Math.max(0, loaded);
+  const normalizedTotal = Math.max(0, total);
+  const hasKnownAssets = normalizedTotal > 0;
+  const normalizedAssetProgress = Number.isFinite(assetProgress)
+    ? Math.min(100, Math.max(0, assetProgress))
+    : 0;
 
   useEffect(() => {
-    if (!enabled) {
-      setProgress(0);
-      completeRef.current = false;
-      return;
-    }
-
-    const normalizedAssetProgress = Number.isFinite(assetProgress)
-      ? Math.min(100, Math.max(0, assetProgress))
-      : 0;
-    const scaledAssetProgress = normalizedAssetProgress <= 0
-      ? 0
-      : Math.max(1, Math.round((normalizedAssetProgress / 100) * LOADING_PRE_READY_CAP_PERCENT));
-    const nextProgress = ready
-      ? LOADING_CAP_PERCENT
-      : Math.min(LOADING_PRE_READY_CAP_PERCENT, scaledAssetProgress);
-
-    setProgress((currentProgress) => Math.max(currentProgress, nextProgress));
-  }, [assetProgress, enabled, ready]);
+    if (!enabled) completeRef.current = false;
+  }, [enabled]);
 
   useEffect(() => {
-    if (!enabled || !ready || progress < LOADING_CAP_PERCENT || completeRef.current) return;
-
+    if (!enabled || !ready || completeRef.current) return;
     completeRef.current = true;
-    const timeoutId = window.setTimeout(() => {
-      onCappedProgressComplete?.();
-    }, LOADING_HOLD_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [enabled, onCappedProgressComplete, progress, ready]);
+    onComplete?.();
+  }, [enabled, onComplete, ready]);
 
-  return progress;
+  if (ready) return { kind: "ready" };
+  if (!enabled) return { kind: "loading", progress: 0, loaded: normalizedLoaded, total: normalizedTotal };
+  if (hasKnownAssets && active) {
+    return {
+      kind: "loading",
+      progress: Math.round(normalizedAssetProgress),
+      loaded: normalizedLoaded,
+      total: normalizedTotal,
+    };
+  }
+  if (hasKnownAssets && normalizedAssetProgress < 100) {
+    return {
+      kind: "loading",
+      progress: Math.round(normalizedAssetProgress),
+      loaded: normalizedLoaded,
+      total: normalizedTotal,
+    };
+  }
+  return { kind: "preparing", loaded: normalizedLoaded, total: normalizedTotal };
+}
+
+function getLoaderStatusText(label: string, state: RealLoadingState) {
+  if (state.kind === "ready") return `${label}... 100%`;
+  if (state.kind === "preparing") {
+    return state.total > 0
+      ? `${label}... assets ${state.loaded}/${state.total}, preparing scene`
+      : `${label}... preparing scene`;
+  }
+  return state.total > 0
+    ? `${label}... ${state.progress}% (${state.loaded}/${state.total})`
+    : `${label}... ${state.progress}%`;
 }
 
 function RotatingMferHead({ onReady }: { onReady: () => void }) {

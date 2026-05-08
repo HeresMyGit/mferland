@@ -199,12 +199,12 @@ function AuthGate({
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState(() => getStoredInviteCode());
   const [previewReady, setPreviewReady] = useState(false);
-  const [loaderReachedCap, setLoaderReachedCap] = useState(false);
+  const [loaderComplete, setLoaderComplete] = useState(false);
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
   const cryptoSmokeMode = isCryptoSmokeMode();
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
-  const handleLoaderReachedCap = useCallback(() => setLoaderReachedCap(true), []);
-  const showAuthLoader = !cryptoSmokeMode && (!previewReady || !loaderReachedCap);
+  const handleLoaderComplete = useCallback(() => setLoaderComplete(true), []);
+  const showAuthLoader = !cryptoSmokeMode && (!previewReady || !loaderComplete);
   const inviteRequired = isInviteRequired();
   const hasInviteCode = inviteCode.trim() !== "";
 
@@ -297,7 +297,7 @@ function AuthGate({
         )}
         <div className="auth-scene-vignette" />
       </div>
-      {showAuthLoader && <MferHeadLoader ready={previewReady} onCappedProgressComplete={handleLoaderReachedCap} />}
+      {showAuthLoader && <MferHeadLoader ready={previewReady} onComplete={handleLoaderComplete} />}
       <section className="auth-title-lockup" aria-label="mferland">
         <div className="brand-mark">
           <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
@@ -565,9 +565,9 @@ function GameShell({
     [debugPlacementOverrides, savedDebugPlacementDefaults],
   );
   const showGameLoader = room.status === "connecting" || (room.status === "connected" && !localPlayer);
-  const [gameLoaderReachedCap, setGameLoaderReachedCap] = useState(false);
-  const handleGameLoaderReachedCap = useCallback(() => setGameLoaderReachedCap(true), []);
-  const renderGameLoader = !cryptoSmokeMode && (showGameLoader || !gameLoaderReachedCap);
+  const [gameLoaderComplete, setGameLoaderComplete] = useState(false);
+  const handleGameLoaderComplete = useCallback(() => setGameLoaderComplete(true), []);
+  const renderGameLoader = !cryptoSmokeMode && (showGameLoader || !gameLoaderComplete);
   realCaptureRoomRef.current = room;
   realCaptureSelectedTargetRef.current = selectedTarget;
 
@@ -582,7 +582,7 @@ function GameShell({
   }, [identity.identityType, room.sessionId, room.status]);
 
   useEffect(() => {
-    if (showGameLoader) setGameLoaderReachedCap(false);
+    if (showGameLoader) setGameLoaderComplete(false);
   }, [showGameLoader]);
 
   useEffect(() => {
@@ -1048,7 +1048,7 @@ function GameShell({
           lightweightRender={cryptoSmokeMode}
         />
       </Canvas>
-      {renderGameLoader && <MferHeadLoader ready={!showGameLoader} onCappedProgressComplete={handleGameLoaderReachedCap} />}
+      {renderGameLoader && <MferHeadLoader ready={!showGameLoader} onComplete={handleGameLoaderComplete} />}
 
       {!hideCaptureHud && (
         <>
