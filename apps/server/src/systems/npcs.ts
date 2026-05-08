@@ -85,6 +85,17 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       dialogue: "town can look busted and still not dress like a reply guy.",
     },
     {
+      id: "traits-mfer",
+      name: "traits mfer",
+      role: "quest_giver",
+      x: -11.4,
+      z: 7.9,
+      yaw: 1.8,
+      leashRadius: 1.2,
+      dialogue: "mirror rig's open. first real set is free; indecision costs gas.",
+      questId: "set-your-traits",
+    },
+    {
       id: "crypto-mfer",
       name: "crypto mfer",
       role: "merchant",

@@ -17,13 +17,19 @@ import {
   SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
   TALENTS,
+  TRAIT_CHANGE_PRICES_WEI,
   clamp,
   getNpcDisposition,
   getInventoryItemKey,
   getQuestTurnInNpcId,
+  hasExplicitMferAppearanceTraits,
   normalizeChainTokenId,
   normalizeChainGearTier,
+  normalizeMferAppearanceTraits,
+  normalizeWalletAddress,
+  parseMferAppearanceTraitsJson,
   resolveWorldCollision,
+  serializeMferAppearanceTraits,
   setWorldCollisionPlacementOverrides,
   stableHash,
   sanitizePlayerName,
@@ -40,6 +46,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientShareQuestLink,
+  type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatActionId,
@@ -57,6 +64,7 @@ import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
   saveCharacterProgress,
+  PersistenceUnavailableError,
   type PersistableCharacterState,
   type PersistedCharacter,
 } from "../persistence.js";
@@ -105,6 +113,7 @@ import {
   makeQuestOffer,
   makeQuestTurnIn,
   normalizeQuestId,
+  progressTraitQuest,
   progressMferGptAskQuest,
   progressMferGptMentionQuest,
   progressSocialQuest,
@@ -376,6 +385,7 @@ export class TownRoom extends Room<TownState> {
   private readonly lastMferGptAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
   private readonly persistentCharacterIds = new Map<string, string>();
+  private readonly pendingCharacterSaves = new Map<string, Promise<void>>();
   private readonly sessionJoinedAt = new Map<string, number>();
   private readonly deadSessionIds = new Set<string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
@@ -442,6 +452,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
       this.handleSelectTalent(client, message);
+    });
+
+    this.onMessage("updateTraits", (client, message: Partial<ClientUpdateTraits>) => {
+      this.handleUpdateTraits(client, message);
     });
 
     this.onMessage("respawn", (client) => {
@@ -621,8 +635,10 @@ export class TownRoom extends Room<TownState> {
   async onJoin(client: Client, options?: JoinOptions) {
     const player = new PlayerState();
     const spawn = getSpawnPoint(this.state.players.size);
-    const walletAddress =
-      typeof options?.walletAddress === "string" ? options.walletAddress.toLowerCase().slice(0, 64) : "";
+    const walletAddress = normalizeWalletAddress(options?.walletAddress);
+    if (options?.identityType === "wallet" && !walletAddress) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "valid wallet address required");
+    }
     const identityType = getIdentityType(options, walletAddress);
     const defaultName = getDefaultName(identityType, walletAddress, client.sessionId);
     const name = sanitizePlayerName(options?.name, defaultName);
@@ -630,13 +646,17 @@ export class TownRoom extends Room<TownState> {
       ? Number(options?.avatarSeed)
       : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
     const persistedCharacter = identityType === "wallet" && walletAddress
-      ? await loadPersistedCharacter(walletAddress, name, avatarSeed)
+      ? await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter))
       : null;
+    if (identityType === "wallet" && !persistedCharacter) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "character creation required");
+    }
 
     player.name = persistedCharacter?.name ?? name;
     player.identityType = identityType;
     player.walletAddress = walletAddress;
     player.avatarSeed = persistedCharacter?.avatarSeed ?? avatarSeed;
+    player.appearanceTraitsJson = JSON.stringify(persistedCharacter?.appearanceTraits ?? {});
     player.level = persistedCharacter?.level ?? 1;
     player.xp = persistedCharacter?.xp ?? 0;
     player.talentPoints = persistedCharacter?.talentPoints ?? 0;
@@ -666,6 +686,12 @@ export class TownRoom extends Room<TownState> {
       persisted: Boolean(persistedCharacter),
       playerCount: this.state.players.size,
     });
+    if (persistedCharacter) {
+      client.send("persistenceStatus", {
+        state: "saved",
+        message: "wallet progress saved",
+      });
+    }
   }
 
   async onLeave(client: Client) {
@@ -1650,6 +1676,70 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
   }
 
+  private handleUpdateTraits(client: Client, message: Partial<ClientUpdateTraits>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.health <= 0) return;
+
+    const traitsNpc = this.state.npcs.get("traits-mfer");
+    const traitQuest = player.quests.get("set-your-traits");
+    if (!traitsNpc || distanceToNpc(player, traitsNpc) > LOOT.interactRange || !traitQuest) {
+      const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+      client.send("traitUpdateResult", {
+        ok: false,
+        traits: existingTraits,
+        free: false,
+        paid: false,
+        error: "talk to traits mfer first",
+      });
+      return;
+    }
+
+    const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+    const nextTraits = normalizeMferAppearanceTraits(message?.traits, existingTraits);
+    if (!hasExplicitMferAppearanceTraits(nextTraits)) {
+      client.send("traitUpdateResult", {
+        ok: false,
+        traits: existingTraits,
+        free: false,
+        paid: false,
+        error: "pick a valid trait set",
+      });
+      return;
+    }
+
+    const isWalletCharacter = player.identityType === "wallet" && Boolean(this.persistentCharacterIds.get(client.sessionId));
+    const free = !hasExplicitMferAppearanceTraits(existingTraits);
+    const payment = free || !isWalletCharacter ? null : normalizeTraitPaymentProof(message?.payment);
+    if (isWalletCharacter && !free && !payment) {
+      client.send("traitUpdateResult", {
+        ok: false,
+        traits: existingTraits,
+        free: false,
+        paid: false,
+        error: "paid trait change required",
+      });
+      return;
+    }
+
+    player.appearanceTraitsJson = serializeMferAppearanceTraits(nextTraits);
+    const progressedQuest = progressTraitQuest(player);
+    this.recordPlayerAnalyticsEvent("traits_updated", client.sessionId, player, {
+      free,
+      paid: Boolean(payment),
+      paymentToken: payment?.token ?? "",
+      chainId: payment?.chainId ?? 0,
+      txHash: payment?.txHash ?? "",
+      progressedQuest,
+    });
+    this.persistPlayerProgress(client.sessionId, player);
+    client.send("traitUpdateResult", {
+      ok: true,
+      traits: nextTraits,
+      free,
+      paid: Boolean(payment),
+    });
+  }
+
   private persistPlayerProgress(sessionId: string, player: PlayerState) {
     if (!this.persistentCharacterIds.has(sessionId)) return;
     void this.persistPlayerProgressNow(sessionId, player);
@@ -1693,11 +1783,44 @@ export class TownRoom extends Room<TownState> {
     const characterId = this.persistentCharacterIds.get(sessionId);
     if (!characterId) return;
 
-    try {
-      await saveCharacterProgress(makePersistableCharacterState(characterId, player));
-    } catch (error) {
-      console.error(`Failed to persist character ${characterId}`, error);
-    }
+    const state = makePersistableCharacterState(characterId, player);
+    await this.queueCharacterSave(sessionId, characterId, state);
+  }
+
+  private async queueCharacterSave(
+    sessionId: string,
+    characterId: string,
+    state: PersistableCharacterState,
+  ) {
+    const previous = this.pendingCharacterSaves.get(characterId) ?? Promise.resolve();
+    this.sendPersistenceStatus(sessionId, "saving", "saving wallet progress");
+    let next: Promise<void>;
+    next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await saveCharacterProgress(state);
+          if (this.pendingCharacterSaves.get(characterId) === next) {
+            this.sendPersistenceStatus(sessionId, "saved", "wallet progress saved");
+          }
+        } catch (error) {
+          this.sendPersistenceStatus(sessionId, "error", "wallet progress failed to save");
+          console.error(`Failed to persist character ${characterId}`, error);
+        }
+      });
+
+    this.pendingCharacterSaves.set(characterId, next);
+    next.finally(() => {
+      if (this.pendingCharacterSaves.get(characterId) === next) {
+        this.pendingCharacterSaves.delete(characterId);
+      }
+    }).catch(() => undefined);
+    await next;
+  }
+
+  private sendPersistenceStatus(sessionId: string, state: "saving" | "saved" | "error", message: string) {
+    const client = this.clients.find((entry) => entry.sessionId === sessionId);
+    client?.send("persistenceStatus", { state, message });
   }
 
   private update(dt: number) {
@@ -1954,12 +2077,20 @@ function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
   return Math.hypot(player.x - npc.x, player.z - npc.z) <= radius;
 }
 
-async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number) {
+async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number, createIfMissing: boolean) {
   try {
-    return await loadOrCreateWalletCharacter({ walletAddress, displayName: name, avatarSeed });
+    return await loadOrCreateWalletCharacter({
+      walletAddress,
+      displayName: name,
+      avatarSeed,
+      createIfMissing,
+    });
   } catch (error) {
     console.error(`Failed to load persisted character for ${walletAddress}`, error);
-    return null;
+    if (error instanceof PersistenceUnavailableError) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "wallet persistence unavailable");
+    }
+    throw new ServerError(ErrorCode.AUTH_FAILED, "wallet persistence failed");
   }
 }
 
@@ -2147,6 +2278,35 @@ function normalizeClientAnalyticsProperties(value: unknown): AnalyticsProperties
   return properties;
 }
 
+function normalizeTraitPaymentProof(value: unknown): ClientUpdateTraits["payment"] | null {
+  if (!value || typeof value !== "object") return null;
+  const proof = value as Record<string, unknown>;
+  const token = proof.token === "ETH" || proof.token === "MFER" || proof.token === "MFERGPT" ? proof.token : "";
+  if (!token) return null;
+
+  const txHash = typeof proof.txHash === "string" ? proof.txHash.toLowerCase() : "";
+  if (!/^0x[a-f0-9]{64}$/.test(txHash)) return null;
+
+  const expectedAmountWei = TRAIT_CHANGE_PRICES_WEI[token];
+  const amountWei = typeof proof.amountWei === "string" ? proof.amountWei : "";
+  if (amountWei !== expectedAmountWei) return null;
+
+  const chainId = Number(proof.chainId);
+  if (!Number.isInteger(chainId) || chainId <= 0) return null;
+
+  const contractAddress = typeof proof.contractAddress === "string" && /^0x[a-fA-F0-9]{40}$/.test(proof.contractAddress)
+    ? proof.contractAddress.toLowerCase()
+    : "";
+
+  return {
+    token,
+    txHash,
+    amountWei,
+    chainId,
+    ...(contractAddress ? { contractAddress } : {}),
+  };
+}
+
 function isAnalyticsBossNpc(npc: NpcState) {
   return npc.id === "static-baron-nox" || npc.id === "raid-ogre-mfer";
 }
@@ -2201,6 +2361,7 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     characterId,
     name: player.name,
     avatarSeed: player.avatarSeed,
+    appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,
     xp: player.xp,
     talentPoints: player.talentPoints,

@@ -84,11 +84,11 @@ type TownSceneProps = {
 
 const CONTROL_DELTA_CAP = 1 / 30;
 const DEFAULT_NAMEPLATE_VISIBILITY: NameplateVisibility = {
-  localPlayer: true,
+  localPlayer: false,
   otherPlayers: true,
-  friendlyNpcs: true,
-  unfriendlyNpcs: true,
-  healthBars: true,
+  friendlyNpcs: false,
+  unfriendlyNpcs: false,
+  healthBars: false,
 };
 const EMPTY_DEBUG_PLACEMENT_OVERRIDES: DebugPlacementOverrides = {};
 const DEBUG_CAMERA_FOV = 54;

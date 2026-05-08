@@ -60,6 +60,7 @@
 .inventory-panel,
 .abilities-panel,
 .character-panel,
+.traits-panel,
 .settings-panel,
 .death-panel,
 .hud-tooltip,
@@ -80,6 +81,7 @@
 .inventory-panel,
 .abilities-panel,
 .character-panel,
+.traits-panel,
 .settings-panel,
 .death-panel {
   border: 3px solid rgba(16, 14, 10, 0.95);
@@ -143,6 +145,12 @@
     rgba(57, 45, 25, 0.72);
 }
 
+.traits-panel {
+  background:
+    linear-gradient(135deg, rgba(93, 211, 255, 0.28), rgba(255, 150, 167, 0.18)),
+    rgba(37, 42, 48, 0.82);
+}
+
 .settings-panel {
   background:
     linear-gradient(135deg, rgba(93, 211, 255, 0.22), rgba(255, 245, 207, 0.14)),
@@ -181,6 +189,7 @@
 .inventory-panel::before,
 .abilities-panel::before,
 .character-panel::before,
+.traits-panel::before,
 .settings-panel::before,
 .death-panel::before,
 .hud-tooltip::before {
@@ -208,6 +217,7 @@
 .inventory-panel::after,
 .abilities-panel::after,
 .character-panel::after,
+.traits-panel::after,
 .settings-panel::after,
 .death-panel::after,
 .hud-tooltip::after {
@@ -235,6 +245,7 @@
 .inventory-panel > *,
 .abilities-panel > *,
 .character-panel > *,
+.traits-panel > *,
 .settings-panel > *,
 .death-panel > *,
 .hud-tooltip > * {
@@ -251,6 +262,7 @@
 .inventory-panel header strong,
 .abilities-panel header strong,
 .character-panel header strong,
+.traits-panel .world-map-header strong,
 .settings-panel header strong,
 .death-panel strong {
   color: var(--mfer-paper);
@@ -294,6 +306,8 @@
 .gear-row,
 .talent-tree-heading,
 .talent-row,
+.trait-category,
+.trait-options button,
 .inventory-slot {
   border: 2px solid rgba(11, 10, 7, 0.72);
   background: rgba(13, 12, 9, 0.36);
@@ -328,6 +342,7 @@
 .quest-accept-btn,
 .item-use-btn,
 .talent-action,
+.traits-random-btn,
 .death-panel button,
 .ability-slot-row button,
 .menu-tabs button,
@@ -504,6 +519,25 @@
   color: rgba(24, 18, 8, 0.56);
 }
 
+.character-auth-panel {
+  border: 2px solid rgba(11, 10, 7, 0.72);
+  background: rgba(255, 248, 224, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 224, 0.12),
+    0 2px 0 rgba(9, 8, 6, 0.42);
+}
+
+.character-auth-panel span,
+.character-auth-panel em {
+  color: rgba(30, 24, 13, 0.78);
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.42);
+}
+
+.character-auth-panel strong {
+  color: #181208;
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.45);
+}
+
 .chat-log p {
   color: #181208;
   text-shadow: 0 1px 0 rgba(255, 248, 224, 0.38);
@@ -529,6 +563,7 @@
 .quest-accept-btn::after,
 .item-use-btn::after,
 .talent-action::after,
+.traits-random-btn::after,
 .death-panel button::after,
 .ability-slot-row button::after,
 .menu-tabs button::after,
@@ -558,6 +593,7 @@
 .quest-accept-btn > *,
 .item-use-btn > *,
 .talent-action > *,
+.traits-random-btn > *,
 .death-panel button > *,
 .ability-slot-row button > *,
 .menu-tabs button > :not(.tab-badge),
@@ -579,7 +615,9 @@ button.inventory-slot:hover,
 .inventory-slot.consumable:hover,
 .equipment-slot:hover,
 .gear-row:hover,
-.talent-row:not(:disabled):hover {
+.talent-row:not(:disabled):hover,
+.trait-options button:not(:disabled):hover,
+.trait-options button.selected {
   border-color: rgba(12, 10, 7, 0.98);
   background: rgba(55, 47, 26, 0.98);
   box-shadow:

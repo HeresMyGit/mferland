@@ -14,6 +14,7 @@ import {
   isAttackableNpcRole,
   isCombatActionUnlocked,
   setWorldCollisionPlacementOverrides,
+  stableHash,
   type ActionId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
@@ -23,6 +24,7 @@ import {
   type ClientEquipItem,
   type ClientLootCorpse,
   type ClientSelectTalent,
+  type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatActionId,
@@ -34,8 +36,10 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
+  type WalletCharacterPreview,
 } from "@mferland/shared";
 import {
+  fetchWalletCharacterProfile,
   getStoredInviteCode,
   getStoredName,
   makeGuestIdentity,
@@ -52,6 +56,7 @@ import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
+import { TraitsPanel } from "./components/TraitsPanel";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 import {
   DEBUG_PLACEMENT_STORAGE_KEY,
@@ -70,7 +75,7 @@ import {
   getCombatStartCue,
   getExperienceSpatialVolume,
 } from "./game/audio";
-import { SARTOSHI_MFER_TRAITS } from "./game/mferTraits";
+import { generateRandomMferTraits, resolveMferTraitsForPlayer, SARTOSHI_MFER_TRAITS } from "./game/mferTraits";
 
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["attack", null, null, null, null, null, null, null];
@@ -86,6 +91,7 @@ const HIDDEN_CAPTURE_NAMEPLATES = {
 const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
 const CRYPTO_STORE_NPC_IDS = new Set(["crypto-mfer"]);
+const TRAITS_MFER_NPC_IDS = new Set(["traits-mfer"]);
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -97,6 +103,12 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "static", label: "Static", x: 150, z: -92, yaw: Math.PI },
 ] as const;
 type DebugTravelDestination = typeof DEBUG_TRAVEL_DESTINATIONS[number];
+type WalletProfileState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "existing"; character: WalletCharacterPreview }
+  | { status: "new" }
+  | { status: "error"; message: string };
 type DebugTravelView = {
   x: number;
   z: number;
@@ -138,8 +150,20 @@ function isCryptoStoreEnabled() {
   return import.meta.env.VITE_ENABLE_CRYPTO_STORE !== "0";
 }
 
+function makeCreationSeed() {
+  return stableHash(`character:${Date.now()}:${Math.random()}`);
+}
+
 function isCryptoStoreNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return Boolean(npc && CRYPTO_STORE_NPC_IDS.has(npc.id));
+}
+
+function isTraitsMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return Boolean(npc && TRAITS_MFER_NPC_IDS.has(npc.id));
+}
+
+function hasStartedTraitsQuest(player: PlayerSnapshot | null | undefined) {
+  return Boolean(player?.quests.some((quest) => quest.id === "set-your-traits"));
 }
 
 export function App() {
@@ -203,6 +227,8 @@ function AuthGate({
   const [isSwitchingWallet, setIsSwitchingWallet] = useState(false);
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState(() => getStoredInviteCode());
+  const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
+  const [creationSeed, setCreationSeed] = useState(() => makeCreationSeed());
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderComplete, setLoaderComplete] = useState(false);
   const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
@@ -213,7 +239,17 @@ function AuthGate({
   const inviteRequired = isInviteRequired();
   const hasInviteCode = inviteCode.trim() !== "";
 
-  const cleanName = name.trim() || getStoredName();
+  const existingCharacter = walletProfile.status === "existing" ? walletProfile.character : null;
+  const cleanName = existingCharacter?.name ?? (name.trim() || getStoredName());
+  const creationTraits = useMemo(() => generateRandomMferTraits(creationSeed), [creationSeed]);
+  const walletProfileLoading = isConnected && walletProfile.status === "loading";
+  const walletProfileError = walletProfile.status === "error" ? walletProfile.message : null;
+  const walletNeedsCreation = isConnected && walletProfile.status === "new";
+  const canEnterWallet = Boolean(address)
+    && !walletProfileLoading
+    && !walletProfileError
+    && !(inviteRequired && !hasInviteCode)
+    && (!walletNeedsCreation || cleanName.trim().length > 0);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -222,6 +258,39 @@ function AuthGate({
     rememberInviteCode(linkedInvite);
     setInviteCode(linkedInvite);
   }, []);
+
+  useEffect(() => {
+    if (!isConnected || !address) {
+      setWalletProfile({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    setWalletProfile({ status: "loading" });
+    setWalletActionError(null);
+    void fetchWalletCharacterProfile(address)
+      .then((profile) => {
+        if (cancelled) return;
+        if (profile.exists && profile.character) {
+          setWalletProfile({ status: "existing", character: profile.character });
+          setName(profile.character.name);
+          return;
+        }
+        setWalletProfile({ status: "new" });
+        setCreationSeed(makeCreationSeed());
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setWalletProfile({
+          status: "error",
+          message: error instanceof Error ? error.message : "wallet persistence unavailable",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [address, isConnected]);
 
   function enterGuest() {
     if (inviteRequired && !hasInviteCode) return;
@@ -234,10 +303,16 @@ function AuthGate({
   function enterWallet() {
     if (!address) return;
     if (inviteRequired && !hasInviteCode) return;
+    if (!canEnterWallet) return;
     rememberInviteCode(inviteCode);
     rememberName(cleanName);
     trackEvent("auth_enter_wallet");
-    onEnter(makeWalletIdentity(cleanName, address));
+    onEnter(makeWalletIdentity(
+      cleanName,
+      address,
+      existingCharacter?.avatarSeed ?? creationSeed,
+      walletNeedsCreation,
+    ));
   }
 
   function connectInjectedWallet() {
@@ -315,10 +390,11 @@ function AuthGate({
 
       <section className="auth-connect-panel">
         <label className="name-field">
-          <span>name</span>
+          <span>{existingCharacter ? "saved name" : "name"}</span>
           <input
             value={name}
             maxLength={18}
+            disabled={Boolean(existingCharacter)}
             onChange={(event) => setName(event.target.value)}
           />
         </label>
@@ -330,6 +406,35 @@ function AuthGate({
           </div>
         )}
 
+        {existingCharacter && (
+          <div className="character-auth-panel">
+            <MferPortrait
+              traits={resolveMferTraitsForPlayer(existingCharacter.avatarSeed, existingCharacter.appearanceTraits)}
+              variant="clear"
+              title={`${existingCharacter.name} portrait`}
+            />
+            <div>
+              <span>saved mfer</span>
+              <strong>{existingCharacter.name}</strong>
+              <em>level {existingCharacter.level}</em>
+            </div>
+          </div>
+        )}
+
+        {walletNeedsCreation && (
+          <div className="character-auth-panel create">
+            <MferPortrait traits={creationTraits} variant="clear" title="new mfer portrait" />
+            <div>
+              <span>new wallet</span>
+              <strong>{cleanName}</strong>
+              <button className="text-btn compact" type="button" onClick={() => setCreationSeed(makeCreationSeed())}>
+                <RefreshCw size={15} />
+                roll look
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="auth-actions">
           <button className="primary-btn" type="button" onClick={enterGuest} disabled={inviteRequired && !hasInviteCode}>
             <UserRound size={18} />
@@ -337,9 +442,9 @@ function AuthGate({
           </button>
           {isConnected && address ? (
             <>
-              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending || (inviteRequired && !hasInviteCode)}>
+              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending || !canEnterWallet}>
                 <Gem size={18} />
-                enter as verified mfer
+                {walletProfileLoading ? "checking saved mfer" : walletNeedsCreation ? "create verified mfer" : "enter as verified mfer"}
               </button>
               <button
                 className="secondary-btn"
@@ -381,6 +486,7 @@ function AuthGate({
           )}
         </div>
         {inviteRequired && !hasInviteCode && <p className="wallet-action-error">use your invite link to enter this test</p>}
+        {walletProfileError && <p className="wallet-action-error">{walletProfileError}</p>}
         {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>
     </main>
@@ -497,6 +603,7 @@ function GameShell({
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
+  const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
   const [moveUnlockNotices, setMoveUnlockNotices] = useState<MoveUnlockNotice[]>([]);
@@ -551,6 +658,10 @@ function GameShell({
     () => cryptoStoreNpcId ? room.npcs.get(cryptoStoreNpcId) ?? null : null,
     [cryptoStoreNpcId, room.npcs, room.snapshotRevision],
   );
+  const traitsNpc = useMemo(
+    () => traitsNpcId ? room.npcs.get(traitsNpcId) ?? null : null,
+    [room.npcs, room.snapshotRevision, traitsNpcId],
+  );
   const debugPlacementTargets = useMemo(
     () => [
       ...makeNpcDebugPlacementTargets(room.npcs),
@@ -570,6 +681,12 @@ function GameShell({
     [debugPlacementOverrides, savedDebugPlacementDefaults],
   );
   const showGameLoader = room.status === "connecting" || (room.status === "connected" && !localPlayer);
+  const connectionStatusLabel = room.persistenceStatus.state === "saving" || room.persistenceStatus.state === "saved"
+    ? room.persistenceStatus.state
+    : room.status;
+  const connectionErrorLabel = room.persistenceStatus.state === "error"
+    ? room.persistenceStatus.message || "wallet progress failed to save"
+    : room.error;
   const [gameLoaderComplete, setGameLoaderComplete] = useState(false);
   const handleGameLoaderComplete = useCallback(() => setGameLoaderComplete(true), []);
   const renderGameLoader = !cryptoSmokeMode && (showGameLoader || !gameLoaderComplete);
@@ -615,6 +732,10 @@ function GameShell({
     trackEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openTraitsPanel = useCallback((npc: NpcSnapshot) => {
+    setTraitsNpcId(npc.id);
+    trackEvent("traits_panel_opened", { npcId: npc.id, npcRole: npc.role });
+  }, []);
   const selectNpcTarget = useCallback((npcId: string) => {
     setSelectedTarget({ kind: "npc", id: npcId });
     audio.play("targetSelect");
@@ -623,9 +744,10 @@ function GameShell({
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
+      if (isTraitsMferNpc(selectedNpc) && hasStartedTraitsQuest(localPlayer)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openTraitsPanel, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -634,8 +756,9 @@ function GameShell({
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
+    if (isTraitsMferNpc(nearestNpc) && hasStartedTraitsQuest(localPlayer)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openTraitsPanel, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -683,7 +806,11 @@ function GameShell({
   const acceptQuest = useCallback((message: ClientAcceptQuest) => {
     audio.play("uiConfirm");
     room.sendAcceptQuest(message);
-  }, [audio, room.sendAcceptQuest]);
+    if (message.questId === "set-your-traits") {
+      const traitsNpc = room.npcs.get(message.npcId || "traits-mfer");
+      if (traitsNpc) openTraitsPanel(traitsNpc);
+    }
+  }, [audio, openTraitsPanel, room.npcs, room.sendAcceptQuest]);
   const completeQuest = useCallback((message: ClientCompleteQuest) => {
     audio.play("questComplete");
     room.sendCompleteQuest(message);
@@ -716,6 +843,10 @@ function GameShell({
     audio.play("uiConfirm");
     room.sendSelectTalent(message);
   }, [audio, room.sendSelectTalent]);
+  const updateTraits = useCallback((message: ClientUpdateTraits) => {
+    audio.play("uiConfirm");
+    room.sendUpdateTraits(message);
+  }, [audio, room.sendUpdateTraits]);
   const sendChat = useCallback((text: string) => {
     audio.play("chatSend");
     room.sendChat(text);
@@ -728,6 +859,10 @@ function GameShell({
     audio.play("respawn");
     room.sendRespawn();
   }, [audio, room.sendRespawn]);
+  const leaveGame = useCallback(() => {
+    audio.play("uiClose");
+    void room.leaveAndWait().finally(onExit);
+  }, [audio, onExit, room.leaveAndWait]);
   const updateDebugPlacement = useCallback((target: DebugPlacementTarget, value: DebugPlacementValue, commit: boolean) => {
     const nextValue = normalizeDebugPlacementValue(value);
     setDebugPlacementSaveStatus({ state: "idle", message: "Unsaved local draft." });
@@ -1060,8 +1195,8 @@ function GameShell({
           <Hud
             identity={hudIdentity}
             playerCount={playerCount}
-            connectionStatus={room.status}
-            connectionError={room.error}
+            connectionStatus={connectionStatusLabel}
+            connectionError={connectionErrorLabel}
             chat={room.chat}
             players={room.players}
             npcs={room.npcs}
@@ -1099,11 +1234,22 @@ function GameShell({
             onEmote={performEmote}
             onRespawn={respawn}
             onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
-            onExit={onExit}
+            onExit={leaveGame}
             settings={settings}
             debugToolsAvailable={debugToolsAvailable}
             onSettingsChange={setSettings}
           />
+          {traitsNpc && localPlayer && (
+            <section className="floating-menu-overlay traits-anchor" role="dialog" aria-label="traits">
+              <TraitsPanel
+                npc={traitsNpc}
+                player={localPlayer}
+                result={room.traitUpdateResult}
+                onClose={() => setTraitsNpcId(null)}
+                onUpdateTraits={updateTraits}
+              />
+            </section>
+          )}
           <MobileControls
             inputRef={mobileMoveInputRef}
             disabled={debugPlacementMode || renderGameLoader || !localPlayer || localPlayer.health <= 0}

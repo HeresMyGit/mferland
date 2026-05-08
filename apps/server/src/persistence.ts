@@ -15,14 +15,18 @@ import {
   isEquipmentCompatibleWithSlot,
   normalizeChainGearTier,
   normalizeChainTokenId,
+  normalizeMferAppearanceTraits,
+  normalizeWalletAddress,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
   type InventoryItemSnapshot,
   type ItemId,
+  type MferAppearanceTraits,
   type QuestId,
   type QuestSnapshot,
   type QuestStatus,
   type TalentRankSnapshot,
+  type WalletCharacterPreview,
 } from "@mferland/shared";
 import { getDatabase } from "./db/client.js";
 import {
@@ -43,6 +47,10 @@ export type PersistedCharacter = {
   characterId: string;
   name: string;
   avatarSeed: number;
+  createdAt: Date;
+  updatedAt: Date;
+  nameLockedAt: Date | null;
+  appearanceTraits: MferAppearanceTraits;
   level: number;
   xp: number;
   talentPoints: number;
@@ -58,6 +66,7 @@ export type PersistableCharacterState = {
   characterId: string;
   name: string;
   avatarSeed: number;
+  appearanceTraits: MferAppearanceTraits;
   level: number;
   xp: number;
   talentPoints: number;
@@ -75,19 +84,51 @@ export type SeasonRewardAwardResult = {
   label: string;
 };
 
+function getRequiredDatabase() {
+  const db = getDatabase();
+  if (!db) throw new PersistenceUnavailableError();
+  return db;
+}
+
+export class PersistenceUnavailableError extends Error {
+  constructor(message = "wallet persistence unavailable") {
+    super(message);
+    this.name = "PersistenceUnavailableError";
+  }
+}
+
+export async function getWalletCharacterProfile(walletAddress: string): Promise<WalletCharacterPreview | null> {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return null;
+  const db = getRequiredDatabase();
+
+  const wallet = await db.query.accountWallets.findFirst({
+    where: eq(accountWallets.walletAddress, normalizedWallet),
+  });
+  if (!wallet) return null;
+
+  const character = await db.query.characters.findFirst({
+    where: eq(characters.accountId, wallet.accountId),
+  });
+  if (!character) return null;
+
+  return toWalletCharacterPreview(character);
+}
+
 export async function loadOrCreateWalletCharacter({
   walletAddress,
   displayName,
   avatarSeed,
+  createIfMissing = false,
 }: {
   walletAddress: string;
   displayName: string;
   avatarSeed: number;
+  createIfMissing?: boolean;
 }): Promise<PersistedCharacter | null> {
-  const db = getDatabase();
-  if (!db) return null;
-
-  const normalizedWallet = walletAddress.toLowerCase();
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return null;
+  const db = getRequiredDatabase();
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedWallet}), 0)`);
 
@@ -98,6 +139,7 @@ export async function loadOrCreateWalletCharacter({
 
     let accountId = existingWallet?.accountId;
     if (!accountId) {
+      if (!createIfMissing) return null;
       accountId = randomUUID();
       await tx.insert(accounts).values({
         id: accountId,
@@ -113,9 +155,11 @@ export async function loadOrCreateWalletCharacter({
         createdAt: now,
       });
     } else {
-      await tx.update(accounts)
-        .set({ displayName, updatedAt: now })
-        .where(eq(accounts.id, accountId));
+      if (createIfMissing) {
+        await tx.update(accounts)
+          .set({ displayName, updatedAt: now })
+          .where(eq(accounts.id, accountId));
+      }
     }
 
     let character = await tx.query.characters.findFirst({
@@ -123,6 +167,7 @@ export async function loadOrCreateWalletCharacter({
     });
 
     if (!character) {
+      if (!createIfMissing) return null;
       const characterId = randomUUID();
       const [created] = await tx.insert(characters)
         .values({
@@ -130,6 +175,8 @@ export async function loadOrCreateWalletCharacter({
           accountId,
           name: displayName,
           avatarSeed,
+          nameLockedAt: now,
+          appearanceTraits: {},
           level: 1,
           xp: 0,
           talentPoints: 0,
@@ -138,9 +185,9 @@ export async function loadOrCreateWalletCharacter({
         })
         .returning();
       character = created;
-    } else {
+    } else if (!character.nameLockedAt) {
       const [updated] = await tx.update(characters)
-        .set({ name: displayName, updatedAt: now })
+        .set({ nameLockedAt: character.createdAt ?? now })
         .where(eq(characters.id, character.id))
         .returning();
       character = updated;
@@ -181,6 +228,10 @@ export async function loadOrCreateWalletCharacter({
       characterId: character.id,
       name: character.name,
       avatarSeed: character.avatarSeed,
+      appearanceTraits: normalizeMferAppearanceTraits(character.appearanceTraits, {}),
+      createdAt: character.createdAt,
+      updatedAt: character.updatedAt,
+      nameLockedAt: character.nameLockedAt,
       level: character.level,
       xp: character.xp,
       talentPoints: character.talentPoints,
@@ -206,8 +257,7 @@ export async function loadOrCreateWalletCharacter({
 }
 
 export async function saveCharacterProgress(state: PersistableCharacterState) {
-  const db = getDatabase();
-  if (!db) return;
+  const db = getRequiredDatabase();
 
   await db.transaction(async (tx) => {
     const now = new Date();
@@ -215,6 +265,7 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
       .set({
         name: state.name,
         avatarSeed: state.avatarSeed,
+        appearanceTraits: normalizeMferAppearanceTraits(state.appearanceTraits, {}),
         level: state.level,
         xp: state.xp,
         talentPoints: state.talentPoints,
@@ -429,5 +480,19 @@ function toTalentSnapshot(tree: string, nodeId: string, rank: number): TalentRan
     tree: definition.tree,
     nodeId: definition.nodeId,
     rank: safeRank,
+  };
+}
+
+function toWalletCharacterPreview(character: typeof characters.$inferSelect): WalletCharacterPreview {
+  return {
+    name: character.name,
+    avatarSeed: character.avatarSeed,
+    appearanceTraits: normalizeMferAppearanceTraits(character.appearanceTraits, {}),
+    level: character.level,
+    xp: character.xp,
+    talentPoints: character.talentPoints,
+    createdAt: character.createdAt.toISOString(),
+    updatedAt: character.updatedAt.toISOString(),
+    nameLocked: Boolean(character.nameLockedAt),
   };
 }

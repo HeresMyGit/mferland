@@ -9,6 +9,7 @@ import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { closeDatabase } from "./db/client.js";
+import { getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
 import { areDebugMessagesEnabled, readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
 
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
@@ -22,7 +23,8 @@ Encoder.BUFFER_SIZE = ROOM_STATE_ENCODER_BUFFER_BYTES;
 const port = Number(process.env.PORT ?? 2567);
 const host = process.env.HOST ?? "0.0.0.0";
 const server = createServer((req, res) => {
-  const url = req.url?.split("?")[0] ?? "/";
+  const requestUrl = new URL(req.url ?? "/", "http://localhost");
+  const url = requestUrl.pathname;
   if (req.method === "OPTIONS") {
     writeCorsHeaders(res);
     res.writeHead(204);
@@ -54,6 +56,29 @@ const server = createServer((req, res) => {
         res.end(JSON.stringify({
           ok: false,
           error: error instanceof Error ? error.message : "Unable to read debug placement map.",
+        }));
+      });
+    return;
+  }
+
+  if (url === "/wallet-character") {
+    void getWalletCharacterProfile(requestUrl.searchParams.get("wallet") ?? "")
+      .then((character) => {
+        writeCorsHeaders(res);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          exists: Boolean(character),
+          character,
+        }));
+      })
+      .catch((error) => {
+        writeCorsHeaders(res);
+        const status = error instanceof PersistenceUnavailableError ? 503 : 500;
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          exists: false,
+          character: null,
+          error: status === 503 ? "wallet persistence unavailable" : "unable to load wallet character",
         }));
       });
     return;

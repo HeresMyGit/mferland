@@ -17,6 +17,7 @@ function quest(id: QuestId, status: QuestSnapshot["status"]): QuestSnapshot {
 
 const PRIMARY_QUEST_CHAIN: QuestId[] = [
   "mfer-beginnings",
+  "set-your-traits",
   "dao-tour",
   "fountain-vibes",
   "sealed-note",

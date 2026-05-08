@@ -15,6 +15,7 @@ import {
   type ClientLootCorpse,
   type ClientSelectTalent,
   type ClientShareQuestLink,
+  type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatEvent,
@@ -30,11 +31,17 @@ import {
   type QuestStatusNotice,
   type QuestTurnIn,
   type TalentRankSnapshot,
+  type TraitUpdateResult,
   normalizeChainGearTier,
+  parseMferAppearanceTraitsJson,
 } from "@mferland/shared";
 import { CHAT_BUBBLE_TTL_MS, type ChatBubble } from "./chatBubbles";
 
 type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
+type PersistenceStatus = {
+  state: "idle" | "saving" | "saved" | "error";
+  message: string;
+};
 type RuntimeQuestCollection = {
   forEach(callback: (quest: QuestSnapshot, id: string) => void): void;
 };
@@ -47,7 +54,8 @@ type RuntimeEquipmentCollection = {
 type RuntimeTalentCollection = {
   forEach(callback: (talent: TalentRankSnapshot, id: string) => void): void;
 };
-type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "quests" | "inventory" | "equipment" | "talents"> & {
+type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents"> & {
+  appearanceTraitsJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -136,6 +144,8 @@ export function useTownRoom(identity: JoinOptions) {
   const [lootWindow, setLootWindow] = useState<LootWindow | null>(null);
   const [debugPlacementSaveResult, setDebugPlacementSaveResult] = useState<DebugPlacementSaveResult | null>(null);
   const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
+  const [traitUpdateResult, setTraitUpdateResult] = useState<TraitUpdateResult | null>(null);
+  const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
   const roomRef = useRef<Room | null>(null);
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
   const npcsRef = useRef(new Map<string, NpcSnapshot>());
@@ -254,6 +264,7 @@ export function useTownRoom(identity: JoinOptions) {
     setChatBubbles([]);
     setCombatEvents([]);
     setExperienceEvents([]);
+    setPersistenceStatus({ state: "idle", message: "" });
     setStatus("connecting");
     setError(null);
 
@@ -345,6 +356,20 @@ export function useTownRoom(identity: JoinOptions) {
           setDebugPlacementMap(message);
         });
 
+        room.onMessage("traitUpdateResult", (message: TraitUpdateResult) => {
+          setTraitUpdateResult(message);
+        });
+
+        room.onMessage("persistenceStatus", (message: Partial<PersistenceStatus>) => {
+          const state = message.state === "saving" || message.state === "saved" || message.state === "error"
+            ? message.state
+            : "idle";
+          setPersistenceStatus({
+            state,
+            message: typeof message.message === "string" ? message.message : "",
+          });
+        });
+
         room.onLeave(() => {
           if (!disposed) {
             playersRef.current.clear();
@@ -370,6 +395,24 @@ export function useTownRoom(identity: JoinOptions) {
       clearQueuedFeedbackEvents();
     };
   }, [clearQueuedFeedbackEvents, identity, requestSnapshotRender, scheduleFeedbackFlush, serverUrl]);
+
+  const leaveAndWait = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    roomRef.current = null;
+    setPersistenceStatus((current) => current.state === "idle"
+      ? { state: "saving", message: "leaving town" }
+      : current);
+    try {
+      await room.leave();
+    } finally {
+      clearQueuedFeedbackEvents();
+      playersRef.current.clear();
+      npcsRef.current.clear();
+      requestSnapshotRender(true);
+      setStatus("closed");
+    }
+  }, [clearQueuedFeedbackEvents, requestSnapshotRender]);
 
   useEffect(() => {
     if (!questOffer || !sessionId) return;
@@ -486,6 +529,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("selectTalent", message);
   }, []);
 
+  const sendUpdateTraits = useCallback((message: ClientUpdateTraits) => {
+    roomRef.current?.send("updateTraits", message);
+  }, []);
+
   const closeLootWindow = useCallback(() => {
     setLootWindow(null);
   }, []);
@@ -559,6 +606,9 @@ export function useTownRoom(identity: JoinOptions) {
     lootWindow,
     debugPlacementSaveResult,
     debugPlacementMap,
+    traitUpdateResult,
+    persistenceStatus,
+    leaveAndWait,
     sendInput,
     sendChat,
     sendEmote,
@@ -578,6 +628,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendDebugRegisterChainGear,
     sendDebugUpdateChainGearTier,
     sendSelectTalent,
+    sendUpdateTraits,
     closeLootWindow,
     sendRespawn,
     sendDebugTeleport,
@@ -652,6 +703,7 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     identityType: player.identityType,
     walletAddress: player.walletAddress,
     avatarSeed: player.avatarSeed,
+    appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,
     xp: player.xp,
     talentPoints: player.talentPoints,
@@ -706,6 +758,8 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.identityType !== player.identityType || changed;
   changed = target.walletAddress !== player.walletAddress || changed;
   changed = target.avatarSeed !== player.avatarSeed || changed;
+  const nextAppearanceTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+  changed = appearanceTraitsKey(target.appearanceTraits) !== appearanceTraitsKey(nextAppearanceTraits) || changed;
   changed = target.level !== player.level || changed;
   changed = target.xp !== player.xp || changed;
   changed = target.talentPoints !== player.talentPoints || changed;
@@ -746,6 +800,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.identityType = player.identityType;
   target.walletAddress = player.walletAddress;
   target.avatarSeed = player.avatarSeed;
+  target.appearanceTraits = nextAppearanceTraits;
   target.level = player.level;
   target.xp = player.xp;
   target.talentPoints = player.talentPoints;
@@ -1019,4 +1074,8 @@ function talentSnapshotsEqual(left: TalentRankSnapshot[], right: TalentRankSnaps
       && talent.nodeId === other.nodeId
       && talent.rank === other.rank;
   });
+}
+
+function appearanceTraitsKey(traits: PlayerSnapshot["appearanceTraits"]) {
+  return JSON.stringify(Object.entries(traits).sort(([left], [right]) => left.localeCompare(right)));
 }

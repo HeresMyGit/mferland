@@ -60,12 +60,14 @@ function makeQuest(overrides: Partial<QuestSnapshot> & Pick<QuestSnapshot, "id">
 }
 
 function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
+  const { appearanceTraits = {}, ...rest } = overrides;
   return {
     sessionId: "local",
     name: "tester",
     identityType: "guest",
     walletAddress: "",
     avatarSeed: 1,
+    appearanceTraits,
     level: 1,
     xp: 0,
     talentPoints: 0,
@@ -110,7 +112,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     inventory: [],
     equipment: [],
     talents: [],
-    ...overrides,
+    ...rest,
   };
 }
 

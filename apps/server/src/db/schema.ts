@@ -33,6 +33,8 @@ export const characters = pgTable("characters", {
   accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   avatarSeed: integer("avatar_seed").notNull(),
+  nameLockedAt: timestamp("name_locked_at", { withTimezone: true }),
+  appearanceTraits: jsonb("appearance_traits").$type<Record<string, string>>().notNull().default({}),
   level: integer("level").notNull().default(1),
   xp: integer("xp").notNull().default(0),
   talentPoints: integer("talent_points").notNull().default(0),

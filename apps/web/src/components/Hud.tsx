@@ -50,7 +50,7 @@ import {
 import { colorFromSeed } from "../game/random";
 import { type AudioSettings } from "../game/audio";
 import { MFER_COLORS } from "../game/mferPalette";
-import { generateMferTraitsForActor } from "../game/mferTraits";
+import { resolveMferTraitsForPlayer } from "../game/mferTraits";
 import { type GameSettings, type NameplateVisibility } from "../game/settings";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
 import { AbilitiesPanel } from "./hud/AbilitiesPanel";
@@ -239,7 +239,10 @@ export function Hud({
   const worldMapNpcRefs = useRef(new Map<string, HTMLElement>());
   const accent = useMemo(() => colorFromSeed(identity.avatarSeed), [identity.avatarSeed]);
   const portraitSeed = localPlayer?.avatarSeed ?? identity.avatarSeed;
-  const playerPortraitTraits = useMemo(() => generateMferTraitsForActor(portraitSeed), [portraitSeed]);
+  const playerPortraitTraits = useMemo(
+    () => resolveMferTraitsForPlayer(portraitSeed, localPlayer?.appearanceTraits),
+    [localPlayer?.appearanceTraits, portraitSeed],
+  );
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const revealAllNpcsOnMinimap = playerRevealsAllNpcsOnMinimap(localPlayer);

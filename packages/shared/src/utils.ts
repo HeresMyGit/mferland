@@ -9,6 +9,12 @@ export function sanitizePlayerName(input: unknown, fallback = "mfer"): string {
   return cleaned || fallback;
 }
 
+export function normalizeWalletAddress(input: unknown): string {
+  if (typeof input !== "string") return "";
+  const normalized = input.trim().toLowerCase();
+  return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

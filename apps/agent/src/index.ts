@@ -5,6 +5,7 @@ import {
   INPUT_SEND_RATE,
   PLAZA_BOUNDS,
   ROOM_NAME,
+  parseMferAppearanceTraitsJson,
   stableHash,
   type AgentObservation,
   type ChatMessage,
@@ -41,6 +42,7 @@ type RuntimePlayer = {
   identityType: IdentityType;
   walletAddress: string;
   avatarSeed: number;
+  appearanceTraitsJson?: string;
   level: number;
   xp: number;
   talentPoints: number;
@@ -180,6 +182,7 @@ class AgentCharacter {
           identityType: player.identityType,
           walletAddress: player.walletAddress,
           avatarSeed: player.avatarSeed,
+          appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
           level: player.level,
           xp: player.xp,
           talentPoints: player.talentPoints,

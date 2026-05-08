@@ -107,6 +107,10 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
     return `${QUESTS[questId].title}: open the tweet composer, post only if you mean it, then claim the ping.`;
   }
 
+  if (questId === "set-your-traits") {
+    return `${QUESTS[questId].title}: open the mirror rig, save a trait set, then check back in.`;
+  }
+
   if (questId === "boar-bristle-cull") {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild boars cleared around the farm road.`;
   }
@@ -147,6 +151,10 @@ export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): 
 function getQuestCompletionResponse(questId: QuestId) {
   if (questId === "mfer-beginnings") {
     return "good. you found the board. don't start respecting it.";
+  }
+
+  if (questId === "set-your-traits") {
+    return "clean enough to be yours. first set's on town. changing your mind after this gets onchain.";
   }
 
   if (questId === "mfergpt-checkin") {
@@ -245,6 +253,7 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "mfergpt") return "signal's clean enough for now.";
   if (npcId === "og-mfer") return "town's still standing. good enough.";
   if (npcId === "wearables-mfer") return "good town. better hats.";
+  if (npcId === "traits-mfer") return "mirror's still warm if you need a paid redo.";
   if (npcId === "dao-mfer") return "nothing here is that organized.";
   if (npcId === "fountain-mfer") return "good fountain. good smoke. good enough.";
   if (npcId === "hogwatch-mfer") return "farm's still full of loop-brain. keep it thin.";
@@ -259,6 +268,7 @@ function getNpcDisplayName(npcId: string) {
   if (npcId === "mfergpt") return "mferGPT";
   if (npcId === "og-mfer") return "OG porch mfer";
   if (npcId === "wearables-mfer") return "drip desk mfer";
+  if (npcId === "traits-mfer") return "traits mfer";
   if (npcId === "dao-mfer") return "board mfer";
   if (npcId === "fountain-mfer") return "fountain rail mfer";
   if (npcId === "hogwatch-mfer") return "hogwatch mfer";
@@ -274,7 +284,7 @@ export function isQuestAvailable(player: PlayerState, questId: QuestId, now = Da
   if (existingQuest) return isQuestReadyToRepeat(questId, existingQuest, now);
 
   const nextQuestId = getQuestNextQuestId(questId);
-  if (nextQuestId && player.quests.get(nextQuestId)?.status === "completed") return false;
+  if (questId !== "set-your-traits" && nextQuestId && player.quests.get(nextQuestId)?.status === "completed") return false;
 
   const requiredQuestId = getQuestRequirement(questId);
   if (!requiredQuestId) return true;
@@ -462,6 +472,10 @@ function hasMferGptMention(text: string) {
 export function progressSocialQuest(player: PlayerState, questId: QuestId) {
   if (questId !== "tweet-town-link") return false;
   return progressQuest(player, questId, 1);
+}
+
+export function progressTraitQuest(player: PlayerState) {
+  return progressQuest(player, "set-your-traits", 1);
 }
 
 function isDefeatQuestTarget(questId: QuestId, npc: NpcState) {

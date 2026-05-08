@@ -12,7 +12,9 @@
 - On 2026-05-04, `0004_chain_gear_tiers.sql`, `0005_season_reward_events.sql`, and `0006_crypto_purchase_events.sql` were applied to the configured local/test `DATABASE_URL`.
 - On 2026-05-05, `0007_crypto_market_quotes.sql` was added for the Dex Screener quote cache and applied to the Neon staging/test branch before the remote friend test.
 - On 2026-05-05, `0008_analytics_events.sql` was added for soft-launch analytics and applied to the Neon staging/test branch.
+- On 2026-05-08, `0007_crypto_market_quotes.sql`, `0008_analytics_events.sql`, and `0009_character_profile_lock.sql` were applied to the currently configured `DATABASE_URL`.
 - Wallet persistence was smoke-tested with a synthetic wallet for level/XP/talent points, quest state, inventory, equipment, and talents.
+- Wallet join now fails closed if persistence cannot load. First-time wallet characters must be explicitly created, and returning wallet logins no longer overwrite the locked character name or avatar seed from the login screen.
 
 ## Neon Staging/Test Branch
 
@@ -34,6 +36,7 @@ This staging project is separate from production. On 2026-05-05, the remote frie
 - `0006_crypto_purchase_events.sql`: launch-pass purchase reconciliation, manual grant, reject, and revoke ledger.
 - `0007_crypto_market_quotes.sql`: DB-backed cached Dex Screener market quotes for `$mfer/WETH` and `MFERGPT/WETH` display labels.
 - `0008_analytics_events.sql`: DB-backed soft-launch analytics events with hashed wallet attribution.
+- `0009_character_profile_lock.sql`: one-time character profile fields for locked names and future appearance traits.
 
 ## How To Test Locally
 
@@ -55,7 +58,7 @@ Guest mode does not persist yet.
 4. Apply all checked-in migrations through `0008_analytics_events.sql` to the production branch/DB from that launch machine.
 5. Point the Mac mini at production `DATABASE_URL` through local/deploy secrets only.
 6. Keep `.env` local-only.
-7. Run wallet persistence, Season 0 reward, and purchase-ledger smoke tests against production before inviting external testers.
+7. Run wallet persistence, first-time character creation, Season 0 reward, and purchase-ledger smoke tests against production before inviting external testers.
 
 ## Later DB/Auth Work
 

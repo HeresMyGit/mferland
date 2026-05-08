@@ -4,6 +4,7 @@ import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
+import type { MferAppearanceTraits, TraitPaymentToken } from "./appearance.js";
 
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
@@ -103,7 +104,25 @@ export type JoinOptions = {
   identityType?: IdentityType;
   walletAddress?: string;
   avatarSeed?: number;
+  createCharacter?: boolean;
   inviteCode?: string;
+};
+
+export type WalletCharacterPreview = {
+  name: string;
+  avatarSeed: number;
+  appearanceTraits: MferAppearanceTraits;
+  level: number;
+  xp: number;
+  talentPoints: number;
+  createdAt: string;
+  updatedAt: string;
+  nameLocked: boolean;
+};
+
+export type WalletCharacterProfileResponse = {
+  exists: boolean;
+  character: WalletCharacterPreview | null;
 };
 
 export type ClientInput = {
@@ -125,6 +144,7 @@ export type PlayerSnapshot = {
   identityType: IdentityType;
   walletAddress: string;
   avatarSeed: number;
+  appearanceTraits: MferAppearanceTraits;
   level: number;
   xp: number;
   talentPoints: number;
@@ -305,6 +325,27 @@ export type ClientDebugUpdateChainGearTier = {
 
 export type ClientSelectTalent = {
   talentId: TalentId;
+};
+
+export type TraitPaymentProof = {
+  token: TraitPaymentToken;
+  txHash: string;
+  amountWei: string;
+  chainId: number;
+  contractAddress?: string;
+};
+
+export type ClientUpdateTraits = {
+  traits: MferAppearanceTraits;
+  payment?: TraitPaymentProof;
+};
+
+export type TraitUpdateResult = {
+  ok: boolean;
+  traits: MferAppearanceTraits;
+  free: boolean;
+  paid: boolean;
+  error?: string;
 };
 
 export type ClientCombatAction = {

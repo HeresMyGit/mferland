@@ -1,5 +1,10 @@
 import { seeded } from "./random";
-import type { NpcSnapshot } from "@mferland/shared";
+import {
+  hasExplicitMferAppearanceTraits,
+  normalizeMferAppearanceTraits,
+  type MferAppearanceTraits,
+  type NpcSnapshot,
+} from "@mferland/shared";
 
 const TRAIT_MESH_MAPPING: Record<string, Record<string, string[]>> = {
   type: {
@@ -171,8 +176,19 @@ const TYPE_EYE_BASE: Record<string, string> = {
   zombie: "eyes_zombie",
   alien: "eyes_alien",
 };
+const ZOMBIE_EYE_OVERLAY_TRAITS = new Set([
+  "vr",
+  "shades",
+  "purple_shades",
+  "nerd",
+  "trippy",
+  "matrix",
+  "3d",
+  "eye_mask",
+  "eyepatch",
+]);
 
-export type MferTraits = Record<string, string>;
+export type MferTraits = MferAppearanceTraits;
 export type NpcTraitSource = Pick<NpcSnapshot, "id" | "name" | "role">;
 
 export const SARTOSHI_MFER_TRAITS: MferTraits = {
@@ -189,6 +205,7 @@ export function generateRandomMferTraits(seed: number): MferTraits {
   const rand = seeded(seed);
   const traits: MferTraits = {};
 
+  traits.background = pick(rand, ["blue", "green", "orange", "red", "yellow", "tree", "space", "graveyard"]);
   traits.type = getRandomType(rand);
   traits.eyes = pick(rand, ["regular", "vr", "shades", "purple_shades", "nerd", "trippy", "matrix", "3d", "eye_mask", "eyepatch"]);
   traits.mouth = pick(rand, ["flat", "smile"]);
@@ -214,6 +231,13 @@ export function generateMferTraitsForActor(seed: number, npc?: NpcTraitSource | 
   applyNpcTraitTheme(seed, npc, traits);
   removeForcedTraitConflicts(traits);
   return traits;
+}
+
+export function resolveMferTraitsForPlayer(seed: number, appearanceTraits?: MferAppearanceTraits | null): MferTraits {
+  if (hasExplicitMferAppearanceTraits(appearanceTraits)) {
+    return normalizeMferAppearanceTraits(appearanceTraits);
+  }
+  return generateRandomMferTraits(seed);
 }
 
 export function traitsToMeshes(traits: MferTraits): Set<string> {
@@ -302,6 +326,20 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
     traits.shirt = "collared_pink";
     traits.watch = "sub_rose";
     traits.chain = "gold";
+    delete traits.hat_over_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
+    return;
+  }
+
+  if (npc.id === "traits-mfer") {
+    traits.type = "plain";
+    traits.eyes = "3d";
+    traits.headphones = "pink";
+    traits.hat_under_headphones = "beanie";
+    traits.shirt = "hoodie_down_white";
+    traits.watch = "argo_white";
+    traits.chain = "silver";
     delete traits.hat_over_headphones;
     return;
   }
@@ -419,7 +457,7 @@ function removeForcedTraitConflicts(traits: MferTraits) {
 
   if (traits.type === "based" && ["alien", "zombie", "red"].includes(traits.eyes)) traits.eyes = "mfercoin";
   if (traits.type === "metal" && ["alien", "zombie", "red"].includes(traits.eyes)) traits.eyes = "metal";
-  if (traits.type === "zombie") traits.eyes = "zombie";
+  if (traits.type === "zombie" && !ZOMBIE_EYE_OVERLAY_TRAITS.has(traits.eyes)) traits.eyes = "zombie";
   if (traits.type === "alien" && traits.eyes === "regular") traits.eyes = "alien";
 }
 
@@ -486,7 +524,7 @@ function resolveTraitConflicts(rand: () => number, traits: MferTraits) {
     delete traits.long_hair;
   }
 
-  if (traits.type === "zombie" && (traits.eyes === "regular" || traits.eyes === "red")) traits.eyes = "zombie";
+  if (traits.type === "zombie" && !ZOMBIE_EYE_OVERLAY_TRAITS.has(traits.eyes)) traits.eyes = "zombie";
   if (traits.type !== "zombie" && traits.eyes === "zombie") traits.eyes = "regular";
   if (traits.type === "alien" && traits.eyes === "regular") traits.eyes = "alien";
 

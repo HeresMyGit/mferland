@@ -30,12 +30,19 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
     friendlyNpcs: false,
   },
   nameplates: {
-    localPlayer: true,
+    localPlayer: false,
     otherPlayers: true,
-    friendlyNpcs: true,
-    unfriendlyNpcs: true,
-    healthBars: true,
+    friendlyNpcs: false,
+    unfriendlyNpcs: false,
+    healthBars: false,
   },
+};
+const LEGACY_ALL_ON_NAMEPLATE_DEFAULTS: NameplateVisibility = {
+  localPlayer: true,
+  otherPlayers: true,
+  friendlyNpcs: true,
+  unfriendlyNpcs: true,
+  healthBars: true,
 };
 
 export function normalizeGameSettings(value: unknown): GameSettings {
@@ -44,6 +51,15 @@ export function normalizeGameSettings(value: unknown): GameSettings {
     minimap?: Partial<MinimapVisibility>;
     nameplates?: Partial<NameplateVisibility>;
   };
+  const nameplates = isLegacyAllOnNameplateDefaults(candidate.nameplates)
+    ? DEFAULT_GAME_SETTINGS.nameplates
+    : {
+        localPlayer: candidate.nameplates?.localPlayer ?? DEFAULT_GAME_SETTINGS.nameplates.localPlayer,
+        otherPlayers: candidate.nameplates?.otherPlayers ?? DEFAULT_GAME_SETTINGS.nameplates.otherPlayers,
+        friendlyNpcs: candidate.nameplates?.friendlyNpcs ?? DEFAULT_GAME_SETTINGS.nameplates.friendlyNpcs,
+        unfriendlyNpcs: candidate.nameplates?.unfriendlyNpcs ?? DEFAULT_GAME_SETTINGS.nameplates.unfriendlyNpcs,
+        healthBars: candidate.nameplates?.healthBars ?? DEFAULT_GAME_SETTINGS.nameplates.healthBars,
+      };
 
   return {
     audio: normalizeAudioSettings(candidate.audio),
@@ -53,12 +69,15 @@ export function normalizeGameSettings(value: unknown): GameSettings {
     minimap: {
       friendlyNpcs: candidate.minimap?.friendlyNpcs ?? DEFAULT_GAME_SETTINGS.minimap.friendlyNpcs,
     },
-    nameplates: {
-      localPlayer: candidate.nameplates?.localPlayer ?? DEFAULT_GAME_SETTINGS.nameplates.localPlayer,
-      otherPlayers: candidate.nameplates?.otherPlayers ?? DEFAULT_GAME_SETTINGS.nameplates.otherPlayers,
-      friendlyNpcs: candidate.nameplates?.friendlyNpcs ?? DEFAULT_GAME_SETTINGS.nameplates.friendlyNpcs,
-      unfriendlyNpcs: candidate.nameplates?.unfriendlyNpcs ?? DEFAULT_GAME_SETTINGS.nameplates.unfriendlyNpcs,
-      healthBars: candidate.nameplates?.healthBars ?? DEFAULT_GAME_SETTINGS.nameplates.healthBars,
-    },
+    nameplates,
   };
+}
+
+function isLegacyAllOnNameplateDefaults(value: Partial<NameplateVisibility> | undefined) {
+  if (!value) return false;
+  return value.localPlayer === LEGACY_ALL_ON_NAMEPLATE_DEFAULTS.localPlayer
+    && value.otherPlayers === LEGACY_ALL_ON_NAMEPLATE_DEFAULTS.otherPlayers
+    && value.friendlyNpcs === LEGACY_ALL_ON_NAMEPLATE_DEFAULTS.friendlyNpcs
+    && value.unfriendlyNpcs === LEGACY_ALL_ON_NAMEPLATE_DEFAULTS.unfriendlyNpcs
+    && value.healthBars === LEGACY_ALL_ON_NAMEPLATE_DEFAULTS.healthBars;
 }

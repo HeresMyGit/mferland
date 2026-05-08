@@ -214,6 +214,7 @@
   .character-panel,
   .inventory-panel,
   .crypto-store-panel,
+  .traits-panel,
   .settings-panel {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
@@ -247,6 +248,11 @@
     bottom: auto;
   }
 
+  .floating-menu-overlay.traits-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
   .crypto-store-overview,
   .crypto-store-flow-grid,
   .crypto-store-config,
@@ -256,8 +262,20 @@
   .crypto-market-quotes,
   .crypto-store-actions,
   .crypto-pass-actions,
-  .crypto-upgrade-row {
+  .crypto-upgrade-row,
+  .traits-layout,
+  .traits-actions {
     grid-template-columns: 1fr;
+  }
+
+  .traits-preview {
+    position: relative;
+    min-height: 300px;
+    grid-template-rows: 300px auto;
+  }
+
+  .traits-preview canvas {
+    min-height: 300px;
   }
 
   .crypto-pass-flow,

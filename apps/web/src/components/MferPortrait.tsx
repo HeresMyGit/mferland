@@ -59,6 +59,17 @@ const OFFICIAL_OPTIONAL_TRAITS = [
   "short hair",
   "smoke",
 ] as const;
+const EYE_OVERLAY_TRAITS = new Set([
+  "vr",
+  "shades",
+  "purple_shades",
+  "nerd",
+  "trippy",
+  "matrix",
+  "3d",
+  "eye_mask",
+  "eyepatch",
+]);
 const portraitCache = new Map<string, OriginalMferPortraitMatch | null>();
 const composedPortraitCache = new Map<string, Promise<string | null>>();
 const layerImageCache = new Map<string, Promise<HTMLImageElement | null>>();
@@ -298,8 +309,8 @@ function mapTypeForLayer(value: string | undefined) {
 }
 
 function mapEyesForMetadata(value: string | undefined, type: string | undefined) {
-  if (type === "alien") return "alien eyes";
-  if (type === "zombie") return "zombie eyes";
+  if (type === "alien" && !isEyeOverlayTrait(value)) return "alien eyes";
+  if (type === "zombie" && !isEyeOverlayTrait(value)) return "zombie eyes";
   if (value === "vr") return "vr";
   if (value === "shades" || value === "trippy" || value === "matrix") return "shades";
   if (value === "purple_shades") return "purple shades";
@@ -308,6 +319,10 @@ function mapEyesForMetadata(value: string | undefined, type: string | undefined)
   if (value === "eye_mask") return "eye mask";
   if (value === "eyepatch") return "eye patch";
   return "regular eyes";
+}
+
+function isEyeOverlayTrait(value: string | undefined) {
+  return Boolean(value && EYE_OVERLAY_TRAITS.has(value));
 }
 
 function mapEyesForLayer(value: string | undefined, type: string | undefined) {

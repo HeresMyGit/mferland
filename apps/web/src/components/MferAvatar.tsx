@@ -17,7 +17,7 @@ import {
 } from "@mferland/shared";
 import { type ChatBubble } from "../game/chatBubbles";
 import { MFER_COLORS } from "../game/mferPalette";
-import { generateMferTraitsForActor, traitsToMeshes } from "../game/mferTraits";
+import { generateMferTraitsForActor, resolveMferTraitsForPlayer, traitsToMeshes } from "../game/mferTraits";
 import { colorFromSeed } from "../game/random";
 
 type MferAvatarProps = {
@@ -161,9 +161,10 @@ export function MferAvatar({
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
   const avatar = useMemo(() => {
-    const template = getMferAvatarTemplate(gltf.scene, player.avatarSeed, npc);
+    const appearanceTraits = !npc && "appearanceTraits" in player ? player.appearanceTraits : null;
+    const template = getMferAvatarTemplate(gltf.scene, player.avatarSeed, npc, appearanceTraits);
     return SkeletonUtils.clone(template) as THREE.Group;
-  }, [gltf.scene, npc?.id, npc?.role, player.avatarSeed]);
+  }, [gltf.scene, npc?.id, npc?.role, getAppearanceTraitsKey(player), player.avatarSeed]);
 
   useEffect(() => {
     mixerRef.current?.stopAllAction();
@@ -932,25 +933,37 @@ export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
   return clips;
 }
 
-function getMferAvatarTemplate(sourceScene: THREE.Group, seed: number, npc: NpcSnapshot | null) {
+function getMferAvatarTemplate(
+  sourceScene: THREE.Group,
+  seed: number,
+  npc: NpcSnapshot | null,
+  appearanceTraits: PlayerSnapshot["appearanceTraits"] | null,
+) {
   let seedCache = avatarTemplateCache.get(sourceScene);
   if (!seedCache) {
     seedCache = new Map();
     avatarTemplateCache.set(sourceScene, seedCache);
   }
 
-  const cacheKey = npc ? `npc:${npc.id}:${npc.role}:${seed}` : `player:${seed}`;
+  const cacheKey = npc ? `npc:${npc.id}:${npc.role}:${seed}` : `player:${seed}:${JSON.stringify(appearanceTraits ?? {})}`;
   const cached = seedCache.get(cacheKey);
   if (cached) return cached;
 
-  const template = createMferAvatarTemplate(sourceScene, seed, npc);
+  const template = createMferAvatarTemplate(sourceScene, seed, npc, appearanceTraits);
   seedCache.set(cacheKey, template);
   return template;
 }
 
-function createMferAvatarTemplate(sourceScene: THREE.Group, seed: number, npc: NpcSnapshot | null) {
+function createMferAvatarTemplate(
+  sourceScene: THREE.Group,
+  seed: number,
+  npc: NpcSnapshot | null,
+  appearanceTraits: PlayerSnapshot["appearanceTraits"] | null,
+) {
   const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
-  const visibleMeshes = traitsToMeshes(generateMferTraitsForActor(seed, npc));
+  const visibleMeshes = traitsToMeshes(npc
+    ? generateMferTraitsForActor(seed, npc)
+    : resolveMferTraitsForPlayer(seed, appearanceTraits));
 
   scene.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
@@ -976,6 +989,10 @@ function createMferAvatarTemplate(sourceScene: THREE.Group, seed: number, npc: N
   scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
   return scene;
+}
+
+function getAppearanceTraitsKey(player: PlayerSnapshot | NpcSnapshot) {
+  return "appearanceTraits" in player ? JSON.stringify(player.appearanceTraits ?? {}) : "";
 }
 
 function makeInPlaceClip(sourceClip: THREE.AnimationClip) {

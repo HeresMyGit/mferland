@@ -839,6 +839,11 @@
   top: 92px;
 }
 
+.traits-anchor {
+  right: 108px;
+  top: 92px;
+}
+
 .world-map-panel {
   width: min(760px, calc(100vw - 48px));
   padding: 14px;
@@ -914,6 +919,158 @@
   border-radius: 8px;
   background: rgba(18, 14, 10, 0.92);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.traits-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  width: min(1120px, calc(100vw - 72px));
+  max-height: min(720px, calc(100vh - 56px));
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 14, 10, 0.92);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.traits-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.82fr) minmax(430px, 1.18fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.traits-preview {
+  position: relative;
+  top: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  min-height: 0;
+}
+
+.traits-preview canvas {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 340px;
+  border: 2px solid rgba(8, 7, 5, 0.82);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(255, 248, 224, 0.2), transparent 42%),
+    linear-gradient(180deg, rgba(93, 211, 255, 0.24), rgba(20, 23, 20, 0.4));
+}
+
+.traits-random-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff8dd;
+  background: rgba(59, 51, 32, 0.94);
+  font-weight: 900;
+}
+
+.traits-selector {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 8px;
+}
+
+.trait-category {
+  border-radius: 8px;
+  overflow: visible;
+  margin-bottom: 9px;
+}
+
+.trait-category.open {
+  background: rgba(15, 14, 10, 0.5);
+}
+
+.trait-category-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 11px 13px;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.trait-category-summary span,
+.traits-status {
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 12px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.trait-category-summary strong {
+  color: var(--mfer-paper);
+  max-width: 260px;
+  overflow: visible;
+  font-size: 16px;
+  font-weight: 1000;
+  line-height: 1.12;
+  text-align: right;
+  white-space: normal;
+}
+
+.trait-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 7px;
+  padding: 0 10px 12px;
+}
+
+.trait-options button {
+  min-height: 38px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  color: #fff8dc;
+  background: rgba(15, 14, 10, 0.44);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.12;
+  text-align: left;
+  white-space: normal;
+}
+
+.trait-options button.selected {
+  color: #141007;
+  background: var(--mfer-yellow);
+}
+
+.traits-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.traits-actions .primary-btn,
+.traits-actions .secondary-btn {
+  min-height: 40px;
+}
+
+.traits-actions .primary-btn:only-child {
+  grid-column: 1 / -1;
+}
+
+.traits-status {
+  min-height: 16px;
+  margin: 0;
 }
 
 .crypto-store-overview {

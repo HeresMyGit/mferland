@@ -1,4 +1,10 @@
-import { makeGuestName, stableHash, type JoinOptions } from "@mferland/shared";
+import {
+  makeGuestName,
+  normalizeWalletAddress,
+  stableHash,
+  type JoinOptions,
+  type WalletCharacterProfileResponse,
+} from "@mferland/shared";
 
 const GUEST_ID_KEY = "mferland.guestId";
 const NAME_KEY = "mferland.name";
@@ -41,13 +47,36 @@ export function makeGuestIdentity(name: string): JoinOptions {
   };
 }
 
-export function makeWalletIdentity(name: string, walletAddress: string): JoinOptions {
+export function makeWalletIdentity(
+  name: string,
+  walletAddress: string,
+  avatarSeed = stableHash(`${walletAddress}:${name}`),
+  createCharacter = false,
+): JoinOptions {
   return {
     name,
     identityType: "wallet",
     walletAddress,
-    avatarSeed: stableHash(`${walletAddress}:${name}`),
+    avatarSeed,
+    createCharacter,
     inviteCode: getStoredInviteCode(),
+  };
+}
+
+export async function fetchWalletCharacterProfile(walletAddress: string): Promise<WalletCharacterProfileResponse> {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return { exists: false, character: null };
+
+  const url = new URL("/wallet-character", getServerHttpBaseUrl());
+  url.searchParams.set("wallet", normalizedWallet);
+  const response = await fetch(url);
+  const payload = await response.json().catch(() => null) as Partial<WalletCharacterProfileResponse> & { error?: string } | null;
+  if (!response.ok) {
+    throw new Error(payload?.error || "wallet persistence unavailable");
+  }
+  return {
+    exists: Boolean(payload?.exists && payload.character),
+    character: payload?.character ?? null,
   };
 }
 
@@ -62,4 +91,19 @@ function makeGuestId() {
   }
 
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getServerHttpBaseUrl() {
+  const configured = import.meta.env.VITE_SERVER_URL ? String(import.meta.env.VITE_SERVER_URL) : "";
+  if (configured) return configured.replace(/^ws/i, "http");
+
+  const protocol = window.location.protocol === "https:" ? "https" : "http";
+  if (isLocalDevWebHost(window.location.hostname, window.location.port)) {
+    return `${protocol}://${window.location.hostname}:2567`;
+  }
+  return `${protocol}://${window.location.host}`;
+}
+
+function isLocalDevWebHost(hostname: string, port: string) {
+  return (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") && port !== "2567";
 }

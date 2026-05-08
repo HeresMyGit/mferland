@@ -5,7 +5,7 @@ import {
   type PlayerSnapshot,
   type TargetSelection,
 } from "@mferland/shared";
-import { generateMferTraitsForActor } from "../../game/mferTraits";
+import { generateMferTraitsForActor, resolveMferTraitsForPlayer } from "../../game/mferTraits";
 import { ActorModelPortrait } from "../ActorModelPortrait";
 import { MferPortrait } from "../MferPortrait";
 
@@ -22,8 +22,10 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
   const showMferPortrait = !npc || npc.model === "mfer";
   const portraitImage = npc?.portraitImage;
   const portraitTraits = useMemo(
-    () => generateMferTraitsForActor(unit.avatarSeed, showMferPortrait && npc ? npc : null),
-    [npc?.id, npc?.role, showMferPortrait, unit.avatarSeed],
+    () => npc
+      ? generateMferTraitsForActor(unit.avatarSeed, showMferPortrait ? npc : null)
+      : resolveMferTraitsForPlayer(unit.avatarSeed, player?.appearanceTraits),
+    [npc, npc?.id, npc?.role, player?.appearanceTraits, showMferPortrait, unit.avatarSeed],
   );
 
   return (
@@ -54,6 +56,7 @@ function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "og-mfer") return "OG";
   if (npc.id === "dao-mfer") return "board";
   if (npc.id === "wearables-mfer") return "drip";
+  if (npc.id === "traits-mfer") return "traits";
   if (npc.id === "gate-guard") return "watch";
   if (npc.id === "fountain-mfer") return "plaza";
   if (npc.id === "crypto-mfer") return "crypto";
