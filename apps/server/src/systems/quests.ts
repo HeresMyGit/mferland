@@ -95,7 +95,7 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   }
 
   if (questId === "ask-mfergpt") {
-    return `${QUESTS[questId].title}: ask @mferGPT where to go next. use the word hint, quest, or where next so the agent knows you're asking for direction.`;
+    return `${QUESTS[questId].title}: put @mfergpt anywhere in chat, then check in with mferGPT.`;
   }
 
   if (questId === "mfergpt-checkin") {
@@ -423,7 +423,9 @@ export function progressDefeatQuests(player: PlayerState, npc: NpcState) {
   return progressed;
 }
 
-export function progressMferGptHintQuest(player: PlayerState) {
+export function progressMferGptAskQuest(player: PlayerState, text: string) {
+  if (!hasMferGptMention(text)) return false;
+
   const quest = player.quests.get("ask-mfergpt");
   if (!quest || quest.status !== "active") return false;
 
@@ -433,8 +435,12 @@ export function progressMferGptHintQuest(player: PlayerState) {
 }
 
 export function progressMferGptMentionQuest(player: PlayerState, text: string) {
-  if (!text.toLowerCase().includes("@mfergpt")) return false;
+  if (!hasMferGptMention(text)) return false;
   return progressQuest(player, "mfergpt-checkin", 1);
+}
+
+function hasMferGptMention(text: string) {
+  return text.toLowerCase().includes("@mfergpt");
 }
 
 export function progressSocialQuest(player: PlayerState, questId: QuestId) {

@@ -103,7 +103,7 @@ import {
   makeQuestOffer,
   makeQuestTurnIn,
   normalizeQuestId,
-  progressMferGptHintQuest,
+  progressMferGptAskQuest,
   progressMferGptMentionQuest,
   progressSocialQuest,
   startQuest,
@@ -847,7 +847,9 @@ export class TownRoom extends Room<TownState> {
     };
     this.broadcast("chat", payload);
 
-    if (progressMferGptMentionQuest(player, text)) {
+    const progressedMferGptMentionQuest = progressMferGptMentionQuest(player, text);
+    const progressedMferGptAskQuest = progressMferGptAskQuest(player, text);
+    if (progressedMferGptMentionQuest || progressedMferGptAskQuest) {
       this.persistPlayerProgress(client.sessionId, player);
     }
 
@@ -878,12 +880,10 @@ export class TownRoom extends Room<TownState> {
         prompt,
         now: Date.now(),
       });
-      const progressedMferGptQuest = result.command === "hint" && progressMferGptHintQuest(player);
       for (const temporaryNpc of result.temporaryNpcs) {
         this.temporaryNpcExpiresAt.set(temporaryNpc.id, temporaryNpc.expiresAt);
       }
       this.broadcast("chat", makeMferGptChatMessage(result.responseText, Date.now()));
-      if (progressedMferGptQuest) this.persistPlayerProgress(client.sessionId, player);
       this.logMferGptCommand(
         client.sessionId,
         player.name,
@@ -902,7 +902,7 @@ export class TownRoom extends Room<TownState> {
       if (result.command === "hint") {
         this.recordPlayerAnalyticsEvent("mfergpt_hint_requested", client.sessionId, player, {
           status: "ok",
-          progressedQuest: Boolean(progressedMferGptQuest),
+          progressedQuest: Boolean(progressedMferGptAskQuest),
         });
       }
     } catch (error) {
