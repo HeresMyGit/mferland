@@ -445,8 +445,8 @@ function AuthTownPreview({
       <Skybox />
       <Suspense fallback={null}>
         <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
+        <SceneReadySignal onReady={onReady} />
       </Suspense>
-      <SceneReadySignal onReady={onReady} />
       <AuthPreviewCamera />
     </>
   );
