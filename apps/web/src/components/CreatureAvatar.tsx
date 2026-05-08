@@ -60,6 +60,13 @@ const creatureMaterials = {
   deerBelly: new THREE.MeshBasicMaterial({ color: "#e3c694" }),
   deerDark: new THREE.MeshBasicMaterial({ color: "#2d1c12" }),
   deerAntler: new THREE.MeshBasicMaterial({ color: "#ead38f" }),
+  headphoneBand: new THREE.MeshBasicMaterial({ color: "#16110f" }),
+  headphonePad: new THREE.MeshBasicMaterial({ color: "#070707" }),
+  headphoneAccent: new THREE.MeshBasicMaterial({ color: "#e35d50" }),
+  cigaretteMouth: new THREE.MeshBasicMaterial({ color: "#15100d" }),
+  cigarettePaper: new THREE.MeshBasicMaterial({ color: "#f8f0db" }),
+  cigaretteFilter: new THREE.MeshBasicMaterial({ color: "#d08b3b" }),
+  cigaretteEmber: new THREE.MeshBasicMaterial({ color: "#ff4b1f" }),
 } as const;
 
 const creatureGeometries = {
@@ -85,6 +92,14 @@ const creatureGeometries = {
   deerAntlerMain: new THREE.CapsuleGeometry(0.025, 0.32, 4, 7),
   deerAntlerBranch: new THREE.CapsuleGeometry(0.018, 0.18, 4, 7),
   deerEye: new THREE.SphereGeometry(0.024, 8, 6),
+  headphoneBand: new THREE.CapsuleGeometry(0.012, 0.16, 5, 8),
+  headphoneBandArc: new THREE.TorusGeometry(0.2, 0.012, 6, 24, Math.PI),
+  headphoneCup: new THREE.CylinderGeometry(0.09, 0.09, 0.065, 14),
+  headphoneAccent: new THREE.CylinderGeometry(0.052, 0.052, 0.07, 12),
+  cigaretteStick: new THREE.CylinderGeometry(0.016, 0.016, 0.24, 8),
+  cigaretteFilter: new THREE.CylinderGeometry(0.017, 0.017, 0.055, 8),
+  cigaretteEmber: new THREE.SphereGeometry(0.024, 8, 6),
+  cigaretteMouth: new THREE.SphereGeometry(0.022, 8, 6),
 } as const;
 
 const hogLegOffsets = [
@@ -225,6 +240,8 @@ export function HogModel() {
       ))}
       <mesh geometry={creatureGeometries.hogTail} material={creatureMaterials.hogDark} position={[0, 0.44, -0.62]} rotation-x={Math.PI / 2} />
       <mesh geometry={creatureGeometries.unitBox} material={creatureMaterials.hogDark} position={[0, 0.56, 0.02]} scale={[0.22, 0.12, 0.88]} />
+      <CreatureHeadphones position={[0, 0.29, 0.48]} cupOffsetX={0.29} bandY={0.22} />
+      <CreatureCigarette position={[0, 0.07, 1.02]} rotationY={0.45} />
     </group>
   );
 }
@@ -241,6 +258,8 @@ export function RabbitModel() {
       <mesh geometry={creatureGeometries.rabbitEye} material={creatureMaterials.rabbitDark} position={[0.08, 0.49, 0.5]} />
       <mesh geometry={creatureGeometries.rabbitFoot} material={creatureMaterials.rabbitShade} position={[-0.17, 0.07, 0.12]} rotation-z={0.3} />
       <mesh geometry={creatureGeometries.rabbitFoot} material={creatureMaterials.rabbitShade} position={[0.17, 0.07, 0.12]} rotation-z={-0.3} />
+      <CreatureHeadphones position={[0, 0.47, 0.31]} cupOffsetX={0.17} bandY={0.18} scale={[0.76, 0.76, 0.76]} />
+      <CreatureCigarette position={[0, 0.35, 0.5]} rotationY={0.45} scale={[0.72, 0.72, 0.72]} />
     </group>
   );
 }
@@ -271,6 +290,54 @@ export function DeerModel() {
       ))}
       <mesh geometry={creatureGeometries.deerEye} material={creatureMaterials.deerDark} position={[-0.07, 1.08, 0.83]} />
       <mesh geometry={creatureGeometries.deerEye} material={creatureMaterials.deerDark} position={[0.07, 1.08, 0.83]} />
+      <CreatureHeadphones position={[0, 1.03, 0.66]} cupOffsetX={0.2} bandY={0.19} scale={[0.86, 0.86, 0.86]} />
+      <CreatureCigarette position={[0, 0.95, 0.85]} rotationY={0.45} scale={[0.84, 0.84, 0.84]} />
+    </group>
+  );
+}
+
+function CreatureHeadphones({
+  position,
+  cupOffsetX,
+  bandY,
+  scale = [1, 1, 1],
+}: {
+  position: [number, number, number];
+  cupOffsetX: number;
+  bandY: number;
+  scale?: [number, number, number];
+}) {
+  const arcScaleX = cupOffsetX / 0.2;
+  const arcScaleY = bandY / 0.2;
+
+  return (
+    <group position={position} scale={scale}>
+      <mesh geometry={creatureGeometries.headphoneBandArc} material={creatureMaterials.headphoneBand} position={[0, 0.05, -0.012]} scale={[arcScaleX, arcScaleY, 1]} />
+      <mesh geometry={creatureGeometries.headphoneBand} material={creatureMaterials.headphoneBand} position={[-cupOffsetX, bandY * 0.26, -0.004]} />
+      <mesh geometry={creatureGeometries.headphoneBand} material={creatureMaterials.headphoneBand} position={[cupOffsetX, bandY * 0.26, -0.004]} />
+      <mesh geometry={creatureGeometries.headphoneCup} material={creatureMaterials.headphonePad} position={[-cupOffsetX, 0, 0]} rotation-z={Math.PI / 2} />
+      <mesh geometry={creatureGeometries.headphoneCup} material={creatureMaterials.headphonePad} position={[cupOffsetX, 0, 0]} rotation-z={Math.PI / 2} />
+      <mesh geometry={creatureGeometries.headphoneAccent} material={creatureMaterials.headphoneAccent} position={[-cupOffsetX - 0.002, 0, 0.002]} rotation-z={Math.PI / 2} />
+      <mesh geometry={creatureGeometries.headphoneAccent} material={creatureMaterials.headphoneAccent} position={[cupOffsetX + 0.002, 0, 0.002]} rotation-z={Math.PI / 2} />
+    </group>
+  );
+}
+
+function CreatureCigarette({
+  position,
+  rotationY,
+  scale = [1, 1, 1],
+}: {
+  position: [number, number, number];
+  rotationY: number;
+  scale?: [number, number, number];
+}) {
+  return (
+    <group position={position} rotation-y={rotationY} scale={scale}>
+      <mesh geometry={creatureGeometries.cigaretteMouth} material={creatureMaterials.cigaretteMouth} scale={[1, 0.55, 0.7]} />
+      <mesh geometry={creatureGeometries.cigaretteFilter} material={creatureMaterials.cigaretteFilter} position={[0, 0, 0.03]} rotation-x={Math.PI / 2} />
+      <mesh geometry={creatureGeometries.cigaretteStick} material={creatureMaterials.cigarettePaper} position={[0, 0, 0.16]} rotation-x={Math.PI / 2} />
+      <mesh geometry={creatureGeometries.cigaretteEmber} material={creatureMaterials.cigaretteEmber} position={[0, 0, 0.29]} />
     </group>
   );
 }
