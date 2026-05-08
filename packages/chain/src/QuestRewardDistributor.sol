@@ -9,6 +9,7 @@ contract QuestRewardDistributor {
     mapping(address => bool) public rewarders;
     mapping(address => mapping(bytes32 => bool)) public claimed;
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event RewarderSet(address indexed rewarder, bool allowed);
     event QuestRewardClaimed(address indexed player, bytes32 indexed questId, uint256 amount);
 
@@ -23,6 +24,7 @@ contract QuestRewardDistributor {
         gold = goldToken;
         owner = initialOwner;
         rewarders[initialOwner] = true;
+        emit OwnershipTransferred(address(0), initialOwner);
         emit RewarderSet(initialOwner, true);
     }
 
@@ -34,6 +36,21 @@ contract QuestRewardDistributor {
     modifier onlyRewarder() {
         if (!rewarders[msg.sender]) revert NotRewarder();
         _;
+    }
+
+    function transferOwnership(address nextOwner) external onlyOwner {
+        if (nextOwner == address(0)) revert InvalidAddress();
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
+        if (rewarders[previousOwner]) {
+            rewarders[previousOwner] = false;
+            emit RewarderSet(previousOwner, false);
+        }
+        if (!rewarders[nextOwner]) {
+            rewarders[nextOwner] = true;
+            emit RewarderSet(nextOwner, true);
+        }
     }
 
     function setRewarder(address rewarder, bool allowed) external onlyOwner {

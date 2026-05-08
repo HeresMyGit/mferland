@@ -267,6 +267,14 @@ contract CryptoSuiteTest {
         assertEq(store.discountedTokenPrice(ODD_PRICE_TEST_GEAR, store.MFERGPT_DISCOUNT_BPS()), 75);
     }
 
+    function testDiscountedTokenPricesCannotRoundToFree() public {
+        store.listGear(ODD_PRICE_TEST_GEAR, 1 wei, 1);
+
+        try store.discountedTokenPrice(ODD_PRICE_TEST_GEAR, store.MFER_DISCOUNT_BPS()) {
+            fail("discounted token price should not round to zero");
+        } catch {}
+    }
+
     function testDiscountsMferPaymentsByTenPercent() public {
         uint256 price = store.discountedTokenPrice(BEATER_DECK, store.MFER_DISCOUNT_BPS());
         assertEq(price, 90 ether);
@@ -309,6 +317,81 @@ contract CryptoSuiteTest {
         try store.buyWithMferGpt(BEATER_DECK) {
             fail("burned token payment should require full discounted allowance");
         } catch {}
+    }
+
+    function testGearStoreRejectsFalseReturningMferPayment() public {
+        FalseReturnToken falseMfer = new FalseReturnToken();
+        MferGearNFT falseGear = new MferGearNFT("false gear", "FGEAR", address(this));
+        MferGearStore falseStore = new MferGearStore(
+            falseGear,
+            gold,
+            IERC20Payment(address(falseMfer)),
+            IBurnableToken(address(mfergpt)),
+            payable(address(0xBEEF)),
+            address(this)
+        );
+        falseGear.setMinter(address(falseStore));
+        falseStore.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE);
+
+        try falseStore.buyWithMfer(BEATER_DECK) {
+            fail("false-returning token payment should revert");
+        } catch {}
+
+        assertEq(falseGear.nextTokenId(), 1);
+    }
+
+    function testBurnTokenPaymentsMustActuallyBurn() public {
+        NoOpBurnToken noOpBurn = new NoOpBurnToken();
+        MferGearNFT burnGear = new MferGearNFT("burn gear", "BGEAR", address(this));
+        MferGearStore burnStore = new MferGearStore(
+            burnGear,
+            gold,
+            IERC20Payment(address(mfer)),
+            IBurnableToken(address(noOpBurn)),
+            payable(address(0xBEEF)),
+            address(this)
+        );
+        burnGear.setMinter(address(burnStore));
+        burnStore.listGear(BEATER_DECK, GEAR_ETH_PRICE, GEAR_TOKEN_PRICE);
+
+        try burnStore.buyWithMferGpt(BEATER_DECK) {
+            fail("no-op gear burn payment should revert");
+        } catch {}
+        assertEq(burnGear.nextTokenId(), 1);
+
+        MferLaunchPass burnPass = new MferLaunchPass(
+            "burn pass",
+            "BPASS",
+            IMferPayment(address(mfer)),
+            IMferGptBurnable(address(noOpBurn)),
+            payable(address(0xBEEF)),
+            address(this),
+            LAUNCH_PASS_ETH_PRICE,
+            LAUNCH_PASS_MFER_PRICE,
+            LAUNCH_PASS_MFERGPT_PRICE,
+            500
+        );
+
+        try burnPass.mintWithMferGpt() {
+            fail("no-op pass burn payment should revert");
+        } catch {}
+        assertEq(burnPass.nextTokenId(), 1);
+    }
+
+    function testMferGptPermitRejectsMalleableOrInvalidVSignatures() public {
+        bytes32 highS = bytes32(uint256(0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0) + 1);
+
+        try mfergpt.permit(address(this), address(0xBEEF), 1 ether, block.timestamp + 1, 27, bytes32(0), highS) {
+            fail("high-s permit should revert");
+        } catch {}
+
+        try mfergpt.permit(
+            address(this), address(0xBEEF), 1 ether, block.timestamp + 1, 29, bytes32(0), bytes32(uint256(1))
+        ) {
+            fail("invalid v permit should revert");
+        } catch {}
+
+        assertEq(mfergpt.nonces(address(this)), 0);
     }
 
     function testBurnsGoldToUpgradeGearThroughThreeTiers() public {
@@ -364,6 +447,62 @@ contract CryptoSuiteTest {
         try attacker.claim(address(this), keccak256("fake-quest"), 10 ether) {
             fail("non-rewarder distribution should revert");
         } catch {}
+    }
+
+    function testOwnersCanRotateAdminAndTreasuryControl() public {
+        OwnershipActor nextOwner = new OwnershipActor();
+        uint256 nextEthPrice = LAUNCH_PASS_ETH_PRICE + 1;
+
+        launchPass.transferOwnership(address(nextOwner));
+        assertEq(launchPass.owner(), address(nextOwner));
+        try launchPass.setPricing(nextEthPrice, LAUNCH_PASS_MFER_PRICE, LAUNCH_PASS_MFERGPT_PRICE) {
+            fail("previous launch pass owner should not set pricing");
+        } catch {}
+        nextOwner.setLaunchPassPricing(launchPass, nextEthPrice, LAUNCH_PASS_MFER_PRICE, LAUNCH_PASS_MFERGPT_PRICE);
+        assertEq(launchPass.ethPrice(), nextEthPrice);
+
+        store.transferOwnership(address(nextOwner));
+        assertEq(store.owner(), address(nextOwner));
+        try store.setTreasury(payable(address(0xCAFE))) {
+            fail("previous store owner should not set treasury");
+        } catch {}
+        nextOwner.setGearStoreTreasury(store, payable(address(0xCAFE)));
+        assertEq(store.treasury(), address(0xCAFE));
+    }
+
+    function testOwnershipTransferRotatesOperationalRoles() public {
+        OwnershipActor nextOwner = new OwnershipActor();
+        MferGold rotatedGold = new MferGold("rotated gold", "RGOLD", address(this));
+        QuestRewardDistributor rotatedRewards = new QuestRewardDistributor(gold, address(this));
+        MferGearNFT rotatedGear = new MferGearNFT("rotated gear", "RGEAR", address(this));
+
+        rotatedGold.transferOwnership(address(nextOwner));
+        assertFalse(rotatedGold.minters(address(this)));
+        assertTrue(rotatedGold.minters(address(nextOwner)));
+        try rotatedGold.mint(address(this), 1 ether) {
+            fail("previous gold owner should not remain minter");
+        } catch {}
+        nextOwner.mintGold(rotatedGold, address(this), 1 ether);
+        assertEq(rotatedGold.balanceOf(address(this)), 1 ether);
+
+        gold.setMinter(address(rotatedRewards), true);
+        rotatedRewards.transferOwnership(address(nextOwner));
+        assertFalse(rotatedRewards.rewarders(address(this)));
+        assertTrue(rotatedRewards.rewarders(address(nextOwner)));
+        try rotatedRewards.distributeQuestReward(address(this), keccak256("old-owner-quest"), 1 ether) {
+            fail("previous rewards owner should not remain rewarder");
+        } catch {}
+        nextOwner.distributeQuestReward(rotatedRewards, address(this), keccak256("new-owner-quest"), 1 ether);
+        assertTrue(rotatedRewards.claimed(address(this), keccak256("new-owner-quest")));
+
+        rotatedGear.transferOwnership(address(nextOwner));
+        assertEq(rotatedGear.owner(), address(nextOwner));
+        assertEq(rotatedGear.minter(), address(nextOwner));
+        try rotatedGear.setMinter(address(this)) {
+            fail("previous gear owner should not set minter");
+        } catch {}
+        nextOwner.setGearMinter(rotatedGear, address(store));
+        assertEq(rotatedGear.minter(), address(store));
     }
 
     function testCannotMintGearUntilStoreIsAuthorized() public {
@@ -429,5 +568,52 @@ contract GearUpgradeAttack {
 
     function upgrade(uint256 tokenId) external {
         store.upgradeWithGold(tokenId);
+    }
+}
+
+contract FalseReturnToken is IERC20Payment {
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return false;
+    }
+}
+
+contract NoOpBurnToken is IBurnableToken, IMferGptBurnable {
+    function burnFrom(address, uint256) external pure override(IBurnableToken, IMferGptBurnable) {}
+
+    function balanceOf(address) external pure override(IBurnableToken, IMferGptBurnable) returns (uint256) {
+        return 1_000_000 ether;
+    }
+
+    function totalSupply() external pure override(IBurnableToken, IMferGptBurnable) returns (uint256) {
+        return 1_000_000 ether;
+    }
+}
+
+contract OwnershipActor {
+    function setLaunchPassPricing(MferLaunchPass launchPass, uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice)
+        external
+    {
+        launchPass.setPricing(ethPrice, mferPrice, mferGptPrice);
+    }
+
+    function setGearStoreTreasury(MferGearStore store, address payable treasury) external {
+        store.setTreasury(treasury);
+    }
+
+    function mintGold(MferGold gold, address to, uint256 amount) external {
+        gold.mint(to, amount);
+    }
+
+    function distributeQuestReward(
+        QuestRewardDistributor rewardDistributor,
+        address player,
+        bytes32 questId,
+        uint256 amount
+    ) external {
+        rewardDistributor.distributeQuestReward(player, questId, amount);
+    }
+
+    function setGearMinter(MferGearNFT gear, address minter) external {
+        gear.setMinter(minter);
     }
 }

@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 interface IMferGptBurnable {
     function burnFrom(address from, uint256 amount) external;
+    function balanceOf(address account) external view returns (uint256);
+    function totalSupply() external view returns (uint256);
 }
 
 interface IMferPayment {
@@ -29,6 +31,7 @@ contract MferLaunchPass {
 
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event PassPurchased(address indexed buyer, uint256 indexed tokenId, string paymentToken, uint256 paid);
     event PricingSet(uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice);
     event TreasurySet(address indexed treasury);
@@ -40,6 +43,7 @@ contract MferLaunchPass {
     error SoldOut();
     error MissingToken();
     error NotTokenOwner();
+    error PaymentFailed();
     error ReentrantCall();
 
     constructor(
@@ -55,10 +59,8 @@ contract MferLaunchPass {
         uint256 supplyCap
     ) {
         if (
-            address(mferToken) == address(0) ||
-            address(mferGptToken) == address(0) ||
-            passTreasury == address(0) ||
-            initialOwner == address(0)
+            address(mferToken) == address(0) || address(mferGptToken) == address(0) || passTreasury == address(0)
+                || initialOwner == address(0)
         ) {
             revert InvalidAddress();
         }
@@ -76,6 +78,7 @@ contract MferLaunchPass {
         mferPrice = initialMferPrice;
         mferGptPrice = initialMferGptPrice;
         maxSupply = supplyCap;
+        emit OwnershipTransferred(address(0), initialOwner);
         emit TreasurySet(passTreasury);
         emit PricingSet(initialEthPrice, initialMferPrice, initialMferGptPrice);
     }
@@ -90,6 +93,12 @@ contract MferLaunchPass {
         locked = true;
         _;
         locked = false;
+    }
+
+    function transferOwnership(address nextOwner) external onlyOwner {
+        if (nextOwner == address(0)) revert InvalidAddress();
+        emit OwnershipTransferred(owner, nextOwner);
+        owner = nextOwner;
     }
 
     function setTreasury(address payable nextTreasury) external onlyOwner {
@@ -124,7 +133,12 @@ contract MferLaunchPass {
 
     function mintWithMferGpt() external nonReentrant returns (uint256 tokenId) {
         uint256 price = mferGptPrice;
+        uint256 balanceBefore = mfergpt.balanceOf(msg.sender);
+        uint256 supplyBefore = mfergpt.totalSupply();
         mfergpt.burnFrom(msg.sender, price);
+        if (mfergpt.balanceOf(msg.sender) + price != balanceBefore || mfergpt.totalSupply() + price != supplyBefore) {
+            revert PaymentFailed();
+        }
         tokenId = _mint(msg.sender);
         emit PassPurchased(msg.sender, tokenId, "MFERGPT", price);
     }

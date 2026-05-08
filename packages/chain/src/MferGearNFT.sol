@@ -19,6 +19,7 @@ contract MferGearNFT {
 
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
+    event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event MinterSet(address indexed minter);
     event TierUpgraded(uint256 indexed tokenId, uint8 tier);
 
@@ -35,6 +36,8 @@ contract MferGearNFT {
         symbol = collectionSymbol;
         owner = initialOwner;
         minter = initialOwner;
+        emit OwnershipTransferred(address(0), initialOwner);
+        emit MinterSet(initialOwner);
     }
 
     modifier onlyOwner() {
@@ -45,6 +48,17 @@ contract MferGearNFT {
     modifier onlyMinter() {
         if (msg.sender != minter) revert NotMinter();
         _;
+    }
+
+    function transferOwnership(address nextOwner) external onlyOwner {
+        if (nextOwner == address(0)) revert InvalidAddress();
+        address previousOwner = owner;
+        owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
+        if (minter == previousOwner) {
+            minter = nextOwner;
+            emit MinterSet(nextOwner);
+        }
     }
 
     function setMinter(address nextMinter) external onlyOwner {
@@ -58,7 +72,7 @@ contract MferGearNFT {
         tokenId = nextTokenId++;
         ownerOf[tokenId] = to;
         balanceOf[to] += 1;
-        gear[tokenId] = Gear({ gearType: gearType, tier: 1 });
+        gear[tokenId] = Gear({gearType: gearType, tier: 1});
         emit Transfer(address(0), to, tokenId);
     }
 

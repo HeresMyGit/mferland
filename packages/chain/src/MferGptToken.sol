@@ -15,6 +15,7 @@ contract MferGptToken {
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
     bytes32 private constant EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    uint256 private constant SECP256K1_HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
     event Transfer(address indexed from, address indexed to, uint256 amount);
     event Approval(address indexed owner, address indexed spender, uint256 amount);
@@ -32,13 +33,7 @@ contract MferGptToken {
             chainId := chainid()
         }
         DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes(name)),
-                keccak256(bytes("1")),
-                chainId,
-                address(this)
-            )
+            abi.encode(EIP712_DOMAIN_TYPEHASH, keccak256(bytes(name)), keccak256(bytes("1")), chainId, address(this))
         );
         _mint(initialHolder, initialSupply);
     }
@@ -70,22 +65,16 @@ contract MferGptToken {
         return true;
     }
 
-    function permit(
-        address tokenOwner,
-        address spender,
-        uint256 value,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external {
+    function permit(address tokenOwner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+    {
         if (block.timestamp > deadline) revert PermitExpired();
         if (tokenOwner == address(0) || spender == address(0)) revert InvalidAddress();
 
-        bytes32 structHash = keccak256(
-            abi.encode(PERMIT_TYPEHASH, tokenOwner, spender, value, nonces[tokenOwner]++, deadline)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(PERMIT_TYPEHASH, tokenOwner, spender, value, nonces[tokenOwner]++, deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        if (uint256(s) > SECP256K1_HALF_ORDER || (v != 27 && v != 28)) revert InvalidSignature();
         address recovered = ecrecover(digest, v, r, s);
         if (recovered != tokenOwner) revert InvalidSignature();
 

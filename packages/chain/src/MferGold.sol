@@ -44,8 +44,17 @@ contract MferGold {
 
     function transferOwnership(address nextOwner) external onlyOwner {
         if (nextOwner == address(0)) revert InvalidAddress();
-        emit OwnershipTransferred(owner, nextOwner);
+        address previousOwner = owner;
         owner = nextOwner;
+        emit OwnershipTransferred(previousOwner, nextOwner);
+        if (minters[previousOwner]) {
+            minters[previousOwner] = false;
+            emit MinterSet(previousOwner, false);
+        }
+        if (!minters[nextOwner]) {
+            minters[nextOwner] = true;
+            emit MinterSet(nextOwner, true);
+        }
     }
 
     function setMinter(address minter, bool allowed) external onlyOwner {
