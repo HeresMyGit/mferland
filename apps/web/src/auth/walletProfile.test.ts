@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canEnterWalletCharacter,
+  canRetryWalletProfile,
   getWalletEntryLabel,
   isWalletProfilePending,
   type WalletProfileState,
@@ -13,6 +14,7 @@ test("connected wallets wait for profile lookup before entering", () => {
   assert.equal(isWalletProfilePending(true, idleProfile), true);
   assert.equal(getWalletEntryLabel({
     profilePending: true,
+    profileError: false,
     needsCreation: false,
     hasExistingCharacter: false,
   }), "checking saved mfer");
@@ -30,6 +32,7 @@ test("connected wallets wait for profile lookup before entering", () => {
 test("existing wallet characters get an explicit continue action", () => {
   assert.equal(getWalletEntryLabel({
     profilePending: false,
+    profileError: false,
     needsCreation: false,
     hasExistingCharacter: true,
   }), "continue saved mfer");
@@ -47,6 +50,7 @@ test("existing wallet characters get an explicit continue action", () => {
 test("new wallet characters require a name before creation", () => {
   assert.equal(getWalletEntryLabel({
     profilePending: false,
+    profileError: false,
     needsCreation: true,
     hasExistingCharacter: false,
   }), "create verified mfer");
@@ -67,5 +71,28 @@ test("new wallet characters require a name before creation", () => {
     hasInviteCode: false,
     needsCreation: true,
     cleanName: "wallet mfer",
+  }), true);
+});
+
+test("wallet profile errors expose a retry action instead of an enter action", () => {
+  assert.equal(getWalletEntryLabel({
+    profilePending: false,
+    profileError: true,
+    needsCreation: false,
+    hasExistingCharacter: false,
+  }), "retry wallet check");
+  assert.equal(canEnterWalletCharacter({
+    hasAddress: true,
+    profilePending: false,
+    profileError: true,
+    inviteRequired: false,
+    hasInviteCode: false,
+    needsCreation: false,
+    cleanName: "mfer",
+  }), false);
+  assert.equal(canRetryWalletProfile({
+    hasAddress: true,
+    profilePending: false,
+    profileError: true,
   }), true);
 });

@@ -48,6 +48,7 @@ import {
 } from "./auth/identity";
 import {
   canEnterWalletCharacter,
+  canRetryWalletProfile,
   getExistingWalletCharacter,
   getWalletEntryLabel,
   isWalletProfilePending,
@@ -228,6 +229,7 @@ function AuthGate({
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState(() => getStoredInviteCode());
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
+  const walletProfileRequestRef = useRef(0);
   const [creationSeed, setCreationSeed] = useState(() => makeCreationSeed());
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderComplete, setLoaderComplete] = useState(false);
@@ -256,9 +258,41 @@ function AuthGate({
   });
   const walletEntryLabel = getWalletEntryLabel({
     profilePending: walletProfileLoading,
+    profileError: Boolean(walletProfileError),
     needsCreation: walletNeedsCreation,
     hasExistingCharacter: Boolean(existingCharacter),
   });
+  const canRetryWallet = canRetryWalletProfile({
+    hasAddress: Boolean(address),
+    profilePending: walletProfileLoading,
+    profileError: Boolean(walletProfileError),
+  });
+  const walletPrimaryDisabled = isSwitchingWallet || isDisconnectPending || (!canEnterWallet && !canRetryWallet);
+
+  const loadWalletProfile = useCallback(async (walletAddress: string) => {
+    const requestId = walletProfileRequestRef.current + 1;
+    walletProfileRequestRef.current = requestId;
+    setWalletProfile({ status: "loading" });
+    setWalletActionError(null);
+
+    try {
+      const profile = await fetchWalletCharacterProfile(walletAddress);
+      if (walletProfileRequestRef.current !== requestId) return;
+      if (profile.exists && profile.character) {
+        setWalletProfile({ status: "existing", character: profile.character });
+        setName(profile.character.name);
+        return;
+      }
+      setWalletProfile({ status: "new" });
+      setCreationSeed(makeCreationSeed());
+    } catch (error) {
+      if (walletProfileRequestRef.current !== requestId) return;
+      setWalletProfile({
+        status: "error",
+        message: error instanceof Error ? error.message : "wallet persistence unavailable",
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -270,36 +304,13 @@ function AuthGate({
 
   useEffect(() => {
     if (!isConnected || !address) {
+      walletProfileRequestRef.current += 1;
       setWalletProfile({ status: "idle" });
       return;
     }
 
-    let cancelled = false;
-    setWalletProfile({ status: "loading" });
-    setWalletActionError(null);
-    void fetchWalletCharacterProfile(address)
-      .then((profile) => {
-        if (cancelled) return;
-        if (profile.exists && profile.character) {
-          setWalletProfile({ status: "existing", character: profile.character });
-          setName(profile.character.name);
-          return;
-        }
-        setWalletProfile({ status: "new" });
-        setCreationSeed(makeCreationSeed());
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setWalletProfile({
-          status: "error",
-          message: error instanceof Error ? error.message : "wallet persistence unavailable",
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [address, isConnected]);
+    void loadWalletProfile(address);
+  }, [address, isConnected, loadWalletProfile]);
 
   function enterGuest() {
     if (inviteRequired && !hasInviteCode) return;
@@ -322,6 +333,15 @@ function AuthGate({
       existingCharacter?.avatarSeed ?? creationSeed,
       walletNeedsCreation,
     ));
+  }
+
+  function handleWalletPrimaryAction() {
+    if (canRetryWallet && address) {
+      trackEvent("wallet_profile_retry", { surface: "auth" });
+      void loadWalletProfile(address);
+      return;
+    }
+    enterWallet();
   }
 
   function connectInjectedWallet() {
@@ -451,7 +471,7 @@ function AuthGate({
           </button>
           {isConnected && address ? (
             <>
-              <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending || !canEnterWallet}>
+              <button className="primary-btn wallet" type="button" onClick={handleWalletPrimaryAction} disabled={walletPrimaryDisabled}>
                 <Gem size={18} />
                 {walletEntryLabel}
               </button>

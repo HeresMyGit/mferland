@@ -39,16 +39,31 @@ export function canEnterWalletCharacter({
     && (!needsCreation || cleanName.trim().length > 0);
 }
 
+export function canRetryWalletProfile({
+  hasAddress,
+  profilePending,
+  profileError,
+}: {
+  hasAddress: boolean;
+  profilePending: boolean;
+  profileError: boolean;
+}) {
+  return hasAddress && !profilePending && profileError;
+}
+
 export function getWalletEntryLabel({
   profilePending,
+  profileError,
   needsCreation,
   hasExistingCharacter,
 }: {
   profilePending: boolean;
+  profileError: boolean;
   needsCreation: boolean;
   hasExistingCharacter: boolean;
 }) {
   if (profilePending) return "checking saved mfer";
+  if (profileError) return "retry wallet check";
   if (hasExistingCharacter) return "continue saved mfer";
   if (needsCreation) return "create verified mfer";
   return "enter as verified mfer";
