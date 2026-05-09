@@ -310,6 +310,9 @@ function AuthGate({
     }
 
     void loadWalletProfile(address);
+    return () => {
+      walletProfileRequestRef.current += 1;
+    };
   }, [address, isConnected, loadWalletProfile]);
 
   function enterGuest() {
