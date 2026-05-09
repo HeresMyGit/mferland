@@ -102,9 +102,7 @@ export async function getWalletCharacterProfile(walletAddress: string): Promise<
   if (!normalizedWallet) return null;
   const db = getRequiredDatabase();
 
-  const wallet = await db.query.accountWallets.findFirst({
-    where: eq(accountWallets.walletAddress, normalizedWallet),
-  });
+  const wallet = await findAccountWalletByNormalizedAddress(db, normalizedWallet);
   if (!wallet) return null;
 
   const character = await db.query.characters.findFirst({
@@ -133,9 +131,7 @@ export async function loadOrCreateWalletCharacter({
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedWallet}), 0)`);
 
     const now = new Date();
-    const existingWallet = await tx.query.accountWallets.findFirst({
-      where: eq(accountWallets.walletAddress, normalizedWallet),
-    });
+    const existingWallet = await findAccountWalletByNormalizedAddress(tx, normalizedWallet);
 
     let accountId = existingWallet?.accountId;
     if (!accountId) {
@@ -253,6 +249,15 @@ export async function loadOrCreateWalletCharacter({
         .map((talent) => toTalentSnapshot(talent.tree, talent.nodeId, talent.rank))
         .filter((talent): talent is TalentRankSnapshot => talent !== null),
     };
+  });
+}
+
+function findAccountWalletByNormalizedAddress(
+  db: Pick<NonNullable<ReturnType<typeof getDatabase>>, "query">,
+  normalizedWallet: string,
+) {
+  return db.query.accountWallets.findFirst({
+    where: sql`lower(${accountWallets.walletAddress}) = ${normalizedWallet}`,
   });
 }
 

@@ -36,7 +36,6 @@ import {
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
-  type WalletCharacterPreview,
 } from "@mferland/shared";
 import {
   fetchWalletCharacterProfile,
@@ -47,6 +46,13 @@ import {
   rememberInviteCode,
   rememberName,
 } from "./auth/identity";
+import {
+  canEnterWalletCharacter,
+  getExistingWalletCharacter,
+  getWalletEntryLabel,
+  isWalletProfilePending,
+  type WalletProfileState,
+} from "./auth/walletProfile";
 import { initializeAnalytics, trackEvent } from "./analytics";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type MobileMoveInput } from "./game/TownScene";
@@ -103,12 +109,6 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "static", label: "Static", x: 150, z: -92, yaw: Math.PI },
 ] as const;
 type DebugTravelDestination = typeof DEBUG_TRAVEL_DESTINATIONS[number];
-type WalletProfileState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "existing"; character: WalletCharacterPreview }
-  | { status: "new" }
-  | { status: "error"; message: string };
 type DebugTravelView = {
   x: number;
   z: number;
@@ -239,17 +239,26 @@ function AuthGate({
   const inviteRequired = isInviteRequired();
   const hasInviteCode = inviteCode.trim() !== "";
 
-  const existingCharacter = walletProfile.status === "existing" ? walletProfile.character : null;
+  const existingCharacter = getExistingWalletCharacter(walletProfile);
   const cleanName = existingCharacter?.name ?? (name.trim() || getStoredName());
   const creationTraits = useMemo(() => generateRandomMferTraits(creationSeed), [creationSeed]);
-  const walletProfileLoading = isConnected && walletProfile.status === "loading";
+  const walletProfileLoading = isWalletProfilePending(isConnected, walletProfile);
   const walletProfileError = walletProfile.status === "error" ? walletProfile.message : null;
   const walletNeedsCreation = isConnected && walletProfile.status === "new";
-  const canEnterWallet = Boolean(address)
-    && !walletProfileLoading
-    && !walletProfileError
-    && !(inviteRequired && !hasInviteCode)
-    && (!walletNeedsCreation || cleanName.trim().length > 0);
+  const canEnterWallet = canEnterWalletCharacter({
+    hasAddress: Boolean(address),
+    profilePending: walletProfileLoading,
+    profileError: Boolean(walletProfileError),
+    inviteRequired,
+    hasInviteCode,
+    needsCreation: walletNeedsCreation,
+    cleanName,
+  });
+  const walletEntryLabel = getWalletEntryLabel({
+    profilePending: walletProfileLoading,
+    needsCreation: walletNeedsCreation,
+    hasExistingCharacter: Boolean(existingCharacter),
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -444,7 +453,7 @@ function AuthGate({
             <>
               <button className="primary-btn wallet" type="button" onClick={enterWallet} disabled={isSwitchingWallet || isDisconnectPending || !canEnterWallet}>
                 <Gem size={18} />
-                {walletProfileLoading ? "checking saved mfer" : walletNeedsCreation ? "create verified mfer" : "enter as verified mfer"}
+                {walletEntryLabel}
               </button>
               <button
                 className="secondary-btn"
