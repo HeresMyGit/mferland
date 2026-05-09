@@ -6,7 +6,7 @@ import {
   type NpcSnapshot,
 } from "@mferland/shared";
 
-const TRAIT_MESH_MAPPING: Record<string, Record<string, string[]>> = {
+export const TRAIT_MESH_MAPPING: Record<string, Record<string, string[]>> = {
   type: {
     plain: ["type_plain", "body", "heres_my_signature"],
     charcoal: ["type_charcoal", "body", "heres_my_signature"],

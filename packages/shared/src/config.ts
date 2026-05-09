@@ -34,13 +34,13 @@ export const PROGRESSION = {
     5450,
   ],
   mobXpRewards: {
-    enemy: 18,
-    critter: 8,
-    beast: 22,
-    farmer: 34,
-    hog: 24,
-    rabbit: 6,
-    deer: 10,
+    enemy: 14,
+    critter: 6,
+    beast: 17,
+    farmer: 26,
+    hog: 18,
+    rabbit: 5,
+    deer: 8,
   },
 } as const;
 

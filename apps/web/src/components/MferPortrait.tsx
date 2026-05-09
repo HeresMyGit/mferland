@@ -261,7 +261,7 @@ function getMferPortraitTraitsKey(traits: MferTraits) {
 
 function makeLayerTraits(traits: MferTraits, officialTraits: Record<string, string>) {
   const layerTraits: Record<string, string> = {
-    background: officialTraits.background,
+    background: mapBackgroundForLayer(traits.background, officialTraits.background),
     type: mapTypeForLayer(traits.type),
     eyes: mapEyesForLayer(traits.eyes, traits.type),
     mouth: officialTraits.mouth,
@@ -300,6 +300,13 @@ function isOriginalMferBackground(value: string | undefined): value is OriginalM
     || value === "yellow";
 }
 
+function mapBackgroundForLayer(value: string | undefined, fallback: string) {
+  if (value === "purple") return "prettycoolpurple";
+  if (value === "turquoise") return "turquoise";
+  if (isOriginalMferBackground(value)) return value;
+  return fallback;
+}
+
 function mapTypeForMetadata(value: string | undefined) {
   if (value === "alien") return "alien mfer";
   if (value === "ape") return "ape mfer";
@@ -316,6 +323,8 @@ function mapTypeForLayer(value: string | undefined) {
 function mapEyesForMetadata(value: string | undefined, type: string | undefined) {
   if (type === "alien" && !isEyeOverlayTrait(value)) return "alien eyes";
   if (type === "zombie" && !isEyeOverlayTrait(value)) return "zombie eyes";
+  if (value === "alien") return "alien eyes";
+  if (value === "zombie") return "zombie eyes";
   if (value === "vr") return "vr";
   if (value === "shades" || value === "trippy" || value === "matrix") return "shades";
   if (value === "purple_shades") return "purple shades";
@@ -332,7 +341,8 @@ function isEyeOverlayTrait(value: string | undefined) {
 
 function mapEyesForLayer(value: string | undefined, type: string | undefined) {
   if (value === "matrix") return "mcxshades";
-  if (value === "metal" || value === "mfercoin" || value === "red") return "regular eyes";
+  if (value === "metal" || value === "red") return "scanner";
+  if (value === "mfercoin") return "regular eyes";
   return mapEyesForMetadata(value, type);
 }
 
@@ -362,6 +372,7 @@ function mapHatOverHeadphonesForMetadata(value: string | undefined) {
 
 function mapHatOverHeadphonesForLayer(value: string | undefined) {
   if (value === "cowboy" || value === "top" || value === "pilot") return mapHatOverHeadphonesForMetadata(value);
+  if (value === "larva_mfer") return "am_human";
   if (value === "hoodie_gray") return "hoodie";
   if (value === "hoodie_blue") return "hoodie blue og";
   if (value === "hoodie_green") return "hoodie green og";
@@ -388,6 +399,7 @@ function mapHatUnderHeadphonesForMetadata(value: string | undefined) {
   if (value === "knit_buffalo") return "knit buffalo";
   if (value === "knit_pittsburgh") return "knit pittsburgh";
   if (value === "cap_monochrome") return "cap monochrome";
+  if (value === "cap_based_blue") return "cap monochrome";
   if (value === "cap_purple") return "cap purple";
   if (value === "beanie_monochrome") return "beanie monochrome";
   if (value === "beanie") return "beanie";
@@ -400,7 +412,6 @@ function mapHatUnderHeadphonesForMetadata(value: string | undefined) {
 }
 
 function mapHatUnderHeadphonesForLayer(value: string | undefined) {
-  if (value === "cap_based_blue") return "cap based blue";
   return mapHatUnderHeadphonesForMetadata(value);
 }
 
@@ -430,7 +441,7 @@ function mapLongHairForMetadata(value: string | undefined) {
 }
 
 function mapLongHairForLayer(value: string | undefined) {
-  if (value === "long_curly") return "curly 1";
+  if (value === "long_curly") return "prettycoolhair";
   return mapLongHairForMetadata(value);
 }
 
@@ -463,6 +474,7 @@ function mapWatchForMetadata(value: string | undefined) {
   if (value === "oyster_gold") return "oyster gold";
   if (value === "argo_white") return "argo white";
   if (value === "argo_black") return "argo black";
+  if (value === "timex") return "timex";
   return null;
 }
 
@@ -477,7 +489,6 @@ function mapChainForMetadata(value: string | undefined) {
 }
 
 function mapChainForLayer(value: string | undefined) {
-  if (value === "onchain") return null;
   return mapChainForMetadata(value);
 }
 
@@ -563,6 +574,8 @@ function isLocalLayerRootAvailable(root: string) {
     cached = Promise.all([
       loadLayerImage(`${root}/background/blue.png`),
       loadLayerImage(`${root}/type/plain%20mfer.png`),
+      loadLayerImage(`${root}/background/prettycoolpurple.png`),
+      loadLayerImage(`${root}/type/robot%20mfer.png`),
     ]).then((images) => images.some(Boolean));
     localLayerRootCache.set(root, cached);
   }
@@ -612,6 +625,14 @@ function getLayerFilenames(folder: string, value: string) {
   }
 
   return [...filenames];
+}
+
+export function getMferPortraitLayerTraitsForTest(traits: MferTraits, requestedBackground?: OriginalMferBackground) {
+  return makeOriginalMferQuery(traits, requestedBackground).layerTraits;
+}
+
+export function getMferPortraitLayerFilenamesForTest(folder: string, value: string) {
+  return getLayerFilenames(folder, value);
 }
 
 async function loadFirstLayerImage(urls: string[]) {
