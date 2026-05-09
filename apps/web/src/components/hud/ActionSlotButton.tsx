@@ -41,6 +41,7 @@ export function ActionSlotButton({
   selectedTarget,
   selectedTargetUnit,
   now,
+  globalCooldownReadyAt = 0,
   debugUnlockAllMoves,
 }: {
   actionId: ActionSlot;
@@ -55,6 +56,7 @@ export function ActionSlotButton({
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   now: number;
+  globalCooldownReadyAt?: number;
   debugUnlockAllMoves: boolean;
 }) {
   const itemSlot = isItemActionSlot(actionId) ? actionId : null;
@@ -62,14 +64,14 @@ export function ActionSlotButton({
   const combatActionId = abilitySlot && abilitySlot !== "interact" ? abilitySlot : null;
   const action = abilitySlot ? getActionMeta(abilitySlot) : null;
   const item = itemSlot ? ITEMS[itemSlot.itemId] : null;
-  const cooldown = combatActionId ? getCooldownState(localPlayer, combatActionId, now) : null;
+  const cooldown = combatActionId ? getCooldownState(localPlayer, combatActionId, now, globalCooldownReadyAt) : null;
   const hasMana = combatActionId
     ? (localPlayer?.mana ?? 0) >= COMBAT.actions[combatActionId].manaCost
     : true;
   const usability: SlotUsability = itemSlot
     ? getItemUsability(itemSlot, localPlayer)
     : combatActionId
-    ? getCombatUsability(combatActionId, localPlayer, selectedTarget, selectedTargetUnit, now, debugUnlockAllMoves)
+    ? getCombatUsability(combatActionId, localPlayer, selectedTarget, selectedTargetUnit, now, debugUnlockAllMoves, globalCooldownReadyAt)
     : { usable: true, reason: "" };
   const filled = Boolean(action || itemSlot);
   const tooltip = getActionSlotTooltip(actionId, index, localPlayer, usability, cooldown);
@@ -161,8 +163,9 @@ export function getActionReadyAt(player: PlayerSnapshot | null, actionId: Combat
   return player.iceBlastReadyAt;
 }
 
-function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number) {
-  const remainingMs = Math.max(0, getActionReadyAt(player, actionId) - now);
+function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number, globalCooldownReadyAt = 0) {
+  const readyAt = Math.max(getActionReadyAt(player, actionId), globalCooldownReadyAt);
+  const remainingMs = Math.max(0, readyAt - now);
   const actionCooldownMs = player ? getTalentActionCooldownMs(actionId, player.talents) : COMBAT.actions[actionId].cooldownMs;
   const cooldownMs = Math.max(actionCooldownMs, COMBAT.universalCooldownMs);
   return {
@@ -272,13 +275,14 @@ function getCombatUsability(
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
   now: number,
   debugUnlockAllMoves: boolean,
+  globalCooldownReadyAt = 0,
 ) {
   if (!player) return { usable: false, reason: "" };
   if (player.castingAction) return { usable: false, reason: "Casting" };
   if (!isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves)) return { usable: false, reason: "Locked" };
 
   const action = COMBAT.actions[actionId];
-  if (getActionReadyAt(player, actionId) > now) return { usable: false, reason: "" };
+  if (Math.max(getActionReadyAt(player, actionId), globalCooldownReadyAt) > now) return { usable: false, reason: "" };
   if (player.mana < action.manaCost) return { usable: false, reason: "Mana" };
   if (actionId === "frostNova" || actionId === "whirlwind") return { usable: true, reason: "" };
   if (actionId === "heal") {

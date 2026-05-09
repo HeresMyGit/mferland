@@ -615,6 +615,7 @@ function GameShell({
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
+  const [globalCooldownReadyAt, setGlobalCooldownReadyAt] = useState(0);
   const [moveUnlockNotices, setMoveUnlockNotices] = useState<MoveUnlockNotice[]>([]);
   const [debugTravelView, setDebugTravelView] = useState<DebugTravelView | null>(null);
   const [settings, setSettings] = useState<GameSettings>(() => readStoredGameSettings());
@@ -786,18 +787,19 @@ function GameShell({
       room.sendUseItem({ itemId: slot.itemId, chainTokenId: slot.chainTokenId });
     } else {
       const debugUnlockAllMoves = debugToolsAvailable && settings.debugUnlockAllMoves;
-      const blockMessage = getCombatActionBlockMessage(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit, debugUnlockAllMoves);
+      const blockMessage = getCombatActionBlockMessage(slot, localPlayer ?? null, selectedTarget, selectedTargetUnit, debugUnlockAllMoves, globalCooldownReadyAt);
       if (blockMessage) {
         showActionError(blockMessage);
         return;
       }
+      setGlobalCooldownReadyAt(Date.now() + COMBAT.universalCooldownMs);
       room.sendCombatAction({
         actionId: slot,
         target: selectedTarget,
         debugUnlockAllMoves,
       });
     }
-  }, [audio, debugToolsAvailable, localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, settings.debugUnlockAllMoves, showActionError]);
+  }, [audio, debugToolsAvailable, globalCooldownReadyAt, localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, settings.debugUnlockAllMoves, showActionError]);
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
@@ -1220,6 +1222,7 @@ function GameShell({
             lootWindow={room.lootWindow}
             actionError={actionError}
             moveUnlockNotice={moveUnlockNotices[0] ?? null}
+            globalCooldownReadyAt={globalCooldownReadyAt}
             actionSlots={actionSlots}
             onAction={performAction}
             onReplaceActionSlots={replaceActionSlots}
@@ -1429,6 +1432,7 @@ function getCombatActionBlockMessage(
   selectedTarget: TargetSelection | null,
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null,
   debugUnlockAllMoves: boolean,
+  globalCooldownReadyAt = 0,
 ) {
   if (!player) return "Not ready";
   if (player.health <= 0) return "You are dead";
@@ -1454,7 +1458,7 @@ function getCombatActionBlockMessage(
                 : actionId === "multishot"
                   ? player.multishotReadyAt
                   : player.iceBlastReadyAt;
-  if (readyAt > now) return "Ability is not ready";
+  if (Math.max(readyAt, globalCooldownReadyAt) > now) return "Ability is not ready";
   if (player.mana < action.manaCost) return "Not enough mana";
   if (!isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves)) return "Ability is locked";
   if (actionId === "frostNova" || actionId === "whirlwind") return null;

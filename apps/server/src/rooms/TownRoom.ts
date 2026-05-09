@@ -1301,6 +1301,7 @@ export class TownRoom extends Room<TownState> {
     const healing = getPlayerHealingAmount(player, "heal");
     player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
     setActionReadyAt(player, "heal", now + action.cooldownMs);
+    applyPlayerUniversalCooldown(player, now);
     player.lastCastAt = now;
     const appliedHealing = applyUnitHealing(
       sessionId,

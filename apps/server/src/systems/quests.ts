@@ -43,29 +43,36 @@ export function getNpcQuestInteraction(npc: NpcState, player: PlayerState): NpcQ
   const questIds = getNpcQuestIds(npc.id);
   if (questIds.length === 0) return null;
 
-  for (const questId of questIds) {
-    const isGiver = QUESTS[questId].giverNpcId === npc.id;
-    const isTurnInNpc = getQuestTurnInNpcId(questId) === npc.id;
-    const quest = player.quests.get(questId);
-    if (!quest) {
-      if (!isGiver) continue;
-      if (!isQuestAvailable(player, questId)) continue;
+  const npcQuests = questIds.map((questId) => ({
+    questId,
+    isGiver: QUESTS[questId].giverNpcId === npc.id,
+    isTurnInNpc: getQuestTurnInNpcId(questId) === npc.id,
+    quest: player.quests.get(questId),
+  }));
 
+  for (const entry of npcQuests) {
+    if (!entry.quest) continue;
+    syncQuestState(player, entry.questId, entry.quest);
+  }
+
+  for (const { questId, isTurnInNpc, quest } of npcQuests) {
+    if (quest?.status === "ready" && isTurnInNpc) {
+      return { type: "turnIn", turnIn: makeQuestTurnIn(questId, npc, quest) };
+    }
+  }
+
+  for (const { questId, isGiver, quest } of npcQuests) {
+    if (!isGiver) continue;
+    if (!quest && isQuestAvailable(player, questId)) {
       return { type: "offer", offer: makeQuestOffer(questId, npc) };
     }
-
-    if (quest.status === "completed") {
-      if (isGiver && isQuestAvailable(player, questId)) {
-        return { type: "offer", offer: makeQuestOffer(questId, npc) };
-      }
-      continue;
+    if (quest?.status === "completed" && isQuestAvailable(player, questId)) {
+      return { type: "offer", offer: makeQuestOffer(questId, npc) };
     }
+  }
 
-    syncQuestItemProgress(player, questId);
-    if (quest.status === "active" && isQuestAutoReady(questId)) {
-      quest.status = "ready";
-      quest.progress = quest.required;
-    }
+  for (const { questId, isGiver, isTurnInNpc, quest } of npcQuests) {
+    if (!quest || quest.status === "completed") continue;
 
     if (quest.status === "active") {
       if (!isTurnInNpc && isGiver) {
@@ -75,19 +82,20 @@ export function getNpcQuestInteraction(npc: NpcState, player: PlayerState): NpcQ
       return { type: "status", notice: makeQuestStatusNotice(questId, npc, quest, getActiveQuestDialogue(questId, quest)) };
     }
 
-    if (quest.status === "ready") {
-      if (!isTurnInNpc) {
-        if (isGiver) {
-          return { type: "status", notice: makeQuestStatusNotice(questId, npc, quest, getQuestTravelDialogue(questId)) };
-        }
-        continue;
-      }
-
-      return { type: "turnIn", turnIn: makeQuestTurnIn(questId, npc, quest) };
+    if (quest.status === "ready" && !isTurnInNpc && isGiver) {
+      return { type: "status", notice: makeQuestStatusNotice(questId, npc, quest, getQuestTravelDialogue(questId)) };
     }
   }
 
   return { type: "flavor", text: getFinishedQuestDialogue(npc.id) };
+}
+
+function syncQuestState(player: PlayerState, questId: QuestId, quest: QuestState) {
+  syncQuestItemProgress(player, questId);
+  if (quest.status === "active" && isQuestAutoReady(questId)) {
+    quest.status = "ready";
+    quest.progress = quest.required;
+  }
 }
 
 function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {

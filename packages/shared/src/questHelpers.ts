@@ -93,17 +93,19 @@ export function getNpcQuestMarker(
   const questLog = quests ?? [];
 
   for (const questId of npcQuestIds) {
-    const isGiver = QUESTS[questId].giverNpcId === npc.id;
     const isTurnInNpc = getQuestTurnInNpcId(questId) === npc.id;
     const quest = questLog.find((entry) => entry.id === questId);
-    if (!quest) {
-      if (isGiver && isQuestAvailableForSnapshots(questId, questLog)) return "available";
-      continue;
-    }
 
-    if (quest.status === "completed" && isGiver && isQuestReadyToRepeat(questId, quest)) return "available";
-    if (quest.status === "ready" && isTurnInNpc) return "turnIn";
-    if (quest.status !== "completed") return null;
+    if (quest?.status === "ready" && isTurnInNpc) return "turnIn";
+  }
+
+  for (const questId of npcQuestIds) {
+    const isGiver = QUESTS[questId].giverNpcId === npc.id;
+    if (!isGiver) continue;
+
+    const quest = questLog.find((entry) => entry.id === questId);
+    if (!quest && isQuestAvailableForSnapshots(questId, questLog)) return "available";
+    if (quest?.status === "completed" && isQuestReadyToRepeat(questId, quest)) return "available";
   }
 
   return null;

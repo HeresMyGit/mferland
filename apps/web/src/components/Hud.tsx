@@ -134,6 +134,7 @@ type HudProps = {
   lootWindow: LootWindow | null;
   actionError: { id: number; text: string } | null;
   moveUnlockNotice: MoveUnlockNotice | null;
+  globalCooldownReadyAt?: number;
   actionSlots: ActionSlot[];
   onAction: (slot: NonNullable<ActionSlot>) => void;
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
@@ -182,6 +183,7 @@ export function Hud({
   lootWindow,
   actionError,
   moveUnlockNotice,
+  globalCooldownReadyAt = 0,
   actionSlots,
   onAction,
   onReplaceActionSlots,
@@ -283,7 +285,7 @@ export function Hud({
     () => new Date(clockMinute * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     [clockMinute],
   );
-  const hudTickDelay = getHudTickDelay(localPlayer, actionSlots, now);
+  const hudTickDelay = getHudTickDelay(localPlayer, actionSlots, now, globalCooldownReadyAt);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setNow(Date.now()), hudTickDelay);
@@ -1312,6 +1314,7 @@ export function Hud({
             selectedTarget={selectedTarget}
             selectedTargetUnit={selectedTargetUnit}
             now={now}
+            globalCooldownReadyAt={globalCooldownReadyAt}
             debugUnlockAllMoves={debugToolsAvailable && settings.debugUnlockAllMoves}
             onAction={onAction}
             onPointerStart={beginActionDrag}
@@ -1867,16 +1870,17 @@ function setCssProperty(element: HTMLElement, property: string, value: CSSProper
   }
 }
 
-function getHudTickDelay(player: PlayerSnapshot | null, actionSlots: ActionSlot[], now: number) {
-  if (player && actionSlots.some((actionId) => isCoolingDown(player, actionId, now))) return HUD_TICK_MS;
+function getHudTickDelay(player: PlayerSnapshot | null, actionSlots: ActionSlot[], now: number, globalCooldownReadyAt = 0) {
+  if (globalCooldownReadyAt > now) return HUD_TICK_MS;
+  if (player && actionSlots.some((actionId) => isCoolingDown(player, actionId, now, globalCooldownReadyAt))) return HUD_TICK_MS;
 
   const msToNextMinute = 60000 - (now % 60000);
   return Math.max(IDLE_HUD_TICK_MIN_MS, msToNextMinute + 50);
 }
 
-function isCoolingDown(player: PlayerSnapshot, actionId: ActionSlot, now: number) {
+function isCoolingDown(player: PlayerSnapshot, actionId: ActionSlot, now: number, globalCooldownReadyAt = 0) {
   if (!actionId || actionId === "interact" || isItemActionSlot(actionId)) return false;
-  return getActionReadyAt(player, actionId as CombatActionId) > now;
+  return Math.max(getActionReadyAt(player, actionId as CombatActionId), globalCooldownReadyAt) > now;
 }
 
 function ActionSlotGhost({

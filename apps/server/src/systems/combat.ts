@@ -110,6 +110,7 @@ export function updatePlayerCast(
       const damage = getPlayerActionDamage(player, actionId);
       player.mana = clamp(player.mana - action.manaCost, 0, player.maxMana);
       setActionReadyAt(player, actionId, now + action.cooldownMs);
+      applyPlayerUniversalCooldown(player, now);
       applyCombatDamage(sessionId, player, target, actionId, damage, now, emitCombatEvent, pendingCombatImpacts, creditNpcDefeat, tagNpcForCredit, recordNpcThreat);
   }
   clearPlayerCast(player);
