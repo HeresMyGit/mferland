@@ -3,6 +3,7 @@ import { Text } from "@react-three/drei";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
+import { getPerformanceModelUrl } from "../../modelQuality";
 import { MFERS_DISPLAY_FONT_URL } from "./fonts";
 import { type MarketStallSpec } from "./shared";
 
@@ -19,7 +20,7 @@ export function HangingSign({
   textColor?: string;
   outlineColor?: string;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/town-hanging-sign.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/town-hanging-sign.glb")) as { scene: THREE.Group };
   const model = useMemo(
     () => createColoredTownPropModel(gltf.scene, "town_sign_accent_color", color),
     [color, gltf.scene],
@@ -53,7 +54,7 @@ export function BannerPost({
   color: string;
   rotation?: number;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/banner-post.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/banner-post.glb")) as { scene: THREE.Group };
   const model = useMemo(
     () => createColoredTownPropModel(gltf.scene, "banner_post_cloth_color", color),
     [color, gltf.scene],
@@ -85,7 +86,7 @@ export function MarketStall({
   stall: MarketStallSpec;
   roofTexture: THREE.Texture;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/market-stall.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/market-stall.glb")) as { scene: THREE.Group };
   const model = useMemo(
     () => createColoredTownPropModel(gltf.scene, "market_stall_canopy_color", stall.color),
     [gltf.scene, stall.color],
@@ -119,7 +120,7 @@ export function WatchTower({
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/watch-tower.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/watch-tower.glb")) as { scene: THREE.Group };
   const model = useMemo(() => createWatchTowerModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;

@@ -5,6 +5,7 @@ import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
+import { getPerformanceModelUrl } from "../../modelQuality";
 import { traitsToMeshes, type MferTraits } from "../../mferTraits";
 
 const MFER_MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
@@ -32,7 +33,7 @@ export function Fountain({
   const spillRef = useRef<THREE.Group>(null);
   const splashRef = useRef<THREE.Group>(null);
   const dropletRef = useRef<THREE.Group>(null);
-  const gltf = useLoader(GLTFLoader, "/models/fountain-basin.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/fountain-basin.glb")) as { scene: THREE.Group };
   const basinModel = useMemo(() => createFountainBasinModel(gltf.scene), [gltf.scene]);
 
   useFrame(({ clock }, delta) => {
