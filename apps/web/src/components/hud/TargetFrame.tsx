@@ -6,10 +6,19 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { generateMferTraitsForActor, resolveMferTraitsForPlayer } from "../../game/mferTraits";
+import { type RenderPerformanceProfile } from "../../game/performance";
 import { ActorModelPortrait } from "../ActorModelPortrait";
 import { MferPortrait } from "../MferPortrait";
 
-export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; unit: PlayerSnapshot | NpcSnapshot }) {
+export function TargetFrame({
+  kind,
+  unit,
+  renderProfile,
+}: {
+  kind: TargetSelection["kind"];
+  unit: PlayerSnapshot | NpcSnapshot;
+  renderProfile?: RenderPerformanceProfile;
+}) {
   const isNpc = kind === "npc";
   const npc = isNpc ? (unit as NpcSnapshot) : null;
   const player = isNpc ? null : (unit as PlayerSnapshot);
@@ -36,7 +45,7 @@ export function TargetFrame({ kind, unit }: { kind: TargetSelection["kind"]; uni
         ) : showMferPortrait ? (
           <MferPortrait traits={portraitTraits} title={`${unit.name} mfer portrait`} />
         ) : (
-          <ActorModelPortrait npc={npc} />
+          <ActorModelPortrait npc={npc} renderProfile={renderProfile} />
         )}
       </div>
       <div className="target-vitals">

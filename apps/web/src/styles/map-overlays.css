@@ -1584,6 +1584,55 @@
   background: var(--mfer-yellow);
 }
 
+.settings-segmented-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.42fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  color: #fff8dc;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.settings-segmented-row > span {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-segmented-control {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.settings-segmented-control button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: rgba(255, 248, 220, 0.72);
+  background: rgba(255, 255, 255, 0.08);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.settings-segmented-control button.active {
+  border-color: rgba(255, 226, 96, 0.54);
+  color: #2b2117;
+  background: var(--mfer-yellow);
+}
+
 .settings-slider-row {
   display: grid;
   grid-template-columns: minmax(72px, 0.65fr) minmax(96px, 1fr) 34px;

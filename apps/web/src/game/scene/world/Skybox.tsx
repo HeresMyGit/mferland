@@ -1,12 +1,13 @@
 import { useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { type RenderPerformanceProfile } from "../../performance";
 import { createCloudTexture, createSkyTexture, createSunGlowTexture } from "./textures";
 
-export function Skybox() {
-  const skyTexture = useMemo(() => createSkyTexture(), []);
-  const cloudTexture = useMemo(() => createCloudTexture(), []);
-  const sunGlowTexture = useMemo(() => createSunGlowTexture(), []);
+export function Skybox({ renderProfile }: { renderProfile: RenderPerformanceProfile }) {
+  const skyTexture = useMemo(() => createSkyTexture(renderProfile), [renderProfile]);
+  const cloudTexture = useMemo(() => createCloudTexture(renderProfile), [renderProfile]);
+  const sunGlowTexture = useMemo(() => createSunGlowTexture(renderProfile), [renderProfile]);
   const skyRef = useRef<THREE.Mesh>(null);
   const cloudGroupRef = useRef<THREE.Group>(null);
   const sunRef = useRef<THREE.Mesh>(null);

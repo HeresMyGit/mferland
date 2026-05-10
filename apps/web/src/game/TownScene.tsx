@@ -541,11 +541,11 @@ function TownSceneComponent({
       <ambientLight intensity={1.15} />
       <hemisphereLight args={["#f4fbff", "#8da16f", 0.9]} />
       <directionalLight position={[-10, 18, 8]} intensity={1.55} color="#fff3d3" />
-      <Skybox />
+      <Skybox renderProfile={resolvedRenderProfile} />
 
       {!lightweightRender && (
         <Suspense fallback={null}>
-          <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
+          <TownWorld debugPlacementOverrides={debugPlacementOverrides} renderProfile={resolvedRenderProfile} />
         </Suspense>
       )}
       {debugPlacementMode && !lightweightRender && (

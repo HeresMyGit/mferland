@@ -12,11 +12,16 @@ export type MinimapVisibility = {
   friendlyNpcs: boolean;
 };
 
+export type GraphicsQuality = "auto" | "low" | "medium" | "high";
+
+export const GRAPHICS_QUALITY_OPTIONS: GraphicsQuality[] = ["auto", "low", "medium", "high"];
+
 export type GameSettings = {
   audio: AudioSettings;
   debugPlacementEditor: boolean;
   debugTravelPanel: boolean;
   debugUnlockAllMoves: boolean;
+  graphicsQuality: GraphicsQuality;
   minimap: MinimapVisibility;
   nameplates: NameplateVisibility;
 };
@@ -26,6 +31,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   debugPlacementEditor: false,
   debugTravelPanel: false,
   debugUnlockAllMoves: false,
+  graphicsQuality: "auto",
   minimap: {
     friendlyNpcs: false,
   },
@@ -66,11 +72,22 @@ export function normalizeGameSettings(value: unknown): GameSettings {
     debugPlacementEditor: Boolean(candidate.debugPlacementEditor),
     debugTravelPanel: Boolean(candidate.debugTravelPanel),
     debugUnlockAllMoves: Boolean(candidate.debugUnlockAllMoves),
+    graphicsQuality: normalizeGraphicsQuality(candidate.graphicsQuality),
     minimap: {
       friendlyNpcs: candidate.minimap?.friendlyNpcs ?? DEFAULT_GAME_SETTINGS.minimap.friendlyNpcs,
     },
     nameplates,
   };
+}
+
+function normalizeGraphicsQuality(value: unknown): GraphicsQuality {
+  return typeof value === "string" && isGraphicsQuality(value)
+    ? value
+    : DEFAULT_GAME_SETTINGS.graphicsQuality;
+}
+
+function isGraphicsQuality(value: string): value is GraphicsQuality {
+  return GRAPHICS_QUALITY_OPTIONS.includes(value as GraphicsQuality);
 }
 
 function isLegacyAllOnNameplateDefaults(value: Partial<NameplateVisibility> | undefined) {

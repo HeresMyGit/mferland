@@ -19,6 +19,7 @@ import {
   type DebugPlacementOverrides,
 } from "../debugPlacement";
 import { MFER_COLORS } from "../mferPalette";
+import { type RenderPerformanceProfile } from "../performance";
 import { getPerformanceModelUrl } from "../modelQuality";
 export { Skybox } from "./world/Skybox";
 
@@ -29,8 +30,10 @@ const PLAZA_SURFACE_Y = 0.016;
 
 export function TownWorld({
   debugPlacementOverrides = null,
+  renderProfile,
 }: {
   debugPlacementOverrides?: DebugPlacementOverrides | null;
+  renderProfile: RenderPerformanceProfile;
 }) {
   const [grassTexture, cobbleTexture, stoneTexture, roofTexture, timberTexture] = useTexture([
     "/textures/grass-town.webp",
@@ -39,19 +42,19 @@ export function TownWorld({
     "/textures/roof-tiles.webp",
     "/textures/timber-plaster.webp",
   ]) as THREE.Texture[];
-  const barkTexture = useMemo(() => createBarkTexture(), []);
-  const leafTexture = useMemo(() => createLeafTexture(), []);
-  const waterTexture = useMemo(() => createWaterTexture(), []);
-  const grassTuftTexture = useMemo(() => createGrassTuftTexture(), []);
-  const dirtPathTexture = useMemo(() => createDirtPathTexture(), []);
+  const barkTexture = useMemo(() => createBarkTexture(renderProfile), [renderProfile]);
+  const leafTexture = useMemo(() => createLeafTexture(renderProfile), [renderProfile]);
+  const waterTexture = useMemo(() => createWaterTexture(renderProfile), [renderProfile]);
+  const grassTuftTexture = useMemo(() => createGrassTuftTexture(renderProfile), [renderProfile]);
+  const dirtPathTexture = useMemo(() => createDirtPathTexture(renderProfile), [renderProfile]);
 
   useEffect(() => {
-    configureTile(grassTexture, 5.5, 5.5);
-    configureTile(cobbleTexture, 7.5, 7.5);
-    configureTile(stoneTexture, 2.2, 2.2);
-    configureTile(roofTexture, 1.6, 1.6);
-    configureTile(timberTexture, 1.25, 1.25);
-  }, [cobbleTexture, grassTexture, roofTexture, stoneTexture, timberTexture]);
+    configureTile(grassTexture, 5.5, 5.5, renderProfile);
+    configureTile(cobbleTexture, 7.5, 7.5, renderProfile);
+    configureTile(stoneTexture, 2.2, 2.2, renderProfile);
+    configureTile(roofTexture, 1.6, 1.6, renderProfile);
+    configureTile(timberTexture, 1.25, 1.25, renderProfile);
+  }, [cobbleTexture, grassTexture, renderProfile, roofTexture, stoneTexture, timberTexture]);
 
   const fountainPlacement = getDebugPlacementTransform("model:fountain", [0, 0, 0], 0, debugPlacementOverrides);
   const castleGatePlacement = getDebugPlacementTransform("model:castle-gate", [0, 0, -30], 0, debugPlacementOverrides);
@@ -78,6 +81,7 @@ export function TownWorld({
           position={[road.x, 0.01 + index * 0.0005, road.z]}
           size={[road.width, road.depth]}
           texture={cobbleTexture}
+          renderProfile={renderProfile}
         />
       ))}
       {WORLD_ROADS.filter((road) => road.surface === "dirt").map((road, index) => (
@@ -86,9 +90,10 @@ export function TownWorld({
           position={[road.x, 0.015 + index * 0.0005, road.z]}
           size={[road.width, road.depth]}
           texture={dirtPathTexture}
+          renderProfile={renderProfile}
         />
       ))}
-      <PlazaApron texture={cobbleTexture} />
+      <PlazaApron texture={cobbleTexture} renderProfile={renderProfile} />
 
       <mesh position={[0, -0.035, 0]}>
         <cylinderGeometry args={[21, 21, 0.09, 96]} />
@@ -107,12 +112,13 @@ export function TownWorld({
 
       <GroundDetailLayer grassTuftTexture={grassTuftTexture} />
       <group position={fountainPlacement.position} rotation-y={fountainPlacement.rotation}>
-        <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} />
+        <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} renderProfile={renderProfile} />
       </group>
       <CastleGate
         stoneTexture={stoneTexture}
         position={castleGatePlacement.position}
         rotation={castleGatePlacement.rotation}
+        renderProfile={renderProfile}
       />
       {TOWN_BUILDINGS.map((building) => (
         <TownBuilding
@@ -121,6 +127,7 @@ export function TownWorld({
           stoneTexture={stoneTexture}
           roofTexture={roofTexture}
           wallTexture={timberTexture}
+          renderProfile={renderProfile}
         />
       ))}
       {OUTPOST_BUILDINGS.map((building) => (
@@ -130,19 +137,20 @@ export function TownWorld({
           stoneTexture={stoneTexture}
           roofTexture={roofTexture}
           wallTexture={timberTexture}
+          renderProfile={renderProfile}
         />
       ))}
       {MARKET_STALLS.map((stall) => (
-        <MarketStall key={stall.id} stall={applyDebugPlacementToMarketStall(stall, debugPlacementOverrides)} roofTexture={roofTexture} />
+        <MarketStall key={stall.id} stall={applyDebugPlacementToMarketStall(stall, debugPlacementOverrides)} roofTexture={roofTexture} renderProfile={renderProfile} />
       ))}
       {OUTPOST_MARKET_STALLS.map((stall) => (
-        <MarketStall key={stall.id} stall={applyDebugPlacementToMarketStall(stall, debugPlacementOverrides)} roofTexture={roofTexture} />
+        <MarketStall key={stall.id} stall={applyDebugPlacementToMarketStall(stall, debugPlacementOverrides)} roofTexture={roofTexture} renderProfile={renderProfile} />
       ))}
-      <WatchTower position={westWatchTowerPlacement.position} rotation={westWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <WatchTower position={eastWatchTowerPlacement.position} rotation={eastWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <WatchTower position={ridgeWatchTowerPlacement.position} rotation={ridgeWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} />
-      <RundownFarm position={farmPlacement.position} rotation={farmPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} />
-      <SignalRelay position={signalRelayPlacement.position} rotation={signalRelayPlacement.rotation} />
+      <WatchTower position={westWatchTowerPlacement.position} rotation={westWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} renderProfile={renderProfile} />
+      <WatchTower position={eastWatchTowerPlacement.position} rotation={eastWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} renderProfile={renderProfile} />
+      <WatchTower position={ridgeWatchTowerPlacement.position} rotation={ridgeWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} renderProfile={renderProfile} />
+      <RundownFarm position={farmPlacement.position} rotation={farmPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} renderProfile={renderProfile} />
+      <SignalRelay position={signalRelayPlacement.position} rotation={signalRelayPlacement.rotation} renderProfile={renderProfile} />
       {WORLD_LANDMARKS.map((landmark) => {
         const transform = getDebugPlacementTransform(`prop:route-marker:${landmark.id}`, [landmark.x, 0, landmark.z], -Math.PI / 2, debugPlacementOverrides);
         return (
@@ -151,34 +159,35 @@ export function TownWorld({
             landmark={landmark}
             rotation={transform.rotation}
             position={transform.position}
+            renderProfile={renderProfile}
           />
         );
       })}
       <SpawnRing position={purpleSpawnPlacement.position} rotation={purpleSpawnPlacement.rotation} />
       <SpawnRing position={blueSpawnPlacement.position} rotation={blueSpawnPlacement.rotation} color={MFER_COLORS.signal} />
-      <DebugBannerPost id="prop:banner-gate-left" position={[-7.2, 0, -19.8]} color={MFER_COLORS.friendly} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-gate-right" position={[7.2, 0, -19.8]} color={MFER_COLORS.friendly} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-west-road" position={[-23.5, 0, -39]} color={MFER_COLORS.player} rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-east-road" position={[23.5, 0, -39]} color={MFER_COLORS.player} rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-inn" position={[-7.2, 0, 39]} color={MFER_COLORS.relay} rotation={Math.PI} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-forge" position={[7.2, 0, 39]} color={MFER_COLORS.fire} rotation={Math.PI} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-farm-route" position={[-83.8, 0, 59.6]} color={MFER_COLORS.relay} rotation={Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-field-camp" position={[-112, 0, 126]} color={MFER_COLORS.friendly} rotation={Math.PI} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-ridge-route" position={[94, 0, -22]} color={MFER_COLORS.signal} rotation={-Math.PI / 2} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-ridge-entry" position={[123, 0, -91]} color={MFER_COLORS.relay} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color={MFER_COLORS.hostile} overrides={debugPlacementOverrides} />
-      <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color={MFER_COLORS.hostile} rotation={Math.PI} overrides={debugPlacementOverrides} />
+      <DebugBannerPost id="prop:banner-gate-left" position={[-7.2, 0, -19.8]} color={MFER_COLORS.friendly} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-gate-right" position={[7.2, 0, -19.8]} color={MFER_COLORS.friendly} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-west-road" position={[-23.5, 0, -39]} color={MFER_COLORS.player} rotation={Math.PI / 2} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-east-road" position={[23.5, 0, -39]} color={MFER_COLORS.player} rotation={-Math.PI / 2} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-inn" position={[-7.2, 0, 39]} color={MFER_COLORS.relay} rotation={Math.PI} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-forge" position={[7.2, 0, 39]} color={MFER_COLORS.fire} rotation={Math.PI} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-farm-route" position={[-83.8, 0, 59.6]} color={MFER_COLORS.relay} rotation={Math.PI / 2} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-field-camp" position={[-112, 0, 126]} color={MFER_COLORS.friendly} rotation={Math.PI} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-ridge-route" position={[94, 0, -22]} color={MFER_COLORS.signal} rotation={-Math.PI / 2} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-ridge-entry" position={[123, 0, -91]} color={MFER_COLORS.relay} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color={MFER_COLORS.hostile} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
+      <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color={MFER_COLORS.hostile} rotation={Math.PI} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
       <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
     </group>
   );
 }
 
-function PlazaApron({ texture }: { texture: THREE.Texture }) {
+function PlazaApron({ texture, renderProfile }: { texture: THREE.Texture; renderProfile: RenderPerformanceProfile }) {
   const apronTexture = useMemo(() => {
     const map = texture.clone();
-    configureTile(map, 6.4, 5.2);
+    configureTile(map, 6.4, 5.2, renderProfile);
     return map;
-  }, [texture]);
+  }, [renderProfile, texture]);
 
   return (
     <group>
@@ -210,10 +219,12 @@ function SignalRouteMarker({
   landmark,
   position,
   rotation,
+  renderProfile,
 }: {
   landmark: WorldLandmark;
   position: [number, number, number];
   rotation: number;
+  renderProfile: RenderPerformanceProfile;
 }) {
   const accent = landmark.kind === "relay" ? MFER_COLORS.relay : MFER_COLORS.signal;
   const trim = landmark.kind === "relay" ? "#5c3aa8" : "#16798a";
@@ -236,6 +247,7 @@ function SignalRouteMarker({
           fontSize={labelSize}
           textColor="#271d14"
           outlineColor="#f9edc8"
+          renderProfile={renderProfile}
         />
       </group>
       <mesh position={[0, 0.05, 0]} rotation-x={-Math.PI / 2}>
@@ -246,8 +258,16 @@ function SignalRouteMarker({
   );
 }
 
-export function SignalRelay({ position, rotation }: { position: [number, number, number]; rotation: number }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/signal-relay-body.glb")) as { scene: THREE.Group };
+export function SignalRelay({
+  position,
+  rotation,
+  renderProfile,
+}: {
+  position: [number, number, number];
+  rotation: number;
+  renderProfile: RenderPerformanceProfile;
+}) {
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/signal-relay-body.glb", renderProfile)) as { scene: THREE.Group };
   const bodyModel = useMemo(() => createSignalRelayBodyModel(gltf.scene), [gltf.scene]);
 
   return (
@@ -277,15 +297,17 @@ function DebugBannerPost({
   rotation = 0,
   color,
   overrides,
+  renderProfile,
 }: {
   id: string;
   position: [number, number, number];
   rotation?: number;
   color: string;
   overrides: DebugPlacementOverrides | null | undefined;
+  renderProfile: RenderPerformanceProfile;
 }) {
   const transform = getDebugPlacementTransform(id, position, rotation, overrides);
-  return <BannerPost position={transform.position} color={color} rotation={transform.rotation} />;
+  return <BannerPost position={transform.position} color={color} rotation={transform.rotation} renderProfile={renderProfile} />;
 }
 
 function createSignalRelayBodyModel(sourceScene: THREE.Group) {

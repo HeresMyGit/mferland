@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { type RenderPerformanceProfile } from "../../performance";
 import {
   GRASS_TUFTS,
   GROUND_SMUDGE_DECALS,
@@ -16,16 +17,18 @@ export function RoadStrip({
   position,
   size,
   texture,
+  renderProfile,
 }: {
   position: [number, number, number];
   size: [number, number];
   texture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
   const roadTexture = useMemo(() => {
     const map = texture.clone();
-    configureTile(map, Math.max(0.75, size[0] / 11), Math.max(0.75, size[1] / 11));
+    configureTile(map, Math.max(0.75, size[0] / 11), Math.max(0.75, size[1] / 11), renderProfile);
     return map;
-  }, [size[0], size[1], texture]);
+  }, [renderProfile, size[0], size[1], texture]);
 
   return (
     <mesh rotation-x={-Math.PI / 2} position={position}>
@@ -39,16 +42,18 @@ export function DirtPath({
   position,
   size,
   texture,
+  renderProfile,
 }: {
   position: [number, number, number];
   size: [number, number];
   texture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
   const pathTexture = useMemo(() => {
     const map = texture.clone();
-    configureTile(map, Math.max(0.75, size[0] / 9), Math.max(0.75, size[1] / 9));
+    configureTile(map, Math.max(0.75, size[0] / 9), Math.max(0.75, size[1] / 9), renderProfile);
     return map;
-  }, [size[0], size[1], texture]);
+  }, [renderProfile, size[0], size[1], texture]);
 
   return (
     <mesh rotation-x={-Math.PI / 2} position={position}>

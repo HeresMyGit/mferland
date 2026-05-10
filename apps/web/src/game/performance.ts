@@ -1,7 +1,14 @@
+import { type GraphicsQuality } from "./settings";
+
 export type CanvasDpr = [number, number];
+type ResolvedGraphicsQuality = Exclude<GraphicsQuality, "auto">;
 
 export type RenderPerformanceProfile = {
+  graphicsQuality: ResolvedGraphicsQuality;
+  requestedGraphicsQuality: GraphicsQuality;
+  cacheKey: string;
   isCompactTouch: boolean;
+  isLowMemoryDevice: boolean;
   antialias: boolean;
   powerPreference: WebGLPowerPreference;
   previewDpr: CanvasDpr;
@@ -14,53 +21,113 @@ export type RenderPerformanceProfile = {
   textureAnisotropy: number;
   loadedTextureScale: number;
   loadedTextureMaxSize: number;
+  useOptimizedModelAssets: boolean;
   proceduralTextureScale: number;
 };
 
-let cachedProfile: RenderPerformanceProfile | null = null;
+type RenderEnvironment = {
+  compactTouch: boolean;
+  lowMemory: boolean;
+};
 
-export function getClientRenderPerformanceProfile(): RenderPerformanceProfile {
+type QualityProfileValues = Omit<
+  RenderPerformanceProfile,
+  "graphicsQuality" | "requestedGraphicsQuality" | "cacheKey" | "isCompactTouch" | "isLowMemoryDevice"
+>;
+
+const QUALITY_PROFILES: Record<ResolvedGraphicsQuality, QualityProfileValues> = {
+  low: {
+    antialias: false,
+    powerPreference: "low-power",
+    previewDpr: [1, 1.1],
+    gameDpr: [1, 1.1],
+    loaderDpr: [1, 1.15],
+    portraitDpr: [1, 1.1],
+    actorRenderRadius: 58,
+    heavyActorRenderRadius: 58,
+    actorRenderBudget: 24,
+    textureAnisotropy: 1,
+    loadedTextureScale: 0.5,
+    loadedTextureMaxSize: 512,
+    useOptimizedModelAssets: true,
+    proceduralTextureScale: 0.5,
+  },
+  medium: {
+    antialias: true,
+    powerPreference: "high-performance",
+    previewDpr: [1, 1.2],
+    gameDpr: [1, 1.25],
+    loaderDpr: [1, 1.5],
+    portraitDpr: [1, 1.25],
+    actorRenderRadius: 78,
+    heavyActorRenderRadius: 72,
+    actorRenderBudget: 48,
+    textureAnisotropy: 2,
+    loadedTextureScale: 0.75,
+    loadedTextureMaxSize: 1024,
+    useOptimizedModelAssets: false,
+    proceduralTextureScale: 0.75,
+  },
+  high: {
+    antialias: true,
+    powerPreference: "high-performance",
+    previewDpr: [1, 1.35],
+    gameDpr: [1, 1.5],
+    loaderDpr: [1, 2],
+    portraitDpr: [1, 1.5],
+    actorRenderRadius: 96,
+    heavyActorRenderRadius: 96,
+    actorRenderBudget: 80,
+    textureAnisotropy: 4,
+    loadedTextureScale: 1,
+    loadedTextureMaxSize: Number.POSITIVE_INFINITY,
+    useOptimizedModelAssets: false,
+    proceduralTextureScale: 1,
+  },
+};
+
+const profileCache = new Map<string, RenderPerformanceProfile>();
+
+export function getClientRenderPerformanceProfile(graphicsQuality: GraphicsQuality = "auto"): RenderPerformanceProfile {
+  const environment = getRenderEnvironment();
+  const resolvedQuality = resolveGraphicsQuality(graphicsQuality, environment);
+  const cacheKey = [
+    graphicsQuality,
+    resolvedQuality,
+    environment.compactTouch ? "compact-touch" : "wide",
+    environment.lowMemory ? "low-memory" : "memory-ok",
+  ].join(":");
+  const cachedProfile = profileCache.get(cacheKey);
   if (cachedProfile) return cachedProfile;
 
-  const compactTouch = isCompactTouchViewport();
-  const lowMemory = hasLowReportedDeviceMemory();
-  const constrained = compactTouch || lowMemory;
+  const profile = {
+    graphicsQuality: resolvedQuality,
+    requestedGraphicsQuality: graphicsQuality,
+    cacheKey,
+    isCompactTouch: environment.compactTouch,
+    isLowMemoryDevice: environment.lowMemory,
+    ...QUALITY_PROFILES[resolvedQuality],
+  };
+  profileCache.set(cacheKey, profile);
 
-  cachedProfile = constrained
-    ? {
-        isCompactTouch: compactTouch,
-        antialias: false,
-        powerPreference: "low-power",
-        previewDpr: [1, 1.1],
-        gameDpr: [1, 1.1],
-        loaderDpr: [1, 1.15],
-        portraitDpr: [1, 1.1],
-        actorRenderRadius: 58,
-        heavyActorRenderRadius: 58,
-        actorRenderBudget: 24,
-        textureAnisotropy: 1,
-        loadedTextureScale: 0.5,
-        loadedTextureMaxSize: 512,
-        proceduralTextureScale: 0.5,
-      }
-    : {
-        isCompactTouch: false,
-        antialias: true,
-        powerPreference: "high-performance",
-        previewDpr: [1, 1.35],
-        gameDpr: [1, 1.5],
-        loaderDpr: [1, 2],
-        portraitDpr: [1, 1.5],
-        actorRenderRadius: 96,
-        heavyActorRenderRadius: 96,
-        actorRenderBudget: 80,
-        textureAnisotropy: 4,
-        loadedTextureScale: 1,
-        loadedTextureMaxSize: Number.POSITIVE_INFINITY,
-        proceduralTextureScale: 1,
-      };
+  return profile;
+}
 
-  return cachedProfile;
+function getRenderEnvironment(): RenderEnvironment {
+  return {
+    compactTouch: isCompactTouchViewport(),
+    lowMemory: hasLowReportedDeviceMemory(),
+  };
+}
+
+function resolveGraphicsQuality(
+  graphicsQuality: GraphicsQuality,
+  environment: RenderEnvironment,
+): ResolvedGraphicsQuality {
+  if (graphicsQuality !== "auto") return graphicsQuality;
+  if (environment.compactTouch) return "low";
+  if (environment.lowMemory) return "medium";
+  return "high";
 }
 
 function isCompactTouchViewport() {

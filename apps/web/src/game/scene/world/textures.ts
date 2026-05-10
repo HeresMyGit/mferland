@@ -1,10 +1,10 @@
 import * as THREE from "three";
-import { getClientRenderPerformanceProfile } from "../../performance";
+import { getClientRenderPerformanceProfile, type RenderPerformanceProfile } from "../../performance";
 import { markTextureImageAsPerformanceSized, optimizeTextureForPerformance } from "../../textureQuality";
 import { noise01 } from "./shared";
 
-export function createSkyTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(2048, 1024);
+export function createSkyTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(2048, 1024, profile);
   const texture = createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const skyGradient = context.createLinearGradient(0, 0, 0, height);
     skyGradient.addColorStop(0, "#2b79c8");
@@ -48,16 +48,16 @@ export function createSkyTexture() {
     vignette.addColorStop(1, "rgba(42, 89, 122, 0.22)");
     context.fillStyle = vignette;
     context.fillRect(0, 0, width, height);
-  });
+  }, 1, 1, profile);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
+  texture.anisotropy = profile.textureAnisotropy;
   texture.needsUpdate = true;
   return texture;
 }
 
-export function createCloudTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(768, 256);
+export function createCloudTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(768, 256, profile);
   const texture = createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     for (let layer = 0; layer < 4; layer += 1) {
       for (let i = 0; i < 80; i += 1) {
@@ -85,16 +85,16 @@ export function createCloudTexture() {
     context.fillStyle = shade;
     context.fillRect(0, 0, width, height);
     context.globalCompositeOperation = "source-over";
-  });
+  }, 1, 1, profile);
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
+  texture.anisotropy = profile.textureAnisotropy;
   texture.needsUpdate = true;
   return texture;
 }
 
-export function createSunGlowTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(512, 512);
+export function createSunGlowTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(512, 512, profile);
   const texture = createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const center = width / 2;
     const glow = context.createRadialGradient(center, center, 0, center, center, width / 2);
@@ -111,7 +111,7 @@ export function createSunGlowTexture() {
     context.beginPath();
     context.arc(center, center, width * 0.095, 0, Math.PI * 2);
     context.stroke();
-  });
+  }, 1, 1, profile);
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
@@ -210,18 +210,23 @@ function paintHorizonClouds(context: CanvasRenderingContext2D, width: number, he
   context.restore();
 }
 
-export function configureTile(texture: THREE.Texture, repeatX: number, repeatY: number) {
-  optimizeTextureForPerformance(texture);
+export function configureTile(
+  texture: THREE.Texture,
+  repeatX: number,
+  repeatY: number,
+  profile: RenderPerformanceProfile = getClientRenderPerformanceProfile(),
+) {
+  optimizeTextureForPerformance(texture, profile);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
+  texture.anisotropy = profile.textureAnisotropy;
   texture.needsUpdate = true;
 }
 
-export function createBarkTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(128, 256);
+export function createBarkTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(128, 256, profile);
   return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const gradient = context.createLinearGradient(0, 0, width, 0);
     gradient.addColorStop(0, "#5a311c");
@@ -249,11 +254,11 @@ export function createBarkTexture() {
       context.fillStyle = "rgba(32, 19, 12, 0.38)";
       context.fillRect(0, y, width, 1 + noise01(i * 3.1) * 3);
     }
-  }, 1.4, 2.6);
+  }, 1.4, 2.6, profile);
 }
 
-export function createLeafTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(128, 128);
+export function createLeafTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(128, 128, profile);
   return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     context.fillStyle = "#5a953e";
     context.fillRect(0, 0, width, height);
@@ -278,11 +283,11 @@ export function createLeafTexture() {
       context.lineTo(width, y + Math.sin(i) * 12);
       context.stroke();
     }
-  }, 2.1, 2.1);
+  }, 2.1, 2.1, profile);
 }
 
-export function createGrassTuftTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(64, 64);
+export function createGrassTuftTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(64, 64, profile);
   return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     context.clearRect(0, 0, width, height);
 
@@ -312,11 +317,11 @@ export function createGrassTuftTexture() {
     context.beginPath();
     context.ellipse(width / 2, 59, 18, 5, 0, 0, Math.PI * 2);
     context.fill();
-  });
+  }, 1, 1, profile);
 }
 
-export function createDirtPathTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(512, 512);
+export function createDirtPathTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(512, 512, profile);
   return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const base = context.createLinearGradient(0, 0, width, height);
     base.addColorStop(0, "#6f5334");
@@ -363,11 +368,11 @@ export function createDirtPathTexture() {
     vignette.addColorStop(1, "rgba(46, 31, 19, 0.26)");
     context.fillStyle = vignette;
     context.fillRect(0, 0, width, height);
-  }, 2, 2);
+  }, 2, 2, profile);
 }
 
-export function createWaterTexture() {
-  const [textureWidth, textureHeight] = getProceduralTextureSize(256, 256);
+export function createWaterTexture(profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(256, 256, profile);
   return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const gradient = context.createRadialGradient(width / 2, height / 2, 8, width / 2, height / 2, width / 2);
     gradient.addColorStop(0, "#bdf8ff");
@@ -399,7 +404,7 @@ export function createWaterTexture() {
       context.arc(x, y, size, 0, Math.PI * 2);
       context.fill();
     }
-  }, 1.5, 1.5);
+  }, 1.5, 1.5, profile);
 }
 
 function createCanvasTexture(
@@ -408,6 +413,7 @@ function createCanvasTexture(
   paint: (context: CanvasRenderingContext2D, width: number, height: number) => void,
   repeatX = 1,
   repeatY = 1,
+  profile: RenderPerformanceProfile = getClientRenderPerformanceProfile(),
 ) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -423,14 +429,18 @@ function createCanvasTexture(
   texture.repeat.set(repeatX, repeatY);
   texture.center.set(0.5, 0.5);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
+  texture.anisotropy = profile.textureAnisotropy;
   texture.needsUpdate = true;
-  optimizeTextureForPerformance(texture);
+  optimizeTextureForPerformance(texture, profile);
   return texture;
 }
 
-function getProceduralTextureSize(width: number, height: number): [number, number] {
-  const scale = getClientRenderPerformanceProfile().proceduralTextureScale;
+function getProceduralTextureSize(
+  width: number,
+  height: number,
+  profile: RenderPerformanceProfile = getClientRenderPerformanceProfile(),
+): [number, number] {
+  const scale = profile.proceduralTextureScale;
   return [
     Math.max(64, Math.round(width * scale)),
     Math.max(64, Math.round(height * scale)),

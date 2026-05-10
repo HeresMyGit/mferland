@@ -12,6 +12,17 @@ test("defaults nameplates to other players only", () => {
   });
 });
 
+test("defaults graphics quality to auto", () => {
+  assert.equal(DEFAULT_GAME_SETTINGS.graphicsQuality, "auto");
+});
+
+test("normalizes graphics quality", () => {
+  assert.equal(normalizeGameSettings({ graphicsQuality: "low" }).graphicsQuality, "low");
+  assert.equal(normalizeGameSettings({ graphicsQuality: "medium" }).graphicsQuality, "medium");
+  assert.equal(normalizeGameSettings({ graphicsQuality: "high" }).graphicsQuality, "high");
+  assert.equal(normalizeGameSettings({ graphicsQuality: "ultra" }).graphicsQuality, "auto");
+});
+
 test("migrates untouched legacy all-on nameplate defaults", () => {
   const settings = normalizeGameSettings({
     nameplates: {

@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
+import { type RenderPerformanceProfile } from "../../performance";
 import { getPerformanceModelUrl } from "../../modelQuality";
 import { HangingSign } from "./TownProps";
 import {
@@ -18,6 +19,7 @@ export function RundownFarm({
   roofTexture,
   wallTexture,
   barkTexture,
+  renderProfile,
 }: {
   position: [number, number, number];
   rotation?: number;
@@ -25,6 +27,7 @@ export function RundownFarm({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
   barkTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
   return (
     <group position={position} rotation-y={rotation}>
@@ -32,16 +35,16 @@ export function RundownFarm({
       <MudPatch position={[7.8, 0.027, 3.8]} scale={[6.2, 3.2, 1]} />
       <MudPatch position={[-8.8, 0.027, 4.4]} scale={[5.8, 3.6, 1]} />
       <BrokenFence width={26} depth={18} barkTexture={barkTexture} />
-      <FarmHouse position={[-7.8, 0, -3.8]} rotation={Math.PI + 0.1} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
-      <SaggingBarn position={[7.2, 0, -3.2]} rotation={Math.PI - 0.12} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} />
+      <FarmHouse position={[-7.8, 0, -3.8]} rotation={Math.PI + 0.1} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} renderProfile={renderProfile} />
+      <SaggingBarn position={[7.2, 0, -3.2]} rotation={Math.PI - 0.12} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={wallTexture} renderProfile={renderProfile} />
       <CollapsedShed position={[5.8, 0, 6.4]} rotation={0.38} roofTexture={roofTexture} barkTexture={barkTexture} />
-      <Scarecrow position={[-10.2, 0, 5.8]} rotation={0.34} />
-      <FarmEntranceSign barkTexture={barkTexture} />
+      <Scarecrow position={[-10.2, 0, 5.8]} rotation={0.34} renderProfile={renderProfile} />
+      <FarmEntranceSign barkTexture={barkTexture} renderProfile={renderProfile} />
     </group>
   );
 }
 
-function FarmEntranceSign({ barkTexture }: { barkTexture: THREE.Texture }) {
+function FarmEntranceSign({ barkTexture, renderProfile }: { barkTexture: THREE.Texture; renderProfile: RenderPerformanceProfile }) {
   return (
     <group position={[0, 0, -9.45]}>
       <mesh position={[-1.78, 1.03, 0]}>
@@ -57,7 +60,7 @@ function FarmEntranceSign({ barkTexture }: { barkTexture: THREE.Texture }) {
         <meshBasicMaterial map={barkTexture} color="#4b2d18" />
       </mesh>
       <group position={[0, 1.62, -0.02]} rotation-y={Math.PI} scale={[0.62, 0.62, 0.62]}>
-        <HangingSign label="RED EYE" color="#b46e34" fontSize={0.56} />
+        <HangingSign label="RED EYE" color="#b46e34" fontSize={0.56} renderProfile={renderProfile} />
       </group>
     </group>
   );
@@ -84,14 +87,16 @@ function FarmHouse({
   stoneTexture,
   roofTexture,
   wallTexture,
+  renderProfile,
 }: {
   position: [number, number, number];
   rotation: number;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/damaged-farmhouse.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/damaged-farmhouse.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(() => createFarmBuildingModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
@@ -110,14 +115,16 @@ function SaggingBarn({
   stoneTexture,
   roofTexture,
   wallTexture,
+  renderProfile,
 }: {
   position: [number, number, number];
   rotation: number;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/sagging-barn.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/sagging-barn.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(() => createFarmBuildingModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
@@ -160,11 +167,13 @@ function CollapsedShed({
 function Scarecrow({
   position,
   rotation,
+  renderProfile,
 }: {
   position: [number, number, number];
   rotation: number;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/farm-scarecrow.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/farm-scarecrow.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(() => createFarmScarecrowModel(gltf.scene), [gltf.scene]);
 
   return (

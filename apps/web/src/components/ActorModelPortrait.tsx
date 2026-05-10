@@ -3,7 +3,7 @@ import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { getNpcDisposition, type NpcSnapshot } from "@mferland/shared";
-import { getClientRenderPerformanceProfile } from "../game/performance";
+import { getClientRenderPerformanceProfile, type RenderPerformanceProfile } from "../game/performance";
 import { DeerModel, HogModel, RabbitModel } from "./CreatureAvatar";
 import { createMferGptAvatar } from "./MferGptAvatar";
 import { createTrainingDummyModel } from "./TrainingDummyAvatar";
@@ -34,16 +34,16 @@ const PORTRAIT_CONFIG: Record<NpcSnapshot["model"], PortraitConfig> = {
   hog: { cameraY: 0.92, cameraZ: 2.95, lookY: 0.82, modelY: 0.02, scale: 1.38, sway: 0.13, bob: 0.025 },
 };
 
-export function ActorModelPortrait({ npc }: { npc: NpcSnapshot }) {
+export function ActorModelPortrait({ npc, renderProfile }: { npc: NpcSnapshot; renderProfile?: RenderPerformanceProfile }) {
   const config = PORTRAIT_CONFIG[npc.model] ?? PORTRAIT_CONFIG.hog;
-  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
+  const resolvedRenderProfile = useMemo(() => renderProfile ?? getClientRenderPerformanceProfile(), [renderProfile]);
 
   return (
     <Canvas
       className="model-portrait-canvas"
-      dpr={renderProfile.portraitDpr}
+      dpr={resolvedRenderProfile.portraitDpr}
       camera={{ position: [0, config.cameraY, config.cameraZ], fov: 27, near: 0.1, far: 30 }}
-      gl={{ antialias: renderProfile.antialias, alpha: true, powerPreference: renderProfile.powerPreference }}
+      gl={{ antialias: resolvedRenderProfile.antialias, alpha: true, powerPreference: resolvedRenderProfile.powerPreference }}
       aria-label={`${npc.name} model portrait`}
       role="img"
     >

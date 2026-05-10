@@ -51,7 +51,8 @@ import { colorFromSeed } from "../game/random";
 import { type AudioSettings } from "../game/audio";
 import { MFER_COLORS } from "../game/mferPalette";
 import { resolveMferTraitsForPlayer } from "../game/mferTraits";
-import { type GameSettings, type NameplateVisibility } from "../game/settings";
+import { GRAPHICS_QUALITY_OPTIONS, type GameSettings, type GraphicsQuality, type NameplateVisibility } from "../game/settings";
+import { type RenderPerformanceProfile } from "../game/performance";
 import { ActionSlotButton, getActionMeta, getActionReadyAt } from "./hud/ActionSlotButton";
 import { AbilitiesPanel } from "./hud/AbilitiesPanel";
 import { AbilityIcon, EquipmentSlotIcon } from "./hud/GameIcon";
@@ -160,6 +161,7 @@ type HudProps = {
   onSelectSelfTarget: () => void;
   onExit: () => void;
   settings: GameSettings;
+  renderProfile: RenderPerformanceProfile;
   debugToolsAvailable: boolean;
   onSettingsChange: (settings: GameSettings) => void;
 };
@@ -209,6 +211,7 @@ export function Hud({
   onSelectSelfTarget,
   onExit,
   settings,
+  renderProfile,
   debugToolsAvailable,
   onSettingsChange,
 }: HudProps) {
@@ -860,6 +863,7 @@ export function Hud({
         <TargetFrame
           kind={selectedTarget.kind}
           unit={selectedTargetUnit}
+          renderProfile={renderProfile}
         />
       )}
 
@@ -1427,6 +1431,10 @@ function SettingsPanel({
     });
   }
 
+  function updateGraphicsQuality(value: GraphicsQuality) {
+    onChange({ ...settings, graphicsQuality: value });
+  }
+
   function updateNameplateSetting(key: keyof NameplateVisibility, value: boolean) {
     onChange({
       ...settings,
@@ -1448,6 +1456,19 @@ function SettingsPanel({
           <X size={22} />
         </button>
       </div>
+
+      <section className="settings-section">
+        <strong>Graphics</strong>
+        <SettingsSegmentedControl
+          label="Quality"
+          value={settings.graphicsQuality}
+          options={GRAPHICS_QUALITY_OPTIONS.map((option) => ({
+            value: option,
+            label: option,
+          }))}
+          onChange={updateGraphicsQuality}
+        />
+      </section>
 
       <section className="settings-section">
         <strong>Audio</strong>
@@ -1572,6 +1593,38 @@ function SettingsToggle({
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <i aria-hidden="true" />
     </label>
+  );
+}
+
+function SettingsSegmentedControl<TValue extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: TValue;
+  options: Array<{ value: TValue; label: string }>;
+  onChange: (value: TValue) => void;
+}) {
+  return (
+    <div className="settings-segmented-row">
+      <span>{label}</span>
+      <div className="settings-segmented-control" role="radiogroup" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={option.value === value}
+            className={option.value === value ? "active" : ""}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -4,6 +4,7 @@ import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
 import { getPerformanceModelUrl } from "../../modelQuality";
+import { type RenderPerformanceProfile } from "../../performance";
 import { MFERS_DISPLAY_FONT_URL } from "./fonts";
 import { type MarketStallSpec } from "./shared";
 
@@ -13,14 +14,16 @@ export function HangingSign({
   fontSize = 0.6,
   textColor = "#2b2117",
   outlineColor = "#f7e4b8",
+  renderProfile,
 }: {
   label: string;
   color: string;
   fontSize?: number;
   textColor?: string;
   outlineColor?: string;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/town-hanging-sign.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/town-hanging-sign.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(
     () => createColoredTownPropModel(gltf.scene, "town_sign_accent_color", color),
     [color, gltf.scene],
@@ -49,12 +52,14 @@ export function BannerPost({
   position,
   color,
   rotation = 0,
+  renderProfile,
 }: {
   position: [number, number, number];
   color: string;
   rotation?: number;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/banner-post.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/banner-post.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(
     () => createColoredTownPropModel(gltf.scene, "banner_post_cloth_color", color),
     [color, gltf.scene],
@@ -82,11 +87,13 @@ export function BannerPost({
 export function MarketStall({
   stall,
   roofTexture,
+  renderProfile,
 }: {
   stall: MarketStallSpec;
   roofTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/market-stall.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/market-stall.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(
     () => createColoredTownPropModel(gltf.scene, "market_stall_canopy_color", stall.color),
     [gltf.scene, stall.color],
@@ -96,15 +103,15 @@ export function MarketStall({
   return (
     <group position={stall.position} rotation-y={stall.rotation}>
       <primitive object={model} dispose={null} />
-      <MarketStallSign color={stall.color} />
+      <MarketStallSign color={stall.color} renderProfile={renderProfile} />
     </group>
   );
 }
 
-function MarketStallSign({ color }: { color: string }) {
+function MarketStallSign({ color, renderProfile }: { color: string; renderProfile: RenderPerformanceProfile }) {
   return (
     <group position={[0, 2.04, 1.36]} scale={[0.42, 0.42, 0.42]}>
-      <HangingSign label="MKT" color={color} fontSize={0.6} />
+      <HangingSign label="MKT" color={color} fontSize={0.6} renderProfile={renderProfile} />
     </group>
   );
 }
@@ -114,13 +121,15 @@ export function WatchTower({
   rotation = 0,
   stoneTexture,
   roofTexture,
+  renderProfile,
 }: {
   position: [number, number, number];
   rotation?: number;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/watch-tower.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/watch-tower.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(() => createWatchTowerModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
@@ -128,7 +137,7 @@ export function WatchTower({
   return (
     <group position={position} rotation-y={rotation}>
       <primitive object={model} dispose={null} />
-      <BannerPost position={[0, 0.04, 1.9]} color="#395da8" />
+      <BannerPost position={[0, 0.04, 1.9]} color="#395da8" renderProfile={renderProfile} />
     </group>
   );
 }

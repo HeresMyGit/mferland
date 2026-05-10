@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
+import { type RenderPerformanceProfile } from "../../performance";
 import { getPerformanceModelUrl } from "../../modelQuality";
 import { HangingSign } from "./TownProps";
 import {
@@ -21,12 +22,14 @@ export function CastleGate({
   stoneTexture,
   position = [0, 0, -30],
   rotation = 0,
+  renderProfile,
 }: {
   stoneTexture: THREE.Texture;
   position?: Vec3Tuple;
   rotation?: number;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/castle-gate.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/castle-gate.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(() => createCastleGateModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
 
@@ -229,13 +232,15 @@ export function TownBuilding({
   stoneTexture,
   roofTexture,
   wallTexture,
+  renderProfile,
 }: {
   placement: TownBuildingPlacement;
   stoneTexture: THREE.Texture;
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/town-shopfront.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/town-shopfront.glb", renderProfile)) as { scene: THREE.Group };
   const model = useMemo(() => createTownShopfrontModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
@@ -244,7 +249,7 @@ export function TownBuilding({
   return (
     <group position={placement.position} rotation-y={placement.rotation}>
       <primitive object={model} dispose={null} />
-      <ShopSign sign={placement.sign} accent={placement.accent} />
+      <ShopSign sign={placement.sign} accent={placement.accent} renderProfile={renderProfile} />
     </group>
   );
 }
@@ -269,16 +274,18 @@ function BuildingModule({
   module,
   placement,
   textures,
+  renderProfile,
 }: {
   module: BuildingModuleSpec;
   placement: TownBuildingPlacement;
   textures: BuildingTextures;
+  renderProfile: RenderPerformanceProfile;
 }) {
   if (module.kind === "box") return <BuildingBox module={module} placement={placement} textures={textures} />;
   if (module.kind === "gabled-roof") return <GabledRoof roofTexture={textures.roof} />;
   if (module.kind === "trim" || module.kind === "window") return null;
   if (module.kind === "door") return <ShopDoor />;
-  return <ShopSign sign={placement.sign} accent={placement.accent} />;
+  return <ShopSign sign={placement.sign} accent={placement.accent} renderProfile={renderProfile} />;
 }
 
 function BuildingBox({
@@ -308,12 +315,12 @@ function getBuildingTexture(material: BuildingTextureKey, textures: BuildingText
   return undefined;
 }
 
-function ShopSign({ sign, accent }: { sign: string; accent: string }) {
+function ShopSign({ sign, accent, renderProfile }: { sign: string; accent: string; renderProfile: RenderPerformanceProfile }) {
   const fontSize = sign.length > 7 ? 0.46 : sign.length > 5 ? 0.54 : 0.66;
 
   return (
     <group position={[0, 3.25, 2.56]} scale={[0.68, 0.68, 0.68]}>
-      <HangingSign label={sign} color={accent} fontSize={fontSize} />
+      <HangingSign label={sign} color={accent} fontSize={fontSize} renderProfile={renderProfile} />
     </group>
   );
 }

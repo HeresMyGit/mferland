@@ -6,6 +6,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
 import { getPerformanceModelUrl } from "../../modelQuality";
+import { type RenderPerformanceProfile } from "../../performance";
 import { traitsToMeshes, type MferTraits } from "../../mferTraits";
 
 const MFER_MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
@@ -24,16 +25,18 @@ const STATUE_PEDESTAL_RIM_RADIUS = 0.82;
 export function Fountain({
   stoneTexture,
   waterTexture,
+  renderProfile,
 }: {
   stoneTexture: THREE.Texture;
   waterTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
 }) {
   const surfaceRef = useRef<THREE.Mesh>(null);
   const rippleRef = useRef<THREE.Mesh>(null);
   const spillRef = useRef<THREE.Group>(null);
   const splashRef = useRef<THREE.Group>(null);
   const dropletRef = useRef<THREE.Group>(null);
-  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/fountain-basin.glb")) as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/fountain-basin.glb", renderProfile)) as { scene: THREE.Group };
   const basinModel = useMemo(() => createFountainBasinModel(gltf.scene), [gltf.scene]);
 
   useFrame(({ clock }, delta) => {

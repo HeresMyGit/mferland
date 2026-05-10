@@ -1,23 +1,33 @@
 import * as THREE from "three";
-import { getClientRenderPerformanceProfile } from "./performance";
+import { getClientRenderPerformanceProfile, type RenderPerformanceProfile } from "./performance";
 
 const MIN_LOADED_TEXTURE_SIZE = 64;
 const performanceSizedImages = new WeakSet<object>();
-const downscaledImageCache = new WeakMap<object, CanvasImageSource>();
+const downscaledImageCache = new WeakMap<object, Map<string, CanvasImageSource>>();
+const originalTextureStates = new WeakMap<THREE.Texture, TexturePerformanceState>();
+const originalTextureSourceStates = new WeakMap<object, TexturePerformanceState>();
 
 type TextureImageSize = {
   width: number;
   height: number;
 };
 
+type TexturePerformanceState = {
+  image: unknown;
+  generateMipmaps: boolean;
+  minFilter: THREE.Texture["minFilter"];
+};
+
 export function markTextureImageAsPerformanceSized(image: unknown) {
   if (isObject(image)) performanceSizedImages.add(image);
 }
 
-export function optimizeTextureForPerformance(texture: THREE.Texture | null | undefined) {
+export function optimizeTextureForPerformance(
+  texture: THREE.Texture | null | undefined,
+  profile: RenderPerformanceProfile = getClientRenderPerformanceProfile(),
+) {
   if (!texture) return texture;
 
-  const profile = getClientRenderPerformanceProfile();
   let changed = false;
 
   if (texture.anisotropy !== profile.textureAnisotropy) {
@@ -26,6 +36,8 @@ export function optimizeTextureForPerformance(texture: THREE.Texture | null | un
   }
 
   if (profile.loadedTextureScale < 1) {
+    const originalState = getOriginalTextureState(texture);
+
     if (texture.generateMipmaps) {
       texture.generateMipmaps = false;
       changed = true;
@@ -36,7 +48,7 @@ export function optimizeTextureForPerformance(texture: THREE.Texture | null | un
     }
 
     const nextImage = getDownscaledTextureImage(
-      texture.image,
+      originalState.image,
       profile.loadedTextureScale,
       profile.loadedTextureMaxSize,
     );
@@ -44,10 +56,59 @@ export function optimizeTextureForPerformance(texture: THREE.Texture | null | un
       texture.image = nextImage;
       changed = true;
     }
+  } else {
+    changed = restoreOriginalTextureState(texture) || changed;
   }
 
   if (changed) texture.needsUpdate = true;
   return texture;
+}
+
+function getOriginalTextureState(texture: THREE.Texture) {
+  const stored = originalTextureStates.get(texture);
+  if (stored) return stored;
+
+  const source = getTextureSource(texture);
+  const storedSource = source ? originalTextureSourceStates.get(source) : undefined;
+  if (storedSource) {
+    originalTextureStates.set(texture, storedSource);
+    return storedSource;
+  }
+
+  const state = {
+    image: texture.image,
+    generateMipmaps: texture.generateMipmaps,
+    minFilter: texture.minFilter,
+  };
+  originalTextureStates.set(texture, state);
+  if (source) originalTextureSourceStates.set(source, state);
+  return state;
+}
+
+function restoreOriginalTextureState(texture: THREE.Texture) {
+  const source = getTextureSource(texture);
+  const state = originalTextureStates.get(texture) ?? (source ? originalTextureSourceStates.get(source) : undefined);
+  if (!state) return false;
+
+  let changed = false;
+  if (texture.image !== state.image) {
+    texture.image = state.image as typeof texture.image;
+    changed = true;
+  }
+  if (texture.generateMipmaps !== state.generateMipmaps) {
+    texture.generateMipmaps = state.generateMipmaps;
+    changed = true;
+  }
+  if (texture.minFilter !== state.minFilter) {
+    texture.minFilter = state.minFilter;
+    changed = true;
+  }
+  return changed;
+}
+
+function getTextureSource(texture: THREE.Texture): object | null {
+  const source = texture.source;
+  return isObject(source) ? source : null;
 }
 
 function getDownscaledTextureImage(
@@ -59,7 +120,8 @@ function getDownscaledTextureImage(
   if (!isObject(image) || performanceSizedImages.has(image)) return null;
   if (!isDrawableTextureImage(image)) return null;
 
-  const cached = downscaledImageCache.get(image);
+  const cacheKey = `${textureScale}:${maxTextureSize}`;
+  const cached = downscaledImageCache.get(image)?.get(cacheKey);
   if (cached) return cached;
 
   const size = getTextureImageSize(image);
@@ -85,7 +147,9 @@ function getDownscaledTextureImage(
   }
 
   markTextureImageAsPerformanceSized(canvas);
-  downscaledImageCache.set(image, canvas);
+  const cachedSizes = downscaledImageCache.get(image) ?? new Map<string, CanvasImageSource>();
+  cachedSizes.set(cacheKey, canvas);
+  downscaledImageCache.set(image, cachedSizes);
   return canvas;
 }
 

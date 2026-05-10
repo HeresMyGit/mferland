@@ -1,8 +1,7 @@
-import { getClientRenderPerformanceProfile } from "./performance";
+import { getClientRenderPerformanceProfile, type RenderPerformanceProfile } from "./performance";
 
-export function getPerformanceModelUrl(modelUrl: string) {
-  const profile = getClientRenderPerformanceProfile();
-  if (profile.loadedTextureScale >= 1 || !modelUrl.startsWith("/models/")) return modelUrl;
+export function getPerformanceModelUrl(modelUrl: string, profile: RenderPerformanceProfile = getClientRenderPerformanceProfile()) {
+  if (!profile.useOptimizedModelAssets || !modelUrl.startsWith("/models/")) return modelUrl;
 
   const fileName = modelUrl.slice("/models/".length);
   return `/models/mobile/${fileName}`;

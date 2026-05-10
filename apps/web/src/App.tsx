@@ -242,7 +242,8 @@ function AuthGate({
   const [creationSeed, setCreationSeed] = useState(() => makeCreationSeed());
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderComplete, setLoaderComplete] = useState(false);
-  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
+  const authGraphicsQuality = useMemo(() => readStoredGameSettings().graphicsQuality, []);
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(authGraphicsQuality), [authGraphicsQuality]);
   const cryptoSmokeMode = isCryptoSmokeMode();
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
   const handleLoaderComplete = useCallback(() => setLoaderComplete(true), []);
@@ -449,12 +450,12 @@ function AuthGate({
             camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
             gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
           >
-            <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} onReady={handlePreviewReady} />
+            <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} renderProfile={renderProfile} onReady={handlePreviewReady} />
           </Canvas>
         )}
         <div className="auth-scene-vignette" />
       </div>
-      {showAuthLoader && <MferHeadLoader ready={previewReady} onComplete={handleLoaderComplete} />}
+      {showAuthLoader && <MferHeadLoader ready={previewReady} renderProfile={renderProfile} onComplete={handleLoaderComplete} />}
       <section className="auth-title-lockup" aria-label="mferland">
         <div className="brand-mark">
           <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
@@ -647,9 +648,11 @@ function isUnsupportedWalletPermissionRequest(error: unknown) {
 
 function AuthTownPreview({
   debugPlacementOverrides,
+  renderProfile,
   onReady,
 }: {
   debugPlacementOverrides: DebugPlacementOverrides;
+  renderProfile: ReturnType<typeof getClientRenderPerformanceProfile>;
   onReady: () => void;
 }) {
   return (
@@ -658,9 +661,9 @@ function AuthTownPreview({
       <ambientLight intensity={1.08} />
       <hemisphereLight args={["#f4fbff", "#8da16f", 0.82]} />
       <directionalLight position={[-10, 18, 8]} intensity={1.45} color="#fff3d3" />
-      <Skybox />
+      <Skybox renderProfile={renderProfile} />
       <Suspense fallback={null}>
-        <TownWorld debugPlacementOverrides={debugPlacementOverrides} />
+        <TownWorld debugPlacementOverrides={debugPlacementOverrides} renderProfile={renderProfile} />
         <SceneReadySignal onReady={onReady} />
       </Suspense>
       <AuthPreviewCamera />
@@ -730,7 +733,7 @@ function GameShell({
     sourceDefaults: DebugPlacementStoredRecordMap;
   } | null>(null);
   const audio = useMemo(() => new GameAudio(), []);
-  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(), []);
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(settings.graphicsQuality), [settings.graphicsQuality]);
   const playedCombatEventIdsRef = useRef(new Set<string>());
   const playedExperienceEventIdsRef = useRef(new Set<string>());
   const lastQuestNoticeIdRef = useRef("");
@@ -1264,6 +1267,7 @@ function GameShell({
   return (
     <main className="game-shell">
       <Canvas
+        key={renderProfile.cacheKey}
         dpr={renderProfile.gameDpr}
         camera={{ position: [0, 6, 10], fov: 54, near: 0.1, far: 140 }}
         gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
@@ -1295,7 +1299,7 @@ function GameShell({
           lightweightRender={cryptoSmokeMode}
         />
       </Canvas>
-      {renderGameLoader && <MferHeadLoader ready={!showGameLoader} onComplete={handleGameLoaderComplete} />}
+      {renderGameLoader && <MferHeadLoader ready={!showGameLoader} renderProfile={renderProfile} onComplete={handleGameLoaderComplete} />}
 
       {!hideCaptureHud && (
         <>
@@ -1344,6 +1348,7 @@ function GameShell({
             onSelectSelfTarget={() => room.sessionId && setSelectedTarget({ kind: "player", id: room.sessionId })}
             onExit={leaveGame}
             settings={settings}
+            renderProfile={renderProfile}
             debugToolsAvailable={debugToolsAvailable}
             onSettingsChange={setSettings}
           />
