@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound } from "lucide-react";
 import * as THREE from "three";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useConnect, useDisconnect, type Connector } from "wagmi";
 import {
   COMBAT,
   ITEMS,
@@ -46,6 +46,13 @@ import {
   rememberInviteCode,
   rememberName,
 } from "./auth/identity";
+import {
+  getAvailableWalletConnectorChoices,
+  getPreferredWalletConnector,
+  getWalletConnectFailureMessage,
+  getWalletConnectorChoices,
+  getWalletConnectorLabel,
+} from "./auth/walletConnectors";
 import {
   canEnterWalletCharacter,
   canRetryWalletProfile,
@@ -223,10 +230,12 @@ function AuthGate({
   const { address, isConnected } = useAccount();
   const { connect, connectAsync, connectors, isPending: isConnectPending } = useConnect();
   const { disconnect, disconnectAsync, isPending: isDisconnectPending } = useDisconnect();
-  const injected = connectors[0];
+  const walletConnectorChoices = useMemo(() => getWalletConnectorChoices(connectors), [connectors]);
+  const injected = walletConnectorChoices.find((connector) => connector.id === "injected");
   const localTestConnector = connectors.find((connector) => connector.id === "mock");
   const [isSwitchingWallet, setIsSwitchingWallet] = useState(false);
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
+  const [showWalletConnectors, setShowWalletConnectors] = useState(false);
   const [inviteCode, setInviteCode] = useState(() => getStoredInviteCode());
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
   const walletProfileRequestRef = useRef(0);
@@ -268,6 +277,12 @@ function AuthGate({
     profileError: Boolean(walletProfileError),
   });
   const walletPrimaryDisabled = isSwitchingWallet || isDisconnectPending || (!canEnterWallet && !canRetryWallet);
+  const hasInjectedProvider = hasInjectedEthereumProvider();
+  const availableWalletConnectorChoices = useMemo(
+    () => getAvailableWalletConnectorChoices(walletConnectorChoices, { hasInjectedProvider }),
+    [hasInjectedProvider, walletConnectorChoices],
+  );
+  const walletConnectDisabled = isConnectPending || availableWalletConnectorChoices.length === 0;
 
   const loadWalletProfile = useCallback(async (walletAddress: string) => {
     const requestId = walletProfileRequestRef.current + 1;
@@ -315,6 +330,10 @@ function AuthGate({
     };
   }, [address, isConnected, loadWalletProfile]);
 
+  useEffect(() => {
+    if (isConnected) setShowWalletConnectors(false);
+  }, [isConnected]);
+
   function enterGuest() {
     if (inviteRequired && !hasInviteCode) return;
     rememberInviteCode(inviteCode);
@@ -347,12 +366,38 @@ function AuthGate({
     enterWallet();
   }
 
-  function connectInjectedWallet() {
-    if (!injected) return;
-    trackEvent("wallet_connect_started", { surface: "auth", connector: injected.id });
-    connect({ connector: injected }, {
-      onSuccess: () => trackEvent("wallet_connect_succeeded", { surface: "auth", connector: injected.id }),
-      onError: () => trackEvent("wallet_connect_failed", { surface: "auth", connector: injected.id }),
+  function handleConnectWallet() {
+    const currentHasInjectedProvider = hasInjectedEthereumProvider();
+    const connectableWalletConnectors = getAvailableWalletConnectorChoices(walletConnectorChoices, {
+      hasInjectedProvider: currentHasInjectedProvider,
+    });
+    const preferredConnector = getPreferredWalletConnector(connectableWalletConnectors, {
+      hasInjectedProvider: currentHasInjectedProvider,
+      isMobileBrowser: isMobileBrowser(),
+    });
+    if (!preferredConnector) return;
+
+    if (connectableWalletConnectors.length > 1 && !currentHasInjectedProvider) {
+      setWalletActionError(null);
+      setShowWalletConnectors((current) => !current);
+      return;
+    }
+
+    connectWallet(preferredConnector);
+  }
+
+  function connectWallet(connector: Connector) {
+    setShowWalletConnectors(false);
+    setWalletActionError(null);
+    trackEvent("wallet_connect_started", { surface: "auth", connector: connector.id });
+    connect({ connector }, {
+      onSuccess: () => trackEvent("wallet_connect_succeeded", { surface: "auth", connector: connector.id }),
+      onError: (error) => {
+        if (!isUserRejectedWalletRequest(error)) {
+          setWalletActionError(getWalletConnectFailureMessage(connector));
+        }
+        trackEvent("wallet_connect_failed", { surface: "auth", connector: connector.id });
+      },
     });
   }
 
@@ -366,7 +411,7 @@ function AuthGate({
   }
 
   async function switchWallet() {
-    if (!injected || isSwitchingWallet) return;
+    if (!injected || !hasInjectedEthereumProvider() || isSwitchingWallet) return;
 
     setIsSwitchingWallet(true);
     setWalletActionError(null);
@@ -481,7 +526,7 @@ function AuthGate({
               <button
                 className="secondary-btn"
                 type="button"
-                disabled={!injected || isConnectPending || isDisconnectPending || isSwitchingWallet}
+                disabled={!injected || !hasInjectedProvider || isConnectPending || isDisconnectPending || isSwitchingWallet}
                 onClick={() => void switchWallet()}
               >
                 <RefreshCw size={18} />
@@ -497,12 +542,28 @@ function AuthGate({
               <button
                 className="secondary-btn"
                 type="button"
-                disabled={!injected || isConnectPending}
-                onClick={connectInjectedWallet}
+                disabled={walletConnectDisabled}
+                aria-expanded={showWalletConnectors}
+                onClick={handleConnectWallet}
               >
                 <Sparkles size={18} />
-                connect wallet
+                {isConnectPending ? "connecting wallet" : "connect wallet"}
               </button>
+              {showWalletConnectors && availableWalletConnectorChoices.length > 1 && (
+                <div className="wallet-choice-list" aria-label="wallet choices">
+                  {availableWalletConnectorChoices.map((connector) => (
+                    <button
+                      key={connector.uid}
+                      className="wallet-choice-btn"
+                      type="button"
+                      disabled={isConnectPending}
+                      onClick={() => connectWallet(connector)}
+                    >
+                      {getWalletConnectorLabel(connector)}
+                    </button>
+                  ))}
+                </div>
+              )}
               {import.meta.env.DEV && localTestConnector && (
                 <button
                   className="text-btn"
@@ -553,6 +614,18 @@ function getInjectedEthereumProvider(): EthereumRequestProvider | null {
   return maybeWindow.ethereum as EthereumRequestProvider;
 }
 
+function hasInjectedEthereumProvider() {
+  return Boolean(getInjectedEthereumProvider());
+}
+
+function isMobileBrowser() {
+  if (typeof navigator === "undefined") return false;
+
+  const userAgent = navigator.userAgent || "";
+  const isiPadDesktopMode = /Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1;
+  return isiPadDesktopMode || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+}
+
 function isUserRejectedWalletRequest(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const maybeError = error as { code?: unknown; cause?: unknown; name?: unknown; shortMessage?: unknown; message?: unknown };
@@ -561,7 +634,7 @@ function isUserRejectedWalletRequest(error: unknown) {
   if (isUserRejectedWalletRequest(maybeError.cause)) return true;
 
   const message = typeof maybeError.shortMessage === "string" ? maybeError.shortMessage : maybeError.message;
-  return typeof message === "string" && /user rejected|user denied|request rejected/i.test(message);
+  return typeof message === "string" && /user rejected|user denied|request rejected|user closed modal|accounts received is empty/i.test(message);
 }
 
 function isUnsupportedWalletPermissionRequest(error: unknown) {

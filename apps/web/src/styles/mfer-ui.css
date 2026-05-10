@@ -349,6 +349,7 @@
 .primary-btn,
 .secondary-btn,
 .text-btn,
+.wallet-choice-btn,
 .name-field input,
 .chat-panel input {
   position: relative;
@@ -498,6 +499,13 @@
   color: var(--mfer-paper);
   background: transparent;
   box-shadow: none;
+}
+
+.wallet-choice-btn {
+  color: var(--mfer-paper);
+  background:
+    linear-gradient(135deg, rgba(93, 211, 255, 0.34), rgba(183, 255, 109, 0.18)),
+    rgba(37, 33, 20, 0.72);
 }
 
 .name-field input,
