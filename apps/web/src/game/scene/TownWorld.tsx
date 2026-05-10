@@ -19,6 +19,7 @@ import {
   type DebugPlacementOverrides,
 } from "../debugPlacement";
 import { MFER_COLORS } from "../mferPalette";
+import { getPerformanceModelUrl } from "../modelQuality";
 export { Skybox } from "./world/Skybox";
 
 const GROUND_MARGIN = 110;
@@ -246,7 +247,7 @@ function SignalRouteMarker({
 }
 
 export function SignalRelay({ position, rotation }: { position: [number, number, number]; rotation: number }) {
-  const gltf = useLoader(GLTFLoader, "/models/signal-relay-body.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/signal-relay-body.glb")) as { scene: THREE.Group };
   const bodyModel = useMemo(() => createSignalRelayBodyModel(gltf.scene), [gltf.scene]);
 
   return (

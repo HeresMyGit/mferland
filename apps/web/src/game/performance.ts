@@ -12,6 +12,8 @@ export type RenderPerformanceProfile = {
   heavyActorRenderRadius: number;
   actorRenderBudget: number;
   textureAnisotropy: number;
+  loadedTextureScale: number;
+  loadedTextureMaxSize: number;
   proceduralTextureScale: number;
 };
 
@@ -37,6 +39,8 @@ export function getClientRenderPerformanceProfile(): RenderPerformanceProfile {
         heavyActorRenderRadius: 58,
         actorRenderBudget: 24,
         textureAnisotropy: 1,
+        loadedTextureScale: 0.5,
+        loadedTextureMaxSize: 512,
         proceduralTextureScale: 0.5,
       }
     : {
@@ -51,6 +55,8 @@ export function getClientRenderPerformanceProfile(): RenderPerformanceProfile {
         heavyActorRenderRadius: 96,
         actorRenderBudget: 80,
         textureAnisotropy: 4,
+        loadedTextureScale: 1,
+        loadedTextureMaxSize: Number.POSITIVE_INFINITY,
         proceduralTextureScale: 1,
       };
 

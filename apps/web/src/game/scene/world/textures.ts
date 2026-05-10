@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { getClientRenderPerformanceProfile } from "../../performance";
+import { markTextureImageAsPerformanceSized, optimizeTextureForPerformance } from "../../textureQuality";
 import { noise01 } from "./shared";
 
 export function createSkyTexture() {
@@ -50,7 +51,7 @@ export function createSkyTexture() {
   });
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.anisotropy = 4;
+  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
   texture.needsUpdate = true;
   return texture;
 }
@@ -87,7 +88,7 @@ export function createCloudTexture() {
   });
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.anisotropy = 4;
+  texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
   texture.needsUpdate = true;
   return texture;
 }
@@ -210,6 +211,7 @@ function paintHorizonClouds(context: CanvasRenderingContext2D, width: number, he
 }
 
 export function configureTile(texture: THREE.Texture, repeatX: number, repeatY: number) {
+  optimizeTextureForPerformance(texture);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
@@ -219,7 +221,8 @@ export function configureTile(texture: THREE.Texture, repeatX: number, repeatY: 
 }
 
 export function createBarkTexture() {
-  return createCanvasTexture(128, 256, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(128, 256);
+  return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     const gradient = context.createLinearGradient(0, 0, width, 0);
     gradient.addColorStop(0, "#5a311c");
     gradient.addColorStop(0.5, "#8b5938");
@@ -250,7 +253,8 @@ export function createBarkTexture() {
 }
 
 export function createLeafTexture() {
-  return createCanvasTexture(128, 128, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(128, 128);
+  return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     context.fillStyle = "#5a953e";
     context.fillRect(0, 0, width, height);
 
@@ -278,7 +282,8 @@ export function createLeafTexture() {
 }
 
 export function createGrassTuftTexture() {
-  return createCanvasTexture(64, 64, (context, width, height) => {
+  const [textureWidth, textureHeight] = getProceduralTextureSize(64, 64);
+  return createCanvasTexture(textureWidth, textureHeight, (context, width, height) => {
     context.clearRect(0, 0, width, height);
 
     const blades = [
@@ -412,6 +417,7 @@ function createCanvasTexture(
   paint(context, width, height);
 
   const texture = new THREE.CanvasTexture(canvas);
+  markTextureImageAsPerformanceSized(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
@@ -419,6 +425,7 @@ function createCanvasTexture(
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = getClientRenderPerformanceProfile().textureAnisotropy;
   texture.needsUpdate = true;
+  optimizeTextureForPerformance(texture);
   return texture;
 }
 

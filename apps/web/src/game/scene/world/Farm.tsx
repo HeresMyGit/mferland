@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
+import { getPerformanceModelUrl } from "../../modelQuality";
 import { HangingSign } from "./TownProps";
 import {
   applyStaticPropInstances,
@@ -90,7 +91,7 @@ function FarmHouse({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/damaged-farmhouse.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/damaged-farmhouse.glb")) as { scene: THREE.Group };
   const model = useMemo(() => createFarmBuildingModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
@@ -116,7 +117,7 @@ function SaggingBarn({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/sagging-barn.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/sagging-barn.glb")) as { scene: THREE.Group };
   const model = useMemo(() => createFarmBuildingModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
@@ -163,7 +164,7 @@ function Scarecrow({
   position: [number, number, number];
   rotation: number;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/farm-scarecrow.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/farm-scarecrow.glb")) as { scene: THREE.Group };
   const model = useMemo(() => createFarmScarecrowModel(gltf.scene), [gltf.scene]);
 
   return (

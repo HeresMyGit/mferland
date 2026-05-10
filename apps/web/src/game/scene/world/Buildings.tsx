@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
+import { getPerformanceModelUrl } from "../../modelQuality";
 import { HangingSign } from "./TownProps";
 import {
   BUILDING_BLUEPRINTS,
@@ -25,7 +26,7 @@ export function CastleGate({
   position?: Vec3Tuple;
   rotation?: number;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/castle-gate.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/castle-gate.glb")) as { scene: THREE.Group };
   const model = useMemo(() => createCastleGateModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
 
@@ -234,7 +235,7 @@ export function TownBuilding({
   roofTexture: THREE.Texture;
   wallTexture: THREE.Texture;
 }) {
-  const gltf = useLoader(GLTFLoader, "/models/town-shopfront.glb") as { scene: THREE.Group };
+  const gltf = useLoader(GLTFLoader, getPerformanceModelUrl("/models/town-shopfront.glb")) as { scene: THREE.Group };
   const model = useMemo(() => createTownShopfrontModel(gltf.scene), [gltf.scene]);
   void stoneTexture;
   void roofTexture;
