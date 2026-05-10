@@ -37,8 +37,15 @@ type MferAvatarProps = {
 };
 type ShadowScale = [number, number, number];
 type CastOrbVariant = "fire" | "ice" | "heal";
-type MferAnimationKey = AnimationState | EmoteId;
 type MferClipConfig = { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number };
+type MferIdleAnimationKey =
+  | "idleWeightShift"
+  | "idleLookAround"
+  | "idleLoiter"
+  | "idleConversation"
+  | "idleThinking"
+  | "idleReady";
+type MferAnimationKey = AnimationState | EmoteId | MferIdleAnimationKey;
 
 type LoadedMferGltf = {
   scene: THREE.Group;
@@ -47,11 +54,19 @@ type LoadedMferGltf = {
 
 const MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
 const DEATH_ANIMATION_SECONDS = 0.82;
-export const MIXAMO_CLIPS: Record<AnimationState, { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number }> = {
-  idle: { file: "Standing_Idle", loop: THREE.LoopRepeat, timeScale: 1 },
+export const MIXAMO_CLIPS: Record<AnimationState, MferClipConfig> = {
+  idle: { file: "idles/Breathing_Idle", loop: THREE.LoopRepeat, timeScale: 0.9 },
   walk: { file: "Walking_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1 },
   run: { file: "Slow_Run_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1.08 },
   jump: { file: "Forward_Running_Jump", loop: THREE.LoopOnce, timeScale: 1 },
+};
+const MFER_IDLE_VARIANT_CLIPS: Record<MferIdleAnimationKey, MferClipConfig> = {
+  idleWeightShift: { file: "idles/Weight_Shift_Idle", loop: THREE.LoopRepeat, timeScale: 0.9 },
+  idleLookAround: { file: "idles/Idle_Stand_Looking_Around", loop: THREE.LoopRepeat, timeScale: 0.86 },
+  idleLoiter: { file: "idles/Shifting_Weight_From_Side_To_Side", loop: THREE.LoopRepeat, timeScale: 0.88 },
+  idleConversation: { file: "idles/General_Conversation", loop: THREE.LoopRepeat, timeScale: 0.82 },
+  idleThinking: { file: "idles/Thinking_While_Standing", loop: THREE.LoopRepeat, timeScale: 0.78 },
+  idleReady: { file: "idles/Male_Fight_Idle_Empty_Stance", loop: THREE.LoopRepeat, timeScale: 0.92 },
 };
 export const EMOTE_MIXAMO_CLIPS: Record<EmoteId, MferClipConfig> = {
   wave: { file: "emotes/Waving", loop: THREE.LoopRepeat, timeScale: 1 },
@@ -63,6 +78,7 @@ export const EMOTE_MIXAMO_CLIPS: Record<EmoteId, MferClipConfig> = {
 };
 const MFER_ANIMATION_CLIPS: Record<MferAnimationKey, MferClipConfig> = {
   ...MIXAMO_CLIPS,
+  ...MFER_IDLE_VARIANT_CLIPS,
   ...EMOTE_MIXAMO_CLIPS,
 };
 export const TARGET_RING_COLORS: Record<NpcDisposition, string> = {
@@ -86,7 +102,7 @@ const TARGET_BADGE_COLORS: Record<NpcDisposition | "player" | "local" | "agent",
 export const MIXAMO_URLS = Object.values(MIXAMO_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const MFER_AVATAR_ANIMATION_URLS = Object.values(MFER_ANIMATION_CLIPS).map((clip) => `/animations/${clip.file}.fbx`);
 const targetPosition = new THREE.Vector3();
-const animationClipCache = new WeakMap<THREE.AnimationClip, Map<MferAnimationKey, THREE.AnimationClip>>();
+const animationClipCache = new WeakMap<THREE.AnimationClip, Map<string, Map<MferAnimationKey, THREE.AnimationClip>>>();
 const avatarTemplateCache = new WeakMap<THREE.Group, Map<string, THREE.Group>>();
 const avatarHitGeometry = new THREE.CylinderGeometry(0.72, 0.72, 2.7, 12);
 const invisibleHitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -188,9 +204,9 @@ export function MferAvatar({
 
   useEffect(() => {
     if (isDefeated) return;
-    const animationKey = getMferAnimationKey(player);
+    const animationKey = getMferAnimationKey(player, isLocal);
     playClip(animationKey, { forceRestart: animationKey === playerEmote });
-  }, [isDefeated, player.animation, playerEmote, playerEmoteStartedAt, playerEmoteEndsAt, clips]);
+  }, [isDefeated, isLocal, player.animation, player.avatarSeed, playerEmote, playerEmoteStartedAt, playerEmoteEndsAt, clips]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -210,7 +226,7 @@ export function MferAvatar({
       deathAgeRef.current += delta;
       updateMferDeathPose(poseRef.current, deathAgeRef.current);
     } else {
-      const animationKey = getMferAnimationKey(player);
+      const animationKey = getMferAnimationKey(player, isLocal);
       if (currentAnimationKeyRef.current !== animationKey) {
         playClip(animationKey);
       }
@@ -901,9 +917,31 @@ function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
   return (origin.x - x) ** 2 + (origin.z - z) ** 2;
 }
 
-function getMferAnimationKey(player: PlayerSnapshot | NpcSnapshot): MferAnimationKey {
+const PLAYER_IDLE_KEYS = ["idle", "idleWeightShift", "idleLoiter"] as const;
+const WANDERER_IDLE_KEYS = ["idleWeightShift", "idleLoiter", "idleLookAround"] as const;
+const QUEST_IDLE_KEYS = ["idleLookAround", "idleThinking", "idleConversation"] as const;
+const MERCHANT_IDLE_KEYS = ["idleThinking", "idleConversation", "idleLoiter"] as const;
+
+function getMferAnimationKey(player: PlayerSnapshot | NpcSnapshot, isLocal = false): MferAnimationKey {
   if ("emote" in player && player.emote && (player.emoteEndsAt <= 0 || Date.now() < player.emoteEndsAt)) return player.emote;
+  if (player.animation === "idle") return getMferIdleAnimationKey(player, isLocal);
   return player.animation;
+}
+
+function getMferIdleAnimationKey(player: PlayerSnapshot | NpcSnapshot, isLocal: boolean): AnimationState | MferIdleAnimationKey {
+  if (!("role" in player)) {
+    return isLocal ? "idle" : pickStableIdle(player.avatarSeed, PLAYER_IDLE_KEYS);
+  }
+
+  if (player.role === "guard" || player.role === "enemy" || player.role === "farmer") return "idleReady";
+  if (player.role === "merchant") return pickStableIdle(player.avatarSeed, MERCHANT_IDLE_KEYS);
+  if (player.role === "quest_giver") return pickStableIdle(player.avatarSeed, QUEST_IDLE_KEYS);
+  if (player.role === "wanderer") return pickStableIdle(player.avatarSeed, WANDERER_IDLE_KEYS);
+  return "idle";
+}
+
+function pickStableIdle<const T extends readonly (AnimationState | MferIdleAnimationKey)[]>(seed: number, keys: T): T[number] {
+  return keys[Math.abs(seed) % keys.length];
 }
 
 function isEmoteAnimationKey(key: MferAnimationKey): key is EmoteId {
@@ -912,8 +950,10 @@ function isEmoteAnimationKey(key: MferAnimationKey): key is EmoteId {
 
 export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
   const cacheKey = fbxAnimations[0]?.animations?.[0];
+  const cacheScope = String(fbxAnimations.length);
   if (cacheKey) {
-    const cached = animationClipCache.get(cacheKey);
+    const scopedCache = animationClipCache.get(cacheKey);
+    const cached = scopedCache?.get(cacheScope);
     if (cached) return cached;
   }
 
@@ -929,7 +969,14 @@ export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
     clips.set(state, clip);
   }
 
-  if (cacheKey) animationClipCache.set(cacheKey, clips);
+  if (cacheKey) {
+    let scopedCache = animationClipCache.get(cacheKey);
+    if (!scopedCache) {
+      scopedCache = new Map();
+      animationClipCache.set(cacheKey, scopedCache);
+    }
+    scopedCache.set(cacheScope, clips);
+  }
   return clips;
 }
 
