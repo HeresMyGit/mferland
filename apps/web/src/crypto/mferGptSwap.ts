@@ -15,6 +15,14 @@ export type MferGptSwapQuote = {
   slippageBps: number;
 };
 
+type SwapTransactionRequest = {
+  from: string;
+  to: string;
+  data: string;
+  value: string;
+  gas?: string;
+};
+
 const BASE_CHAIN_ID = 8453;
 const BASE_CHAIN_ID_HEX = "0x2105";
 const BASE_RPC_URL = "https://mainnet.base.org";
@@ -98,14 +106,17 @@ export async function executeMferGptSwap(provider: EthereumProvider, quote: Mfer
   await switchToBase(provider);
 
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+  const transaction: SwapTransactionRequest = {
+    from: account,
+    to: UNISWAP_UNIVERSAL_ROUTER,
+    data: buildMferGptSwapCallData(quote, deadline),
+    value: toHex(quote.amountInWei),
+  };
+  transaction.gas = await estimateSwapGas(provider, transaction);
+
   const txHash = await provider.request({
     method: "eth_sendTransaction",
-    params: [{
-      from: account,
-      to: UNISWAP_UNIVERSAL_ROUTER,
-      data: buildMferGptSwapCallData(quote, deadline),
-      value: toHex(quote.amountInWei),
-    }],
+    params: [transaction],
   });
   if (typeof txHash !== "string") throw new Error("swap transaction failed");
   await waitForTransactionReceipt(provider, txHash, { maxAttempts: 90, intervalMs: 1000 });
@@ -297,6 +308,12 @@ async function switchToBase(provider: EthereumProvider) {
   if (typeof chainId === "string" && Number.parseInt(chainId, 16) !== BASE_CHAIN_ID) {
     throw new Error("switch to Base");
   }
+}
+
+async function estimateSwapGas(provider: EthereumProvider, transaction: SwapTransactionRequest) {
+  const gas = await provider.request({ method: "eth_estimateGas", params: [transaction] });
+  if (typeof gas !== "string" || !/^0x[0-9a-f]+$/i.test(gas)) throw new Error("network fee unavailable");
+  return toHex(BigInt(gas) * 115n / 100n + 1_000n);
 }
 
 function isUnknownChainError(error: unknown): boolean {

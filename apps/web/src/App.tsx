@@ -771,7 +771,7 @@ function MferGptSwapMenu() {
     try {
       const nextQuote = await getMferGptSwapQuote(ethAmount, slippagePercent);
       setQuote(nextQuote);
-      setSwapStatus("confirm in wallet");
+      setSwapStatus("estimating network fee...");
       const nextTxHash = await executeMferGptSwap(provider, nextQuote);
       setTxHash(nextTxHash);
       setSwapStatus("swap confirmed");
@@ -827,7 +827,7 @@ function MferGptSwapMenu() {
               value={ethAmount}
               onChange={(event) => updateEthAmount(event.target.value)}
             />
-            <em>ETH</em>
+            <em>BASE ETH</em>
           </div>
         </label>
 
