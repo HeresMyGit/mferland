@@ -570,25 +570,39 @@
 .swap-mini-field span,
 .swap-summary-row span,
 .swap-route-row span {
-  color: rgba(30, 24, 13, 0.78);
-  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.42);
+  color: rgba(255, 245, 207, 0.86);
+  text-shadow: 0 2px 0 rgba(9, 8, 6, 0.52);
 }
 
 .auth-swap-header strong,
-.swap-amount-field input,
-.swap-mini-field input,
 .swap-summary-row strong,
 .swap-route-row code {
+  color: #fff8df;
+  text-shadow: 0 2px 0 rgba(9, 8, 6, 0.58);
+}
+
+.swap-amount-field input,
+.swap-mini-field input {
   color: #181208;
   text-shadow: 0 1px 0 rgba(255, 248, 224, 0.45);
 }
 
 .swap-amount-field em,
-.swap-mini-field em,
+.swap-mini-field em {
+  color: #073f5d;
+}
+
 .swap-summary-row em,
 .swap-status,
 .swap-footer-row a {
-  color: #073f5d;
+  color: #bdf3ff;
+  text-shadow: 0 2px 0 rgba(9, 8, 6, 0.5);
+}
+
+.swap-summary-row,
+.swap-route-row {
+  border-color: rgba(255, 248, 224, 0.28);
+  background: rgba(18, 15, 9, 0.5);
 }
 
 .character-auth-panel {
