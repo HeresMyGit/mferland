@@ -53,6 +53,7 @@
 .target-frame,
 .auth-title-lockup,
 .auth-connect-panel,
+.auth-swap-card,
 .loot-panel,
 .quest-dialogue-panel,
 .world-map-panel,
@@ -74,6 +75,7 @@
 .target-frame,
 .auth-title-lockup,
 .auth-connect-panel,
+.auth-swap-card,
 .loot-panel,
 .quest-dialogue-panel,
 .world-map-panel,
@@ -115,6 +117,7 @@
 }
 
 .auth-connect-panel,
+.auth-swap-card,
 .inventory-panel,
 .abilities-panel,
 .character-panel,
@@ -182,6 +185,7 @@
 .target-frame::before,
 .auth-title-lockup::before,
 .auth-connect-panel::before,
+.auth-swap-card::before,
 .loot-panel::before,
 .quest-dialogue-panel::before,
 .world-map-panel::before,
@@ -210,6 +214,7 @@
 .target-frame::after,
 .auth-title-lockup::after,
 .auth-connect-panel::after,
+.auth-swap-card::after,
 .loot-panel::after,
 .quest-dialogue-panel::after,
 .world-map-panel::after,
@@ -238,6 +243,7 @@
 .target-frame > *,
 .auth-title-lockup > *,
 .auth-connect-panel > *,
+.auth-swap-card > *,
 .loot-panel > *,
 .quest-dialogue-panel > *,
 .world-map-panel > *,
@@ -346,11 +352,18 @@
 .death-panel button,
 .ability-slot-row button,
 .menu-tabs button,
+.auth-swap-toggle,
+.auth-swap-close,
+.swap-refresh-btn,
+.swap-route-row button,
+.auth-swap-action,
 .primary-btn,
 .secondary-btn,
 .text-btn,
 .wallet-choice-btn,
 .name-field input,
+.swap-amount-field > div,
+.swap-mini-field > div,
 .chat-panel input {
   position: relative;
   isolation: isolate;
@@ -373,6 +386,10 @@
 .quest-offer-close,
 .quest-secondary-btn,
 .ability-slot-row button,
+.auth-swap-toggle,
+.auth-swap-close,
+.swap-refresh-btn,
+.swap-route-row button,
 .menu-tabs button {
   color: var(--mfer-paper);
   background: #3b3320;
@@ -476,6 +493,7 @@
 }
 
 .primary-btn,
+.auth-swap-action,
 .quest-accept-btn,
 .item-use-btn,
 .talent-action,
@@ -501,6 +519,22 @@
   box-shadow: none;
 }
 
+.auth-swap-toggle,
+.auth-swap-action {
+  color: #141007;
+  background:
+    linear-gradient(135deg, rgba(255, 226, 96, 0.86), rgba(138, 242, 194, 0.34)),
+    rgba(255, 226, 96, 0.64);
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.42);
+}
+
+.auth-swap-close,
+.swap-refresh-btn,
+.swap-route-row button {
+  color: var(--mfer-paper);
+  background: rgba(37, 33, 20, 0.72);
+}
+
 .wallet-choice-btn {
   color: var(--mfer-paper);
   background:
@@ -509,6 +543,8 @@
 }
 
 .name-field input,
+.swap-amount-field > div,
+.swap-mini-field > div,
 .chat-panel input {
   border-width: 2px;
   color: #181208;
@@ -523,8 +559,36 @@
 }
 
 .chat-panel input::placeholder,
+.swap-amount-field input::placeholder,
+.swap-mini-field input::placeholder,
 .name-field input::placeholder {
   color: rgba(24, 18, 8, 0.56);
+}
+
+.auth-swap-header span,
+.swap-amount-field span,
+.swap-mini-field span,
+.swap-summary-row span,
+.swap-route-row span {
+  color: rgba(30, 24, 13, 0.78);
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.42);
+}
+
+.auth-swap-header strong,
+.swap-amount-field input,
+.swap-mini-field input,
+.swap-summary-row strong,
+.swap-route-row code {
+  color: #181208;
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.45);
+}
+
+.swap-amount-field em,
+.swap-mini-field em,
+.swap-summary-row em,
+.swap-status,
+.swap-footer-row a {
+  color: #073f5d;
 }
 
 .character-auth-panel {
@@ -575,6 +639,11 @@
 .death-panel button::after,
 .ability-slot-row button::after,
 .menu-tabs button::after,
+.auth-swap-toggle::after,
+.auth-swap-close::after,
+.swap-refresh-btn::after,
+.swap-route-row button::after,
+.auth-swap-action::after,
 .primary-btn::after,
 .secondary-btn::after {
   content: "";
@@ -605,6 +674,11 @@
 .death-panel button > *,
 .ability-slot-row button > *,
 .menu-tabs button > :not(.tab-badge),
+.auth-swap-toggle > *,
+.auth-swap-close > *,
+.swap-refresh-btn > *,
+.swap-route-row button > *,
+.auth-swap-action > *,
 .primary-btn > *,
 .secondary-btn > *,
 .text-btn > * {

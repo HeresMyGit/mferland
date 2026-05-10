@@ -360,7 +360,8 @@ button {
 }
 
 .auth-title-lockup,
-.auth-connect-panel {
+.auth-connect-panel,
+.auth-swap-card {
   position: absolute;
   z-index: 1;
   border: 1px solid rgba(255, 255, 255, 0.24);
@@ -384,6 +385,234 @@ button {
   bottom: max(clamp(18px, 3vh, 36px), calc(env(safe-area-inset-bottom) + 18px));
   width: min(340px, calc(100vw - 32px));
   padding: 16px;
+}
+
+.auth-swap-panel {
+  position: absolute;
+  z-index: 2;
+  left: clamp(18px, 3vw, 36px);
+  bottom: max(clamp(18px, 3vh, 36px), calc(env(safe-area-inset-bottom) + 18px));
+  width: min(318px, calc(100vw - 32px));
+}
+
+.auth-swap-card {
+  position: relative;
+  inset: auto;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+}
+
+.auth-swap-toggle {
+  display: none;
+}
+
+.auth-swap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-swap-header div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.auth-swap-header span,
+.swap-amount-field span,
+.swap-mini-field span,
+.swap-summary-row span,
+.swap-route-row span {
+  color: #cfc6ab;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.auth-swap-header strong {
+  color: #fff8dc;
+  font-size: 18px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.auth-swap-close {
+  display: none;
+}
+
+.swap-amount-field {
+  display: grid;
+  gap: 7px;
+}
+
+.swap-amount-field > div,
+.swap-mini-field > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.34);
+  overflow: hidden;
+}
+
+.swap-amount-field input,
+.swap-mini-field input {
+  min-width: 0;
+  height: 42px;
+  border: 0;
+  padding: 0 12px;
+  color: #fff8dc;
+  background: transparent;
+  outline: none;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.swap-amount-field em,
+.swap-mini-field em {
+  padding: 0 12px;
+  color: #ffe260;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.swap-field-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 8px;
+  align-items: end;
+}
+
+.swap-mini-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.swap-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff8dc;
+  background: rgba(255, 248, 220, 0.1);
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.swap-summary-row {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 248, 220, 0.16);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.swap-summary-row strong {
+  color: #fff8dc;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.swap-summary-row em {
+  color: rgba(255, 248, 224, 0.74);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.swap-route-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 6px 0 10px;
+  border: 1px solid rgba(255, 248, 220, 0.16);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.swap-route-row code {
+  color: #fff8dc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: right;
+}
+
+.swap-route-row button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff8dc;
+  background: rgba(255, 248, 220, 0.1);
+}
+
+.auth-swap-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  color: #17130c;
+  background: var(--mfer-yellow);
+  font-weight: 1000;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.auth-swap-action:disabled,
+.swap-refresh-btn:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.swap-footer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 18px;
+}
+
+.swap-status {
+  min-width: 0;
+  color: rgba(255, 248, 224, 0.78);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-transform: uppercase;
+}
+
+.swap-footer-row a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #fff8dc;
+  font-size: 11px;
+  font-weight: 1000;
+  text-decoration: none;
+  text-transform: uppercase;
 }
 
 .brand-mark {
