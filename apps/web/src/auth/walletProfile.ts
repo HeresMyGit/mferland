@@ -51,6 +51,28 @@ export function canRetryWalletProfile({
   return hasAddress && !profilePending && profileError;
 }
 
+export function canCreateWalletCharacterAfterProfileError({
+  hasAddress,
+  profilePending,
+  profileError,
+  inviteRequired,
+  hasInviteCode,
+  cleanName,
+}: {
+  hasAddress: boolean;
+  profilePending: boolean;
+  profileError: boolean;
+  inviteRequired: boolean;
+  hasInviteCode: boolean;
+  cleanName: string;
+}) {
+  return hasAddress
+    && !profilePending
+    && profileError
+    && !(inviteRequired && !hasInviteCode)
+    && cleanName.trim().length > 0;
+}
+
 export function getWalletEntryLabel({
   profilePending,
   profileError,

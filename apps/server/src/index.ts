@@ -72,13 +72,14 @@ const server = createServer((req, res) => {
         }));
       })
       .catch((error) => {
+        console.error("Failed to load wallet character profile", error);
         writeCorsHeaders(res);
         const status = error instanceof PersistenceUnavailableError ? 503 : 500;
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify({
           exists: false,
           character: null,
-          error: status === 503 ? "wallet persistence unavailable" : "unable to load wallet character",
+          error: getWalletCharacterProfileErrorMessage(error, status),
         }));
       });
     return;
@@ -150,6 +151,18 @@ function writeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type");
+}
+
+function getWalletCharacterProfileErrorMessage(error: unknown, status: number) {
+  if (status === 503) return "wallet persistence unavailable";
+  if (hasPostgresErrorCode(error, "42703")) return "wallet database needs migration";
+  return "unable to load wallet character";
+}
+
+function hasPostgresErrorCode(error: unknown, code: string): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; cause?: unknown };
+  return maybeError.code === code || hasPostgresErrorCode(maybeError.cause, code);
 }
 
 function serveWebDist(req: IncomingMessage, res: ServerResponse, urlPath: string) {

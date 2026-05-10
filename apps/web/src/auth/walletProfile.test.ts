@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canCreateWalletCharacterAfterProfileError,
   canEnterWalletCharacter,
   canRetryWalletProfile,
   getWalletEntryLabel,
@@ -94,5 +95,40 @@ test("wallet profile errors expose a retry action instead of an enter action", (
     hasAddress: true,
     profilePending: false,
     profileError: true,
+  }), true);
+  assert.equal(canCreateWalletCharacterAfterProfileError({
+    hasAddress: true,
+    profilePending: false,
+    profileError: true,
+    inviteRequired: false,
+    hasInviteCode: false,
+    cleanName: "mfer",
+  }), true);
+});
+
+test("wallet profile error creation fallback still requires a usable name and invite", () => {
+  assert.equal(canCreateWalletCharacterAfterProfileError({
+    hasAddress: true,
+    profilePending: false,
+    profileError: true,
+    inviteRequired: false,
+    hasInviteCode: false,
+    cleanName: "",
+  }), false);
+  assert.equal(canCreateWalletCharacterAfterProfileError({
+    hasAddress: true,
+    profilePending: false,
+    profileError: true,
+    inviteRequired: true,
+    hasInviteCode: false,
+    cleanName: "mfer",
+  }), false);
+  assert.equal(canCreateWalletCharacterAfterProfileError({
+    hasAddress: true,
+    profilePending: false,
+    profileError: true,
+    inviteRequired: true,
+    hasInviteCode: true,
+    cleanName: "mfer",
   }), true);
 });

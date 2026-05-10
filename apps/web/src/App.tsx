@@ -54,6 +54,7 @@ import {
   getWalletConnectorLabel,
 } from "./auth/walletConnectors";
 import {
+  canCreateWalletCharacterAfterProfileError,
   canEnterWalletCharacter,
   canRetryWalletProfile,
   getExistingWalletCharacter,
@@ -272,6 +273,14 @@ function AuthGate({
   const walletProfileLoading = isWalletProfilePending(isConnected, walletProfile);
   const walletProfileError = walletProfile.status === "error" ? walletProfile.message : null;
   const walletNeedsCreation = isConnected && walletProfile.status === "new";
+  const canCreateAfterProfileError = canCreateWalletCharacterAfterProfileError({
+    hasAddress: Boolean(address),
+    profilePending: walletProfileLoading,
+    profileError: Boolean(walletProfileError),
+    inviteRequired,
+    hasInviteCode,
+    cleanName,
+  });
   const canEnterWallet = canEnterWalletCharacter({
     hasAddress: Boolean(address),
     profilePending: walletProfileLoading,
@@ -293,6 +302,7 @@ function AuthGate({
     profileError: Boolean(walletProfileError),
   });
   const walletPrimaryDisabled = isSwitchingWallet || isDisconnectPending || (!canEnterWallet && !canRetryWallet);
+  const walletFallbackDisabled = isSwitchingWallet || isDisconnectPending || !canCreateAfterProfileError;
   const hasInjectedProvider = hasInjectedEthereumProvider();
   const availableWalletConnectorChoices = useMemo(
     () => getAvailableWalletConnectorChoices(walletConnectorChoices, { hasInjectedProvider }),
@@ -378,18 +388,22 @@ function AuthGate({
     handleConnectWallet();
   }
 
-  function enterWallet() {
+  function enterWallet({ forceCreate = false, allowProfileError = false } = {}) {
     if (!address) return;
     if (inviteRequired && !hasInviteCode) return;
-    if (!canEnterWallet) return;
+    if (allowProfileError) {
+      if (!canCreateAfterProfileError) return;
+    } else if (!canEnterWallet) {
+      return;
+    }
     rememberInviteCode(inviteCode);
     rememberName(cleanName);
-    trackEvent("auth_enter_wallet");
+    trackEvent("auth_enter_wallet", forceCreate ? { profileFallback: allowProfileError } : undefined);
     onEnter(makeWalletIdentity(
       cleanName,
       address,
       existingCharacter?.avatarSeed ?? creationSeed,
-      walletNeedsCreation,
+      walletNeedsCreation || forceCreate,
     ));
   }
 
@@ -400,6 +414,11 @@ function AuthGate({
       return;
     }
     enterWallet();
+  }
+
+  function handleWalletCreateFallback() {
+    trackEvent("wallet_profile_create_fallback", { surface: "auth" });
+    enterWallet({ forceCreate: true, allowProfileError: true });
   }
 
   function handleConnectWallet() {
@@ -561,6 +580,17 @@ function AuthGate({
                 <Gem size={18} />
                 {walletEntryLabel}
               </button>
+              {walletProfileError && (
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  onClick={handleWalletCreateFallback}
+                  disabled={walletFallbackDisabled}
+                >
+                  <Sparkles size={18} />
+                  enter or create mfer
+                </button>
+              )}
               <button
                 className="secondary-btn"
                 type="button"
