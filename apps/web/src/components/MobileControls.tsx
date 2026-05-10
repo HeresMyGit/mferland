@@ -3,8 +3,6 @@ import { type MobileMoveInput } from "../game/TownScene";
 
 const STICK_DEADZONE = 0.16;
 const STICK_RANGE_SCALE = 0.36;
-const SPRINT_STRENGTH = 0.92;
-const SPRINT_FORWARD = 0.65;
 
 type MobileControlsProps = {
   disabled?: boolean;
@@ -103,7 +101,7 @@ export function MobileControls({ disabled = false, inputRef }: MobileControlsPro
       inputRef.current.active = true;
       inputRef.current.forward = -dy * directionScale * analogStrength;
       inputRef.current.right = dx * directionScale * analogStrength;
-      inputRef.current.sprint = analogStrength >= SPRINT_STRENGTH && inputRef.current.forward >= SPRINT_FORWARD;
+      inputRef.current.sprint = true;
     }
 
     setStick({ active: normalizedDistance >= STICK_DEADZONE, x: knobX, y: knobY });

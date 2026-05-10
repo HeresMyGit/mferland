@@ -7,6 +7,7 @@ import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
+import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { closeDatabase } from "./db/client.js";
 import { getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
@@ -17,6 +18,32 @@ const WEB_DIST_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
 const WEB_INDEX_PATH = resolve(WEB_DIST_DIR, "index.html");
 const WEB_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const WEB_INDEX_CACHE_CONTROL = "no-store";
+const MAX_ANALYTICS_BODY_BYTES = 8 * 1024;
+const PUBLIC_ANALYTICS_EVENTS = new Set([
+  "app_loaded",
+  "main_menu_viewed",
+  "auth_anon_warning_opened",
+  "auth_anon_warning_cancelled",
+  "auth_enter_guest",
+  "auth_enter_wallet",
+  "wallet_connect_started",
+  "wallet_connect_succeeded",
+  "wallet_connect_failed",
+  "wallet_switch_started",
+  "wallet_switch_succeeded",
+  "wallet_switch_failed",
+  "wallet_disconnected",
+  "wallet_profile_retry",
+  "wallet_profile_create_fallback",
+  "mfergpt_swap_panel_opened",
+  "mfergpt_swap_panel_closed",
+  "mfergpt_swap_opened",
+  "mfergpt_swap_started",
+  "mfergpt_swap_confirmed",
+  "mfergpt_swap_failed",
+  "mfergpt_swap_contract_copied",
+  "game_joined",
+]);
 
 Encoder.BUFFER_SIZE = ROOM_STATE_ENCODER_BUFFER_BYTES;
 
@@ -40,6 +67,11 @@ const server = createServer((req, res) => {
       maxPlayers: MAX_PLAYERS,
       debugMessagesEnabled: areDebugMessagesEnabled(),
     }));
+    return;
+  }
+
+  if (url === "/analytics/event") {
+    void handlePublicAnalyticsEvent(req, res);
     return;
   }
 
@@ -146,6 +178,85 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   void shutdown();
 });
+
+async function handlePublicAnalyticsEvent(req: IncomingMessage, res: ServerResponse) {
+  writeCorsHeaders(res);
+  if (req.method !== "POST") {
+    res.writeHead(405, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  let payload: Partial<PublicAnalyticsPayload> | null = null;
+  try {
+    payload = await readJsonBody<Partial<PublicAnalyticsPayload>>(req, MAX_ANALYTICS_BODY_BYTES);
+  } catch (error) {
+    const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: status === 413 ? "payload too large" : "invalid json" }));
+    return;
+  }
+
+  const eventType = typeof payload?.eventType === "string" ? payload.eventType : "";
+  if (!PUBLIC_ANALYTICS_EVENTS.has(eventType)) {
+    res.writeHead(202, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, recorded: false }));
+    return;
+  }
+
+  await recordAnalyticsEvent({
+    eventType,
+    sessionId: typeof payload?.sessionId === "string" ? payload.sessionId : "",
+    identityType: normalizePublicIdentityType(payload?.identityType),
+    walletAddress: typeof payload?.walletAddress === "string" ? payload.walletAddress : "",
+    properties: isRecord(payload?.properties) ? payload.properties : {},
+  });
+  res.writeHead(202, { "content-type": "application/json" });
+  res.end(JSON.stringify({ ok: true, recorded: true }));
+}
+
+type PublicAnalyticsPayload = {
+  eventType: string;
+  sessionId: string;
+  identityType: "guest" | "wallet" | "";
+  walletAddress: string;
+  properties: AnalyticsProperties;
+};
+
+class RequestBodyTooLargeError extends Error {}
+
+function readJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<T> {
+  return new Promise((resolvePromise, reject) => {
+    let bytes = 0;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        reject(new RequestBodyTooLargeError());
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("error", reject);
+    req.on("end", () => {
+      try {
+        const text = Buffer.concat(chunks).toString("utf8").trim();
+        resolvePromise((text ? JSON.parse(text) : {}) as T);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+function normalizePublicIdentityType(value: unknown) {
+  return value === "guest" || value === "wallet" ? value : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
 
 function writeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");

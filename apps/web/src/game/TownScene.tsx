@@ -479,7 +479,7 @@ function TownSceneComponent({
       .addScaledVector(frameRight, keyboardLeftIntent + mobileLeftIntent);
     const moveLength = frameMove.length();
     if (moveLength > 1) frameMove.normalize();
-    const isSprinting = !localIsDead && (keys.has("shift") || (mobileMove.active && mobileMove.sprint));
+    const isSprinting = !localIsDead && moveLength > 0.01;
     const isJumping = !localIsDead && (keys.has(" ") || keys.has("space") || keys.has("spacebar"));
 
     const interactPressed = keys.has("f") || keys.has("keyf");

@@ -942,6 +942,34 @@
   min-height: 0;
 }
 
+.traits-title-lockup {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.traits-title-portrait {
+  width: 58px;
+  height: 58px;
+  padding: 4px;
+  border: 2px solid rgba(8, 7, 5, 0.86);
+  border-radius: 8px;
+  background: rgba(255, 248, 224, 0.14);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 248, 224, 0.12),
+    0 5px 14px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.traits-title-portrait .mfer-portrait-art,
+.traits-title-portrait .mfer-portrait-loading {
+  width: 100%;
+  height: 100%;
+  border-radius: 5px;
+}
+
 .traits-preview {
   position: relative;
   top: 0;

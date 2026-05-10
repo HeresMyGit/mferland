@@ -18,6 +18,7 @@ import {
 import { waitForTransactionReceipt, type EthereumProvider } from "../crypto/transactionReceipts";
 import { resolveMferTraitsForPlayer } from "../game/mferTraits";
 import { MferAvatar } from "./MferAvatar";
+import { MferPortrait } from "./MferPortrait";
 
 type CryptoStoreAddresses = {
   store: string;
@@ -152,9 +153,14 @@ export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: Tr
   return (
     <div className="traits-panel">
       <div className="world-map-header">
-        <div>
-          <strong>{npc.name}</strong>
-          <span>{firstSetFree ? "first set free" : "trait change"}</span>
+        <div className="traits-title-lockup">
+          <div className="traits-title-portrait">
+            <MferPortrait traits={draft} variant="full" title="selected traits portrait" />
+          </div>
+          <div>
+            <strong>{npc.name}</strong>
+            <span>{firstSetFree ? "first set free" : "trait change"}</span>
+          </div>
         </div>
         <button type="button" title="Close traits" aria-label="Close traits" onClick={onClose}>
           <X size={22} />

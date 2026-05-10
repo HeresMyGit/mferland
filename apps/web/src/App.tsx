@@ -62,7 +62,7 @@ import {
   isWalletProfilePending,
   type WalletProfileState,
 } from "./auth/walletProfile";
-import { initializeAnalytics, trackEvent } from "./analytics";
+import { initializeAnalytics, trackEvent, type AnalyticsProperties } from "./analytics";
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
@@ -169,6 +169,16 @@ function isInviteRequired() {
   return import.meta.env.VITE_REQUIRE_INVITE === "1";
 }
 
+function getLinkedInviteCode() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("invite")?.trim() || params.get("code")?.trim() || "";
+}
+
+function getInitialInviteCode() {
+  return getLinkedInviteCode() || getStoredInviteCode();
+}
+
 function isCryptoStoreEnabled() {
   return import.meta.env.VITE_ENABLE_CRYPTO_STORE !== "0";
 }
@@ -195,7 +205,7 @@ export function App() {
 
   useEffect(() => {
     initializeAnalytics();
-    trackEvent("app_loaded", { mode: import.meta.env.DEV ? "dev" : "prod" });
+    trackEvent("app_loaded", { mode: import.meta.env.DEV ? "dev" : "prod" }, { local: true });
   }, []);
 
   useEffect(() => {
@@ -252,9 +262,11 @@ function AuthGate({
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [showWalletConnectors, setShowWalletConnectors] = useState(false);
   const [showAnonWarning, setShowAnonWarning] = useState(false);
-  const [inviteCode, setInviteCode] = useState(() => getStoredInviteCode());
+  const [inviteCode, setInviteCode] = useState(() => getInitialInviteCode());
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
   const walletProfileRequestRef = useRef(0);
+  const trackedMainMenuRef = useRef(false);
+  const trackedWalletAddressRef = useRef("");
   const [creationSeed, setCreationSeed] = useState(() => makeCreationSeed());
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderComplete, setLoaderComplete] = useState(false);
@@ -336,12 +348,25 @@ function AuthGate({
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const linkedInvite = params.get("invite")?.trim() || params.get("code")?.trim() || "";
+    const linkedInvite = getLinkedInviteCode();
     if (!linkedInvite) return;
     rememberInviteCode(linkedInvite);
     setInviteCode(linkedInvite);
   }, []);
+
+  useEffect(() => {
+    if (trackedMainMenuRef.current) return;
+    trackedMainMenuRef.current = true;
+    trackEvent("main_menu_viewed", {
+      inviteRequired,
+      invitePresent: hasInviteCode,
+      walletConnected: isConnected,
+    }, {
+      local: true,
+      identityType: isConnected ? "wallet" : "",
+      walletAddress: address ?? "",
+    });
+  }, [address, hasInviteCode, inviteRequired, isConnected]);
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -360,18 +385,45 @@ function AuthGate({
     if (isConnected) setShowWalletConnectors(false);
   }, [isConnected]);
 
+  useEffect(() => {
+    if (!isConnected || !address) {
+      trackedWalletAddressRef.current = "";
+      return;
+    }
+    trackWalletConnected(address, {
+      surface: "auth",
+      source: "account_state",
+    }, { google: false });
+  }, [address, isConnected]);
+
+  function trackWalletConnected(
+    walletAddress: string,
+    properties: AnalyticsProperties,
+    options: { google?: boolean } = {},
+  ) {
+    const normalizedAddress = walletAddress.toLowerCase();
+    const local = Boolean(normalizedAddress && trackedWalletAddressRef.current !== normalizedAddress);
+    if (local) trackedWalletAddressRef.current = normalizedAddress;
+    trackEvent("wallet_connect_succeeded", properties, {
+      google: options.google,
+      local,
+      identityType: "wallet",
+      walletAddress,
+    });
+  }
+
   function enterGuest() {
     if (inviteRequired && !hasInviteCode) return;
     rememberInviteCode(inviteCode);
     rememberName(cleanName);
-    trackEvent("auth_enter_guest");
+    trackEvent("auth_enter_guest", { inviteRequired, invitePresent: hasInviteCode }, { local: true, identityType: "guest" });
     onEnter(makeGuestIdentity(cleanName));
   }
 
   function openAnonWarning() {
     if (inviteRequired && !hasInviteCode) return;
     setShowAnonWarning(true);
-    trackEvent("auth_anon_warning_opened");
+    trackEvent("auth_anon_warning_opened", { inviteRequired, invitePresent: hasInviteCode }, { local: true });
   }
 
   function continueAsAnon() {
@@ -381,6 +433,7 @@ function AuthGate({
 
   function cancelAnonWarning() {
     setShowAnonWarning(false);
+    trackEvent("auth_anon_warning_cancelled", { inviteRequired, invitePresent: hasInviteCode }, { local: true });
   }
 
   function connectWalletFromAnonWarning() {
@@ -398,7 +451,12 @@ function AuthGate({
     }
     rememberInviteCode(inviteCode);
     rememberName(cleanName);
-    trackEvent("auth_enter_wallet", forceCreate ? { profileFallback: allowProfileError } : undefined);
+    trackEvent("auth_enter_wallet", {
+      inviteRequired,
+      invitePresent: hasInviteCode,
+      profileFallback: forceCreate ? allowProfileError : false,
+      needsCreation: walletNeedsCreation || forceCreate,
+    }, { local: true, identityType: "wallet", walletAddress: address });
     onEnter(makeWalletIdentity(
       cleanName,
       address,
@@ -409,7 +467,7 @@ function AuthGate({
 
   function handleWalletPrimaryAction() {
     if (canRetryWallet && address) {
-      trackEvent("wallet_profile_retry", { surface: "auth" });
+      trackEvent("wallet_profile_retry", { surface: "auth" }, { local: true, identityType: "wallet", walletAddress: address });
       void loadWalletProfile(address);
       return;
     }
@@ -417,7 +475,7 @@ function AuthGate({
   }
 
   function handleWalletCreateFallback() {
-    trackEvent("wallet_profile_create_fallback", { surface: "auth" });
+    trackEvent("wallet_profile_create_fallback", { surface: "auth" }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     enterWallet({ forceCreate: true, allowProfileError: true });
   }
 
@@ -444,24 +502,24 @@ function AuthGate({
   function connectWallet(connector: Connector) {
     setShowWalletConnectors(false);
     setWalletActionError(null);
-    trackEvent("wallet_connect_started", { surface: "auth", connector: connector.id });
+    trackEvent("wallet_connect_started", { surface: "auth", connector: connector.id }, { local: true });
     connect({ connector }, {
-      onSuccess: () => trackEvent("wallet_connect_succeeded", { surface: "auth", connector: connector.id }),
+      onSuccess: (data) => trackWalletConnected(getConnectedWalletAddress(data), { surface: "auth", connector: connector.id }),
       onError: (error) => {
         if (!isUserRejectedWalletRequest(error)) {
           setWalletActionError(getWalletConnectFailureMessage(connector));
         }
-        trackEvent("wallet_connect_failed", { surface: "auth", connector: connector.id });
+        trackEvent("wallet_connect_failed", { surface: "auth", connector: connector.id }, { local: true });
       },
     });
   }
 
   function connectLocalTestWallet() {
     if (!localTestConnector) return;
-    trackEvent("wallet_connect_started", { surface: "auth", connector: localTestConnector.id, chainId: 31337 });
+    trackEvent("wallet_connect_started", { surface: "auth", connector: localTestConnector.id, chainId: 31337 }, { local: true });
     connect({ connector: localTestConnector, chainId: 31337 }, {
-      onSuccess: () => trackEvent("wallet_connect_succeeded", { surface: "auth", connector: localTestConnector.id, chainId: 31337 }),
-      onError: () => trackEvent("wallet_connect_failed", { surface: "auth", connector: localTestConnector.id, chainId: 31337 }),
+      onSuccess: (data) => trackWalletConnected(getConnectedWalletAddress(data), { surface: "auth", connector: localTestConnector.id, chainId: 31337 }),
+      onError: () => trackEvent("wallet_connect_failed", { surface: "auth", connector: localTestConnector.id, chainId: 31337 }, { local: true }),
     });
   }
 
@@ -470,19 +528,19 @@ function AuthGate({
 
     setIsSwitchingWallet(true);
     setWalletActionError(null);
-    trackEvent("wallet_switch_started", { surface: "auth", connector: injected.id });
+    trackEvent("wallet_switch_started", { surface: "auth", connector: injected.id }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     try {
       const promptedAccountPicker = await requestInjectedAccountSelection();
       if (!promptedAccountPicker) {
         await disconnectAsync().catch(() => undefined);
         await connectAsync({ connector: injected });
       }
-      trackEvent("wallet_switch_succeeded", { surface: "auth", connector: injected.id });
+      trackEvent("wallet_switch_succeeded", { surface: "auth", connector: injected.id }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     } catch (error) {
       if (!isUserRejectedWalletRequest(error)) {
         setWalletActionError("wallet switch failed");
       }
-      trackEvent("wallet_switch_failed", { surface: "auth", connector: injected.id });
+      trackEvent("wallet_switch_failed", { surface: "auth", connector: injected.id }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     } finally {
       setIsSwitchingWallet(false);
     }
@@ -490,7 +548,7 @@ function AuthGate({
 
   function disconnectWallet() {
     setWalletActionError(null);
-    trackEvent("wallet_disconnected", { surface: "auth" });
+    trackEvent("wallet_disconnected", { surface: "auth" }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     disconnect();
   }
 
@@ -733,6 +791,30 @@ function MferGptSwapMenu() {
     trackEvent("mfergpt_swap_opened", {
       surface: "auth",
       amountSet: ethAmount.trim() !== "",
+    }, {
+      local: true,
+    });
+  }
+
+  function openSwapPanel() {
+    setIsExpanded(true);
+    trackEvent("mfergpt_swap_panel_opened", {
+      surface: "auth",
+      amountSet: ethAmount.trim() !== "",
+    }, {
+      local: true,
+    });
+  }
+
+  function closeSwapPanel() {
+    setIsExpanded(false);
+    trackEvent("mfergpt_swap_panel_closed", {
+      surface: "auth",
+      amountSet: ethAmount.trim() !== "",
+      quoted: Boolean(quote),
+      txStarted: Boolean(txHash),
+    }, {
+      local: true,
     });
   }
 
@@ -761,13 +843,14 @@ function MferGptSwapMenu() {
     const provider = getInjectedEthereumProvider();
     if (!provider) {
       setSwapStatus("wallet required");
+      trackEvent("mfergpt_swap_failed", { surface: "auth", error: "wallet required" }, { local: true });
       return;
     }
 
     setIsSwapping(true);
     setTxHash("");
     setSwapStatus("checking pool...");
-    trackEvent("mfergpt_swap_started", { surface: "auth" });
+    trackEvent("mfergpt_swap_started", { surface: "auth" }, { local: true });
     try {
       const nextQuote = await getMferGptSwapQuote(ethAmount, slippagePercent);
       setQuote(nextQuote);
@@ -778,11 +861,13 @@ function MferGptSwapMenu() {
       trackEvent("mfergpt_swap_confirmed", {
         surface: "auth",
         slippageBps: nextQuote.slippageBps,
+      }, {
+        local: true,
       });
     } catch (error) {
       const message = getSwapErrorMessage(error);
       setSwapStatus(message);
-      trackEvent("mfergpt_swap_failed", { surface: "auth", error: message });
+      trackEvent("mfergpt_swap_failed", { surface: "auth", error: message }, { local: true });
     } finally {
       setIsSwapping(false);
     }
@@ -793,7 +878,7 @@ function MferGptSwapMenu() {
       await navigator.clipboard.writeText(MFERGPT_BASE_TOKEN_ADDRESS);
       setCopiedContract(true);
       window.setTimeout(() => setCopiedContract(false), 1600);
-      trackEvent("mfergpt_swap_contract_copied", { surface: "auth" });
+      trackEvent("mfergpt_swap_contract_copied", { surface: "auth" }, { local: true });
     } catch {
       setCopiedContract(false);
     }
@@ -801,7 +886,7 @@ function MferGptSwapMenu() {
 
   return (
     <section className={`auth-swap-panel${isExpanded ? " expanded" : ""}`} aria-label="swap ETH to MFERGPT">
-      <button className="auth-swap-toggle" type="button" aria-expanded={isExpanded} onClick={() => setIsExpanded(true)}>
+      <button className="auth-swap-toggle" type="button" aria-expanded={isExpanded} onClick={openSwapPanel}>
         <ArrowDownUp size={18} />
         <span>swap</span>
       </button>
@@ -812,7 +897,7 @@ function MferGptSwapMenu() {
             <span>base swap</span>
             <strong>ETH to $MFERGPT</strong>
           </div>
-          <button className="auth-swap-close" type="button" aria-label="close swap" onClick={() => setIsExpanded(false)}>
+          <button className="auth-swap-close" type="button" aria-label="close swap" onClick={closeSwapPanel}>
             <X size={16} />
           </button>
         </header>
@@ -889,6 +974,12 @@ function MferGptSwapMenu() {
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function getConnectedWalletAddress(data: unknown) {
+  const accounts = (data as { accounts?: readonly unknown[] } | null)?.accounts;
+  const firstAccount = accounts?.[0];
+  return typeof firstAccount === "string" ? firstAccount : "";
 }
 
 function getSwapErrorMessage(error: unknown) {
@@ -1028,7 +1119,7 @@ function GameShell({
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
-  const [globalCooldownReadyAt, setGlobalCooldownReadyAt] = useState(0);
+  const globalCooldownReadyAt = 0;
   const [moveUnlockNotices, setMoveUnlockNotices] = useState<MoveUnlockNotice[]>([]);
   const [debugTravelView, setDebugTravelView] = useState<DebugTravelView | null>(null);
   const [settings, setSettings] = useState<GameSettings>(() => readStoredGameSettings());
@@ -1205,7 +1296,6 @@ function GameShell({
         showActionError(blockMessage);
         return;
       }
-      setGlobalCooldownReadyAt(Date.now() + COMBAT.universalCooldownMs);
       room.sendCombatAction({
         actionId: slot,
         target: selectedTarget,

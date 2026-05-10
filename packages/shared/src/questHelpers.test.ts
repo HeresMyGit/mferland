@@ -62,6 +62,16 @@ test("bridge quests are not offered after their follow-up is already completed",
   assert.equal(isQuestAvailableForSnapshots("farm-road-handoff", progressedPastFarmHandoff), false);
 });
 
+test("traits mfer marker matches server's post-progression trait offer exception", () => {
+  const progressedPastTraits = [
+    quest("mfer-beginnings", "completed"),
+    quest("dao-tour", "completed"),
+  ];
+
+  assert.equal(isQuestAvailableForSnapshots("set-your-traits", progressedPastTraits), true);
+  assert.equal(getNpcQuestMarker({ id: "traits-mfer" }, progressedPastTraits), "available");
+});
+
 test("primary quest chain exposes the next quest giver after every completion", () => {
   const questLog: QuestSnapshot[] = [];
 
