@@ -141,6 +141,7 @@ import {
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const EMOTE_MIN_INTERVAL_MS = 900;
+const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 const CLIENT_ANALYTICS_EVENTS = new Set([
@@ -386,6 +387,8 @@ export class TownRoom extends Room<TownState> {
   private readonly lastInteractAt = new Map<string, number>();
   private readonly persistentCharacterIds = new Map<string, string>();
   private readonly pendingCharacterSaves = new Map<string, Promise<void>>();
+  private readonly queuedCharacterSaveFingerprints = new Map<string, string>();
+  private readonly savedCharacterFingerprints = new Map<string, string>();
   private readonly sessionJoinedAt = new Map<string, number>();
   private readonly deadSessionIds = new Set<string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
@@ -395,6 +398,7 @@ export class TownRoom extends Room<TownState> {
   private readonly forcedNpcTargets = new Map<string, { sessionId: string; until: number }>();
   private readonly consumableCooldowns = new Map<string, number>();
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
+  private lastCharacterAutosaveAt = 0;
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
   onAuth(_client: Client, options?: JoinOptions) {
@@ -696,6 +700,7 @@ export class TownRoom extends Room<TownState> {
 
   async onLeave(client: Client) {
     const player = this.state.players.get(client.sessionId);
+    const characterId = this.persistentCharacterIds.get(client.sessionId);
     if (player) {
       this.recordPlayerAnalyticsEvent("session_left", client.sessionId, player, {
         durationMs: Math.max(0, Date.now() - (this.sessionJoinedAt.get(client.sessionId) ?? Date.now())),
@@ -714,6 +719,7 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(client.sessionId);
     this.lastInteractAt.delete(client.sessionId);
     this.persistentCharacterIds.delete(client.sessionId);
+    if (characterId) this.cleanupCharacterSaveTracking(characterId);
     this.sessionJoinedAt.delete(client.sessionId);
     this.deadSessionIds.delete(client.sessionId);
     this.pendingDebugPlacementSaves.delete(client.sessionId);
@@ -1746,6 +1752,18 @@ export class TownRoom extends Room<TownState> {
     void this.persistPlayerProgressNow(sessionId, player);
   }
 
+  private persistPlayerProgressIfChanged(sessionId: string, player: PlayerState) {
+    const characterId = this.persistentCharacterIds.get(sessionId);
+    if (!characterId) return;
+
+    const state = makePersistableCharacterState(characterId, player);
+    const fingerprint = getPersistableCharacterStateFingerprint(state);
+    if (this.savedCharacterFingerprints.get(characterId) === fingerprint) return;
+    if (this.queuedCharacterSaveFingerprints.get(characterId) === fingerprint) return;
+
+    void this.queueCharacterSave(sessionId, characterId, state, fingerprint);
+  }
+
   private async awardSeason0QuestReward(client: Client, player: PlayerState, questId: QuestId) {
     const characterId = this.persistentCharacterIds.get(client.sessionId);
     if (!characterId || player.identityType !== "wallet" || !player.walletAddress) return;
@@ -1792,8 +1810,10 @@ export class TownRoom extends Room<TownState> {
     sessionId: string,
     characterId: string,
     state: PersistableCharacterState,
+    fingerprint = getPersistableCharacterStateFingerprint(state),
   ) {
     const previous = this.pendingCharacterSaves.get(characterId) ?? Promise.resolve();
+    this.queuedCharacterSaveFingerprints.set(characterId, fingerprint);
     this.sendPersistenceStatus(sessionId, "saving", "saving wallet progress");
     let next: Promise<void>;
     next = previous
@@ -1802,6 +1822,7 @@ export class TownRoom extends Room<TownState> {
         try {
           await saveCharacterProgress(state);
           if (this.pendingCharacterSaves.get(characterId) === next) {
+            this.savedCharacterFingerprints.set(characterId, fingerprint);
             this.sendPersistenceStatus(sessionId, "saved", "wallet progress saved");
           }
         } catch (error) {
@@ -1814,9 +1835,27 @@ export class TownRoom extends Room<TownState> {
     next.finally(() => {
       if (this.pendingCharacterSaves.get(characterId) === next) {
         this.pendingCharacterSaves.delete(characterId);
+        this.queuedCharacterSaveFingerprints.delete(characterId);
       }
     }).catch(() => undefined);
     await next;
+  }
+
+  private autosaveWalletCharacters(now: number) {
+    if (now - this.lastCharacterAutosaveAt < CHARACTER_AUTOSAVE_INTERVAL_MS) return;
+    this.lastCharacterAutosaveAt = now;
+    this.state.players.forEach((player, sessionId) => {
+      this.persistPlayerProgressIfChanged(sessionId, player);
+    });
+  }
+
+  private cleanupCharacterSaveTracking(characterId: string) {
+    for (const activeCharacterId of this.persistentCharacterIds.values()) {
+      if (activeCharacterId === characterId) return;
+    }
+    this.pendingCharacterSaves.delete(characterId);
+    this.queuedCharacterSaveFingerprints.delete(characterId);
+    this.savedCharacterFingerprints.delete(characterId);
   }
 
   private sendPersistenceStatus(sessionId: string, state: "saving" | "saved" | "error", message: string) {
@@ -1933,6 +1972,7 @@ export class TownRoom extends Room<TownState> {
       player.z = nextPosition.z;
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
     });
+    this.autosaveWalletCharacters(now);
   }
 
   private creditNearbyPlayersForNpcDefeat(sourceId: string, npc: NpcState, now: number) {
@@ -2371,6 +2411,10 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     equipment,
     talents,
   };
+}
+
+function getPersistableCharacterStateFingerprint(state: PersistableCharacterState) {
+  return JSON.stringify(state);
 }
 
 function snapshotPlayers({
