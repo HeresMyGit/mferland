@@ -45,6 +45,7 @@ const UNISWAP_COMMAND_V4_SWAP = "10";
 const V4_ACTION_SWAP_EXACT_IN_SINGLE = "06";
 const V4_ACTION_SETTLE = "0b";
 const V4_ACTION_TAKE_ALL = "0f";
+const MFERGPT_SWAP_GAS_LIMIT = 900_000n;
 
 const UNIVERSAL_ROUTER_ABI = [{
   type: "function",
@@ -111,8 +112,8 @@ export async function executeMferGptSwap(provider: EthereumProvider, quote: Mfer
     to: UNISWAP_UNIVERSAL_ROUTER,
     data: buildMferGptSwapCallData(quote, deadline),
     value: toHex(quote.amountInWei),
+    gas: toHex(MFERGPT_SWAP_GAS_LIMIT),
   };
-  transaction.gas = await estimateSwapGas(provider, transaction);
 
   const txHash = await provider.request({
     method: "eth_sendTransaction",
@@ -308,12 +309,6 @@ async function switchToBase(provider: EthereumProvider) {
   if (typeof chainId === "string" && Number.parseInt(chainId, 16) !== BASE_CHAIN_ID) {
     throw new Error("switch to Base");
   }
-}
-
-async function estimateSwapGas(provider: EthereumProvider, transaction: SwapTransactionRequest) {
-  const gas = await provider.request({ method: "eth_estimateGas", params: [transaction] });
-  if (typeof gas !== "string" || !/^0x[0-9a-f]+$/i.test(gas)) throw new Error("network fee unavailable");
-  return toHex(BigInt(gas) * 115n / 100n + 1_000n);
 }
 
 function isUnknownChainError(error: unknown): boolean {
