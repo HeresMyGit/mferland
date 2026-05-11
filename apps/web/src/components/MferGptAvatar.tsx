@@ -41,7 +41,8 @@ type LoadedMferGptGltf = {
   scene: THREE.Group;
 };
 
-const MODEL_URL = "/models/mferGPT.glb";
+export const MFER_GPT_MODEL_URL = "/models/mferGPT.glb";
+export const ENEMY_MFER_GPT_MODEL_URL = "/models/mferGPT-enemy.glb";
 const NAMEPLATE_RENDER_DISTANCE_SQ = 58 * 58;
 const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 48 * 48;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 54 * 54;
@@ -60,6 +61,10 @@ const antennaLightPulseIntensity = 18;
 
 hitGeometry.computeBoundingBox();
 hitGeometry.computeBoundingSphere();
+
+export function getMferGptModelUrl(isHostile: boolean) {
+  return isHostile ? ENEMY_MFER_GPT_MODEL_URL : MFER_GPT_MODEL_URL;
+}
 
 export function MferGptAvatar({
   npc,
@@ -81,10 +86,10 @@ export function MferGptAvatar({
   const currentAnimationStateRef = useRef<AnimationState | null>(null);
   const deathAgeRef = useRef(0);
   const wasDefeatedRef = useRef(false);
-  const gltf = useLoader(GLTFLoader, MODEL_URL) as LoadedMferGptGltf;
-  const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const disposition = getNpcDisposition(npc);
   const isHostile = disposition === "hostile";
+  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile)) as LoadedMferGptGltf;
+  const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const labelColor = isHostile ? hostileLabelColor : friendlyLabelColor;
   const badgeColor = isHostile ? hostileBadgeColor : friendlyBadgeColor;
   const avatar = useMemo(() => createMferGptAvatar(gltf.scene, isHostile), [gltf.scene, isHostile]);

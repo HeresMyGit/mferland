@@ -5,7 +5,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { getNpcDisposition, type NpcSnapshot } from "@mferland/shared";
 import { getClientRenderPerformanceProfile, type RenderPerformanceProfile } from "../game/performance";
 import { DeerModel, HogModel, RabbitModel } from "./CreatureAvatar";
-import { createMferGptAvatar } from "./MferGptAvatar";
+import { createMferGptAvatar, getMferGptModelUrl } from "./MferGptAvatar";
 import { createTrainingDummyModel } from "./TrainingDummyAvatar";
 
 type LoadedGltf = {
@@ -22,7 +22,6 @@ type PortraitConfig = {
   bob: number;
 };
 
-const MFER_GPT_MODEL_URL = "/models/mferGPT.glb";
 const TRAINING_DUMMY_MODEL_URL = "/models/training-dummy.glb";
 
 const PORTRAIT_CONFIG: Record<NpcSnapshot["model"], PortraitConfig> = {
@@ -99,8 +98,8 @@ function PortraitModel({ npc }: { npc: NpcSnapshot }) {
 }
 
 function MferGptPortraitModel({ npc }: { npc: NpcSnapshot }) {
-  const gltf = useLoader(GLTFLoader, MFER_GPT_MODEL_URL) as LoadedGltf;
   const isHostile = getNpcDisposition(npc) === "hostile";
+  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile)) as LoadedGltf;
   const model = useMemo(() => createMferGptAvatar(gltf.scene, isHostile), [gltf.scene, isHostile]);
   return <primitive object={model} dispose={null} />;
 }
