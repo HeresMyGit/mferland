@@ -327,6 +327,20 @@
     bottom: auto;
   }
 
+  .floating-menu-overlay.swap-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
+  .swap-anchor .auth-swap-panel {
+    position: static;
+    width: min(318px, calc(100vw - 28px));
+  }
+
+  .swap-anchor .auth-swap-card {
+    display: grid;
+  }
+
   .crypto-store-overview,
   .crypto-store-flow-grid,
   .crypto-store-config,

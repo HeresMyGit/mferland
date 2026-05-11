@@ -70,6 +70,7 @@ function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "gate-guard") return "watch";
   if (npc.id === "fountain-mfer") return "plaza";
   if (npc.id === "crypto-mfer") return "crypto";
+  if (npc.id === "swap-mfer") return "swap";
   if (npc.id === "hogwatch-mfer") return "claimwatch";
   if (npc.id === "field-guide-mfer") return "route post";
   if (npc.id === "pen-keeper-mfer") return "claim booth";

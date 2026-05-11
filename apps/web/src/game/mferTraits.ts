@@ -356,6 +356,18 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
     return;
   }
 
+  if (npc.id === "swap-mfer") {
+    traits.type = "plain";
+    traits.eyes = "vr";
+    traits.headphones = "green";
+    traits.hat_under_headphones = "headband_green_white";
+    traits.shirt = "hoodie_down_blue";
+    traits.watch = "sub_turquoise";
+    traits.chain = "silver";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
   if (npc.id === "hogwatch-mfer") {
     traits.type = pick(rand, ["plain", "charcoal"]);
     traits.eyes = "shades";

@@ -96,6 +96,16 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       questId: "set-your-traits",
     },
     {
+      id: "swap-mfer",
+      name: "swap mfer",
+      role: "merchant",
+      x: 0,
+      z: 25.4,
+      yaw: 0,
+      leashRadius: 1.2,
+      dialogue: "need $MFERGPT? same base route, less tab-hunting.",
+    },
+    {
       id: "crypto-mfer",
       name: "crypto mfer",
       role: "merchant",

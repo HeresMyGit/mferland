@@ -120,6 +120,7 @@ const HIDDEN_CAPTURE_NAMEPLATES = {
 const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
 const CRYPTO_STORE_NPC_IDS = new Set(["crypto-mfer"]);
+const SWAP_MFER_NPC_IDS = new Set(["swap-mfer"]);
 const TRAITS_MFER_NPC_IDS = new Set(["traits-mfer"]);
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
@@ -190,6 +191,10 @@ function makeCreationSeed() {
 
 function isCryptoStoreNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return Boolean(npc && CRYPTO_STORE_NPC_IDS.has(npc.id));
+}
+
+function isSwapMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return Boolean(npc && SWAP_MFER_NPC_IDS.has(npc.id));
 }
 
 function isTraitsMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
@@ -752,10 +757,22 @@ function AuthGate({
   );
 }
 
-function MferGptSwapMenu() {
+type MferGptSwapMenuProps = {
+  defaultExpanded?: boolean;
+  onClose?: () => void;
+  surface?: string;
+  variant?: "auth" | "npc";
+};
+
+function MferGptSwapMenu({
+  defaultExpanded = false,
+  onClose,
+  surface = "auth",
+  variant = "auth",
+}: MferGptSwapMenuProps = {}) {
   const [ethAmount, setEthAmount] = useState(DEFAULT_SWAP_ETH_AMOUNT);
   const [slippagePercent, setSlippagePercent] = useState(DEFAULT_SWAP_SLIPPAGE_PERCENT);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [copiedContract, setCopiedContract] = useState(false);
   const [quote, setQuote] = useState<MferGptSwapQuote | null>(null);
   const [swapStatus, setSwapStatus] = useState("");
@@ -790,7 +807,7 @@ function MferGptSwapMenu() {
 
   function trackSwapOpen() {
     trackEvent("mfergpt_swap_opened", {
-      surface: "auth",
+      surface,
       amountSet: ethAmount.trim() !== "",
     }, {
       local: true,
@@ -800,7 +817,7 @@ function MferGptSwapMenu() {
   function openSwapPanel() {
     setIsExpanded(true);
     trackEvent("mfergpt_swap_panel_opened", {
-      surface: "auth",
+      surface,
       amountSet: ethAmount.trim() !== "",
     }, {
       local: true,
@@ -810,13 +827,14 @@ function MferGptSwapMenu() {
   function closeSwapPanel() {
     setIsExpanded(false);
     trackEvent("mfergpt_swap_panel_closed", {
-      surface: "auth",
+      surface,
       amountSet: ethAmount.trim() !== "",
       quoted: Boolean(quote),
       txStarted: Boolean(txHash),
     }, {
       local: true,
     });
+    onClose?.();
   }
 
   async function refreshQuote(options: { quiet?: boolean } = {}) {
@@ -844,14 +862,14 @@ function MferGptSwapMenu() {
     const provider = getInjectedEthereumProvider();
     if (!provider) {
       setSwapStatus("wallet required");
-      trackEvent("mfergpt_swap_failed", { surface: "auth", error: "wallet required" }, { local: true });
+      trackEvent("mfergpt_swap_failed", { surface, error: "wallet required" }, { local: true });
       return;
     }
 
     setIsSwapping(true);
     setTxHash("");
     setSwapStatus("checking pool...");
-    trackEvent("mfergpt_swap_started", { surface: "auth" }, { local: true });
+    trackEvent("mfergpt_swap_started", { surface }, { local: true });
     try {
       const nextQuote = await getMferGptSwapQuote(ethAmount, slippagePercent);
       setQuote(nextQuote);
@@ -860,7 +878,7 @@ function MferGptSwapMenu() {
       setTxHash(nextTxHash);
       setSwapStatus("swap confirmed");
       trackEvent("mfergpt_swap_confirmed", {
-        surface: "auth",
+        surface,
         slippageBps: nextQuote.slippageBps,
       }, {
         local: true,
@@ -868,7 +886,7 @@ function MferGptSwapMenu() {
     } catch (error) {
       const message = getSwapErrorMessage(error);
       setSwapStatus(message);
-      trackEvent("mfergpt_swap_failed", { surface: "auth", error: message }, { local: true });
+      trackEvent("mfergpt_swap_failed", { surface, error: message }, { local: true });
     } finally {
       setIsSwapping(false);
     }
@@ -879,14 +897,14 @@ function MferGptSwapMenu() {
       await navigator.clipboard.writeText(MFERGPT_BASE_TOKEN_ADDRESS);
       setCopiedContract(true);
       window.setTimeout(() => setCopiedContract(false), 1600);
-      trackEvent("mfergpt_swap_contract_copied", { surface: "auth" }, { local: true });
+      trackEvent("mfergpt_swap_contract_copied", { surface }, { local: true });
     } catch {
       setCopiedContract(false);
     }
   }
 
   return (
-    <section className={`auth-swap-panel${isExpanded ? " expanded" : ""}`} aria-label="swap ETH to MFERGPT">
+    <section className={`auth-swap-panel mfergpt-swap-menu ${variant === "npc" ? "in-game-swap-panel" : ""}${isExpanded ? " expanded" : ""}`} aria-label="swap ETH to MFERGPT">
       <button className="auth-swap-toggle" type="button" aria-expanded={isExpanded} onClick={openSwapPanel}>
         <ArrowDownUp size={18} />
         <span>swap</span>
@@ -1117,6 +1135,7 @@ function GameShell({
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
+  const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
@@ -1172,6 +1191,10 @@ function GameShell({
   const cryptoStoreNpc = useMemo(
     () => cryptoStoreNpcId ? room.npcs.get(cryptoStoreNpcId) ?? null : null,
     [cryptoStoreNpcId, room.npcs, room.snapshotRevision],
+  );
+  const swapNpc = useMemo(
+    () => swapNpcId ? room.npcs.get(swapNpcId) ?? null : null,
+    [room.npcs, room.snapshotRevision, swapNpcId],
   );
   const traitsNpc = useMemo(
     () => traitsNpcId ? room.npcs.get(traitsNpcId) ?? null : null,
@@ -1247,6 +1270,10 @@ function GameShell({
     trackEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openSwapMfer = useCallback((npc: NpcSnapshot) => {
+    setSwapNpcId(npc.id);
+    trackEvent("mfergpt_swap_panel_opened", { surface: "swap_mfer", npcId: npc.id, npcRole: npc.role }, { local: true });
+  }, []);
   const openTraitsPanel = useCallback((npc: NpcSnapshot) => {
     setTraitsNpcId(npc.id);
     trackEvent("traits_panel_opened", { npcId: npc.id, npcRole: npc.role });
@@ -1259,10 +1286,11 @@ function GameShell({
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
+      if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
       if (isTraitsMferNpc(selectedNpc) && hasStartedTraitsQuest(localPlayer)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openTraitsPanel, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1271,9 +1299,10 @@ function GameShell({
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
+    if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
     if (isTraitsMferNpc(nearestNpc) && hasStartedTraitsQuest(localPlayer)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openTraitsPanel, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1760,6 +1789,16 @@ function GameShell({
                 result={room.traitUpdateResult}
                 onClose={() => setTraitsNpcId(null)}
                 onUpdateTraits={updateTraits}
+              />
+            </section>
+          )}
+          {swapNpc && (
+            <section className="floating-menu-overlay swap-anchor" role="dialog" aria-label="swap">
+              <MferGptSwapMenu
+                defaultExpanded
+                onClose={() => setSwapNpcId(null)}
+                surface="swap_mfer"
+                variant="npc"
               />
             </section>
           )}

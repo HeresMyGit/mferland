@@ -408,6 +408,23 @@ button {
   display: none;
 }
 
+.in-game-swap-panel {
+  position: static;
+  width: min(318px, calc(100vw - 32px));
+}
+
+.in-game-swap-panel .auth-swap-toggle {
+  display: none;
+}
+
+.in-game-swap-panel .auth-swap-close {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+
 .auth-swap-header {
   display: flex;
   align-items: center;

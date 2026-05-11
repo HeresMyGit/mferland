@@ -901,6 +901,11 @@
   top: 92px;
 }
 
+.swap-anchor {
+  right: 108px;
+  top: 92px;
+}
+
 .world-map-panel {
   width: min(760px, calc(100vw - 48px));
   padding: 14px;
