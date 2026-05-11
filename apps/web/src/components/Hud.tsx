@@ -1713,11 +1713,23 @@ function CastBar({
 
 function HudTooltip({ tooltip }: { tooltip: HudTooltipState }) {
   const [title, ...lines] = tooltip.text.split("\n").filter(Boolean);
+  let isComparisonSection = false;
+  const tooltipLines = lines.map((line, index) => {
+    const startsComparisonSection = line.toLowerCase().startsWith("compared to ");
+    const isComparisonLine = isComparisonSection && !startsComparisonSection;
+    if (startsComparisonSection) isComparisonSection = true;
+    return {
+      className: getTooltipLineClass(line, { isComparisonLine, startsComparisonSection }),
+      key: `${line}-${index}`,
+      line,
+    };
+  });
+
   return (
     <div className="hud-tooltip" role="tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
       <strong>{title}</strong>
-      {lines.map((line, index) => (
-        <span key={`${line}-${index}`} className={getTooltipLineClass(line)}>{line}</span>
+      {tooltipLines.map(({ className, key, line }) => (
+        <span key={key} className={className}>{line}</span>
       ))}
     </div>
   );
@@ -1740,8 +1752,15 @@ function MoveUnlockToast({ notice }: { notice: MoveUnlockNotice }) {
   );
 }
 
-function getTooltipLineClass(line: string) {
+function getTooltipLineClass(line: string, options: { isComparisonLine?: boolean; startsComparisonSection?: boolean } = {}) {
   const normalized = line.toLowerCase();
+  if (options.startsComparisonSection) return "tooltip-line comparison-heading";
+  if (options.isComparisonLine) {
+    const comparisonClass = getTooltipComparisonClass(normalized);
+    if (comparisonClass) return `tooltip-line stat comparison ${comparisonClass}`;
+  }
+  const statClass = getTooltipStatClass(normalized);
+  if (statClass) return `tooltip-line stat ${statClass}`;
   if (normalized.includes("status:") || normalized.includes("locked") || normalized.includes("unlock") || normalized.includes("out of range") || normalized.includes("requires")) return "tooltip-line status";
   if (normalized.includes("cooldown") || normalized.includes("ready in") || normalized.includes("stand still") || normalized.includes("casting")) return "tooltip-line timing";
   if (normalized.includes("mp") || normalized.includes("mana")) return "tooltip-line resource";
@@ -1749,6 +1768,23 @@ function getTooltipLineClass(line: string) {
   if (normalized.includes("threat") || normalized.includes("forces") || normalized.includes("freezes") || normalized.includes("slows")) return "tooltip-line control";
   if (normalized.includes("range") || /\d+(\.\d+)?-\d+(\.\d+)?m/.test(normalized) || /\d+(\.\d+)?m/.test(normalized)) return "tooltip-line range";
   return "tooltip-line";
+}
+
+function getTooltipStatClass(normalizedLine: string) {
+  if (!/^[+-]\d/.test(normalizedLine)) return "";
+  if (/\bhp\b/.test(normalizedLine)) return "health";
+  if (/\bmp\b|\bmana\b/.test(normalizedLine)) return "mana";
+  if (/\bstr\b|\bstrength\b/.test(normalizedLine)) return "strength";
+  if (/\bdex\b|\bdexterity\b/.test(normalizedLine)) return "dexterity";
+  if (/\bmag\b|\bmagic\b/.test(normalizedLine)) return "magic";
+  return "";
+}
+
+function getTooltipComparisonClass(normalizedLine: string) {
+  if (/^\+\d/.test(normalizedLine)) return "positive";
+  if (/^-\d/.test(normalizedLine)) return "negative";
+  if (/^=/.test(normalizedLine)) return "neutral";
+  return "";
 }
 
 function isChatShortcutTarget(target: EventTarget | null) {
@@ -2174,10 +2210,14 @@ function formatItemStats(itemId: ItemId, chainTier?: number) {
   return statKeys
     .map((statKey) => {
       const value = equipment.stats[statKey] ?? 0;
-      const sign = value > 0 ? "+" : "";
-      return `${sign}${formatStatNumber(value)} ${STAT_LABELS[statKey]}`;
+      return formatStatLine(statKey, value);
     })
-    .join(", ");
+    .join("\n");
+}
+
+function formatStatLine(statKey: keyof typeof STAT_LABELS, value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatStatNumber(value)} ${STAT_LABELS[statKey]}`;
 }
 
 function formatChainGearLabel(item: { chainTokenId?: string; chainTier?: number }) {
@@ -2260,18 +2300,19 @@ function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot |
 
   if (deltas.length === 0) {
     return {
-      text: equippedItem ? `No stat change vs ${equippedItem.name}` : "No stat bonuses",
+      text: equippedItem ? `Compared to ${equippedItem.name}\n= No stat change` : "No stat bonuses",
       tone: "neutral" as const,
     };
   }
 
   const totalDelta = deltas.reduce((sum, itemDelta) => sum + itemDelta.delta, 0);
-  const text = deltas
-    .map(({ statKey, delta }) => `${delta > 0 ? "+" : ""}${formatStatNumber(delta)} ${STAT_LABELS[statKey]}`)
-    .join(", ");
+  const deltaLines = deltas.map(({ statKey, delta }) => formatStatLine(statKey, delta));
+  const text = equippedItem
+    ? [`Compared to ${equippedItem.name}`, ...deltaLines].join("\n")
+    : deltaLines.join("\n");
 
   return {
-    text: equippedItem ? `${text} vs ${equippedItem.name}` : text,
+    text,
     tone: totalDelta > 0 ? "positive" as const : totalDelta < 0 ? "negative" as const : "neutral" as const,
   };
 }
