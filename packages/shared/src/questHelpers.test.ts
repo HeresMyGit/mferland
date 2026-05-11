@@ -6,6 +6,7 @@ import {
   getQuestRepeatCooldownMs,
   getQuestRepeatLabel,
   isQuestAvailableForSnapshots,
+  isRepeatableQuest,
 } from "./questHelpers.js";
 import { QUESTS } from "./quests.js";
 import type { QuestId, QuestSnapshot } from "./types.js";
@@ -89,7 +90,7 @@ test("primary quest chain exposes the next quest giver after every completion", 
     );
     assert.equal(
       getNpcQuestMarker({ id: QUESTS[nextQuestId].giverNpcId }, questLog),
-      "available",
+      isRepeatableQuest(nextQuestId) ? "dailyAvailable" : "available",
       `${QUESTS[nextQuestId].giverNpcId} should mark ${nextQuestId}`,
     );
   }
@@ -109,7 +110,10 @@ test("mferGPT daily signal is repeatable after signal check", () => {
 
   const afterSignalCheck = [quest("mfergpt-checkin", "completed")];
   assert.equal(isQuestAvailableForSnapshots("mfergpt-daily-signal", afterSignalCheck), true);
-  assert.equal(getNpcQuestMarker({ id: "mfergpt" }, afterSignalCheck), "available");
+  assert.equal(getNpcQuestMarker({ id: "mfergpt" }, afterSignalCheck), "dailyAvailable");
+
+  const readyDailySignal = [...afterSignalCheck, quest("mfergpt-daily-signal", "ready")];
+  assert.equal(getNpcQuestMarker({ id: "mfergpt" }, readyDailySignal), "dailyTurnIn");
 });
 
 test("quest rewards form the early gear progression spine", () => {

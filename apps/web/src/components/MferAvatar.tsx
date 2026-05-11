@@ -434,7 +434,7 @@ export function DispositionBaseMarker({
   questMarker?: QuestMarkerType | null;
   radius?: number;
 }) {
-  const color = questMarker ? (questMarker === "turnIn" ? MFER_COLORS.questTurnIn : MFER_COLORS.questAvailable) : TARGET_RING_COLORS[disposition];
+  const color = questMarker ? getQuestMarkerColor(questMarker) : TARGET_RING_COLORS[disposition];
 
   return (
     <group position={[0, 0.045, 0]}>
@@ -454,10 +454,12 @@ export function DispositionBaseMarker({
 
 export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
   const markerRef = useRef<THREE.Group>(null);
-  const color = "#ffd23f";
-  const highlight = "#fff1a6";
-  const shadow = "#241407";
-  const label = type === "turnIn" ? "?" : "!";
+  const isDaily = isDailyQuestMarker(type);
+  const color = isDaily ? MFER_COLORS.questDaily : "#ffd23f";
+  const highlight = isDaily ? "#dff7ff" : "#fff1a6";
+  const shadow = isDaily ? "#06212e" : "#241407";
+  const outline = isDaily ? "#083141" : "#3b2205";
+  const label = isTurnInQuestMarker(type) ? "?" : "!";
 
   useFrame(({ clock }) => {
     const marker = markerRef.current;
@@ -488,7 +490,7 @@ export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
           anchorX="center"
           anchorY="middle"
           color={color}
-          outlineColor="#3b2205"
+          outlineColor={outline}
           outlineWidth={0.095}
           renderOrder={71}
         >
@@ -507,6 +509,19 @@ export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {
       </group>
     </Billboard>
   );
+}
+
+function getQuestMarkerColor(questMarker: QuestMarkerType) {
+  if (isDailyQuestMarker(questMarker)) return MFER_COLORS.questDaily;
+  return isTurnInQuestMarker(questMarker) ? MFER_COLORS.questTurnIn : MFER_COLORS.questAvailable;
+}
+
+function isDailyQuestMarker(questMarker: QuestMarkerType) {
+  return questMarker === "dailyAvailable" || questMarker === "dailyTurnIn";
+}
+
+function isTurnInQuestMarker(questMarker: QuestMarkerType) {
+  return questMarker === "turnIn" || questMarker === "dailyTurnIn";
 }
 
 export function ActorNameplate({

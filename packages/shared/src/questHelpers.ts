@@ -100,7 +100,7 @@ export function getNpcQuestMarker(
     const isTurnInNpc = getQuestTurnInNpcId(questId) === npc.id;
     const quest = questLog.find((entry) => entry.id === questId);
 
-    if (quest?.status === "ready" && isTurnInNpc) return "turnIn";
+    if (quest?.status === "ready" && isTurnInNpc) return getQuestMarkerType(questId, "turnIn");
   }
 
   for (const questId of npcQuestIds) {
@@ -108,9 +108,14 @@ export function getNpcQuestMarker(
     if (!isGiver) continue;
 
     const quest = questLog.find((entry) => entry.id === questId);
-    if (!quest && isQuestAvailableForSnapshots(questId, questLog)) return "available";
-    if (quest?.status === "completed" && isQuestReadyToRepeat(questId, quest)) return "available";
+    if (!quest && isQuestAvailableForSnapshots(questId, questLog)) return getQuestMarkerType(questId, "available");
+    if (quest?.status === "completed" && isQuestReadyToRepeat(questId, quest)) return getQuestMarkerType(questId, "available");
   }
 
   return null;
+}
+
+function getQuestMarkerType(questId: QuestId, markerType: "available" | "turnIn"): QuestMarkerType {
+  if (!isRepeatableQuest(questId)) return markerType;
+  return markerType === "turnIn" ? "dailyTurnIn" : "dailyAvailable";
 }

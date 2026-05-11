@@ -1888,6 +1888,10 @@ function playerRevealsAllNpcsOnMinimap(player: PlayerSnapshot | null) {
 function getNpcMapDotClassName(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
   const markerClass = questMarker === "turnIn"
     ? " quest-turn-in"
+    : questMarker === "dailyTurnIn"
+      ? " quest-daily-turn-in"
+    : questMarker === "dailyAvailable"
+      ? " quest-daily-available"
     : questMarker === "available"
       ? " quest-available"
       : "";
@@ -1925,6 +1929,10 @@ function getPlayerMapTooltip(player: PlayerSnapshot, isLocal: boolean) {
 function getNpcMapTooltip(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
   const questLine = questMarker === "turnIn"
     ? "Quest: ready to turn in (?)"
+    : questMarker === "dailyTurnIn"
+      ? "Daily quest: ready to turn in (?)"
+    : questMarker === "dailyAvailable"
+      ? "Daily quest: available (!)"
     : questMarker === "available"
       ? "Quest: available (!)"
       : "";

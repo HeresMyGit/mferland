@@ -211,7 +211,9 @@
 }
 
 .map-dot.npc.quest-available,
-.map-dot.npc.quest-turn-in {
+.map-dot.npc.quest-turn-in,
+.map-dot.npc.quest-daily-available,
+.map-dot.npc.quest-daily-turn-in {
   box-shadow:
     0 0 0 2px #101010,
     0 0 0 5px rgba(247, 214, 78, 0.82);
@@ -223,8 +225,17 @@
     0 0 0 5px rgba(73, 193, 100, 0.82);
 }
 
+.map-dot.npc.quest-daily-available,
+.map-dot.npc.quest-daily-turn-in {
+  box-shadow:
+    0 0 0 2px #101010,
+    0 0 0 5px rgba(93, 211, 255, 0.82);
+}
+
 .map-dot.npc.quest-available::after,
-.map-dot.npc.quest-turn-in::after {
+.map-dot.npc.quest-turn-in::after,
+.map-dot.npc.quest-daily-available::after,
+.map-dot.npc.quest-daily-turn-in::after {
   position: absolute;
   left: 50%;
   top: -21px;
@@ -247,9 +258,19 @@
   content: "!";
 }
 
+.map-dot.npc.quest-daily-available::after {
+  content: "!";
+  background: #5dd3ff;
+}
+
 .map-dot.npc.quest-turn-in::after {
   content: "?";
   background: #6be27f;
+}
+
+.map-dot.npc.quest-daily-turn-in::after {
+  content: "?";
+  background: #5dd3ff;
 }
 
 .map-dot.landmark {

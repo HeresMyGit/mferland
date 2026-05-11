@@ -21,6 +21,7 @@ export const MFER_COLORS = {
   pink: "#FF96A7",
   questAvailable: MFER_BACKGROUND_COLORS.yellow,
   questTurnIn: MFER_BACKGROUND_COLORS.green,
+  questDaily: MFER_BACKGROUND_COLORS.blue,
   loot: MFER_BACKGROUND_COLORS.yellow,
   lootHighlight: "#FFF0A6",
   health: MFER_BACKGROUND_COLORS.red,

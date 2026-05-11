@@ -18,7 +18,7 @@ export type ActionId = "interact" | CombatActionId;
 export type NpcDisposition = "friendly" | "neutral" | "hostile";
 export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
-export type QuestMarkerType = "available" | "turnIn";
+export type QuestMarkerType = "available" | "turnIn" | "dailyAvailable" | "dailyTurnIn";
 export type ItemId = keyof typeof ITEMS;
 export type QuestSnapshot = {
   id: QuestId;
