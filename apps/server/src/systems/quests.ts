@@ -111,6 +111,10 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
     return `${QUESTS[questId].title}: say @mfergpt in chat. any gm with the mention counts.`;
   }
 
+  if (questId === "mfergpt-daily-signal") {
+    return `${QUESTS[questId].title}: ask @mfergpt for today's signal, then bring the noise back here.`;
+  }
+
   if (questId === "tweet-town-link") {
     return `${QUESTS[questId].title}: open the tweet composer, post the plaza signal if you mean it, then claim the ping.`;
   }
@@ -167,6 +171,10 @@ function getQuestCompletionResponse(questId: QuestId) {
 
   if (questId === "mfergpt-checkin") {
     return "mferGPT heard the gm. signal's alive enough.";
+  }
+
+  if (questId === "mfergpt-daily-signal") {
+    return "daily signal logged. today it is a bounded template; later, mferGPT can swap in the day's news without changing the wiring.";
   }
 
   if (questId === "tweet-town-link") {
@@ -470,7 +478,9 @@ export function progressMferGptAskQuest(player: PlayerState, text: string) {
 
 export function progressMferGptMentionQuest(player: PlayerState, text: string) {
   if (!hasMferGptMention(text)) return false;
-  return progressQuest(player, "mfergpt-checkin", 1);
+  const progressedCheckin = progressQuest(player, "mfergpt-checkin", 1);
+  const progressedDailySignal = progressQuest(player, "mfergpt-daily-signal", 1);
+  return progressedCheckin || progressedDailySignal;
 }
 
 function hasMferGptMention(text: string) {

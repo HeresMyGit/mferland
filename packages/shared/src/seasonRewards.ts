@@ -22,6 +22,7 @@ export const SEASON_0_QUEST_REWARDS = {
   "farm-road-handoff": { points: 5, cadence: "once", label: "airdrop farm handoff" },
   "ask-mfergpt": { points: 10, cadence: "once", label: "grab some lore" },
   "mfergpt-checkin": { points: 5, cadence: "once", label: "signal check" },
+  "mfergpt-daily-signal": { points: 10, cadence: "daily", label: "today's noise" },
   "tweet-town-link": { points: 5, cadence: "once", label: "post the plaza" },
   "boar-bristle-cull": { points: 15, cadence: "once", label: "hogs in the claim pile" },
   "feral-farmers": { points: 20, cadence: "once", label: "next drop sickness" },

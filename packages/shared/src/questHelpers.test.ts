@@ -103,10 +103,20 @@ test("hog loop uses a production daily cooldown", () => {
   assert.equal(getQuestRepeatLabel("hog-loop"), "daily");
 });
 
+test("mferGPT daily signal is repeatable after signal check", () => {
+  assert.equal(getQuestRepeatCooldownMs("mfergpt-daily-signal"), 86_400_000);
+  assert.equal(getQuestRepeatLabel("mfergpt-daily-signal"), "daily signal");
+
+  const afterSignalCheck = [quest("mfergpt-checkin", "completed")];
+  assert.equal(isQuestAvailableForSnapshots("mfergpt-daily-signal", afterSignalCheck), true);
+  assert.equal(getNpcQuestMarker({ id: "mfergpt" }, afterSignalCheck), "available");
+});
+
 test("quest rewards form the early gear progression spine", () => {
   assert.deepEqual(QUESTS["fountain-vibes"].rewardItemIds, ["reply-lag-visor"]);
   assert.deepEqual(QUESTS["ask-mfergpt"].rewardItemIds, ["receipt-zine"]);
   assert.deepEqual(QUESTS["mfergpt-checkin"].rewardItemIds, ["headphone-splitter"]);
+  assert.deepEqual(QUESTS["mfergpt-daily-signal"].rewardItemIds, ["blue-juice"]);
   assert.deepEqual(QUESTS["field-camp-delivery"].rewardItemIds, ["field-patched-hoodie"]);
   assert.deepEqual(QUESTS["signal-scraps"].rewardItemIds, ["ridge-runner-beanie"]);
   assert.deepEqual(QUESTS["baron-of-static"].rewardItemIds, ["baron-breaker-board"]);

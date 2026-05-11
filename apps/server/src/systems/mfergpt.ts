@@ -13,7 +13,7 @@ import { requestCodexCliLlm } from "./codexCliLlm.js";
 import { spawnNpcFromSpec } from "./npcs.js";
 import { isQuestAvailable } from "./quests.js";
 
-export type MferGptCommand = "chat" | "event" | "hint" | "inspect" | "spawn";
+export type MferGptCommand = "chat" | "daily" | "event" | "hint" | "inspect" | "spawn";
 
 export type MferGptTemporaryNpc = {
   id: string;
@@ -53,6 +53,39 @@ export const LORE_SNIPPETS = [
   "AI agents are mfers now. do not make it formal.",
 ] as const;
 
+export const MFERGPT_DAILY_SIGNAL_TEMPLATES = [
+  {
+    title: "plaza rumor sweep",
+    summary: "walk the plaza with your ears open. if three mfers repeat the same thing, it is either lore or a problem.",
+    objective: "ask for the plaza rumor, then report back before it becomes policy.",
+    sourceThemes: ["plaza", "rumors", "oldheads"],
+  },
+  {
+    title: "timeline smoke check",
+    summary: "the timeline is smoking again. mferGPT wants one clean read before everyone calls it alpha.",
+    objective: "ask for today's timeline smoke, then bring back the signal instead of the panic.",
+    sourceThemes: ["timeline", "memes", "signal"],
+  },
+  {
+    title: "claim-brain weather",
+    summary: "airdrop farm pressure is up and the reply loops smell like rain.",
+    objective: "ask for the claim-brain forecast, then log whether the farm needs cleanup.",
+    sourceThemes: ["airdrops", "claims", "farm"],
+  },
+  {
+    title: "bad signal sample",
+    summary: "something from the ridge is echoing through town in the wrong voice.",
+    objective: "ask for a bad signal sample, then bring it back before it learns confidence.",
+    sourceThemes: ["ridge", "static", "agents"],
+  },
+  {
+    title: "builder seed log",
+    summary: "not every daily has to be a fire. sometimes the move is writing down one thing worth building.",
+    objective: "ask for the builder seed, then bring the note back while it is still small.",
+    sourceThemes: ["builders", "seeds", "continuity"],
+  },
+] as const;
+
 export function getMferGptPrompt(text: string) {
   const mentionIndex = text.toLowerCase().indexOf(MFERGPT.mention);
   if (mentionIndex < 0) return null;
@@ -86,6 +119,7 @@ export async function handleMferGptPrompt(context: MferGptContext): Promise<Mfer
 function getMferGptCommand(prompt: string): MferGptCommand {
   const normalized = prompt.toLowerCase();
   if (/\b(spawn|summon|arena|bad guy|bad guys|test fight|training fight)\b/.test(normalized)) return "spawn";
+  if (/\b(daily|today's signal|todays signal|today's noise|todays noise)\b/.test(normalized)) return "daily";
   if (/\b(hint|quest|objective|stuck|what now|where next)\b/.test(normalized)) return "hint";
   if (/\b(event|town event|signal|party|pulse)\b/.test(normalized)) return "event";
   if (/\b(inspect|state|status|scan|who is here|where am i|where are we)\b/.test(normalized)) return "inspect";
@@ -94,13 +128,15 @@ function getMferGptCommand(prompt: string): MferGptCommand {
 
 function runMferGptTool(command: MferGptCommand, context: MferGptContext): ToolOutcome {
   if (isLoreQuestWaitingOnMferGpt(context.player)) return getLoreSnippet(context);
+  if (isDailySignalQuestWaitingOnMferGpt(context.player)) return getDailySignal(context);
+  if (command === "daily") return getDailySignalStatus(context);
   if (command === "spawn") return spawnArenaEnemies(context);
   if (command === "hint") return getQuestHint(context);
   if (command === "event") return triggerTownEvent(context);
   if (command === "inspect") return inspectPublicState(context);
 
   return {
-    fallback: `gm ${context.player.name}. i do hints, room scans, lore fragments, and small arena trouble.`,
+    fallback: `gm ${context.player.name}. i do daily signals, hints, room scans, lore fragments, and small arena trouble.`,
     summary: "No special tool was invoked; reply as an in-world town assistant.",
   };
 }
@@ -118,6 +154,63 @@ function getLoreSnippet({ player, now }: MferGptContext): ToolOutcome {
     fallback: response,
     summary: `Returned curated lore snippet for grab some lore at ${now}.`,
   };
+}
+
+function isDailySignalQuestWaitingOnMferGpt(player: PlayerState) {
+  const quest = player.quests.get("mfergpt-daily-signal");
+  return quest?.status === "active" || quest?.status === "ready";
+}
+
+function getDailySignal(context: MferGptContext): ToolOutcome {
+  const signal = getMferGptDailySignal(context.now);
+  const response = cleanResponse([
+    `today's noise: ${signal.title}.`,
+    signal.summary,
+    `objective: ${signal.objective}`,
+    "bring it back to mferGPT.",
+  ].join(" "));
+  return {
+    directResponse: response,
+    fallback: response,
+    summary: `Returned curated daily signal template ${signal.title}.`,
+  };
+}
+
+function getDailySignalStatus(context: MferGptContext): ToolOutcome {
+  const quest = context.player.quests.get("mfergpt-daily-signal");
+  if (quest?.status === "active" || quest?.status === "ready") return getDailySignal(context);
+
+  if (quest?.status === "completed" && !isQuestAvailable(context.player, "mfergpt-daily-signal", context.now)) {
+    const response = "today's noise is already logged. let the signal reset before farming the same thought twice.";
+    return {
+      directResponse: response,
+      fallback: response,
+      summary: "Daily signal command answered with cooldown status.",
+    };
+  }
+
+  if (isQuestAvailable(context.player, "mfergpt-daily-signal", context.now)) {
+    const signal = getMferGptDailySignal(context.now);
+    const response = `today's noise is open: ${signal.title}. talk to mferGPT in the plaza to pick it up.`;
+    return {
+      directResponse: response,
+      fallback: response,
+      summary: `Daily signal command found available template ${signal.title}.`,
+    };
+  }
+
+  const response = "daily signal is locked until you do one clean signal check with mferGPT.";
+  return {
+    directResponse: response,
+    fallback: response,
+    summary: "Daily signal command answered with prerequisite status.",
+  };
+}
+
+function getMferGptDailySignal(now: number) {
+  const dateKey = new Date(now).toISOString().slice(0, 10);
+  const index = stableHash(`mfergpt-daily-signal:${dateKey}`) % MFERGPT_DAILY_SIGNAL_TEMPLATES.length;
+  return MFERGPT_DAILY_SIGNAL_TEMPLATES[index] ?? MFERGPT_DAILY_SIGNAL_TEMPLATES[0];
 }
 
 function spawnArenaEnemies({ sessionId, npcs, now }: MferGptContext): ToolOutcome {
@@ -307,6 +400,10 @@ function getActiveQuestHint(
     return `for ${quest.title}, put @mfergpt anywhere in chat. one gm is enough.`;
   }
 
+  if (questId === "mfergpt-daily-signal") {
+    return `for ${quest.title}, ask @mfergpt for today's signal. progress is ${progress}/${required}.`;
+  }
+
   if (questId === "tweet-town-link") {
     return `for ${quest.title}, use the quest button to open the tweet composer and post the plaza signal if you mean it.`;
   }
@@ -345,6 +442,7 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "sealed-note": "carry the folded seed note to drip desk mfer. don't open it just because you can.",
   "farm-road-handoff": "drip desk mfer points you to claimwatch mfer out by the busted airdrop farm.",
   "ask-mfergpt": "put @mfergpt anywhere in chat for a lore fragment, then check back with mferGPT.",
+  "mfergpt-daily-signal": "pick up today's noise from mferGPT, ask @mfergpt for today's signal, then return to mferGPT.",
   "feral-farmers": "head into airdrop farm and take out creyzie chaser bran, just-missed-it mae, and nakamigo truther sol.",
   "hog-livers": "farm-road hogs around the busted farm and claim booth drop chewed EOS. you need 5.",
   "field-camp-delivery": "take claimwatch's update southwest to route post mfer.",
