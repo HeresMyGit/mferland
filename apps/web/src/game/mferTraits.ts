@@ -455,6 +455,11 @@ function removeForcedTraitConflicts(traits: MferTraits) {
     delete traits.shirt;
   }
 
+  if (traits.hat_under_headphones && !traits.hat_under_headphones.startsWith("headband_")) {
+    delete traits.short_hair;
+    delete traits.long_hair;
+  }
+
   if (traits.type === "based" && ["alien", "zombie", "red"].includes(traits.eyes)) traits.eyes = "mfercoin";
   if (traits.type === "metal" && ["alien", "zombie", "red"].includes(traits.eyes)) traits.eyes = "metal";
   if (traits.type === "zombie" && !ZOMBIE_EYE_OVERLAY_TRAITS.has(traits.eyes)) traits.eyes = "zombie";

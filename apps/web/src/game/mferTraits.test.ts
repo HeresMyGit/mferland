@@ -28,3 +28,17 @@ test("drip desk mfer does not inherit random hair", () => {
     assert.equal(traits.long_hair, undefined);
   }
 });
+
+test("oldhead cap does not inherit random mohawk", () => {
+  for (let seed = 1; seed <= 50; seed += 1) {
+    const traits = generateMferTraitsForActor(seed, {
+      id: "dao-mfer",
+      name: "oldhead mfer",
+      role: "quest_giver",
+    });
+
+    assert.equal(traits.hat_under_headphones, "cap_based_blue");
+    assert.equal(traits.short_hair, undefined);
+    assert.equal(traits.long_hair, undefined);
+  }
+});
