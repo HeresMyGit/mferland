@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Client, type Room } from "colyseus.js";
 import {
+  RECONNECT_GRACE_PERIOD_SECONDS,
   ROOM_NAME,
   type ChatMessage,
   type ClientAcceptQuest,
@@ -68,6 +69,16 @@ type RuntimePlayerCollection = {
 type RuntimeNpcCollection = {
   forEach(callback: (npc: NpcSnapshot, id: string) => void): void;
 };
+type RuntimeTownState = {
+  players: RuntimePlayerCollection;
+  npcs: RuntimeNpcCollection;
+};
+type ReconnectReservation = {
+  version: 1;
+  token: string;
+  savedAt: number;
+  graceSeconds: number;
+};
 type DebugTeleportDestination = {
   x: number;
   z: number;
@@ -128,6 +139,7 @@ const COMBAT_EVENT_RETAIN_MS = 1400;
 const EXPERIENCE_EVENT_RETAIN_MS = 1800;
 const MAX_COMBAT_EVENTS = 20;
 const MAX_EXPERIENCE_EVENTS = 12;
+const RECONNECT_STORAGE_VERSION = 1;
 
 export function useTownRoom(identity: JoinOptions) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -147,7 +159,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
   const [traitUpdateResult, setTraitUpdateResult] = useState<TraitUpdateResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
-  const roomRef = useRef<Room | null>(null);
+  const roomRef = useRef<Room<RuntimeTownState> | null>(null);
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
   const npcsRef = useRef(new Map<string, NpcSnapshot>());
   const lastSnapshotRenderAtRef = useRef(0);
@@ -240,6 +252,7 @@ export function useTownRoom(identity: JoinOptions) {
     }
     return `${protocol}://${window.location.host}`;
   }, []);
+  const reconnectStorageKey = useMemo(() => getReconnectStorageKey(serverUrl, identity), [identity, serverUrl]);
 
   useEffect(() => () => {
     if (pendingSnapshotRenderRef.current !== null) {
@@ -269,14 +282,16 @@ export function useTownRoom(identity: JoinOptions) {
     setStatus("connecting");
     setError(null);
 
-    client.joinOrCreate(ROOM_NAME, identity)
+    connectTownRoom(client, identity, reconnectStorageKey)
       .then((room) => {
         if (disposed) {
+          clearReconnectReservation(reconnectStorageKey);
           void room.leave();
           return;
         }
 
         roomRef.current = room;
+        storeReconnectReservation(reconnectStorageKey, room.reconnectionToken);
         setSessionId(room.sessionId);
         setStatus("connected");
 
@@ -392,15 +407,19 @@ export function useTownRoom(identity: JoinOptions) {
       disposed = true;
       const room = roomRef.current;
       roomRef.current = null;
-      if (room) void room.leave();
+      if (room) {
+        clearReconnectReservation(reconnectStorageKey);
+        void room.leave();
+      }
       clearQueuedFeedbackEvents();
     };
-  }, [clearQueuedFeedbackEvents, identity, requestSnapshotRender, scheduleFeedbackFlush, serverUrl]);
+  }, [clearQueuedFeedbackEvents, identity, reconnectStorageKey, requestSnapshotRender, scheduleFeedbackFlush, serverUrl]);
 
   const leaveAndWait = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
     roomRef.current = null;
+    clearReconnectReservation(reconnectStorageKey);
     setPersistenceStatus((current) => current.state === "idle"
       ? { state: "saving", message: "leaving town" }
       : current);
@@ -413,7 +432,7 @@ export function useTownRoom(identity: JoinOptions) {
       requestSnapshotRender(true);
       setStatus("closed");
     }
-  }, [clearQueuedFeedbackEvents, requestSnapshotRender]);
+  }, [clearQueuedFeedbackEvents, reconnectStorageKey, requestSnapshotRender]);
 
   useEffect(() => {
     if (!questOffer || !sessionId) return;
@@ -644,6 +663,90 @@ export function useTownRoom(identity: JoinOptions) {
     sendDebugNpcSetup,
     sendDebugPlacementSave,
   };
+}
+
+async function connectTownRoom(
+  client: Client,
+  identity: JoinOptions,
+  reconnectStorageKey: string,
+): Promise<Room<RuntimeTownState>> {
+  const reservation = readReconnectReservation(reconnectStorageKey);
+  if (reservation) {
+    try {
+      return await client.reconnect<RuntimeTownState>(reservation.token);
+    } catch {
+      clearReconnectReservation(reconnectStorageKey);
+    }
+  }
+
+  return client.joinOrCreate<RuntimeTownState>(ROOM_NAME, identity);
+}
+
+function getReconnectStorageKey(serverUrl: string, identity: JoinOptions) {
+  return [
+    "mferland",
+    "town-reconnect",
+    serverUrl,
+    getReconnectIdentityKey(identity),
+  ].join(":");
+}
+
+function getReconnectIdentityKey(identity: JoinOptions) {
+  const walletAddress = typeof identity.walletAddress === "string"
+    ? identity.walletAddress.trim().toLowerCase()
+    : "";
+  if (identity.identityType === "wallet" && walletAddress) return `wallet:${walletAddress}`;
+  if (identity.identityType === "agent") return `agent:${identity.name ?? ""}:${identity.avatarSeed ?? ""}`;
+  return `guest:${identity.name ?? ""}:${identity.avatarSeed ?? ""}`;
+}
+
+function readReconnectReservation(key: string): ReconnectReservation | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<ReconnectReservation>;
+    if (
+      value.version !== RECONNECT_STORAGE_VERSION
+      || typeof value.token !== "string"
+      || !value.token.includes(":")
+    ) {
+      clearReconnectReservation(key);
+      return null;
+    }
+    return {
+      version: RECONNECT_STORAGE_VERSION,
+      token: value.token,
+      savedAt: typeof value.savedAt === "number" && Number.isFinite(value.savedAt) ? value.savedAt : 0,
+      graceSeconds: typeof value.graceSeconds === "number" && Number.isFinite(value.graceSeconds)
+        ? value.graceSeconds
+        : RECONNECT_GRACE_PERIOD_SECONDS,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeReconnectReservation(key: string, token: string) {
+  if (!token) return;
+  const reservation: ReconnectReservation = {
+    version: RECONNECT_STORAGE_VERSION,
+    token,
+    savedAt: Date.now(),
+    graceSeconds: RECONNECT_GRACE_PERIOD_SECONDS,
+  };
+  try {
+    window.localStorage.setItem(key, JSON.stringify(reservation));
+  } catch {
+    // Browsers can deny storage in private or constrained contexts.
+  }
+}
+
+function clearReconnectReservation(key: string) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures; reconnect will fall back to a fresh join.
+  }
 }
 
 function isLocalDevWebHost(hostname: string, port: string) {

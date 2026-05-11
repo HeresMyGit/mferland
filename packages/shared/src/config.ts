@@ -2,6 +2,7 @@ export const ROOM_NAME = "town";
 export const MAX_PLAYERS = 40;
 export const SERVER_TICK_RATE = 20;
 export const INPUT_SEND_RATE = 20;
+export const RECONNECT_GRACE_PERIOD_SECONDS = 60;
 
 export const PLAYER = {
   walkSpeed: 4.2,

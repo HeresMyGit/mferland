@@ -12,6 +12,7 @@ import {
   PLAYER,
   PROGRESSION,
   QUESTS,
+  RECONNECT_GRACE_PERIOD_SECONDS,
   ROOM_NAME,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
@@ -702,33 +703,79 @@ export class TownRoom extends Room<TownState> {
     }
   }
 
-  async onLeave(client: Client) {
+  async onLeave(client: Client, consented?: boolean) {
     const player = this.state.players.get(client.sessionId);
     const characterId = this.persistentCharacterIds.get(client.sessionId);
+
+    if (player && !consented) {
+      const disconnectedAt = Date.now();
+      this.preparePlayerForReconnect(client.sessionId, player);
+      this.recordPlayerAnalyticsEvent("session_disconnected", client.sessionId, player, {
+        level: player.level,
+        reconnectGraceMs: RECONNECT_GRACE_PERIOD_SECONDS * 1000,
+        playerCount: this.state.players.size,
+        x: Math.round(player.x),
+        z: Math.round(player.z),
+      });
+
+      const reconnected = Promise.resolve(this.allowReconnection(client, RECONNECT_GRACE_PERIOD_SECONDS))
+        .then(() => true, () => false);
+      await this.persistPlayerProgressNow(client.sessionId, player);
+
+      if (await reconnected) {
+        this.recordPlayerAnalyticsEvent("session_reconnected", client.sessionId, player, {
+          awayMs: Math.max(0, Date.now() - disconnectedAt),
+          level: player.level,
+          playerCount: this.state.players.size,
+          x: Math.round(player.x),
+          z: Math.round(player.z),
+        });
+        return;
+      }
+
+      respawnPlayerAtFountain(player);
+      this.deadSessionIds.delete(client.sessionId);
+    }
+
     if (player) {
       this.recordPlayerAnalyticsEvent("session_left", client.sessionId, player, {
         durationMs: Math.max(0, Date.now() - (this.sessionJoinedAt.get(client.sessionId) ?? Date.now())),
         level: player.level,
         playerCount: Math.max(0, this.state.players.size - 1),
+        reconnectTimedOut: !consented,
         x: Math.round(player.x),
         z: Math.round(player.z),
       });
       await this.persistPlayerProgressNow(client.sessionId, player);
     }
-    this.state.players.delete(client.sessionId);
-    this.inputs.delete(client.sessionId);
-    this.jumpHeld.delete(client.sessionId);
-    this.lastChatAt.delete(client.sessionId);
-    this.lastEmoteAt.delete(client.sessionId);
-    this.lastMferGptAt.delete(client.sessionId);
-    this.lastInteractAt.delete(client.sessionId);
-    this.persistentCharacterIds.delete(client.sessionId);
+    this.cleanupPlayerSession(client.sessionId, characterId);
+  }
+
+  private preparePlayerForReconnect(sessionId: string, player: PlayerState) {
+    player.verticalVelocity = 0;
+    player.animation = "idle";
+    clearPlayerEmote(player);
+    clearPlayerCast(player);
+    this.inputs.delete(sessionId);
+    this.jumpHeld.set(sessionId, false);
+    this.removePlayerThreat(sessionId);
+  }
+
+  private cleanupPlayerSession(sessionId: string, characterId?: string) {
+    this.state.players.delete(sessionId);
+    this.inputs.delete(sessionId);
+    this.jumpHeld.delete(sessionId);
+    this.lastChatAt.delete(sessionId);
+    this.lastEmoteAt.delete(sessionId);
+    this.lastMferGptAt.delete(sessionId);
+    this.lastInteractAt.delete(sessionId);
+    this.persistentCharacterIds.delete(sessionId);
     if (characterId) this.cleanupCharacterSaveTracking(characterId);
-    this.sessionJoinedAt.delete(client.sessionId);
-    this.deadSessionIds.delete(client.sessionId);
-    this.pendingDebugPlacementSaves.delete(client.sessionId);
-    clearConsumableCooldownsForPlayer(this.consumableCooldowns, client.sessionId);
-    this.removePlayerThreat(client.sessionId);
+    this.sessionJoinedAt.delete(sessionId);
+    this.deadSessionIds.delete(sessionId);
+    this.pendingDebugPlacementSaves.delete(sessionId);
+    clearConsumableCooldownsForPlayer(this.consumableCooldowns, sessionId);
+    this.removePlayerThreat(sessionId);
   }
 
   onDispose() {
