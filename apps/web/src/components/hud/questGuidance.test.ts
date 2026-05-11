@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getActiveQuestGuidance, getPrimaryQuestGuidanceTarget } from "./questGuidance";
-import type { NpcSnapshot, PlayerSnapshot, QuestSnapshot } from "@mferland/shared";
+import { makeMferGptDailyQuestFlags, type NpcSnapshot, type PlayerSnapshot, type QuestSnapshot } from "@mferland/shared";
 
 test("ready quests point at the turn-in NPC", () => {
   const guidance = getActiveQuestGuidance(
@@ -45,6 +45,44 @@ test("collection quests point at live source enemies nearest to the player", () 
 
   assert.equal(guidance?.targets.length, 2);
   assert.equal(getPrimaryQuestGuidanceTarget(guidance, player)?.npcId, "near-hog");
+  assert.equal(guidance?.targets[0]?.kind, "collect");
+});
+
+test("mferGPT defeat dailies point at the selected mob group", () => {
+  const guidance = getActiveQuestGuidance(
+    makeQuest({
+      id: "mfergpt-daily-signal",
+      flags: makeMferGptDailyQuestFlags("claim-pile-hog-sweep"),
+      required: 24,
+    }),
+    new Map([
+      ["wild-hog-rooter", makeNpc({ id: "wild-hog-rooter", name: "claim pile hog", model: "hog", role: "beast", x: -81, z: 88 })],
+      ["farmhand-bran", makeNpc({ id: "farmhand-bran", name: "creyzie chaser bran", role: "farmer", x: -77, z: 86 })],
+    ]),
+    null,
+  );
+
+  assert.equal(guidance?.summary, "clear 24 claim pile hogs around the busted farm");
+  assert.deepEqual(guidance?.targets.map((target) => target.npcId), ["wild-hog-rooter"]);
+  assert.equal(guidance?.targets[0]?.kind, "kill");
+});
+
+test("mferGPT collection dailies point at selected item sources", () => {
+  const guidance = getActiveQuestGuidance(
+    makeQuest({
+      id: "mfergpt-daily-signal",
+      flags: makeMferGptDailyQuestFlags("fried-uplink-haul"),
+      required: 14,
+    }),
+    new Map([
+      ["ridge-raider-vex", makeNpc({ id: "ridge-raider-vex", name: "operator vex", role: "farmer", x: 145, z: -84 })],
+      ["wild-hog-rooter", makeNpc({ id: "wild-hog-rooter", name: "claim pile hog", model: "hog", role: "beast", x: -81, z: 88 })],
+    ]),
+    null,
+  );
+
+  assert.equal(guidance?.summary, "collect 14 fried uplink shards from Signal Ridge");
+  assert.deepEqual(guidance?.targets.map((target) => target.npcId), ["ridge-raider-vex"]);
   assert.equal(guidance?.targets[0]?.kind, "collect");
 });
 

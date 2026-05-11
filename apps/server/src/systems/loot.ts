@@ -2,7 +2,9 @@ import {
   ITEMS,
   LOOT,
   QUESTS,
+  getMferGptDailyQuestAssignmentFromFlags,
   getInventoryItemKey,
+  isMferGptDailyQuestDropSource,
   normalizeChainTokenId,
   type ItemId,
   type LootWindow,
@@ -18,6 +20,7 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     if (canDropQuestItem(player, "hog-livers") && Math.random() < QUESTS["hog-livers"].dropRate) {
       addLootItem(npc, "hog-liver", 1);
     }
+    addMferGptDailyQuestDrop(player, npc);
     if (Math.random() < 0.28) {
       addLootItem(npc, "muddy-tusk", 1);
     }
@@ -103,6 +106,7 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       if (canDropQuestItem(player, "signal-scraps") && Math.random() < QUESTS["signal-scraps"].dropRate) {
         addLootItem(npc, "signal-scrap", 1);
       }
+      addMferGptDailyQuestDrop(player, npc);
       if (Math.random() < 0.055) {
         addLootItem(npc, "static-loop-ring", 1);
       }
@@ -130,6 +134,9 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     }
 
     const bandanaDropRate = !isRidgeRaider(npc) ? 0.35 : 0;
+    if (!isRidgeRaider(npc)) {
+      addMferGptDailyQuestDrop(player, npc);
+    }
     if (bandanaDropRate > 0 && Math.random() < bandanaDropRate) {
       addLootItem(npc, "farmhand-bandana", 1);
     }
@@ -169,6 +176,17 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
 
   npc.despawnAt = now + LOOT.corpseDespawnMs;
   npc.respawnAt = npc.despawnAt + 250;
+}
+
+function addMferGptDailyQuestDrop(player: PlayerState, npc: NpcState) {
+  const quest = player.quests.get("mfergpt-daily-signal");
+  if (!quest || quest.status !== "active") return;
+
+  const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+  if (!assignment.itemId || !isMferGptDailyQuestDropSource(assignment, npc)) return;
+  if (Math.random() >= (assignment.dropRate ?? 1)) return;
+
+  addLootItem(npc, assignment.itemId, 1);
 }
 
 function addLootItem(npc: NpcState, itemId: ItemId, count: number, chainTokenId = "") {

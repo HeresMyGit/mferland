@@ -1,9 +1,12 @@
 import {
   ITEMS,
   QUESTS,
+  getMferGptDailyQuestAssignmentFromFlags,
   getQuestObjectives,
   getQuestRequiredItemId,
   getQuestTurnInNpcId,
+  isMferGptDailyQuestDefeatTarget,
+  isMferGptDailyQuestDropSource,
   type ItemId,
   type NpcModel,
   type NpcRole,
@@ -37,14 +40,14 @@ export function getActiveQuestGuidance(
 ): ActiveQuestGuidance | null {
   if (!quest || quest.status === "completed") return null;
 
-  const definition = QUESTS[quest.id];
+  const objectiveLabel = getQuestObjectiveLabel(quest);
   if (quest.status === "ready") {
     return makeNpcGuidance({
       quest,
       npcs,
       npcId: getQuestTurnInNpcId(quest.id),
       kind: "turnIn",
-      summary: definition.turnInLabel,
+      summary: getQuestTurnInLabel(quest),
       labelPrefix: "turn in",
       localPlayer,
     });
@@ -54,7 +57,7 @@ export function getActiveQuestGuidance(
   if (objectiveTargets.length > 0) {
     return {
       quest,
-      summary: definition.objectiveLabel,
+      summary: objectiveLabel,
       targets: sortTargets(objectiveTargets, localPlayer),
     };
   }
@@ -63,16 +66,18 @@ export function getActiveQuestGuidance(
   if (collectionTargets.length > 0) {
     return {
       quest,
-      summary: definition.objectiveLabel,
+      summary: objectiveLabel,
       targets: sortTargets(collectionTargets, localPlayer),
     };
   }
 
-  const defeatTargets = getDefeatTargets(quest.id, npcs);
+  const defeatTargets = quest.id === "mfergpt-daily-signal"
+    ? getMferGptDailyDefeatTargets(quest, npcs)
+    : getDefeatTargets(quest.id, npcs);
   if (defeatTargets.length > 0) {
     return {
       quest,
-      summary: definition.objectiveLabel,
+      summary: objectiveLabel,
       targets: sortTargets(defeatTargets, localPlayer),
     };
   }
@@ -83,7 +88,7 @@ export function getActiveQuestGuidance(
     npcs,
     npcId: getQuestTurnInNpcId(quest.id),
     kind: fallbackKind,
-    summary: definition.objectiveLabel,
+    summary: objectiveLabel,
     labelPrefix: fallbackKind === "action" ? "check in" : "go to",
     localPlayer,
   });
@@ -138,6 +143,16 @@ function getNamedObjectiveTargets(quest: QuestSnapshot, npcs: Map<string, NpcSna
 }
 
 function getCollectionTargets(quest: QuestSnapshot, npcs: Map<string, NpcSnapshot>): QuestGuidanceTarget[] {
+  if (quest.id === "mfergpt-daily-signal") {
+    const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+    if (!assignment.itemId) return [];
+
+    const itemName = ITEMS[assignment.itemId].name;
+    return Array.from(npcs.values())
+      .filter((npc) => isNpcAliveForGuidance(npc) && isMferGptDailyQuestDropSource(assignment, npc))
+      .map((npc) => makeNpcTarget(npc, "collect", `collect ${itemName}: ${npc.name}`));
+  }
+
   const itemId = getQuestRequiredItemId(quest.id);
   if (!itemId) return [];
 
@@ -148,8 +163,17 @@ function getCollectionTargets(quest: QuestSnapshot, npcs: Map<string, NpcSnapsho
 }
 
 function getDefeatTargets(questId: QuestId, npcs: Map<string, NpcSnapshot>): QuestGuidanceTarget[] {
+  if (questId === "mfergpt-daily-signal") return [];
+
   return Array.from(npcs.values())
     .filter((npc) => isNpcAliveForGuidance(npc) && isDefeatTargetForQuest(questId, npc))
+    .map((npc) => makeNpcTarget(npc, "kill", `drop: ${npc.name}`));
+}
+
+function getMferGptDailyDefeatTargets(quest: QuestSnapshot, npcs: Map<string, NpcSnapshot>): QuestGuidanceTarget[] {
+  const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+  return Array.from(npcs.values())
+    .filter((npc) => isNpcAliveForGuidance(npc) && isMferGptDailyQuestDefeatTarget(assignment, npc))
     .map((npc) => makeNpcTarget(npc, "kill", `drop: ${npc.name}`));
 }
 
@@ -191,6 +215,17 @@ function sortTargets(targets: QuestGuidanceTarget[], localPlayer: PlayerSnapshot
 function isActionQuest(questId: QuestId) {
   const definition = QUESTS[questId];
   return "chatMention" in definition || "socialAction" in definition;
+}
+
+function getQuestObjectiveLabel(quest: QuestSnapshot) {
+  if (quest.id === "mfergpt-daily-signal") {
+    return getMferGptDailyQuestAssignmentFromFlags(quest.flags).objectiveLabel;
+  }
+  return QUESTS[quest.id].objectiveLabel;
+}
+
+function getQuestTurnInLabel(quest: QuestSnapshot) {
+  return QUESTS[quest.id].turnInLabel;
 }
 
 function isNpcAliveForGuidance(npc: NpcSnapshot) {

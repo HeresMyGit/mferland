@@ -3,6 +3,8 @@ import {
   QUEST_IDS,
   clamp,
   getInventoryItemKey,
+  getMferGptDailyQuestAssignment,
+  getMferGptDailyQuestAssignmentFromFlags,
   getNpcQuestIds,
   getQuestObjectives,
   getQuestNextQuestId,
@@ -14,8 +16,11 @@ import {
   getQuestTurnInNpcId,
   isQuestAutoReady,
   isQuestReadyToRepeat,
+  isMferGptDailyQuestDefeatTarget,
+  isMferGptDailyQuestItem,
   isStackableItem,
   ITEMS,
+  makeMferGptDailyQuestFlags,
   normalizeChainTokenId,
   shouldConsumeQuestItem,
   type ItemId,
@@ -91,10 +96,27 @@ export function getNpcQuestInteraction(npc: NpcState, player: PlayerState): NpcQ
 }
 
 function syncQuestState(player: PlayerState, questId: QuestId, quest: QuestState) {
+  syncMferGptDailyQuestState(questId, quest);
   syncQuestItemProgress(player, questId);
   if (quest.status === "active" && isQuestAutoReady(questId)) {
     quest.status = "ready";
     quest.progress = quest.required;
+  }
+}
+
+function syncMferGptDailyQuestState(questId: QuestId, quest: QuestState) {
+  if (questId !== "mfergpt-daily-signal" || quest.status === "completed") return;
+
+  const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+  if (!quest.flags) {
+    quest.flags = makeMferGptDailyQuestFlags(assignment.id);
+  }
+  if (quest.required !== assignment.required) {
+    quest.required = assignment.required;
+    quest.progress = clamp(quest.progress, 0, quest.required);
+    if (quest.progress < quest.required && quest.status === "ready") {
+      quest.status = "active";
+    }
   }
 }
 
@@ -112,7 +134,8 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   }
 
   if (questId === "mfergpt-daily-signal") {
-    return `${QUESTS[questId].title}: ask @mfergpt for today's signal, then bring the noise back here.`;
+    const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+    return `${QUESTS[questId].title}: ${assignment.objectiveLabel}. progress ${formatQuestProgress(quest)}.`;
   }
 
   if (questId === "tweet-town-link") {
@@ -174,7 +197,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "mfergpt-daily-signal") {
-    return "daily signal logged. today it is a bounded template; later, mferGPT can swap in the day's news without changing the wiring.";
+    return "daily fieldwork logged. today it uses existing town trouble; later, mferGPT can swap in generated mobs and items without changing the daily slot.";
   }
 
   if (questId === "tweet-town-link") {
@@ -310,21 +333,25 @@ export function isQuestAvailable(player: PlayerState, questId: QuestId, now = Da
 
 export function makeQuestOffer(questId: QuestId, npc: NpcState) {
   const quest = QUESTS[questId];
+  const dailyAssignment = questId === "mfergpt-daily-signal" ? getMferGptDailyQuestAssignment() : null;
   return {
     questId,
     npcId: npc.id,
     npcName: npc.name,
     title: quest.title,
-    description: quest.description,
-    storyText: quest.description,
-    objectiveLabel: quest.objectiveLabel,
-    required: quest.required,
+    description: dailyAssignment ? `${quest.description} Today's pull: ${dailyAssignment.summary}` : quest.description,
+    storyText: dailyAssignment ? dailyAssignment.summary : quest.description,
+    objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : quest.objectiveLabel,
+    required: dailyAssignment ? dailyAssignment.required : quest.required,
     rewardPreview: getQuestRewardPreview(questId),
   };
 }
 
 export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: QuestState): QuestTurnIn {
   const quest = QUESTS[questId];
+  const dailyAssignment = questId === "mfergpt-daily-signal"
+    ? getMferGptDailyQuestAssignmentFromFlags(questState.flags)
+    : null;
   return {
     questId,
     npcId: npc.id,
@@ -332,7 +359,7 @@ export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: Que
     title: quest.title,
     completionText: getQuestCompletionText(questId),
     completedTaskSummary: getCompletedTaskSummary(questId, questState),
-    objectiveLabel: getQuestTurnInLabel(questId),
+    objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : getQuestTurnInLabel(questId),
     progress: Math.min(questState.progress, questState.required),
     required: questState.required,
     rewardPreview: getQuestRewardPreview(questId),
@@ -346,13 +373,16 @@ function makeQuestStatusNotice(
   statusText: string,
 ): QuestStatusNotice {
   const quest = QUESTS[questId];
+  const dailyAssignment = questId === "mfergpt-daily-signal"
+    ? getMferGptDailyQuestAssignmentFromFlags(questState.flags)
+    : null;
   return {
     questId,
     npcId: npc.id,
     npcName: npc.name,
     title: quest.title,
     statusText,
-    objectiveLabel: quest.objectiveLabel,
+    objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : quest.objectiveLabel,
     progress: Math.min(questState.progress, questState.required),
     required: questState.required,
     rewardPreview: getQuestRewardPreview(questId),
@@ -378,6 +408,11 @@ function getQuestRewardPreview(questId: QuestId) {
 }
 
 function getCompletedTaskSummary(questId: QuestId, quest: QuestState) {
+  if (questId === "mfergpt-daily-signal") {
+    const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+    return `${assignment.objectiveLabel}: ${Math.min(quest.progress, quest.required)}/${quest.required}`;
+  }
+
   const objectives = getQuestObjectives(questId);
   if (objectives.length > 0) {
     const completed = getQuestFlags(quest);
@@ -407,23 +442,37 @@ export function startQuest(player: PlayerState, questId: QuestId) {
   if (startItemId) addInventoryItem(player, startItemId, QUESTS[questId].required);
 
   const quest = new QuestState();
+  const questStartState = getQuestStartState(questId);
   quest.id = questId;
-  quest.required = QUESTS[questId].required;
+  quest.required = questStartState.required;
   quest.status = isQuestAutoReady(questId) ? "ready" : "active";
   quest.progress = quest.status === "ready" ? quest.required : 0;
-  quest.flags = "";
+  quest.flags = questStartState.flags;
   quest.completedAt = 0;
   player.quests.set(questId, quest);
   syncQuestItemProgress(player, questId);
 }
 
 function resetQuest(quest: QuestState, questId: QuestId) {
+  const questStartState = getQuestStartState(questId);
   quest.id = questId;
-  quest.required = QUESTS[questId].required;
+  quest.required = questStartState.required;
   quest.status = isQuestAutoReady(questId) ? "ready" : "active";
   quest.progress = quest.status === "ready" ? quest.required : 0;
-  quest.flags = "";
+  quest.flags = questStartState.flags;
   quest.completedAt = 0;
+}
+
+function getQuestStartState(questId: QuestId) {
+  if (questId !== "mfergpt-daily-signal") {
+    return { required: QUESTS[questId].required, flags: "" };
+  }
+
+  const assignment = getMferGptDailyQuestAssignment();
+  return {
+    required: assignment.required,
+    flags: makeMferGptDailyQuestFlags(assignment.id),
+  };
 }
 
 export function completeQuest(player: PlayerState, questId: QuestId, now: number) {
@@ -431,6 +480,7 @@ export function completeQuest(player: PlayerState, questId: QuestId, now: number
   if (!quest) return false;
   if (quest.status === "completed") return false;
 
+  syncMferGptDailyQuestState(questId, quest);
   syncQuestItemProgress(player, questId);
   if (quest.status !== "ready" && quest.progress < quest.required) return false;
 
@@ -457,7 +507,7 @@ export function progressDefeatQuests(player: PlayerState, npc: NpcState) {
     if (getQuestObjectiveIds(questId).includes(npc.id)) {
       progressed = progressNamedQuestObjective(player, questId, npc.id) || progressed;
     }
-    if (isDefeatQuestTarget(questId, npc)) {
+    if (isDefeatQuestTarget(player, questId, npc)) {
       progressed = progressQuest(player, questId, 1) || progressed;
     }
   }
@@ -479,8 +529,7 @@ export function progressMferGptAskQuest(player: PlayerState, text: string) {
 export function progressMferGptMentionQuest(player: PlayerState, text: string) {
   if (!hasMferGptMention(text)) return false;
   const progressedCheckin = progressQuest(player, "mfergpt-checkin", 1);
-  const progressedDailySignal = progressQuest(player, "mfergpt-daily-signal", 1);
-  return progressedCheckin || progressedDailySignal;
+  return progressedCheckin;
 }
 
 function hasMferGptMention(text: string) {
@@ -496,7 +545,15 @@ export function progressTraitQuest(player: PlayerState) {
   return progressQuest(player, "set-your-traits", 1);
 }
 
-function isDefeatQuestTarget(questId: QuestId, npc: NpcState) {
+function isDefeatQuestTarget(player: PlayerState, questId: QuestId, npc: NpcState) {
+  if (questId === "mfergpt-daily-signal") {
+    const quest = player.quests.get(questId);
+    if (!quest || quest.status !== "active") return false;
+    syncMferGptDailyQuestState(questId, quest);
+    const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+    return isMferGptDailyQuestDefeatTarget(assignment, npc);
+  }
+
   const quest = QUESTS[questId];
   const targetModels = "defeatNpcModels" in quest ? quest.defeatNpcModels as readonly string[] : [];
   const targetRoles = "defeatNpcRoles" in quest ? quest.defeatNpcRoles as readonly string[] : [];
@@ -623,5 +680,14 @@ export function progressLootQuests(player: PlayerState, itemId: ItemId, count: n
     if (getQuestRequiredItemId(questId) === itemId) {
       progressQuest(player, questId, count);
     }
+  }
+
+  const dailyQuest = player.quests.get("mfergpt-daily-signal");
+  if (!dailyQuest || dailyQuest.status !== "active") return;
+
+  syncMferGptDailyQuestState("mfergpt-daily-signal", dailyQuest);
+  const assignment = getMferGptDailyQuestAssignmentFromFlags(dailyQuest.flags);
+  if (isMferGptDailyQuestItem(assignment, itemId)) {
+    progressQuest(player, "mfergpt-daily-signal", count);
   }
 }

@@ -1,5 +1,6 @@
 import {
   QUESTS,
+  getMferGptDailyQuestAssignmentFromFlags,
   getQuestObjectives,
   getQuestRepeatLabel,
   type QuestId,
@@ -15,13 +16,18 @@ type QuestProps = {
 
 export function Quest({ quest, full = false, active = false, onActivate }: QuestProps) {
   const definition = QUESTS[quest.id];
+  const dailyAssignment = quest.id === "mfergpt-daily-signal"
+    ? getMferGptDailyQuestAssignmentFromFlags(quest.flags)
+    : null;
   const objectives = getQuestObjectives(quest.id);
   const repeatLabel = getQuestRepeatLabel(quest.id);
+  const description = dailyAssignment ? `${definition.description} ${dailyAssignment.summary}` : definition.description;
+  const objectiveLabel = dailyAssignment ? dailyAssignment.objectiveLabel : definition.objectiveLabel;
   const statusText = quest.status === "completed"
     ? "handled"
     : quest.status === "ready"
       ? definition.turnInLabel
-      : definition.objectiveLabel;
+      : objectiveLabel;
   const progress = quest.status === "completed" ? "handled" : `${Math.min(quest.progress, quest.required)}/${quest.required}`;
 
   const isSelectable = quest.status !== "completed" && Boolean(onActivate);
@@ -39,7 +45,7 @@ export function Quest({ quest, full = false, active = false, onActivate }: Quest
           {definition.title}
           {repeatLabel && <i>{repeatLabel}</i>}
         </strong>
-        {full && <small>{definition.description}</small>}
+        {full && <small>{description}</small>}
         {objectives.length > 0 && quest.status !== "completed" ? (
           <QuestObjectiveList quest={quest} objectives={objectives} />
         ) : (
