@@ -127,7 +127,7 @@ try {
     await waitForStatus(dialog, "buying with ETH confirmed");
     await assertGear(client, addresses.gear, 1n, 1n, 1n);
 
-    await clickExactly(dialog.getByRole("button", { name: "road lid, 0.012 ETH, 112.5 mfer, 93.75 mfergpt", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "posted-up laptop lid, 0.012 ETH, 112.5 mfer, 93.75 mfergpt", exact: true }));
     assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "2");
     assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.012");
     await clickExactly(dialog.getByRole("button", { name: "buy $mfer -10%", exact: true }));
@@ -137,7 +137,7 @@ try {
     assert.equal(await readErc20Balance(client, addresses.mfer, treasury), parseEther("112.5"));
     await waitForBalance(balances, "$mfer", "999887.5");
 
-    await clickExactly(dialog.getByRole("button", { name: "lucky lighter, 0.0069 ETH, 62.1 mfer, 51.75 mfergpt", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "last-cig lighter, 0.0069 ETH, 62.1 mfer, 51.75 mfergpt", exact: true }));
     assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "3");
     assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.0069");
     await clickExactly(dialog.getByRole("button", { name: "buy $mfergpt -25%", exact: true }));
@@ -166,7 +166,7 @@ try {
     await clickExactly(characterButton);
     const character = page.getByRole("dialog", { name: "Character", exact: true });
     await character.waitFor({ state: "visible", timeout: 10_000 });
-    await waitForEquipmentTooltip(character, "road lid", "T1 #2", "+14 HP, +1 STR");
+    await waitForEquipmentTooltip(character, "posted-up laptop lid", "T1 #2", "+14 HP, +1 STR");
     await waitForCharacterStat(character, "STR", "10");
 
     if (consoleErrors.length > 0) {

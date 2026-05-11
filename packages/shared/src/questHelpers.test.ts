@@ -102,3 +102,12 @@ test("hog loop uses a production daily cooldown", () => {
   assert.equal(getQuestRepeatCooldownMs("hog-loop"), 86_400_000);
   assert.equal(getQuestRepeatLabel("hog-loop"), "daily");
 });
+
+test("quest rewards form the early gear progression spine", () => {
+  assert.deepEqual(QUESTS["fountain-vibes"].rewardItemIds, ["reply-lag-visor"]);
+  assert.deepEqual(QUESTS["ask-mfergpt"].rewardItemIds, ["receipt-zine"]);
+  assert.deepEqual(QUESTS["mfergpt-checkin"].rewardItemIds, ["headphone-splitter"]);
+  assert.deepEqual(QUESTS["field-camp-delivery"].rewardItemIds, ["field-patched-hoodie"]);
+  assert.deepEqual(QUESTS["signal-scraps"].rewardItemIds, ["ridge-runner-beanie"]);
+  assert.deepEqual(QUESTS["baron-of-static"].rewardItemIds, ["baron-breaker-board"]);
+});

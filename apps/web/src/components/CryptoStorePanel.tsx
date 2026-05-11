@@ -89,9 +89,9 @@ const LOCAL_CHAIN_CONFIG: CryptoStoreChainConfig = {
 };
 const LAUNCH_PASS_LABEL = "Season 0 pass";
 const STORE_GEAR_COLLECTION = [
-  { gearType: 1, label: "beater deck", ethPrice: "0.01", mferPriceLabel: "90", mferGptPriceLabel: "75" },
-  { gearType: 2, label: "road lid", ethPrice: "0.012", mferPriceLabel: "112.5", mferGptPriceLabel: "93.75" },
-  { gearType: 3, label: "lucky lighter", ethPrice: "0.0069", mferPriceLabel: "62.1", mferGptPriceLabel: "51.75" },
+  { gearType: 1, label: "posted-up deck", ethPrice: "0.01", mferPriceLabel: "90", mferGptPriceLabel: "75" },
+  { gearType: 2, label: "posted-up laptop lid", ethPrice: "0.012", mferPriceLabel: "112.5", mferGptPriceLabel: "93.75" },
+  { gearType: 3, label: "last-cig lighter", ethPrice: "0.0069", mferPriceLabel: "62.1", mferGptPriceLabel: "51.75" },
 ] as const;
 const DEFAULT_STORE_GEAR = STORE_GEAR_COLLECTION[0];
 const SELECTORS = {

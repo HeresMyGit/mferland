@@ -50,17 +50,29 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     if (Math.random() < 0.06) {
       addLootItem(npc, "blue-juice", 1);
     }
-    if (Math.random() < 0.04) {
-      addLootItem(npc, "antler-charm", 1);
-    }
   } else if (npc.role === "farmer") {
     if (npc.id === "raid-ogre-mfer") {
       npc.respawnAt = 0;
-      if (Math.random() < 0.18) {
+      if (Math.random() < 0.16) {
         addLootItem(npc, "static-loop-ring", 1);
       }
+      if (Math.random() < 0.14) {
+        addLootItem(npc, "feedback-headphones", 1);
+      }
+      if (Math.random() < 0.14) {
+        addLootItem(npc, "all-nighter-hoodie", 1);
+      }
       if (Math.random() < 0.12) {
-        addLootItem(npc, "baron-breaker-board", 1);
+        addLootItem(npc, "router-antenna-wand", 1);
+      }
+      if (Math.random() < 0.12) {
+        addLootItem(npc, "bottlecap-sling", 1);
+      }
+      if (Math.random() < 0.1) {
+        addLootItem(npc, "stickered-laptop-lid", 1);
+      }
+      if (Math.random() < 0.12) {
+        addLootItem(npc, "burn-hole-mousepad", 1);
       }
       addLootItem(npc, "red-juice", 2);
       addLootItem(npc, "blue-juice", 2);
@@ -71,12 +83,46 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       return;
     }
 
-    if (isRidgeRaider(npc)) {
+    if (npc.id === "static-baron-nox") {
+      if (Math.random() < 0.16) {
+        addLootItem(npc, "static-loop-ring", 1);
+      }
+      if (Math.random() < 0.14) {
+        addLootItem(npc, "feedback-headphones", 1);
+      }
+      if (Math.random() < 0.14) {
+        addLootItem(npc, "logoff-hoodie", 1);
+      }
+      if (Math.random() < 0.18) {
+        addLootItem(npc, "blue-juice", 1);
+      }
+      if (Math.random() < 0.14) {
+        addLootItem(npc, "red-juice", 1);
+      }
+    } else if (isRidgeRaider(npc)) {
       if (canDropQuestItem(player, "signal-scraps") && Math.random() < QUESTS["signal-scraps"].dropRate) {
         addLootItem(npc, "signal-scrap", 1);
       }
-      if (Math.random() < 0.08) {
+      if (Math.random() < 0.055) {
         addLootItem(npc, "static-loop-ring", 1);
+      }
+      if (Math.random() < 0.035) {
+        addLootItem(npc, "deadzone-beanie", 1);
+      }
+      if (Math.random() < 0.03) {
+        addLootItem(npc, "static-zip-hoodie", 1);
+      }
+      if (isCasterNpc(npc) && Math.random() < 0.045) {
+        addLootItem(npc, "router-antenna-wand", 1);
+      }
+      if (!isCasterNpc(npc) && Math.random() < 0.045) {
+        addLootItem(npc, "bottlecap-sling", 1);
+      }
+      if (Math.random() < 0.025) {
+        addLootItem(npc, "stickered-laptop-lid", 1);
+      }
+      if (Math.random() < 0.035) {
+        addLootItem(npc, "burn-hole-mousepad", 1);
       }
       if (Math.random() < 0.12) {
         addLootItem(npc, "blue-juice", 1);
@@ -90,8 +136,23 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
     if (!isRidgeRaider(npc) && Math.random() < 0.05) {
       addLootItem(npc, "field-patched-hoodie", 1);
     }
-    if (!isRidgeRaider(npc) && Math.random() < 0.04) {
+    if (!isRidgeRaider(npc) && !isCasterNpc(npc) && Math.random() < 0.05) {
       addLootItem(npc, "farmhand-spade", 1);
+    }
+    if (!isRidgeRaider(npc) && Math.random() < 0.04) {
+      addLootItem(npc, "airdrop-burn-hoodie", 1);
+    }
+    if (!isRidgeRaider(npc) && Math.random() < 0.04) {
+      addLootItem(npc, "claim-booth-cap", 1);
+    }
+    if (!isRidgeRaider(npc) && isCasterNpc(npc) && Math.random() < 0.07) {
+      addLootItem(npc, "claim-clipboard", 1);
+    }
+    if (!isRidgeRaider(npc) && Math.random() < 0.035) {
+      addLootItem(npc, "missed-creyzies-keychain", 1);
+    }
+    if (!isRidgeRaider(npc) && !isCasterNpc(npc) && Math.random() < 0.06) {
+      addLootItem(npc, "stickerbomb-sling", 1);
     }
     if (Math.random() < 0.1) {
       addLootItem(npc, "red-juice", 1);
@@ -165,4 +226,8 @@ export function normalizeItemId(input: unknown): ItemId | null {
 
 function isRidgeRaider(npc: NpcState) {
   return npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-");
+}
+
+function isCasterNpc(npc: NpcState) {
+  return npc.combatStyle === "caster" || npc.id.includes("mage");
 }

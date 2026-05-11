@@ -80,9 +80,9 @@ setGearPrice(gearType, ethPrice, mferPrice, mferGptPrice)
 
 For the current local collection:
 
-- `beater deck`: `0.01 ETH`, `90 $mfer`, or `75 MFERGPT`.
-- `road lid`: `0.012 ETH`, `112.5 $mfer`, or `93.75 MFERGPT`.
-- `lucky lighter`: `0.0069 ETH`, `62.1 $mfer`, or `51.75 MFERGPT`.
+- `posted-up deck`: `0.01 ETH`, `90 $mfer`, or `75 MFERGPT`.
+- `posted-up laptop lid`: `0.012 ETH`, `112.5 $mfer`, or `93.75 MFERGPT`.
+- `last-cig lighter`: `0.0069 ETH`, `62.1 $mfer`, or `51.75 MFERGPT`.
 
 The UI reads the onchain price before approval so it can approve exactly the expected payment amount. Token buy functions also take that quote as a max payment and reread central pricing onchain, so editing the browser cannot make the store undercharge and a price update cannot pull more than the quoted amount.
 
@@ -232,7 +232,7 @@ Use it after deploying the local suite:
 2. Run `npm run chain:deploy:local`.
 3. Connect a wallet pointed at `http://127.0.0.1:8545` with chain id `31337`.
 4. Open a merchant in-game. The panel pre-fills `MferGearStore`, `MferGearNFT`, `MferPricing`, `$mfer`, `$mfergpt`, and `MferLaunchPass` from `apps/web/public/crypto/local-contracts.json`.
-5. Pick an item from the local starter collection: `beater deck`, `road lid`, or `lucky lighter`.
+5. Pick an item from the local starter collection: `posted-up deck`, `posted-up laptop lid`, or `last-cig lighter`.
 6. Buy the Season 0 pass with ETH, discounted `$mfer` paid to treasury, or `$mfergpt` burn.
 7. Buy gear with ETH, `$mfer`, or `$mfergpt`. The game verifies the minted token id against `MferGearNFT.ownerOf` and `MferGearNFT.gear` before adding it to inventory and auto-equipping it.
 

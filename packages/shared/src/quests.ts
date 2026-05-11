@@ -46,6 +46,7 @@ export const QUESTS = {
     requiredQuestId: "dao-tour",
     xpReward: 26,
     autoReady: true,
+    rewardItemIds: ["reply-lag-visor"],
     nextQuestId: "sealed-note",
   },
   "sealed-note": {
@@ -86,6 +87,7 @@ export const QUESTS = {
     required: 1,
     requiredQuestId: "sealed-note",
     xpReward: 64,
+    rewardItemIds: ["receipt-zine"],
   },
   "mfergpt-checkin": {
     title: "signal check",
@@ -97,6 +99,7 @@ export const QUESTS = {
     requiredQuestId: "mfer-beginnings",
     chatMention: "@mfergpt",
     xpReward: 15,
+    rewardItemIds: ["headphone-splitter"],
   },
   "tweet-town-link": {
     title: "post the plaza",
