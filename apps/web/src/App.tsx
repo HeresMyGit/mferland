@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { ArrowDownUp, Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
 import * as THREE from "three";
-import { useAccount, useConnect, useDisconnect, type Connector } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector } from "wagmi";
 import {
   COMBAT,
   ITEMS,
@@ -38,6 +38,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import {
+  fetchWalletAuthChallenge,
   fetchWalletCharacterProfile,
   getStoredInviteCode,
   getStoredName,
@@ -261,6 +262,7 @@ function AuthGate({
   const { address, isConnected } = useAccount();
   const { connect, connectAsync, connectors, isPending: isConnectPending } = useConnect();
   const { disconnect, disconnectAsync, isPending: isDisconnectPending } = useDisconnect();
+  const { signMessageAsync, isPending: isSignMessagePending } = useSignMessage();
   const walletConnectorChoices = useMemo(() => getWalletConnectorChoices(connectors), [connectors]);
   const injected = walletConnectorChoices.find((connector) => connector.id === "injected");
   const localTestConnector = connectors.find((connector) => connector.id === "mock");
@@ -270,6 +272,7 @@ function AuthGate({
   const [showAnonWarning, setShowAnonWarning] = useState(false);
   const [inviteCode, setInviteCode] = useState(() => getInitialInviteCode());
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
+  const [isWalletAuthPending, setIsWalletAuthPending] = useState(false);
   const walletProfileRequestRef = useRef(0);
   const trackedMainMenuRef = useRef(false);
   const trackedWalletAddressRef = useRef("");
@@ -319,8 +322,9 @@ function AuthGate({
     profilePending: walletProfileLoading,
     profileError: Boolean(walletProfileError),
   });
-  const walletPrimaryDisabled = isSwitchingWallet || isDisconnectPending || (!canEnterWallet && !canRetryWallet);
-  const walletFallbackDisabled = isSwitchingWallet || isDisconnectPending || !canCreateAfterProfileError;
+  const walletSignaturePending = isWalletAuthPending || isSignMessagePending;
+  const walletPrimaryDisabled = isSwitchingWallet || isDisconnectPending || walletSignaturePending || (!canEnterWallet && !canRetryWallet);
+  const walletFallbackDisabled = isSwitchingWallet || isDisconnectPending || walletSignaturePending || !canCreateAfterProfileError;
   const hasInjectedProvider = hasInjectedEthereumProvider();
   const availableWalletConnectorChoices = useMemo(
     () => getAvailableWalletConnectorChoices(walletConnectorChoices, { hasInjectedProvider }),
@@ -447,28 +451,47 @@ function AuthGate({
     handleConnectWallet();
   }
 
-  function enterWallet({ forceCreate = false, allowProfileError = false } = {}) {
+  async function enterWallet({ forceCreate = false, allowProfileError = false } = {}) {
     if (!address) return;
     if (inviteRequired && !hasInviteCode) return;
+    if (walletSignaturePending) return;
     if (allowProfileError) {
       if (!canCreateAfterProfileError) return;
     } else if (!canEnterWallet) {
       return;
     }
-    rememberInviteCode(inviteCode);
-    rememberName(cleanName);
-    trackEvent("auth_enter_wallet", {
-      inviteRequired,
-      invitePresent: hasInviteCode,
-      profileFallback: forceCreate ? allowProfileError : false,
-      needsCreation: walletNeedsCreation || forceCreate,
-    }, { local: true, identityType: "wallet", walletAddress: address });
-    onEnter(makeWalletIdentity(
-      cleanName,
-      address,
-      existingCharacter?.avatarSeed ?? creationSeed,
-      walletNeedsCreation || forceCreate,
-    ));
+
+    setIsWalletAuthPending(true);
+    setWalletActionError(null);
+    try {
+      const challenge = await fetchWalletAuthChallenge(address);
+      const signature = await signMessageAsync({ message: challenge.message });
+      rememberInviteCode(inviteCode);
+      rememberName(cleanName);
+      trackEvent("auth_enter_wallet", {
+        inviteRequired,
+        invitePresent: hasInviteCode,
+        profileFallback: forceCreate ? allowProfileError : false,
+        needsCreation: walletNeedsCreation || forceCreate,
+      }, { local: true, identityType: "wallet", walletAddress: address });
+      onEnter(makeWalletIdentity(
+        cleanName,
+        address,
+        existingCharacter?.avatarSeed ?? creationSeed,
+        walletNeedsCreation || forceCreate,
+        {
+          nonce: challenge.nonce,
+          message: challenge.message,
+          signature,
+        },
+      ));
+    } catch (error) {
+      if (!isUserRejectedWalletRequest(error)) {
+        setWalletActionError(error instanceof Error ? error.message : "wallet signature failed");
+      }
+    } finally {
+      setIsWalletAuthPending(false);
+    }
   }
 
   function handleWalletPrimaryAction() {
@@ -477,12 +500,12 @@ function AuthGate({
       void loadWalletProfile(address);
       return;
     }
-    enterWallet();
+    void enterWallet();
   }
 
   function handleWalletCreateFallback() {
     trackEvent("wallet_profile_create_fallback", { surface: "auth" }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
-    enterWallet({ forceCreate: true, allowProfileError: true });
+    void enterWallet({ forceCreate: true, allowProfileError: true });
   }
 
   function handleConnectWallet() {
@@ -642,7 +665,7 @@ function AuthGate({
             <>
               <button className="primary-btn wallet" type="button" onClick={handleWalletPrimaryAction} disabled={walletPrimaryDisabled}>
                 <Gem size={18} />
-                {walletEntryLabel}
+                {walletSignaturePending ? "signing wallet" : walletEntryLabel}
               </button>
               {walletProfileError && (
                 <button
@@ -652,7 +675,7 @@ function AuthGate({
                   disabled={walletFallbackDisabled}
                 >
                   <Sparkles size={18} />
-                  enter or create mfer
+                  {walletSignaturePending ? "signing wallet" : "enter or create mfer"}
                 </button>
               )}
               <button

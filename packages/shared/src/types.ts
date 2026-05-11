@@ -103,9 +103,25 @@ export type JoinOptions = {
   name?: string;
   identityType?: IdentityType;
   walletAddress?: string;
+  walletAuth?: WalletAuthProof;
   avatarSeed?: number;
   createCharacter?: boolean;
   inviteCode?: string;
+};
+
+export type WalletAuthProof = {
+  nonce: string;
+  message: string;
+  signature: string;
+};
+
+export type WalletAuthChallengeResponse = {
+  ok: boolean;
+  walletAddress: string;
+  nonce: string;
+  message: string;
+  expiresAt: string;
+  error?: string;
 };
 
 export type WalletCharacterPreview = {

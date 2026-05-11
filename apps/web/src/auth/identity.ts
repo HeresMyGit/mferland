@@ -4,6 +4,8 @@ import {
   normalizeWalletAddress,
   stableHash,
   type JoinOptions,
+  type WalletAuthChallengeResponse,
+  type WalletAuthProof,
   type WalletCharacterProfileResponse,
 } from "@mferland/shared";
 
@@ -53,14 +55,38 @@ export function makeWalletIdentity(
   walletAddress: string,
   avatarSeed = stableHash(`${walletAddress}:${name}`),
   createCharacter = false,
+  walletAuth?: WalletAuthProof,
 ): JoinOptions {
   return {
     name,
     identityType: "wallet",
     walletAddress,
+    walletAuth,
     avatarSeed: normalizeAvatarSeed(avatarSeed),
     createCharacter,
     inviteCode: getStoredInviteCode(),
+  };
+}
+
+export async function fetchWalletAuthChallenge(walletAddress: string): Promise<WalletAuthChallengeResponse> {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) throw new Error("valid wallet address required");
+
+  const response = await fetch(new URL("/wallet-auth-challenge", getServerHttpBaseUrl()), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ walletAddress: normalizedWallet }),
+  });
+  const payload = await response.json().catch(() => null) as Partial<WalletAuthChallengeResponse> | null;
+  if (!response.ok || !payload?.ok || !payload.message || !payload.nonce) {
+    throw new Error(payload?.error || "wallet verification unavailable");
+  }
+  return {
+    ok: true,
+    walletAddress: payload.walletAddress || normalizedWallet,
+    nonce: payload.nonce,
+    message: payload.message,
+    expiresAt: payload.expiresAt || "",
   };
 }
 

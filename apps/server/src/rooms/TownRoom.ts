@@ -109,6 +109,7 @@ import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../
 import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
 import { spawnNpcFromSpec, spawnNpcs, updateNpcs } from "../systems/npcs.js";
 import { applyFrostNova, applyMultishot, applyWhirlwind } from "../systems/playerCombatAbilities.js";
+import { verifyWalletAuthProof } from "../walletAuth.js";
 import {
   completeQuest,
   getNpcDialogue,
@@ -400,8 +401,12 @@ export class TownRoom extends Room<TownState> {
   private lastCharacterAutosaveAt = 0;
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
-  onAuth(_client: Client, options?: JoinOptions) {
+  async onAuth(_client: Client, options?: JoinOptions) {
     if (!isAllowedInvite(options)) throw new ServerError(ErrorCode.AUTH_FAILED, "invalid invite");
+    const walletAddress = normalizeWalletAddress(options?.walletAddress);
+    if ((options?.identityType === "wallet" || walletAddress) && !await verifyWalletAuthProof(walletAddress, options?.walletAuth)) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");
+    }
     return true;
   }
 

@@ -18,7 +18,8 @@
     "@mferland/shared": "file:../../packages/shared",
     "colyseus": "^0.16.5",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "viem": "^2.40.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

@@ -12,6 +12,7 @@ import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./cr
 import { closeDatabase } from "./db/client.js";
 import { getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
 import { areDebugMessagesEnabled, readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
+import { createWalletAuthChallenge } from "./walletAuth.js";
 
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
 const WEB_DIST_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
@@ -19,6 +20,7 @@ const WEB_INDEX_PATH = resolve(WEB_DIST_DIR, "index.html");
 const WEB_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const WEB_INDEX_CACHE_CONTROL = "no-store";
 const MAX_ANALYTICS_BODY_BYTES = 8 * 1024;
+const MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES = 2 * 1024;
 const PUBLIC_ANALYTICS_EVENTS = new Set([
   "app_loaded",
   "main_menu_viewed",
@@ -114,6 +116,11 @@ const server = createServer((req, res) => {
           error: getWalletCharacterProfileErrorMessage(error, status),
         }));
       });
+    return;
+  }
+
+  if (url === "/wallet-auth-challenge") {
+    void handleWalletAuthChallenge(req, res);
     return;
   }
 
@@ -215,12 +222,42 @@ async function handlePublicAnalyticsEvent(req: IncomingMessage, res: ServerRespo
   res.end(JSON.stringify({ ok: true, recorded: true }));
 }
 
+async function handleWalletAuthChallenge(req: IncomingMessage, res: ServerResponse) {
+  writeCorsHeaders(res);
+  if (req.method !== "POST") {
+    res.writeHead(405, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  let payload: Partial<WalletAuthChallengePayload> | null = null;
+  try {
+    payload = await readJsonBody<Partial<WalletAuthChallengePayload>>(req, MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES);
+  } catch (error) {
+    const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: status === 413 ? "payload too large" : "invalid json" }));
+    return;
+  }
+
+  const challenge = createWalletAuthChallenge(
+    typeof payload?.walletAddress === "string" ? payload.walletAddress : "",
+    getRequestDomain(req),
+  );
+  res.writeHead(challenge.ok ? 200 : 400, { "content-type": "application/json" });
+  res.end(JSON.stringify(challenge));
+}
+
 type PublicAnalyticsPayload = {
   eventType: string;
   sessionId: string;
   identityType: "guest" | "wallet" | "";
   walletAddress: string;
   properties: AnalyticsProperties;
+};
+
+type WalletAuthChallengePayload = {
+  walletAddress: string;
 };
 
 class RequestBodyTooLargeError extends Error {}
@@ -256,6 +293,16 @@ function normalizePublicIdentityType(value: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function getRequestDomain(req: IncomingMessage) {
+  const forwardedHost = getSingleHeader(req.headers["x-forwarded-host"]);
+  return forwardedHost || getSingleHeader(req.headers.host) || "mferland";
+}
+
+function getSingleHeader(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? "";
+  return value ?? "";
 }
 
 function writeCorsHeaders(res: ServerResponse) {
