@@ -3,24 +3,22 @@ import { dirname } from "node:path";
 
 export function extractLocalContractAddresses(document, sourceLabel = "broadcast") {
   const creates = document.transactions?.filter((transaction) => transaction.transactionType === "CREATE") ?? [];
-  const gold = creates.find((transaction) => transaction.contractName === "MferGold");
   const mfer = creates.find((transaction) => transaction.contractName === "MferCoin");
   const mfergpt = creates.find((transaction) => transaction.contractName === "MferGptToken");
   const gear = creates.find((transaction) => transaction.contractName === "MferGearNFT");
-  const rewards = creates.find((transaction) => transaction.contractName === "QuestRewardDistributor");
+  const pricing = creates.find((transaction) => transaction.contractName === "MferPricing");
   const launchPass = creates.find((transaction) => transaction.contractName === "MferLaunchPass");
   const store = creates.find((transaction) => transaction.contractName === "MferGearStore");
 
-  if (!gold || !mfer || !mfergpt || !gear || !rewards || !launchPass || !store) {
+  if (!mfer || !mfergpt || !gear || !pricing || !launchPass || !store) {
     throw new Error(`Could not find all local contracts in ${sourceLabel}`);
   }
 
   return {
-    gold: gold.contractAddress,
     mfer: mfer.contractAddress,
     mfergpt: mfergpt.contractAddress,
     gear: gear.contractAddress,
-    rewards: rewards.contractAddress,
+    pricing: pricing.contractAddress,
     launchPass: launchPass.contractAddress,
     store: store.contractAddress,
   };

@@ -20,9 +20,11 @@ import {
   TRAIT_CHANGE_PRICES_WEI,
   clamp,
   getNpcDisposition,
+  getChainGearItemId,
   getInventoryItemKey,
   getQuestTurnInNpcId,
   hasExplicitMferAppearanceTraits,
+  normalizeAvatarSeed,
   normalizeChainTokenId,
   normalizeChainGearTier,
   normalizeMferAppearanceTraits,
@@ -44,6 +46,7 @@ import {
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
+  type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientShareQuestLink,
   type ClientUpdateTraits,
@@ -60,6 +63,7 @@ import {
 import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
+import { verifyChainGearOwnership } from "../crypto/chainGear.js";
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
@@ -155,12 +159,6 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "gear_purchase_started",
   "gear_purchase_confirmed",
   "gear_purchase_failed",
-  "gold_grant_started",
-  "gold_grant_confirmed",
-  "gold_grant_failed",
-  "gear_upgrade_started",
-  "gear_upgrade_confirmed",
-  "gear_upgrade_failed",
 ]);
 
 export function areDebugMessagesEnabled() {
@@ -454,6 +452,10 @@ export class TownRoom extends Room<TownState> {
       this.handleUnequipItem(client, message);
     });
 
+    this.onMessage("registerChainGear", (client, message: Partial<ClientRegisterChainGear> = {}) => {
+      void this.handleRegisterChainGear(client, message);
+    });
+
     this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
       this.handleSelectTalent(client, message);
     });
@@ -646,9 +648,10 @@ export class TownRoom extends Room<TownState> {
     const identityType = getIdentityType(options, walletAddress);
     const defaultName = getDefaultName(identityType, walletAddress, client.sessionId);
     const name = sanitizePlayerName(options?.name, defaultName);
-    const avatarSeed = Number.isFinite(options?.avatarSeed)
+    const requestedAvatarSeed = Number.isFinite(options?.avatarSeed)
       ? Number(options?.avatarSeed)
       : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
+    const avatarSeed = normalizeAvatarSeed(requestedAvatarSeed);
     const persistedCharacter = identityType === "wallet" && walletAddress
       ? await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter))
       : null;
@@ -675,6 +678,7 @@ export class TownRoom extends Room<TownState> {
     player.yaw = spawn.yaw;
     if (persistedCharacter) {
       applyPersistedCharacter(player, persistedCharacter);
+      await this.reconcileOwnedChainGear(player);
       this.persistentCharacterIds.set(client.sessionId, persistedCharacter.characterId);
     }
     normalizePlayerTalents(player);
@@ -1508,6 +1512,52 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
   }
 
+  private async handleRegisterChainGear(client: Client, message: Partial<ClientRegisterChainGear>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player || player.identityType !== "wallet" || !player.walletAddress) {
+      client.send("chat", makeSystemChat("Chain Gear", "Connect the owning wallet before registering chain gear."));
+      return;
+    }
+
+    const tokenId = typeof message.tokenId === "string" ? message.tokenId : "";
+    if (!tokenId) {
+      client.send("chat", makeSystemChat("Chain Gear", "Missing gear token id."));
+      return;
+    }
+
+    try {
+      const verified = await verifyChainGearOwnership({ tokenId, walletAddress: player.walletAddress });
+      if (!verified) {
+        client.send("chat", makeSystemChat("Chain Gear", `Could not verify gear token #${tokenId} for this wallet.`));
+        return;
+      }
+
+      const requestedGearType = Number(message.gearType);
+      if (Number.isInteger(requestedGearType) && requestedGearType > 0 && requestedGearType !== verified.gearType) {
+        client.send("chat", makeSystemChat("Chain Gear", `Gear token #${verified.tokenId} is type ${verified.gearType}, not ${requestedGearType}.`));
+        return;
+      }
+
+      if (!registerChainGearItem(player, verified.gearType, verified.tokenId, verified.tier)) {
+        client.send("chat", makeSystemChat("Chain Gear", `Verified token #${verified.tokenId}, but this gear type is not in the game catalog yet.`));
+        return;
+      }
+
+      this.recordPlayerAnalyticsEvent("chain_gear_registered", client.sessionId, player, {
+        gearType: verified.gearType,
+        tokenId: verified.tokenId,
+        tier: verified.tier,
+        chainId: verified.chainId,
+        txHash: typeof message.txHash === "string" ? message.txHash.slice(0, 80) : "",
+      });
+      this.persistPlayerProgress(client.sessionId, player);
+      client.send("chat", makeSystemChat("Chain Gear", `Verified gear token #${verified.tokenId} and added it to your inventory.`));
+    } catch (error) {
+      console.warn("chain_gear.verify_failed", error);
+      client.send("chat", makeSystemChat("Chain Gear", "Chain gear verification is temporarily unavailable."));
+    }
+  }
+
   private handleDebugUpdateChainGearTier(client: Client, message: Partial<ClientDebugUpdateChainGearTier>) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
@@ -1516,6 +1566,65 @@ export class TownRoom extends Room<TownState> {
     if (!updateChainGearTier(player, tokenId, normalizeChainGearTier(message.tier))) return;
 
     this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private async reconcileOwnedChainGear(player: PlayerState) {
+    if (player.identityType !== "wallet" || !player.walletAddress) return;
+
+    const chainItems: Array<{ key: string; tokenId: string; itemId: ItemId }> = [];
+    player.inventory.forEach((item, key) => {
+      const tokenId = normalizeChainTokenId(item.chainTokenId);
+      if (tokenId) chainItems.push({ key, tokenId, itemId: item.id });
+    });
+    if (chainItems.length === 0) return;
+
+    const staleTokens = new Set<string>();
+    const verifiedTiers = new Map<string, number>();
+    let changed = false;
+
+    for (const item of chainItems) {
+      let verified;
+      try {
+        verified = await verifyChainGearOwnership({ tokenId: item.tokenId, walletAddress: player.walletAddress });
+      } catch (error) {
+        console.warn("chain_gear.reconcile_skipped", error);
+        return;
+      }
+
+      const verifiedItemId = verified ? getChainGearItemId(verified.gearType) : null;
+      if (!verified || verifiedItemId !== item.itemId) {
+        staleTokens.add(item.tokenId);
+        player.inventory.delete(item.key);
+        changed = true;
+        continue;
+      }
+
+      const inventoryItem = player.inventory.get(item.key);
+      const verifiedTier = normalizeChainGearTier(verified.tier);
+      verifiedTiers.set(item.tokenId, verifiedTier);
+      if (inventoryItem && inventoryItem.chainTier !== verifiedTier) {
+        inventoryItem.chainTier = verifiedTier;
+        changed = true;
+      }
+    }
+
+    player.equipment.forEach((slot) => {
+      const tokenId = normalizeChainTokenId(slot.chainTokenId);
+      if (!tokenId || !staleTokens.has(tokenId)) return;
+      slot.itemId = "";
+      slot.chainTokenId = "";
+      slot.chainTier = 1;
+      changed = true;
+    });
+    player.equipment.forEach((slot) => {
+      const tokenId = normalizeChainTokenId(slot.chainTokenId);
+      const verifiedTier = verifiedTiers.get(tokenId);
+      if (!verifiedTier || slot.chainTier === verifiedTier) return;
+      slot.chainTier = verifiedTier;
+      changed = true;
+    });
+
+    if (changed) recalculatePlayerStats(player);
   }
 
   private handleUseItem(client: Client, message: Partial<ClientUseItem>) {
@@ -2109,6 +2218,16 @@ function makeMferGptChatMessage(text: string, sentAt: number): ChatMessage {
     identityType: "npc",
     text,
     sentAt,
+  };
+}
+
+function makeSystemChat(name: string, text: string): ChatMessage {
+  return {
+    sessionId: name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-"),
+    name,
+    identityType: "npc",
+    text,
+    sentAt: Date.now(),
   };
 }
 

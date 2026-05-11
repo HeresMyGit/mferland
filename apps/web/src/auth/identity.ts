@@ -1,5 +1,6 @@
 import {
   makeGuestName,
+  normalizeAvatarSeed,
   normalizeWalletAddress,
   stableHash,
   type JoinOptions,
@@ -42,7 +43,7 @@ export function makeGuestIdentity(name: string): JoinOptions {
   return {
     name,
     identityType: "guest",
-    avatarSeed: stableHash(`${guestId}:${name}`),
+    avatarSeed: normalizeAvatarSeed(stableHash(`${guestId}:${name}`)),
     inviteCode: getStoredInviteCode(),
   };
 }
@@ -57,7 +58,7 @@ export function makeWalletIdentity(
     name,
     identityType: "wallet",
     walletAddress,
-    avatarSeed,
+    avatarSeed: normalizeAvatarSeed(avatarSeed),
     createCharacter,
     inviteCode: getStoredInviteCode(),
   };

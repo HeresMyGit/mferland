@@ -312,6 +312,12 @@ export type ClientUnequipItem = {
   slot: EquipmentSlotId;
 };
 
+export type ClientRegisterChainGear = {
+  tokenId: string;
+  gearType?: number;
+  txHash?: string;
+};
+
 export type ClientDebugRegisterChainGear = {
   gearType: number;
   tokenId: string;

@@ -15,6 +15,7 @@ import {
   isEquipmentCompatibleWithSlot,
   normalizeChainGearTier,
   normalizeChainTokenId,
+  normalizeAvatarSeed,
   normalizeMferAppearanceTraits,
   normalizeWalletAddress,
   type EquipmentSlotId,
@@ -127,6 +128,7 @@ export async function loadOrCreateWalletCharacter({
   const normalizedWallet = normalizeWalletAddress(walletAddress);
   if (!normalizedWallet) return null;
   const db = getRequiredDatabase();
+  const persistedAvatarSeed = normalizeAvatarSeed(avatarSeed);
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedWallet}), 0)`);
 
@@ -170,7 +172,7 @@ export async function loadOrCreateWalletCharacter({
           id: characterId,
           accountId,
           name: displayName,
-          avatarSeed,
+          avatarSeed: persistedAvatarSeed,
           nameLockedAt: now,
           appearanceTraits: {},
           level: 1,
@@ -269,7 +271,7 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
     await tx.update(characters)
       .set({
         name: state.name,
-        avatarSeed: state.avatarSeed,
+        avatarSeed: normalizeAvatarSeed(state.avatarSeed),
         appearanceTraits: normalizeMferAppearanceTraits(state.appearanceTraits, {}),
         level: state.level,
         xp: state.xp,

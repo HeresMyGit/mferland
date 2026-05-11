@@ -85,7 +85,7 @@ VITE_REQUIRE_INVITE="1"
 VITE_ENABLE_CRYPTO_STORE="1"
 MFERLAND_INVITE_CODE="REPLACE_WITH_PRIVATE_DM_CODE"
 MFERLAND_SERVE_WEB_DIST="1"
-MFERLAND_MARKET_QUOTE_INTERVAL_MS="3600000"
+MFERLAND_MARKET_QUOTE_INTERVAL_MS="21600000"
 VITE_GA_MEASUREMENT_ID=""
 ```
 
@@ -203,13 +203,12 @@ Fill:
 - `rpcUrl`: production-safe RPC URL if wallets may need chain-add metadata, otherwise `""`
 - `addresses.mfer`: Base `$mfer`
 - `addresses.mfergpt`: Base `$mfergpt`
+- `addresses.pricing`: deployed `MferPricing`
 - `addresses.launchPass`: deployed `MferLaunchPass`
 
 Leave local-only suite addresses blank unless production versions exist:
 
-- `addresses.gold`
 - `addresses.gear`
-- `addresses.rewards`
 - `addresses.store`
 
 Validate:
@@ -229,7 +228,7 @@ npm run launch:server
 `launch:server` binds the game process to `0.0.0.0`, serves `apps/web/dist` through the same HTTP server as the WebSocket, and exposes the local/LAN-only admin dashboard at `http://<mac-lan-ip>:2567/admin`. The dashboard rejects public hostnames such as `game.mfergpt.lol`; keep it on loopback or your private LAN only. Before inviting anyone, open `https://game.mfergpt.lol/?invite=...` and confirm:
 
 - wallet entry works.
-- Character panel shows wallet and Season Gold.
+- Character panel shows wallet and Season Points.
 - merchant opens.
 - pass address is prefilled from `/crypto/local-contracts.json` for local rehearsal.
 - wallet is on the configured local chain.

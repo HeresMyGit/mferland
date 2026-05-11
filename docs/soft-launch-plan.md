@@ -127,7 +127,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 4. Season 0 reward mechanics: initial capped offchain quest-point ledger implemented.
 5. Paid crypto surface: Season 0 launch pass selected and scaffolded locally as `MferLaunchPass`; local in-game pass purchase UI exists with ETH, discounted `$mfer` to treasury, and `$mfergpt` burn paths. Production deployment still pending, and manual reconciliation tooling is available.
 6. Admin/support tooling: wallet lookup, Season 0 reward review/export, purchase reconciliation, and manual pass grant/revoke are available through `npm run support:admin`.
-7. Season Gold visibility and payout tooling: wallet players see Season Gold totals in the Character panel, and `season-payout-export` can convert approved pass-gated points into proposed `$mfergpt` payouts under a fixed pool and per-wallet cap.
+7. Season Points visibility and payout tooling: wallet players see Season Points totals in the Character panel, and `season-payout-export` can convert approved pass-gated points into proposed `$mfergpt` payouts under a fixed pool and per-wallet cap.
 8. Abuse testing: pending after Season 0 mechanics exist.
 9. First-10-minute polish: partially covered by current queue; needs focused verification.
 10. Internal rehearsal: pending after gates 1-4.
@@ -169,7 +169,7 @@ This keeps the launch from becoming a bot faucet while still letting the `$mferG
 - `npm run typecheck`, `npm run build`, `npm run build:agent`, `git diff --check`, and secret scan: passed after the discounted `$mfer` pass update.
 - `npm run support:admin -- --help`: passed after adding `season-payout-export`.
 - `npm run support:admin -- season-payout-export --pool 1000 --per-wallet-cap 100 --minimum-points 1`: smoke-tested against disposable approved reward rows and a manual pass grant; output was capped and pass-gated, then smoke rows were deleted.
-- `npm run typecheck`, `npm run build`, `npm run build:agent`, and `npm run crypto:browser:local`: passed after adding Character panel Season Gold totals, payout export, and production pricing docs.
+- `npm run typecheck`, `npm run build`, `npm run build:agent`, and `npm run crypto:browser:local`: passed after adding Character panel Season Points totals, payout export, and production pricing docs.
 - `npm run pricing:quote:mfer-pass -- --mfer-eth 0.00001`: passed and returned `621` `$mfer` / `621000000000000000000` wei for the current local assumption.
 - `npm run pricing:quote:mfer-pass -- --dexscreener-token 0xe3086852a4b125803c815a158249ae468a3254ca --min-liquidity-usd 1000`: passed against Dex Screener's free Base token-pairs API and selected the highest-liquidity `$mfer/WETH` pair.
 - `npm run crypto:config:check -- --file apps/web/public/crypto/production-contracts.example.json --allow-placeholders`: passed after adding the production config template.

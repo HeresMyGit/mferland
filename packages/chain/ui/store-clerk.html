@@ -148,7 +148,7 @@
         <div class="grid">
           <label>store<input id="store" placeholder="0x..." /></label>
           <label>gear nft<input id="gear" placeholder="0x..." /></label>
-          <label>gold<input id="gold" placeholder="0x..." /></label>
+          <label>pricing<input id="pricing" placeholder="0x..." /></label>
           <label>$mfer<input id="mfer" placeholder="0x..." /></label>
           <label>$mfergpt<input id="mfergpt" placeholder="0x..." /></label>
         </div>
@@ -158,19 +158,12 @@
         <h2>buy gear nft</h2>
         <div class="grid">
           <label>gear type<input id="gearType" value="1" /></label>
-          <label>eth price<input id="ethPrice" value="0.01" /></label>
         </div>
         <div class="actions">
           <button id="buyEth" type="button">buy with eth</button>
           <button id="buyMfer" class="secondary" type="button">buy with $mfer</button>
           <button id="buyMferGpt" class="warn" type="button">buy with $mfergpt</button>
         </div>
-      </section>
-
-      <section>
-        <h2>upgrade gear</h2>
-        <label>token id<input id="tokenId" value="1" /></label>
-        <button id="upgrade" type="button">burn gold to upgrade</button>
       </section>
 
       <section>
@@ -186,9 +179,7 @@
         buyWithMfer: "0x15fcdaba",
         buyWithMferGpt: "0xa461584e",
         discountedTokenPrice: "0xbb6505a5",
-        gear: "0xbea80cea",
-        upgradeGoldCostByTier: "0xeb91fa83",
-        upgradeWithGold: "0x3ba3c9ed",
+        gearEthPrice: "0xd0bccbd2",
       };
       const discountBps = {
         mfer: 1000n,
@@ -206,10 +197,6 @@
       const addressArg = (address) => address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
       const callData = (selector, ...args) => selector + args.join("");
       const gearTypeArg = () => uint256(value("gearType") || "1");
-      const parseEther = (input) => {
-        const [whole, fraction = ""] = String(input).split(".");
-        return BigInt(whole || "0") * 10n ** 18n + BigInt(fraction.padEnd(18, "0").slice(0, 18) || "0");
-      };
 
       async function connect() {
         if (!ethereum()) throw new Error("No injected wallet found.");
@@ -237,11 +224,6 @@
         return result;
       }
 
-      async function readGearTier(tokenId) {
-        const result = await readHex(value("gear"), callData(selectors.gear, uint256(tokenId)));
-        return BigInt(`0x${result.slice(66, 130)}`);
-      }
-
       async function approve(tokenAddress, spender, amount) {
         await send(tokenAddress, callData(selectors.approve, addressArg(spender), uint256(amount)));
       }
@@ -251,9 +233,13 @@
       }
 
       $("connect").addEventListener("click", () => connect().catch((error) => log(error.message)));
-      $("buyEth").addEventListener("click", () => {
-        send(value("store"), callData(selectors.buyWithEth, gearTypeArg()), parseEther(value("ethPrice") || "0.01"))
-          .catch((error) => log(error.message));
+      $("buyEth").addEventListener("click", async () => {
+        try {
+          const price = await read(value("store"), callData(selectors.gearEthPrice, gearTypeArg()));
+          await send(value("store"), callData(selectors.buyWithEth, gearTypeArg()), price);
+        } catch (error) {
+          log(error.message);
+        }
       });
       $("buyMfer").addEventListener("click", async () => {
         try {
@@ -269,17 +255,6 @@
           const price = await discountedPrice(discountBps.mfergpt);
           await approve(value("mfergpt"), value("store"), price);
           await send(value("store"), callData(selectors.buyWithMferGpt, gearTypeArg(), uint256(price)));
-        } catch (error) {
-          log(error.message);
-        }
-      });
-      $("upgrade").addEventListener("click", async () => {
-        try {
-          const tokenId = value("tokenId") || "1";
-          const currentTier = await readGearTier(tokenId);
-          const cost = await read(value("store"), callData(selectors.upgradeGoldCostByTier, uint256(currentTier)));
-          await approve(value("gold"), value("store"), cost);
-          await send(value("store"), callData(selectors.upgradeWithGold, uint256(tokenId), uint256(cost)));
         } catch (error) {
           log(error.message);
         }

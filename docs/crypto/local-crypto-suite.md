@@ -4,13 +4,12 @@ This suite is for testing mferland's crypto economy locally before any Base depl
 
 It currently models:
 
-- `GOLD`: the in-game ERC-20 reward token.
+- `MferPricing`: the central onchain price catalog for pass and gear products.
 - `MGEAR`: ERC-721-ish NFT gear items.
 - `$mfer`: alternate payment token with a 10% discount that pays treasury.
 - `$mfergpt`: alternate payment token with a 25% store discount and burn-on-pay.
-- quest reward distribution with per-wallet quest replay protection.
 - `MFPASS0`: a capped Season 0 launch pass NFT that can be bought with ETH, discounted `$mfer` to treasury, or by burning `$mfergpt`.
-- gear upgrades from tier 1 to tier 3 by burning `GOLD`.
+- verified gear registration from the gear NFT into the game inventory.
 
 The contracts are intentionally simple and local-first. They are not audited production contracts.
 
@@ -42,19 +41,18 @@ It also runs the Node export tests under `packages/chain/scripts` so the generat
 
 The suite verifies:
 
-- a local ERC-20 token can be deployed and minted.
-- quest rewards mint `GOLD` once per wallet plus quest id.
+- local ERC-20 payment tokens deploy with the expected Base-token shape.
+- central pricing stores separate ETH, `$mfer`, and `$mfergpt` prices for each product.
 - the store clerk can mint NFT gear from the starter gear collection.
 - ETH purchases require the full price.
-- exact 10% and 25% discount math across listed gear prices.
-- `$mfer` purchases get a 10% discount and send payment to treasury.
-- `$mfergpt` purchases get a 25% discount and burn the payment.
+- `$mfer` purchases use the central `$mfer` price and send payment to treasury.
+- `$mfergpt` purchases use the central `$mfergpt` price and burn the payment.
 - discounted ERC-20 purchases require the exact discounted allowance.
 - the Season 0 launch pass can be minted with exact ETH payment, exact discounted `$mfer` treasury payment, or exact `$mfergpt` burn allowance.
 - the Season 0 launch pass rejects wrong ETH prices, missing ERC-20 allowances, and sold-out mints.
-- `GOLD` can be burned to upgrade any owned gear through tiers 1, 2, and 3.
-- minted NFT gear is registered into the local game inventory, auto-equipped, and tier upgrades scale the in-game item stats.
-- unauthorized reward distribution, unauthorized gear minting, and non-owner gear upgrades are blocked.
+- central price updates cannot pull more token payment than the user's quoted maximum.
+- minted NFT gear is verified against `ownerOf` plus `gear(tokenId)` before the game inventory accepts it.
+- unauthorized gear minting is blocked.
 - local deployment broadcasts export all addresses the in-game store needs.
 
 The web receipt-state tests can be run with:
@@ -69,34 +67,24 @@ The full local crypto test path, including a headless browser pass through the i
 npm run crypto:test:local
 ```
 
-That command starts any missing local services, deploys fresh local contracts, opens the game in a browser, connects the dev wallet, opens `drip desk mfer`, buys the starter gear collection through the merchant, checks onchain balances and NFT tiers, verifies reverted max-tier upgrades show as failures in the UI, and confirms an upgraded NFT is visible in the character screen with scaled stats.
+That command starts any missing local services, deploys fresh local contracts, opens the game in a browser, connects the dev wallet, opens `drip desk mfer`, buys the starter gear collection through the merchant, checks onchain balances and NFT ownership, and confirms a verified NFT is visible in the character screen.
 
 ## Pricing Model
 
-The token payment price is calculated by `MferGearStore`, not by trusting the browser. The owner lists each gear type with:
+The authored price lives in `MferPricing`, not in the browser. `MferLaunchPass` and `MferGearStore` read the central catalog at purchase time. The owner sets each product's ETH, `$mfer`, and `$mfergpt` prices in one contract:
 
 ```solidity
-listGear(gearType, ethPrice, tokenPrice)
+setSeason0PassPrice(ethPrice, mferPrice, mferGptPrice)
+setGearPrice(gearType, ethPrice, mferPrice, mferGptPrice)
 ```
 
 For the current local collection:
 
-- `beater deck`: `0.01 ETH` or `100` token base.
-- `road lid`: `0.012 ETH` or `125` token base.
-- `lucky lighter`: `0.0069 ETH` or `69` token base.
+- `beater deck`: `0.01 ETH`, `90 $mfer`, or `75 MFERGPT`.
+- `road lid`: `0.012 ETH`, `112.5 $mfer`, or `93.75 MFERGPT`.
+- `lucky lighter`: `0.0069 ETH`, `62.1 $mfer`, or `51.75 MFERGPT`.
 
-The contract uses basis points:
-
-```txt
-discounted price = tokenPrice * (10_000 - discountBps) / 10_000
-```
-
-So:
-
-- `$mfer` uses `1_000` bps discount, which is 10% off.
-- `$mfergpt` uses `2_500` bps discount, which is 25% off.
-
-The UI reads `discountedTokenPrice(gearType, discountBps)` before approval so it can approve exactly the expected payment amount. Token buy functions also take that quote as a max payment and recalculate the price onchain, so editing the browser cannot make the store undercharge and a price update cannot pull more than the quoted amount.
+The UI reads the onchain price before approval so it can approve exactly the expected payment amount. Token buy functions also take that quote as a max payment and reread central pricing onchain, so editing the browser cannot make the store undercharge and a price update cannot pull more than the quoted amount.
 
 Current payment behavior:
 
@@ -116,7 +104,8 @@ Current local terms:
 - Symbol: `MFPASS0`
 - Max supply: `500`
 - ETH price: `0.0069 ETH`
-- `$mfergpt` price: `690 MFERGPT`, burned from the buyer
+- `$mfer` price: `621 $mfer`, paid to treasury
+- `$mfergpt` price: `517.5 MFERGPT`, burned from the buyer
 - Treasury: the same local treasury as the gear store
 
 The pass has owner-controlled price and treasury setters, but mints still enforce exact ETH payment, user-supplied max token payment limits, exact `$mfer` treasury receipt, exact `$mfergpt` allowance/burn, and the supply cap onchain.
@@ -141,7 +130,7 @@ Minimum real-chain requirements:
 
 - a funded deployer wallet.
 - a Base RPC URL.
-- deployed addresses for `GOLD`, gear NFT, rewards distributor, and store.
+- deployed addresses for `MferPricing`, launch pass, gear NFT, and gear store.
 - the real `$mfer` / `$mfergpt` token addresses above if we use existing tokens instead of local mocks.
 - a frontend address config file for the target chain, similar to `apps/web/public/crypto/local-contracts.json`.
 
@@ -182,7 +171,7 @@ Local `.env`:
 DATABASE_URL="postgresql://USER@localhost:5432/mferland_test"
 VITE_SERVER_URL="http://localhost:2567"
 VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"
-MFERLAND_MARKET_QUOTE_INTERVAL_MS="3600000"
+MFERLAND_MARKET_QUOTE_INTERVAL_MS="21600000"
 ```
 
 Then:
@@ -216,15 +205,14 @@ npm run chain:deploy:local
 
 The deploy script creates local versions of:
 
-- `MferGold`
 - `$mfer`
 - `$mfergpt`
+- `MferPricing`
 - `MferGearNFT`
-- `QuestRewardDistributor`
 - `MferLaunchPass`
 - `MferGearStore`
 
-It authorizes the quest reward distributor to mint `GOLD`, authorizes the store to mint gear NFTs, lists a small starter gear collection, mints local `$mfer` / `$mfergpt` balances to the deployer, and exports the latest local contract addresses to:
+It sets central prices, authorizes the store to mint gear NFTs, lists a small starter gear collection, mints local `$mfer` / `$mfergpt` balances to the deployer, and exports the latest local contract addresses to:
 
 ```txt
 apps/web/public/crypto/local-contracts.json
@@ -243,16 +231,14 @@ Use it after deploying the local suite:
 1. Run `npm run chain:node`.
 2. Run `npm run chain:deploy:local`.
 3. Connect a wallet pointed at `http://127.0.0.1:8545` with chain id `31337`.
-4. Open a merchant in-game. The panel pre-fills `MferGearStore`, `MferGearNFT`, `MferGold`, `$mfer`, `$mfergpt`, `QuestRewardDistributor`, and `MferLaunchPass` from `apps/web/public/crypto/local-contracts.json`.
+4. Open a merchant in-game. The panel pre-fills `MferGearStore`, `MferGearNFT`, `MferPricing`, `$mfer`, `$mfergpt`, and `MferLaunchPass` from `apps/web/public/crypto/local-contracts.json`.
 5. Pick an item from the local starter collection: `beater deck`, `road lid`, or `lucky lighter`.
 6. Buy the Season 0 pass with ETH, discounted `$mfer` paid to treasury, or `$mfergpt` burn.
-7. Buy gear with ETH, `$mfer`, or `$mfergpt`. In the local dev suite, the minted token id is registered into the game inventory and auto-equipped into its matching gear slot.
-8. In dev, use `grant test gold` to mint local quest-reward `GOLD` through `QuestRewardDistributor`, then burn `GOLD` to upgrade a token id. The upgraded tier is read from `MferGearNFT` and sent to the local game state.
+7. Buy gear with ETH, `$mfer`, or `$mfergpt`. The game verifies the minted token id against `MferGearNFT.ownerOf` and `MferGearNFT.gear` before adding it to inventory and auto-equipping it.
 
 The contract fields also persist in local storage for manual overrides, but the generated local deployment file is loaded first when available.
-The `grant test gold` button is only for local gameplay testing; real quest rewards should come from the server reward flow.
 
-In production builds the same panel defaults to `/crypto/production-contracts.json`, or `VITE_CRYPTO_CONTRACTS_URL` if configured. The production config only needs `launchPass`, `$mfer`, and `$mfergpt` for the first Season 0 pass surface; local gear/gold/store addresses can stay blank until production versions exist.
+In production builds the same panel defaults to `/crypto/production-contracts.json`, or `VITE_CRYPTO_CONTRACTS_URL` if configured. The production config needs `pricing`, `launchPass`, `$mfer`, and `$mfergpt` for the pass surface; gear and store addresses can stay blank until production gear minting is live.
 
 ## Standalone Debug Store UI
 
@@ -266,8 +252,8 @@ Use it only as a fallback when debugging wallet calls outside the game:
 
 1. Open the HTML file in a browser.
 2. Connect a wallet pointed at `http://127.0.0.1:8545` with chain id `31337`.
-3. Copy the deployed `MferGearStore`, `MferGold`, `$mfer`, and `$mfergpt` addresses from the deploy output or `packages/chain/broadcast/.../run-latest.json`.
-4. Use the buttons to buy gear with ETH, `$mfer`, or `$mfergpt`, then burn `GOLD` to upgrade a token id.
+3. Copy the deployed `MferGearStore`, `MferPricing`, `$mfer`, and `$mfergpt` addresses from the deploy output or `packages/chain/broadcast/.../run-latest.json`.
+4. Use the buttons to buy gear with ETH, `$mfer`, or `$mfergpt`.
 
 The page is intentionally raw. It exists so we can test wallet prompts and local contract calls when the game UI is not running.
 
@@ -282,6 +268,7 @@ packages/chain/
     MferGearNFT.sol
     MferGearStore.sol
     MferLaunchPass.sol
+    MferPricing.sol
     QuestRewardDistributor.sol
   test/
     CryptoSuite.t.sol
@@ -293,9 +280,9 @@ packages/chain/
 
 ## Economy Decisions Captured For Now
 
-`GOLD` is onchain in this first version. There is no separate offchain gold balance in this suite.
+`MferGold` and `QuestRewardDistributor` remain in the repo as inactive legacy contracts, but they are no longer deployed by the local suite or used by the active product flow.
 
-Quest completion is represented by the game/server calling `QuestRewardDistributor.distributeQuestReward(player, questId, amount)`. The contract prevents the same wallet from claiming the same quest id twice.
+Quest completion is represented by offchain Season Points in the game database. Wallet players can collect points, and confirmed Season 0 pass ownership or a manual pass grant is the eligibility gate for airdrop/export flows.
 
 Store purchases are modeled as:
 
@@ -303,13 +290,7 @@ Store purchases are modeled as:
 - `$mfer`: token price minus 10%, paid to treasury.
 - `$mfergpt`: token price minus 25%, burned from the buyer.
 
-Gear upgrades are modeled as `GOLD` burns:
-
-- tier 1 to tier 2 costs `50 GOLD`.
-- tier 2 to tier 3 costs `125 GOLD`.
-- tier 3 is the current max.
-
-For now, each tier above tier 1 increases that item's stat bonuses by 33%. Tier 2 uses `1.33x` item stats and tier 3 uses `1.66x` item stats. Those scaled STR, DEX, MAG, HP, and MP bonuses flow through the normal character stat and combat damage formulas.
+Gear upgrades are intentionally out of the active alpha scope. Premium gear mints as ERC-721 gear, and the game inventory accepts it only after ownership verification.
 
 ## Useful Next Tests
 

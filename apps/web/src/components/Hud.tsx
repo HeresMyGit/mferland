@@ -26,10 +26,9 @@ import {
   type EmoteId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
-  type ClientDebugRegisterChainGear,
-  type ClientDebugUpdateChainGearTier,
   type ClientEquipItem,
   type ClientLootCorpse,
+  type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientShareQuestLink,
   type ClientUnequipItem,
@@ -149,8 +148,7 @@ type HudProps = {
   onEquipItem: (message: ClientEquipItem) => void;
   onUnequipItem: (message: ClientUnequipItem) => void;
   onUseItem: (message: ClientUseItem) => void;
-  onRegisterChainGear: (message: ClientDebugRegisterChainGear) => void;
-  onUpdateChainGearTier: (message: ClientDebugUpdateChainGearTier) => void;
+  onRegisterChainGear: (message: ClientRegisterChainGear) => void;
   onCryptoStoreAnalytics: (eventType: string, properties?: CryptoStoreAnalyticsProperties) => void;
   onSelectTalent: (message: ClientSelectTalent) => void;
   onCloseLootWindow: () => void;
@@ -200,7 +198,6 @@ export function Hud({
   onUnequipItem,
   onUseItem,
   onRegisterChainGear,
-  onUpdateChainGearTier,
   onCryptoStoreAnalytics,
   onSelectTalent,
   onCloseLootWindow,
@@ -261,7 +258,7 @@ export function Hud({
     }));
   const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
   const talentPointCount = localPlayer?.talentPoints ?? 0;
-  const showSeasonGold = localPlayer?.identityType === "wallet";
+  const showSeasonPoints = localPlayer?.identityType === "wallet";
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
   const healthPercent = percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100);
   const lowHealth = Boolean(localPlayer && localPlayer.health > 0 && healthPercent <= LOW_HEALTH_PERCENT);
@@ -873,7 +870,6 @@ export function Hud({
             npc={cryptoStoreNpc}
             onClose={onCloseCryptoStore}
             onRegisterChainGear={onRegisterChainGear}
-            onUpdateChainGearTier={onUpdateChainGearTier}
             onAnalyticsEvent={onCryptoStoreAnalytics}
           />
         </section>
@@ -1107,10 +1103,10 @@ export function Hud({
                       <code>{characterWalletAddress}</code>
                     </div>
                   )}
-                  {showSeasonGold && (
+                  {showSeasonPoints && (
                     <>
                       <div className="character-stat">
-                        <span>Season Gold</span>
+                        <span>Season Points</span>
                         <strong>{localPlayer?.season0Points ?? 0}/{SEASON_0_TOTAL_POINT_CAP}</strong>
                       </div>
                       <div className="character-stat">

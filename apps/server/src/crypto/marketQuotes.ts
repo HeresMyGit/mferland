@@ -2,7 +2,7 @@ import { asc } from "drizzle-orm";
 import { getDatabase } from "../db/client.js";
 import { cryptoMarketQuotes } from "../db/schema.js";
 
-const DEFAULT_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MIN_REFRESH_INTERVAL_MS = 60 * 1000;
 const DEXSCREENER_SOURCE = "dexscreener";
 

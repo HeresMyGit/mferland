@@ -4,8 +4,7 @@ import { useAccount } from "wagmi";
 import {
   ITEMS,
   getChainGearItemId,
-  type ClientDebugRegisterChainGear,
-  type ClientDebugUpdateChainGearTier,
+  type ClientRegisterChainGear,
   type NpcSnapshot,
 } from "@mferland/shared";
 import { trackEvent, type AnalyticsProperties } from "../analytics";
@@ -15,10 +14,9 @@ import { ItemIcon } from "./hud/ItemIcon";
 type CryptoStoreAddresses = {
   store: string;
   gear: string;
-  gold: string;
+  pricing: string;
   mfer: string;
   mfergpt: string;
-  rewards: string;
   launchPass: string;
 };
 
@@ -45,8 +43,7 @@ type CryptoContractsDocument = {
 type CryptoStorePanelProps = {
   npc: NpcSnapshot;
   onClose: () => void;
-  onRegisterChainGear: (message: ClientDebugRegisterChainGear) => void;
-  onUpdateChainGearTier: (message: ClientDebugUpdateChainGearTier) => void;
+  onRegisterChainGear: (message: ClientRegisterChainGear) => void;
   onAnalyticsEvent?: (eventType: string, properties?: Record<string, string | number | boolean | null>) => void;
 };
 
@@ -90,12 +87,11 @@ const LOCAL_CHAIN_CONFIG: CryptoStoreChainConfig = {
   rpcUrl: "http://127.0.0.1:8545",
   nativeCurrency: { name: "Anvil ETH", symbol: "ETH", decimals: 18 },
 };
-const TEST_GOLD_GRANT = 250n * 10n ** 18n;
 const LAUNCH_PASS_LABEL = "Season 0 pass";
 const STORE_GEAR_COLLECTION = [
-  { gearType: 1, label: "beater deck", ethPrice: "0.01", tokenPriceLabel: "100" },
-  { gearType: 2, label: "road lid", ethPrice: "0.012", tokenPriceLabel: "125" },
-  { gearType: 3, label: "lucky lighter", ethPrice: "0.0069", tokenPriceLabel: "69" },
+  { gearType: 1, label: "beater deck", ethPrice: "0.01", mferPriceLabel: "90", mferGptPriceLabel: "75" },
+  { gearType: 2, label: "road lid", ethPrice: "0.012", mferPriceLabel: "112.5", mferGptPriceLabel: "93.75" },
+  { gearType: 3, label: "lucky lighter", ethPrice: "0.0069", mferPriceLabel: "62.1", mferGptPriceLabel: "51.75" },
 ] as const;
 const DEFAULT_STORE_GEAR = STORE_GEAR_COLLECTION[0];
 const SELECTORS = {
@@ -105,16 +101,13 @@ const SELECTORS = {
   buyWithMfer: "0x15fcdaba",
   buyWithMferGpt: "0xa461584e",
   discountedTokenPrice: "0xbb6505a5",
+  gearEthPrice: "0xd0bccbd2",
   ethPrice: "0xff186b2e",
-  gear: "0xbea80cea",
   mferPrice: "0x4c3071ae",
   mferGptPrice: "0x4774d971",
   mintPassWithEth: "0x0ad641f1",
   mintPassWithMfer: "0xeb0660cf",
   mintPassWithMferGpt: "0x61ee044c",
-  upgradeGoldCostByTier: "0xeb91fa83",
-  upgradeWithGold: "0x3ba3c9ed",
-  distributeQuestReward: "0x26bfdb66",
 };
 const GEAR_PURCHASED_TOPIC = "0xe90bb5970d4f1919d67686ba913696996929bafae6e827c0a61589d8e057e099";
 const PASS_PURCHASED_TOPIC = "0xe738688c345ae6b52b7f5e8326f8ef036091302ba7a58f7a9a081d737e29a973";
@@ -125,10 +118,9 @@ const DISCOUNT_BPS = {
 const EMPTY_ADDRESSES: CryptoStoreAddresses = {
   store: "",
   gear: "",
-  gold: "",
+  pricing: "",
   mfer: "",
   mfergpt: "",
-  rewards: "",
   launchPass: "",
 };
 const EMPTY_BALANCES: CryptoStoreBalances = {
@@ -142,18 +134,17 @@ const EMPTY_MARKET_QUOTES: CryptoMarketQuotesState = {
   quotes: [],
   state: "idle",
   error: "",
-  refreshIntervalSeconds: 3600,
+  refreshIntervalSeconds: 21600,
 };
 const MARKET_QUOTE_UI_REFRESH_MS = 60_000;
 
-export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateChainGearTier, onAnalyticsEvent }: CryptoStorePanelProps) {
+export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalyticsEvent }: CryptoStorePanelProps) {
   const wagmiAccount = useAccount();
   const [addresses, setAddresses] = useState<CryptoStoreAddresses>(() => readStoredAddresses());
   const [chainConfig, setChainConfig] = useState<CryptoStoreChainConfig>(LOCAL_CHAIN_CONFIG);
   const [account, setAccount] = useState(() => wagmiAccount.address ?? "");
   const [gearType, setGearType] = useState<string>(String(DEFAULT_STORE_GEAR.gearType));
   const [ethPrice, setEthPrice] = useState<string>(DEFAULT_STORE_GEAR.ethPrice);
-  const [upgradeTokenId, setUpgradeTokenId] = useState("1");
   const [launchPassTokenId, setLaunchPassTokenId] = useState("");
   const [status, setStatus] = useState("loading local contracts");
   const [isBusy, setIsBusy] = useState(false);
@@ -382,7 +373,8 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
       action: async () => {
       const provider = await prepareWallet(["store"]);
       const purchasedGearType = parseGearType(gearType);
-      const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithEth, encodeUint(purchasedGearType)), parseEther(ethPrice));
+      const price = await readUint(provider, addresses.store, callData(SELECTORS.gearEthPrice, encodeUint(purchasedGearType)));
+      const receipt = await sendTransaction(provider, addresses.store, callData(SELECTORS.buyWithEth, encodeUint(purchasedGearType)), price);
       registerMintedGear(receipt, purchasedGearType);
       },
     });
@@ -500,58 +492,21 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
     });
   }
 
-  async function upgradeGear() {
-    await runTrackedAction({
-      label: "upgrading gear",
-      startedEvent: "gear_upgrade_started",
-      confirmedEvent: "gear_upgrade_confirmed",
-      failedEvent: "gear_upgrade_failed",
-      properties: { product: "gear-upgrade", tokenId: upgradeTokenId || "" },
-      action: async () => {
-      const provider = await prepareWallet(["store", "gear", "gold"]);
-      const tokenId = parseTokenId(upgradeTokenId);
-      const current = await readGear(provider, addresses.gear, tokenId);
-      const cost = await readUint(provider, addresses.store, callData(SELECTORS.upgradeGoldCostByTier, encodeUint(current.tier)));
-      await approve(provider, addresses.gold, addresses.store, cost);
-      await sendTransaction(provider, addresses.store, callData(SELECTORS.upgradeWithGold, encodeUint(tokenId), encodeUint(cost)));
-      const updated = await readGear(provider, addresses.gear, tokenId);
-      onUpdateChainGearTier({ tokenId: tokenId.toString(), tier: updated.tier });
-      },
-    });
-  }
-
   function registerMintedGear(receipt: unknown, purchasedGearType: number) {
     const tokenId = extractPurchasedGearTokenId(receipt, addresses.store);
     if (tokenId === null) return;
     const tokenIdText = tokenId.toString();
-    setUpgradeTokenId(tokenIdText);
-    onRegisterChainGear({ gearType: purchasedGearType, tokenId: tokenIdText, tier: 1 });
+    onRegisterChainGear({
+      gearType: purchasedGearType,
+      tokenId: tokenIdText,
+      txHash: extractReceiptTransactionHash(receipt),
+    });
   }
 
   function registerMintedLaunchPass(receipt: unknown) {
     const tokenId = extractPurchasedTokenId(receipt, addresses.launchPass, PASS_PURCHASED_TOPIC, 2);
     if (tokenId === null) return;
     setLaunchPassTokenId(tokenId.toString());
-  }
-
-  async function grantTestGold() {
-    await runTrackedAction({
-      label: "granting test gold",
-      startedEvent: "gold_grant_started",
-      confirmedEvent: "gold_grant_confirmed",
-      failedEvent: "gold_grant_failed",
-      properties: { product: "test-gold", amountLabel: "250" },
-      action: async () => {
-      const provider = await prepareWallet(["rewards"]);
-      const player = await getConnectedAccount(provider);
-      await sendTransaction(provider, addresses.rewards, callData(
-        SELECTORS.distributeQuestReward,
-        encodeAddress(player),
-        randomBytes32(),
-        encodeUint(TEST_GOLD_GRANT),
-      ));
-      },
-    });
   }
 
   async function prepareWallet(requiredAddresses: Array<keyof CryptoStoreAddresses>) {
@@ -647,7 +602,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
               {selectedStoreGearItemId ? <ItemIcon itemId={selectedStoreGearItemId} /> : null}
               <div>
                 <strong>{selectedStoreGearItemId ? ITEMS[selectedStoreGearItemId].name : selectedStoreGear?.label ?? "custom gear"}</strong>
-                <span>gear type {gearType} / {ethPrice} ETH / {selectedStoreGear?.tokenPriceLabel ?? "contract"} token base</span>
+                <span>gear type {gearType} / {ethPrice} ETH / token prices from pricing contract</span>
               </div>
             </div>
           </div>
@@ -664,14 +619,14 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
                   type="button"
                   className={isSelected ? "selected" : undefined}
                   title={itemName}
-                  aria-label={`${itemName}, ${gear.ethPrice} ETH, ${gear.tokenPriceLabel} token base`}
+                  aria-label={`${itemName}, ${gear.ethPrice} ETH, ${gear.mferPriceLabel} mfer, ${gear.mferGptPriceLabel} mfergpt`}
                   aria-pressed={isSelected}
                   disabled={isBusy}
                   onClick={() => selectStoreGear(gear)}
                 >
                   {itemId ? <ItemIcon itemId={itemId} /> : null}
                   <span>{gear.ethPrice} ETH</span>
-                  <em>{gear.tokenPriceLabel} token</em>
+                  <em>{gear.mferPriceLabel} / {gear.mferGptPriceLabel}</em>
                 </button>
               );
             })}
@@ -687,11 +642,11 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
             </div>
             <label>
               <span>gear</span>
-              <input value={gearType} inputMode="numeric" onChange={(event) => setGearType(event.target.value)} />
+              <input aria-label="gear" value={gearType} inputMode="numeric" onChange={(event) => setGearType(event.target.value)} />
             </label>
             <label>
               <span>ETH</span>
-              <input value={ethPrice} inputMode="decimal" onChange={(event) => setEthPrice(event.target.value)} />
+              <input aria-label="ETH" value={ethPrice} inputMode="decimal" readOnly />
             </label>
           </div>
 
@@ -707,31 +662,6 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
             <button type="button" disabled={isBusy} onClick={() => void buyWithMferGpt()}>
               <Flame size={16} />
               buy $mfergpt -25%
-            </button>
-          </div>
-        </section>
-
-        <section className="crypto-store-flow crypto-upgrade-flow" aria-label="gear upgrade">
-          <div className="crypto-store-flow-head">
-            <div>
-              <strong>upgrade gear</strong>
-              <span>token id {upgradeTokenId || "--"} / gold cost onchain</span>
-            </div>
-          </div>
-          <div className="crypto-upgrade-row">
-            <label>
-              <span>token id</span>
-              <input value={upgradeTokenId} inputMode="numeric" onChange={(event) => setUpgradeTokenId(event.target.value)} />
-            </label>
-            {import.meta.env.DEV ? (
-              <button type="button" disabled={isBusy} onClick={() => void grantTestGold()}>
-                <Coins size={16} />
-                test gold
-              </button>
-            ) : null}
-            <button type="button" disabled={isBusy} onClick={() => void upgradeGear()}>
-              <Flame size={16} />
-              upgrade
             </button>
           </div>
         </section>
@@ -767,37 +697,33 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onUpdateCh
         >
           {showContractConfig ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           <span>contract addresses</span>
-          <strong>{configuredContractCount}/7</strong>
+          <strong>{configuredContractCount}/6</strong>
         </button>
         {showContractConfig ? (
           <div className="crypto-store-config">
             <label>
               <span>store</span>
-              <input value={addresses.store} placeholder="0x..." onChange={(event) => updateAddress("store", event.target.value)} />
+              <input aria-label="store" value={addresses.store} placeholder="0x..." onChange={(event) => updateAddress("store", event.target.value)} />
             </label>
             <label>
               <span>gear nft</span>
-              <input value={addresses.gear} placeholder="0x..." onChange={(event) => updateAddress("gear", event.target.value)} />
+              <input aria-label="gear nft" value={addresses.gear} placeholder="0x..." onChange={(event) => updateAddress("gear", event.target.value)} />
             </label>
             <label>
-              <span>gold</span>
-              <input value={addresses.gold} placeholder="0x..." onChange={(event) => updateAddress("gold", event.target.value)} />
+              <span>pricing</span>
+              <input aria-label="pricing" value={addresses.pricing} placeholder="0x..." onChange={(event) => updateAddress("pricing", event.target.value)} />
             </label>
             <label>
               <span>$mfer</span>
-              <input value={addresses.mfer} placeholder="0x..." onChange={(event) => updateAddress("mfer", event.target.value)} />
+              <input aria-label="$mfer" value={addresses.mfer} placeholder="0x..." onChange={(event) => updateAddress("mfer", event.target.value)} />
             </label>
             <label>
               <span>$mfergpt</span>
-              <input value={addresses.mfergpt} placeholder="0x..." onChange={(event) => updateAddress("mfergpt", event.target.value)} />
-            </label>
-            <label>
-              <span>rewards</span>
-              <input value={addresses.rewards} placeholder="0x..." onChange={(event) => updateAddress("rewards", event.target.value)} />
+              <input aria-label="$mfergpt" value={addresses.mfergpt} placeholder="0x..." onChange={(event) => updateAddress("mfergpt", event.target.value)} />
             </label>
             <label>
               <span>launch pass</span>
-              <input value={addresses.launchPass} placeholder="0x..." onChange={(event) => updateAddress("launchPass", event.target.value)} />
+              <input aria-label="launch pass" value={addresses.launchPass} placeholder="0x..." onChange={(event) => updateAddress("launchPass", event.target.value)} />
             </label>
           </div>
         ) : null}
@@ -816,10 +742,9 @@ function readStoredAddresses(): CryptoStoreAddresses {
     return {
       store: typeof parsed.store === "string" ? parsed.store : "",
       gear: typeof parsed.gear === "string" ? parsed.gear : "",
-      gold: typeof parsed.gold === "string" ? parsed.gold : "",
+      pricing: typeof parsed.pricing === "string" ? parsed.pricing : "",
       mfer: typeof parsed.mfer === "string" ? parsed.mfer : "",
       mfergpt: typeof parsed.mfergpt === "string" ? parsed.mfergpt : "",
-      rewards: typeof parsed.rewards === "string" ? parsed.rewards : "",
       launchPass: typeof parsed.launchPass === "string" ? parsed.launchPass : "",
     };
   } catch {
@@ -837,10 +762,9 @@ async function fetchLocalContractAddresses(signal: AbortSignal): Promise<{ addre
   const generated = {
     store: typeof addresses.store === "string" ? addresses.store : "",
     gear: typeof addresses.gear === "string" ? addresses.gear : "",
-    gold: typeof addresses.gold === "string" ? addresses.gold : "",
+    pricing: typeof addresses.pricing === "string" ? addresses.pricing : "",
     mfer: typeof addresses.mfer === "string" ? addresses.mfer : "",
     mfergpt: typeof addresses.mfergpt === "string" ? addresses.mfergpt : "",
-    rewards: typeof addresses.rewards === "string" ? addresses.rewards : "",
     launchPass: typeof addresses.launchPass === "string" ? addresses.launchPass : "",
   };
   if (!isUsableContractConfig(generated)) return null;
@@ -884,7 +808,7 @@ function parseChainConfig(document: CryptoContractsDocument): CryptoStoreChainCo
 }
 
 function isUsableContractConfig(addresses: CryptoStoreAddresses) {
-  if (!isAddress(addresses.launchPass) || !isAddress(addresses.mfer) || !isAddress(addresses.mfergpt)) return false;
+  if (!isAddress(addresses.launchPass) || !isAddress(addresses.pricing) || !isAddress(addresses.mfer) || !isAddress(addresses.mfergpt)) return false;
   return Object.values(addresses).every((address) => address === "" || isAddress(address));
 }
 
@@ -981,25 +905,6 @@ async function readTokenBalance(provider: EthereumProvider, tokenAddress: string
   return readUint(provider, tokenAddress, callData(SELECTORS.balanceOf, encodeAddress(account)));
 }
 
-async function readGear(provider: EthereumProvider, gearAddress: string, tokenId: bigint) {
-  const result = await provider.request({
-    method: "eth_call",
-    params: [{ to: gearAddress, data: callData(SELECTORS.gear, encodeUint(tokenId)) }, "latest"],
-  });
-  if (typeof result !== "string" || result.length < 130) throw new Error("Gear read failed");
-  return {
-    gearType: Number(BigInt(`0x${result.slice(2, 66)}`)),
-    tier: Number(BigInt(`0x${result.slice(66, 130)}`)),
-  };
-}
-
-async function getConnectedAccount(provider: EthereumProvider) {
-  const accounts = await provider.request({ method: "eth_accounts" });
-  const account = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
-  if (!account) throw new Error("Wallet not connected");
-  return account;
-}
-
 function validateAddresses(addresses: CryptoStoreAddresses, requiredAddresses: Array<keyof CryptoStoreAddresses>) {
   for (const label of requiredAddresses) {
     const address = addresses[label];
@@ -1030,26 +935,20 @@ function extractPurchasedTokenId(receipt: unknown, contractAddress: string, even
   return null;
 }
 
+function extractReceiptTransactionHash(receipt: unknown) {
+  if (!receipt || typeof receipt !== "object") return "";
+  const hash = (receipt as { transactionHash?: unknown }).transactionHash;
+  return typeof hash === "string" ? hash : "";
+}
+
 function parseGearType(value: string) {
   const gearType = Number(value);
   if (!Number.isInteger(gearType) || gearType <= 0) throw new Error("Gear type missing");
   return gearType;
 }
 
-function parseTokenId(value: string) {
-  const tokenId = BigInt(value || "0");
-  if (tokenId <= 0n) throw new Error("Token id missing");
-  return tokenId;
-}
-
 function callData(selector: string, ...args: string[]) {
   return `${selector}${args.join("")}`;
-}
-
-function randomBytes32() {
-  const bytes = new Uint8Array(32);
-  window.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function encodeAddress(address: string) {
@@ -1060,11 +959,6 @@ function encodeAddress(address: string) {
 function encodeUint(value: string | number | bigint) {
   const parsed = typeof value === "bigint" ? value : BigInt(value || "0");
   return parsed.toString(16).padStart(64, "0");
-}
-
-function parseEther(value: string) {
-  const [whole, fraction = ""] = value.trim().split(".");
-  return BigInt(whole || "0") * 10n ** 18n + BigInt(fraction.padEnd(18, "0").slice(0, 18) || "0");
 }
 
 function formatUnits(value: bigint, decimals = 18, maxFractionDigits = 4) {

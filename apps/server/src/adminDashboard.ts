@@ -586,7 +586,7 @@ async function loadMarketQuotes() {
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Unable to read market quotes.",
-      refreshIntervalSeconds: 3600,
+      refreshIntervalSeconds: 21600,
       quotes: [],
     };
   }

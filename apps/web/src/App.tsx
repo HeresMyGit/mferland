@@ -13,16 +13,16 @@ import {
   getNpcDisposition,
   isAttackableNpcRole,
   isCombatActionUnlocked,
+  normalizeAvatarSeed,
   setWorldCollisionPlacementOverrides,
   stableHash,
   type ActionId,
   type ClientAcceptQuest,
   type ClientCompleteQuest,
-  type ClientDebugRegisterChainGear,
-  type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
   type ClientLootCorpse,
+  type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientUpdateTraits,
   type ClientUnequipItem,
@@ -125,6 +125,7 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
   { id: "drip", label: "Drip", x: -12, z: 15, yaw: -2.35 },
+  { id: "crypto", label: "Crypto", x: 3.8, z: 22, yaw: 0 },
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
   { id: "field", label: "Field", x: -118, z: 112, yaw: 0 },
@@ -184,7 +185,7 @@ function isCryptoStoreEnabled() {
 }
 
 function makeCreationSeed() {
-  return stableHash(`character:${Date.now()}:${Math.random()}`);
+  return normalizeAvatarSeed(stableHash(`character:${Date.now()}:${Math.random()}`));
 }
 
 function isCryptoStoreNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
@@ -1345,14 +1346,10 @@ function GameShell({
     audio.play("itemUse");
     room.sendUseItem(message);
   }, [audio, room.sendUseItem]);
-  const registerChainGear = useCallback((message: ClientDebugRegisterChainGear) => {
+  const registerChainGear = useCallback((message: ClientRegisterChainGear) => {
     audio.play("inventoryLoot");
-    room.sendDebugRegisterChainGear(message);
-  }, [audio, room.sendDebugRegisterChainGear]);
-  const updateChainGearTier = useCallback((message: ClientDebugUpdateChainGearTier) => {
-    audio.play("inventoryEquip");
-    room.sendDebugUpdateChainGearTier(message);
-  }, [audio, room.sendDebugUpdateChainGearTier]);
+    room.sendRegisterChainGear(message);
+  }, [audio, room.sendRegisterChainGear]);
   const selectTalent = useCallback((message: ClientSelectTalent) => {
     audio.play("uiConfirm");
     room.sendSelectTalent(message);
@@ -1741,7 +1738,6 @@ function GameShell({
             onUnequipItem={unequipItem}
             onUseItem={useItem}
             onRegisterChainGear={registerChainGear}
-            onUpdateChainGearTier={updateChainGearTier}
             onCryptoStoreAnalytics={room.sendAnalyticsEvent}
             onSelectTalent={selectTalent}
             onCloseLootWindow={room.closeLootWindow}

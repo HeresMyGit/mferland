@@ -12,6 +12,14 @@ interface IMferPayment {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
+interface IMferProductPricing {
+    function SEASON_0_PASS_PRODUCT_ID() external view returns (bytes32);
+    function getProductPrice(bytes32 productId)
+        external
+        view
+        returns (uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice, uint64 updatedAt);
+}
+
 contract MferLaunchPass {
     string public name;
     string public symbol;
@@ -19,9 +27,8 @@ contract MferLaunchPass {
     address payable public treasury;
     IMferPayment public immutable mfer;
     IMferGptBurnable public immutable mfergpt;
-    uint256 public ethPrice;
-    uint256 public mferPrice;
-    uint256 public mferGptPrice;
+    IMferProductPricing public immutable pricing;
+    bytes32 public immutable productId;
     uint256 public immutable maxSupply;
     uint256 public nextTokenId = 1;
     mapping(uint256 => address) public ownerOf;
@@ -54,20 +61,18 @@ contract MferLaunchPass {
         string memory collectionSymbol,
         IMferPayment mferToken,
         IMferGptBurnable mferGptToken,
+        IMferProductPricing productPricing,
         address payable passTreasury,
         address initialOwner,
-        uint256 initialEthPrice,
-        uint256 initialMferPrice,
-        uint256 initialMferGptPrice,
         uint256 supplyCap
     ) {
         if (
-            address(mferToken) == address(0) || address(mferGptToken) == address(0) || passTreasury == address(0)
-                || initialOwner == address(0)
+            address(mferToken) == address(0) || address(mferGptToken) == address(0)
+                || address(productPricing) == address(0) || passTreasury == address(0) || initialOwner == address(0)
         ) {
             revert InvalidAddress();
         }
-        if (initialEthPrice == 0 || initialMferPrice == 0 || initialMferGptPrice == 0 || supplyCap == 0) {
+        if (supplyCap == 0) {
             revert InvalidPrice();
         }
 
@@ -75,11 +80,13 @@ contract MferLaunchPass {
         symbol = collectionSymbol;
         mfer = mferToken;
         mfergpt = mferGptToken;
+        pricing = productPricing;
+        productId = productPricing.SEASON_0_PASS_PRODUCT_ID();
+        (uint256 initialEthPrice, uint256 initialMferPrice, uint256 initialMferGptPrice,) =
+            productPricing.getProductPrice(productId);
+        if (initialEthPrice == 0 || initialMferPrice == 0 || initialMferGptPrice == 0) revert InvalidPrice();
         treasury = passTreasury;
         owner = initialOwner;
-        ethPrice = initialEthPrice;
-        mferPrice = initialMferPrice;
-        mferGptPrice = initialMferGptPrice;
         maxSupply = supplyCap;
         emit OwnershipTransferred(address(0), initialOwner);
         emit TreasurySet(passTreasury);
@@ -110,16 +117,28 @@ contract MferLaunchPass {
         emit TreasurySet(nextTreasury);
     }
 
-    function setPricing(uint256 nextEthPrice, uint256 nextMferPrice, uint256 nextMferGptPrice) external onlyOwner {
-        if (nextEthPrice == 0 || nextMferPrice == 0 || nextMferGptPrice == 0) revert InvalidPrice();
-        ethPrice = nextEthPrice;
-        mferPrice = nextMferPrice;
-        mferGptPrice = nextMferGptPrice;
-        emit PricingSet(nextEthPrice, nextMferPrice, nextMferGptPrice);
+    function ethPrice() public view returns (uint256 price) {
+        (price,,,) = pricing.getProductPrice(productId);
+        if (price == 0) revert InvalidPrice();
+    }
+
+    function mferPrice() public view returns (uint256 price) {
+        (, price,,) = pricing.getProductPrice(productId);
+        if (price == 0) revert InvalidPrice();
+    }
+
+    function mferGptPrice() public view returns (uint256 price) {
+        (,, price,) = pricing.getProductPrice(productId);
+        if (price == 0) revert InvalidPrice();
+    }
+
+    function pricingUpdatedAt() public view returns (uint64 updatedAt) {
+        (,,, updatedAt) = pricing.getProductPrice(productId);
     }
 
     function mintWithEth() external payable nonReentrant returns (uint256 tokenId) {
-        if (msg.value != ethPrice) revert WrongEthAmount();
+        uint256 price = ethPrice();
+        if (msg.value != price) revert WrongEthAmount();
         tokenId = _mint(msg.sender);
         (bool sent,) = treasury.call{value: msg.value}("");
         if (!sent) revert TreasuryTransferFailed();
@@ -127,7 +146,7 @@ contract MferLaunchPass {
     }
 
     function mintWithMfer(uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
-        uint256 price = mferPrice;
+        uint256 price = mferPrice();
         _validateMaxPayment(price, maxPayment);
         _transferExact(mfer, msg.sender, treasury, price);
         tokenId = _mint(msg.sender);
@@ -135,7 +154,7 @@ contract MferLaunchPass {
     }
 
     function mintWithMferGpt(uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
-        uint256 price = mferGptPrice;
+        uint256 price = mferGptPrice();
         _validateMaxPayment(price, maxPayment);
         uint256 balanceBefore = mfergpt.balanceOf(msg.sender);
         uint256 supplyBefore = mfergpt.totalSupply();

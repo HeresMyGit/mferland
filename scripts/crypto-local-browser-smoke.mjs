@@ -10,8 +10,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const buyer = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 const treasury = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const localRpcUrl = "http://127.0.0.1:8545";
-const webUrl = "http://127.0.0.1:5173/?cryptoSmoke=1";
-const serverHealthUrl = "http://127.0.0.1:2567/health";
+const webUrl = process.env.CRYPTO_SMOKE_WEB_URL || "http://127.0.0.1:5173/?cryptoSmoke=1";
+const serverHealthUrl = process.env.CRYPTO_SMOKE_SERVER_HEALTH_URL || "http://127.0.0.1:2567/health";
 const spawnedProcesses = [];
 
 const storeAbi = [
@@ -101,21 +101,21 @@ try {
     await page.goto(webUrl, { waitUntil: "domcontentloaded" });
     await waitForLoadingClear(page);
     await clickIfPresent(page.getByRole("button", { name: "local test wallet", exact: true }));
-    await clickExactly(page.getByRole("button", { name: "enter as verified mfer", exact: true }));
+    await clickWalletEntry(page);
 
-    const dripButton = page.locator('button[title="Debug travel: Drip"]');
-    await waitForEnabled(dripButton);
-    await clickDebugTravel(dripButton, page.locator(".debug-travel-position"), "-12, 15");
+    const cryptoButton = page.locator('button[title="Debug travel: Crypto"]');
+    await waitForEnabled(cryptoButton);
+    await clickDebugTravel(cryptoButton, page.locator(".debug-travel-position"), "4, 22");
     await pressInteractKey(page);
 
     const dialog = page.getByRole("dialog", { name: "crypto store", exact: true });
     await dialog.waitFor({ state: "visible", timeout: 10000 });
+    await clickExactly(dialog.locator(".crypto-store-contract-toggle"));
     await waitForAddressPrefill(dialog, "store", addresses.store);
     await waitForAddressPrefill(dialog, "gear nft", addresses.gear);
-    await waitForAddressPrefill(dialog, "gold", addresses.gold);
+    await waitForAddressPrefill(dialog, "pricing", addresses.pricing);
     await waitForAddressPrefill(dialog, "$mfer", addresses.mfer);
     await waitForAddressPrefill(dialog, "$mfergpt", addresses.mfergpt);
-    await waitForAddressPrefill(dialog, "rewards", addresses.rewards);
     await waitForAddressPrefill(dialog, "launch pass", addresses.launchPass);
     await waitForMarketQuote(dialog, "$mfer/WETH");
     await waitForMarketQuote(dialog, "MFERGPT/WETH");
@@ -123,71 +123,51 @@ try {
     await waitForBalance(balances, "$mfer", "1000000");
     await waitForBalance(balances, "$mfergpt", "1000000");
 
-    await clickExactly(dialog.getByRole("button", { name: "ETH full", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "buy ETH", exact: true }));
     await waitForStatus(dialog, "buying with ETH confirmed");
     await assertGear(client, addresses.gear, 1n, 1n, 1n);
 
-    await clickExactly(dialog.getByRole("button", { name: "road lid 0.012 ETH / 125 token", exact: true }));
-    assert.equal(await dialog.getByLabel("gear", { exact: true }).inputValue(), "2");
-    assert.equal(await dialog.getByLabel("ETH", { exact: true }).inputValue(), "0.012");
-    await clickExactly(dialog.getByRole("button", { name: "$mfer -10%", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "road lid, 0.012 ETH, 112.5 mfer, 93.75 mfergpt", exact: true }));
+    assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "2");
+    assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.012");
+    await clickExactly(dialog.getByRole("button", { name: "buy $mfer -10%", exact: true }));
     await waitForStatus(dialog, "buying with $mfer confirmed");
     await assertGear(client, addresses.gear, 2n, 2n, 1n);
     assert.equal(await readErc20Balance(client, addresses.mfer, buyer), parseEther("999887.5"));
     assert.equal(await readErc20Balance(client, addresses.mfer, treasury), parseEther("112.5"));
     await waitForBalance(balances, "$mfer", "999887.5");
 
-    await clickExactly(dialog.getByRole("button", { name: "lucky lighter 0.0069 ETH / 69 token", exact: true }));
-    assert.equal(await dialog.getByLabel("gear", { exact: true }).inputValue(), "3");
-    assert.equal(await dialog.getByLabel("ETH", { exact: true }).inputValue(), "0.0069");
-    await clickExactly(dialog.getByRole("button", { name: "$mfergpt -25%", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "lucky lighter, 0.0069 ETH, 62.1 mfer, 51.75 mfergpt", exact: true }));
+    assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "3");
+    assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.0069");
+    await clickExactly(dialog.getByRole("button", { name: "buy $mfergpt -25%", exact: true }));
     await waitForStatus(dialog, "buying with $mfergpt confirmed");
     await assertGear(client, addresses.gear, 3n, 3n, 1n);
     assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999948.25"));
     assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999948.25"));
     await waitForBalance(balances, "$mfergpt", "999948.25");
 
-    await clickExactly(dialog.getByRole("button", { name: "pass $mfer -10%", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "mint $mfer", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfer confirmed");
     await assertOwner(client, addresses.launchPass, 1n, buyer);
     assert.equal(await readErc20Balance(client, addresses.mfer, buyer), parseEther("999266.5"));
     assert.equal(await readErc20Balance(client, addresses.mfer, treasury), parseEther("733.5"));
     await waitForBalance(balances, "$mfer", "999266.5");
 
-    await clickExactly(dialog.getByRole("button", { name: "grant test gold", exact: true }));
-    await waitForStatus(dialog, "granting test gold confirmed");
-    await dialog.getByLabel("token id", { exact: true }).fill("2");
-    await clickExactly(dialog.getByRole("button", { name: "burn gold upgrade", exact: true }));
-    await waitForGear(client, addresses.gear, 2n, 2n, 2n);
-    await waitForStatus(dialog, "upgrading gear confirmed");
-    await assertGear(client, addresses.gear, 2n, 2n, 2n);
-    assert.equal(await readErc20Balance(client, addresses.gold, buyer), parseEther("200"));
-
-    await clickExactly(dialog.getByRole("button", { name: "burn gold upgrade", exact: true }));
-    await waitForGear(client, addresses.gear, 2n, 2n, 3n);
-    await waitForStatus(dialog, "upgrading gear confirmed");
-    await assertGear(client, addresses.gear, 2n, 2n, 3n);
-    assert.equal(await readErc20Balance(client, addresses.gold, buyer), parseEther("75"));
-
-    await clickExactly(dialog.getByRole("button", { name: "burn gold upgrade", exact: true }));
-    await waitForStatus(dialog, "transaction reverted");
-    await assertGear(client, addresses.gear, 2n, 2n, 3n);
-    assert.equal(await readErc20Balance(client, addresses.gold, buyer), parseEther("75"));
-
-    await clickExactly(dialog.getByRole("button", { name: "pass $mfergpt", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "mint $mfergpt", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfergpt confirmed");
     await assertOwner(client, addresses.launchPass, 2n, buyer);
-    assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999258.25"));
-    assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999258.25"));
-    await waitForBalance(balances, "$mfergpt", "999258.25");
+    assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999430.75"));
+    assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999430.75"));
+    await waitForBalance(balances, "$mfergpt", "999430.75");
 
     await clickExactly(dialog.getByRole("button", { name: "Close store", exact: true }));
     const characterButton = page.getByRole("button", { name: "Character", exact: true });
     await clickExactly(characterButton);
     const character = page.getByRole("dialog", { name: "Character", exact: true });
     await character.waitFor({ state: "visible", timeout: 10_000 });
-    await waitForEquipmentTooltip(character, "road lid", "T3 #2", "+23.2 HP, +1.7 STR");
-    await waitForCharacterStat(character, "STR", "10.7");
+    await waitForEquipmentTooltip(character, "road lid", "T1 #2", "+14 HP, +1 STR");
+    await waitForCharacterStat(character, "STR", "10");
 
     if (consoleErrors.length > 0) {
       throw new Error(`Browser console errors:\n${consoleErrors.join("\n")}`);
@@ -303,6 +283,29 @@ async function pressInteractKey(page) {
   await page.keyboard.up("f");
 }
 
+async function clickWalletEntry(page) {
+  const enterVerified = page.getByRole("button", { name: "enter as verified mfer", exact: true });
+  const createVerified = page.getByRole("button", { name: "create verified mfer", exact: true });
+  const continueSaved = page.getByRole("button", { name: "continue saved mfer", exact: true });
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 60_000) {
+    if (await enterVerified.count() === 1) {
+      await clickExactly(enterVerified);
+      return;
+    }
+    if (await createVerified.count() === 1) {
+      await clickExactly(createVerified);
+      return;
+    }
+    if (await continueSaved.count() === 1) {
+      await clickExactly(continueSaved);
+      return;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error("verified wallet entry button did not appear");
+}
+
 async function clickExactly(locator) {
   assert.equal(await locator.count(), 1);
   await waitForEnabled(locator);
@@ -330,7 +333,7 @@ async function waitForStatus(dialog, expected) {
 }
 
 async function waitForAddressPrefill(dialog, label, address) {
-  const input = dialog.getByLabel(label, { exact: true });
+  const input = dialog.getByRole("textbox", { name: label, exact: true });
   const startedAt = Date.now();
   while (Date.now() - startedAt < 10_000) {
     if ((await input.inputValue()).toLowerCase() === address.toLowerCase()) return;

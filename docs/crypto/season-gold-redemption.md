@@ -1,12 +1,12 @@
-# Season Gold Redemption Strategy
+# Season Points Redemption Strategy
 
-Use this as the current Season 0 stance for gold/points-to-`$mfergpt` rewards.
+Use this as the current Season 0 stance for reviewed offchain points-to-`$mfergpt` rewards.
 
 ## Recommendation
 
-Ship friend testing with reviewed offchain Season Gold points first, then graduate to a refillable onchain claim vault after the game loop survives testers.
+Ship friend testing with reviewed offchain Season Points first, then graduate to a refillable onchain claim vault after the game loop survives testers.
 
-Do not launch a direct always-open `$GOLD -> $mfergpt` swap for the first respected-tester build.
+Do not launch a direct always-open points/token swap for the first respected-tester build.
 
 ## Why
 
@@ -14,7 +14,7 @@ The game needs onchain flavor, but an always-open liquid swap makes every gamepl
 
 The current safer flow is:
 
-1. Players earn DB-backed Season Gold or Season 0 points.
+1. Players earn DB-backed Season Points.
 2. The server applies daily and season caps.
 3. Support reviews/rejects suspicious rows.
 4. Confirmed Season 0 pass ownership gates eligibility.
@@ -30,7 +30,7 @@ The right onchain version is a refillable claim vault, not a raw swap pool.
 Contract shape:
 
 - treasury/admin deposits a fixed amount of `$mfergpt` into a vault for a redemption window.
-- owner publishes a Merkle root or signed allocation set from reviewed Season Gold points.
+- owner publishes a Merkle root or signed allocation set from reviewed Season Points.
 - wallet claims at most its approved allocation.
 - claim requires holding or having bought the Season 0 pass.
 - each allocation can be claimed once.
@@ -42,11 +42,11 @@ This still feels onchain to players because claiming is a real transaction, but 
 
 ## About Onchain GOLD
 
-The repo already has local onchain `GOLD` for crypto-suite testing and gear upgrades. That is useful for local store behavior, but production quest rewards should not become a freely transferable liquid token until the exploit surface is better understood.
+`MferGold` remains in the repo as inactive legacy code, but it is no longer part of the active local crypto suite or launch economy. Production quest rewards should not become a freely transferable liquid token until the exploit surface is better understood.
 
 If production needs onchain gold, prefer one of these:
 
-- non-transferable or restricted Season Gold receipt token.
+- non-transferable or restricted Season Points receipt token.
 - claim-only reward voucher NFT.
 - refillable `$mfergpt` claim vault based on reviewed offchain points.
 
@@ -66,7 +66,7 @@ References:
 
 ## Current Next Build
 
-Add visible Season Gold in the HUD/profile and a support command that converts approved pass-gated points into a proposed `$mfergpt` payout under:
+Keep visible Season Points in the HUD/profile and use the support command that converts approved pass-gated points into a proposed `$mfergpt` payout under:
 
 - fixed reward pool.
 - per-wallet cap.

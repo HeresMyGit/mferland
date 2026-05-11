@@ -13,6 +13,7 @@ import {
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
+  type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientShareQuestLink,
   type ClientUpdateTraits,
@@ -515,6 +516,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("useItem", message);
   }, []);
 
+  const sendRegisterChainGear = useCallback((message: ClientRegisterChainGear) => {
+    roomRef.current?.send("registerChainGear", message);
+  }, []);
+
   const sendDebugRegisterChainGear = useCallback((message: ClientDebugRegisterChainGear) => {
     if (!import.meta.env.DEV) return;
     roomRef.current?.send("debugRegisterChainGear", message);
@@ -625,6 +630,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendEquipItem,
     sendUnequipItem,
     sendUseItem,
+    sendRegisterChainGear,
     sendDebugRegisterChainGear,
     sendDebugUpdateChainGearTier,
     sendSelectTalent,

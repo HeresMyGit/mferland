@@ -103,7 +103,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 25.4,
       yaw: 0,
       leashRadius: 1.2,
-      dialogue: "wallets, passes, upgrades. testnet first, mainnet when the town deserves it.",
+      dialogue: "wallets, passes, chain gear. testnet first, mainnet when the town deserves it.",
     },
     {
       id: "gate-guard",

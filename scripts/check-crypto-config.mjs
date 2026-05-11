@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const REQUIRED_ADDRESSES = ["mfer", "mfergpt", "launchPass"];
-const OPTIONAL_ADDRESSES = ["store", "gear", "gold", "rewards"];
+const REQUIRED_ADDRESSES = ["mfer", "mfergpt", "pricing", "launchPass"];
+const OPTIONAL_ADDRESSES = ["store", "gear"];
 
 const { values } = parseArgs({
   options: {

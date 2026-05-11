@@ -19,6 +19,14 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+export const MAX_AVATAR_SEED = 2_147_483_647;
+
+export function normalizeAvatarSeed(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return normalizeAvatarSeed(fallback, 0);
+  return Math.abs(Math.trunc(numeric)) % (MAX_AVATAR_SEED + 1);
+}
+
 export function stableHash(value: string): number {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {

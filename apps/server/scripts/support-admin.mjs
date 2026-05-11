@@ -308,13 +308,7 @@ async function printAnalyticsSummary({ since, limit }) {
         'pass_purchase_failed',
         'gear_purchase_started',
         'gear_purchase_confirmed',
-        'gear_purchase_failed',
-        'gold_grant_started',
-        'gold_grant_confirmed',
-        'gold_grant_failed',
-        'gear_upgrade_started',
-        'gear_upgrade_confirmed',
-        'gear_upgrade_failed'
+        'gear_purchase_failed'
       )
     GROUP BY product, payment_token, event_type
     ORDER BY product ASC, payment_token ASC, event_type ASC

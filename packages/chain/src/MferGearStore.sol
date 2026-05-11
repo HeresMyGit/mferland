@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {MferGearNFT} from "./MferGearNFT.sol";
-import {MferGold} from "./MferGold.sol";
 
 interface IERC20Payment {
     function balanceOf(address account) external view returns (uint256);
@@ -15,31 +14,35 @@ interface IBurnableToken {
     function totalSupply() external view returns (uint256);
 }
 
+interface IGearProductPricing {
+    function gearProductId(uint16 gearType) external pure returns (bytes32);
+    function getProductPrice(bytes32 productId)
+        external
+        view
+        returns (uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice, uint64 updatedAt);
+}
+
 contract MferGearStore {
     uint256 public constant BASIS_POINTS = 10_000;
     uint256 public constant MFER_DISCOUNT_BPS = 1_000;
     uint256 public constant MFERGPT_DISCOUNT_BPS = 2_500;
-    uint8 public constant MAX_GEAR_TIER = 3;
 
     MferGearNFT public immutable gear;
-    IBurnableToken public immutable gold;
+    IGearProductPricing public immutable pricing;
     IERC20Payment public immutable mfer;
     IBurnableToken public immutable mfergpt;
     address public owner;
     address payable public treasury;
-    mapping(uint16 => uint256) public ethPriceByGearType;
-    mapping(uint16 => uint256) public tokenPriceByGearType;
-    mapping(uint8 => uint256) public upgradeGoldCostByTier;
+    mapping(uint16 => bool) public gearListed;
     bool private locked;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed nextOwner);
     event TreasurySet(address indexed treasury);
-    event GearListed(uint16 indexed gearType, uint256 ethPrice, uint256 tokenPrice);
+    event GearListed(uint16 indexed gearType, bytes32 indexed productId);
+    event GearDelisted(uint16 indexed gearType);
     event GearPurchased(
         address indexed buyer, uint16 indexed gearType, uint256 indexed tokenId, string paymentToken, uint256 paid
     );
-    event GearUpgraded(address indexed owner, uint256 indexed tokenId, uint8 tier, uint256 goldBurned);
-    event UpgradeCostSet(uint8 indexed currentTier, uint256 goldCost);
 
     error NotOwner();
     error InvalidAddress();
@@ -47,33 +50,30 @@ contract MferGearStore {
     error NotListed();
     error PaymentFailed();
     error WrongEthAmount();
-    error NotTokenOwner();
-    error MaxTier();
     error PaymentExceedsMaximum();
     error TreasuryTransferFailed();
     error ReentrantCall();
 
     constructor(
         MferGearNFT gearNft,
-        MferGold goldToken,
+        IGearProductPricing productPricing,
         IERC20Payment mferToken,
         IBurnableToken mfergptToken,
         address payable storeTreasury,
         address initialOwner
     ) {
         if (
-            address(gearNft) == address(0) || address(goldToken) == address(0) || address(mferToken) == address(0)
-                || address(mfergptToken) == address(0) || storeTreasury == address(0) || initialOwner == address(0)
+            address(gearNft) == address(0) || address(productPricing) == address(0)
+                || address(mferToken) == address(0) || address(mfergptToken) == address(0)
+                || storeTreasury == address(0) || initialOwner == address(0)
         ) revert InvalidAddress();
 
         gear = gearNft;
-        gold = IBurnableToken(address(goldToken));
+        pricing = productPricing;
         mfer = mferToken;
         mfergpt = mfergptToken;
         treasury = storeTreasury;
         owner = initialOwner;
-        upgradeGoldCostByTier[1] = 50 ether;
-        upgradeGoldCostByTier[2] = 125 ether;
         emit OwnershipTransferred(address(0), initialOwner);
         emit TreasurySet(storeTreasury);
     }
@@ -102,20 +102,19 @@ contract MferGearStore {
         emit TreasurySet(nextTreasury);
     }
 
-    function listGear(uint16 gearType, uint256 ethPrice, uint256 tokenPrice) external onlyOwner {
-        ethPriceByGearType[gearType] = ethPrice;
-        tokenPriceByGearType[gearType] = tokenPrice;
-        emit GearListed(gearType, ethPrice, tokenPrice);
+    function listGear(uint16 gearType) external onlyOwner {
+        _validateGearPrice(gearType);
+        gearListed[gearType] = true;
+        emit GearListed(gearType, pricing.gearProductId(gearType));
     }
 
-    function setUpgradeCost(uint8 currentTier, uint256 goldCost) external onlyOwner {
-        upgradeGoldCostByTier[currentTier] = goldCost;
-        emit UpgradeCostSet(currentTier, goldCost);
+    function delistGear(uint16 gearType) external onlyOwner {
+        gearListed[gearType] = false;
+        emit GearDelisted(gearType);
     }
 
     function buyWithEth(uint16 gearType) external payable nonReentrant returns (uint256 tokenId) {
-        uint256 price = ethPriceByGearType[gearType];
-        if (price == 0) revert NotListed();
+        uint256 price = ethPriceByGearType(gearType);
         if (msg.value != price) revert WrongEthAmount();
 
         (bool sent,) = treasury.call{value: msg.value}("");
@@ -125,7 +124,7 @@ contract MferGearStore {
     }
 
     function buyWithMfer(uint16 gearType, uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
-        uint256 price = discountedTokenPrice(gearType, MFER_DISCOUNT_BPS);
+        uint256 price = mferPriceByGearType(gearType);
         _validateMaxPayment(price, maxPayment);
         _transferExact(mfer, msg.sender, treasury, price);
         tokenId = gear.mintTo(msg.sender, gearType);
@@ -133,33 +132,53 @@ contract MferGearStore {
     }
 
     function buyWithMferGpt(uint16 gearType, uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
-        uint256 price = discountedTokenPrice(gearType, MFERGPT_DISCOUNT_BPS);
+        uint256 price = mferGptPriceByGearType(gearType);
         _validateMaxPayment(price, maxPayment);
         _burnExact(mfergpt, msg.sender, price);
         tokenId = gear.mintTo(msg.sender, gearType);
         emit GearPurchased(msg.sender, gearType, tokenId, "MFERGPT", price);
     }
 
-    function upgradeWithGold(uint256 tokenId, uint256 maxGoldCost) external nonReentrant {
-        if (gear.ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
-        (, uint8 currentTier) = gear.gear(tokenId);
-        if (currentTier >= MAX_GEAR_TIER) revert MaxTier();
+    function ethPriceByGearType(uint16 gearType) public view returns (uint256 ethPrice) {
+        (ethPrice,,,) = _gearPrice(gearType);
+    }
 
-        uint256 cost = upgradeGoldCostByTier[currentTier];
-        _validateMaxPayment(cost, maxGoldCost);
-        _burnExact(gold, msg.sender, cost);
-        gear.upgradeTier(tokenId, MAX_GEAR_TIER);
-        (, uint8 nextTier) = gear.gear(tokenId);
-        emit GearUpgraded(msg.sender, tokenId, nextTier, cost);
+    function mferPriceByGearType(uint16 gearType) public view returns (uint256 mferPrice) {
+        (, mferPrice,,) = _gearPrice(gearType);
+    }
+
+    function mferGptPriceByGearType(uint16 gearType) public view returns (uint256 mferGptPrice) {
+        (,, mferGptPrice,) = _gearPrice(gearType);
+    }
+
+    function pricingUpdatedAtByGearType(uint16 gearType) public view returns (uint64 updatedAt) {
+        (,,, updatedAt) = _gearPrice(gearType);
+    }
+
+    function tokenPriceByGearType(uint16 gearType) public view returns (uint256) {
+        return mferPriceByGearType(gearType);
     }
 
     function discountedTokenPrice(uint16 gearType, uint256 discountBps) public view returns (uint256) {
-        if (discountBps >= BASIS_POINTS) revert InvalidPrice();
-        uint256 price = tokenPriceByGearType[gearType];
-        if (price == 0) revert NotListed();
-        uint256 discountedPrice = price * (BASIS_POINTS - discountBps) / BASIS_POINTS;
-        if (discountedPrice == 0) revert InvalidPrice();
-        return discountedPrice;
+        if (discountBps == MFER_DISCOUNT_BPS) return mferPriceByGearType(gearType);
+        if (discountBps == MFERGPT_DISCOUNT_BPS) return mferGptPriceByGearType(gearType);
+        revert InvalidPrice();
+    }
+
+    function _gearPrice(uint16 gearType)
+        internal
+        view
+        returns (uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice, uint64 updatedAt)
+    {
+        if (!gearListed[gearType]) revert NotListed();
+        (ethPrice, mferPrice, mferGptPrice, updatedAt) = pricing.getProductPrice(pricing.gearProductId(gearType));
+        if (ethPrice == 0 || mferPrice == 0 || mferGptPrice == 0) revert NotListed();
+    }
+
+    function _validateGearPrice(uint16 gearType) internal view {
+        (uint256 ethPrice, uint256 mferPrice, uint256 mferGptPrice,) =
+            pricing.getProductPrice(pricing.gearProductId(gearType));
+        if (ethPrice == 0 || mferPrice == 0 || mferGptPrice == 0) revert InvalidPrice();
     }
 
     function _burnExact(IBurnableToken token, address from, uint256 amount) internal {
