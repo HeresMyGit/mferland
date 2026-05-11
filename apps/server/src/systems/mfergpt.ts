@@ -36,10 +36,22 @@ type MferGptContext = {
 };
 
 type ToolOutcome = {
+  directResponse?: string;
   fallback: string;
   summary: string;
   temporaryNpcs?: MferGptTemporaryNpc[];
 };
+
+export const LORE_SNIPPETS = [
+  "mfers minted at 0.069 ETH at 4:20.",
+  "there was skywriting over LA. extremely normal mfer behavior.",
+  "mfers hit a Times Square billboard because the internet got bored correctly.",
+  "Creyzies landed on 4/20, which still has the farm acting haunted.",
+  "EOS showed up on 6/9. the date did all the subtlety work.",
+  "Nakamigos went to EOS holders, and some mfers have not slept since.",
+  "mfercoin lives on Base, because the signal had to go somewhere.",
+  "AI agents are mfers now. do not make it formal.",
+] as const;
 
 export function getMferGptPrompt(text: string) {
   const mentionIndex = text.toLowerCase().indexOf(MFERGPT.mention);
@@ -55,7 +67,7 @@ export async function handleMferGptPrompt(context: MferGptContext): Promise<Mfer
   const command = getMferGptCommand(context.prompt);
   const outcome = runMferGptTool(command, context);
   const safeState = describeSafePublicState(context);
-  const responseText = await narrateMferGptResponse({
+  const responseText = outcome.directResponse ?? await narrateMferGptResponse({
     command,
     fallback: outcome.fallback,
     playerName: context.player.name,
@@ -81,14 +93,30 @@ function getMferGptCommand(prompt: string): MferGptCommand {
 }
 
 function runMferGptTool(command: MferGptCommand, context: MferGptContext): ToolOutcome {
+  if (isLoreQuestWaitingOnMferGpt(context.player)) return getLoreSnippet(context);
   if (command === "spawn") return spawnArenaEnemies(context);
   if (command === "hint") return getQuestHint(context);
   if (command === "event") return triggerTownEvent(context);
   if (command === "inspect") return inspectPublicState(context);
 
   return {
-    fallback: `gm ${context.player.name}. i do hints, room scans, and small arena trouble.`,
+    fallback: `gm ${context.player.name}. i do hints, room scans, lore fragments, and small arena trouble.`,
     summary: "No special tool was invoked; reply as an in-world town assistant.",
+  };
+}
+
+function isLoreQuestWaitingOnMferGpt(player: PlayerState) {
+  const quest = player.quests.get("ask-mfergpt");
+  return quest?.status === "active" || quest?.status === "ready";
+}
+
+function getLoreSnippet({ player, now }: MferGptContext): ToolOutcome {
+  const snippet = LORE_SNIPPETS[Math.floor(Math.random() * LORE_SNIPPETS.length)] ?? LORE_SNIPPETS[0];
+  const response = cleanResponse(`lore fragment for ${player.name}: ${snippet} bring that back if drip sent you.`);
+  return {
+    directResponse: response,
+    fallback: response,
+    summary: `Returned curated lore snippet for grab some lore at ${now}.`,
   };
 }
 
@@ -198,7 +226,7 @@ function getQuestHint({ player, npcs, now }: MferGptContext): ToolOutcome {
   }
 
   return {
-    fallback: "no urgent errand is open. check the route board dailies later or ask for a room scan.",
+    fallback: "no urgent errand is open. check the route post dailies later or ask for a room scan.",
     summary: "No active, ready, or currently available quest found.",
   };
 }
@@ -259,32 +287,32 @@ function getActiveQuestHint(
       .filter((objective) => !completed.has(objective.id))
       .map((objective) => objective.label.replace("Defeat ", ""));
     return missing.length > 0
-      ? `for ${quest.title}, head to the busted farm and handle ${missing.join(", ")}.`
+      ? `for ${quest.title}, head to airdrop farm and handle ${missing.join(", ")}.`
       : `${quest.title} is basically done. check back with ${turnInNpcName}.`;
   }
 
   if (questId === "hog-livers") {
-    return `for ${quest.title}, keep clearing farm-road hogs between the busted farm and loop booth. you have ${progress}/${required} hog livers.`;
+    return `for ${quest.title}, keep clearing farm-road hogs between the busted farm and claim booth. you have ${progress}/${required} chewed EOS.`;
   }
 
   if (questId === "boar-bristle-cull") {
-    return `for ${quest.title}, kill wild boars around the farm road. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, clear hogs around the claim pile. progress is ${progress}/${required}.`;
   }
 
   if (questId === "farm-road-handoff") {
-    return `for ${quest.title}, follow the dirt road to the busted farm and talk to ${turnInNpcName}.`;
+    return `for ${quest.title}, follow the dirt road to the busted farm and talk to ${turnInNpcName}. that's where claim-brain starts.`;
   }
 
   if (questId === "mfergpt-checkin") {
-    return `for ${quest.title}, put @mfergpt anywhere in chat. that's enough.`;
+    return `for ${quest.title}, put @mfergpt anywhere in chat. one gm is enough.`;
   }
 
   if (questId === "tweet-town-link") {
-    return `for ${quest.title}, use the quest button to open the tweet composer. don't click tweet unless you mean it.`;
+    return `for ${quest.title}, use the quest button to open the tweet composer and post the plaza signal if you mean it.`;
   }
 
   if (questId === "field-camp-delivery") {
-    return `follow the dirt route southwest past the busted farm to route board, then talk to ${turnInNpcName}.`;
+    return `follow the dirt route southwest past the busted farm to route post, then talk to ${turnInNpcName}.`;
   }
 
   if (questId === "ridge-dispatch") {
@@ -292,11 +320,11 @@ function getActiveQuestHint(
   }
 
   if (questId === "route-patrol-daily") {
-    return `for ${quest.title}, clear hogs or crazed airdrop farmers near route board. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, clear hogs or claim-burnt mfers near route post. progress is ${progress}/${required}.`;
   }
 
   if (questId === "hog-loop") {
-    return `for ${quest.title}, sweep wild hogs near loop booth. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, sweep stash-eating hogs near claim booth. progress is ${progress}/${required}.`;
   }
 
   if (questHint) {
@@ -311,22 +339,22 @@ function getActiveQuestHint(
 }
 
 const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
-  "mfer-beginnings": "pick up one honest lap from OG porch mfer, then head to board mfer by the corkboard.",
-  "dao-tour": "board mfer sends you fountain-side. find fountain rail mfer; the board's done enough.",
-  "fountain-vibes": "do the plaza loop, then take it back to OG porch mfer.",
-  "sealed-note": "carry the folded offchain note to drip desk mfer. don't open it just because you can.",
-  "farm-road-handoff": "drip desk mfer points you to hogwatch mfer out by the busted farm road.",
-  "ask-mfergpt": "put @mfergpt anywhere in chat, then check back with mferGPT. after that, follow the farm road if drip has work open.",
-  "feral-farmers": "head into the busted farm and take out crazed airdrop farmer bran, crazed airdrop farmer mae, and signal-sick mfer sol.",
-  "hog-livers": "farm-road hogs around the busted farm and loop booth drop hog loop livers. you need 5.",
-  "field-camp-delivery": "take hogwatch's update southwest to route board mfer at the post.",
-  "route-patrol-daily": "clear 6 hogs or crazed airdrop farmers near route board, then check back with route board mfer.",
-  "hog-loop": "loop booth mfer pays daily for 5 wild hogs near loop booth. ugly work, steady reset.",
-  "ridge-dispatch": "follow the dirt cut east, hit the 0.069-mile stretch, take the 4:20 turn, and talk to ridge post mfer.",
-  "signal-scraps": "signal-jacked ridge crew on Signal Ridge drop fried relay scraps. bring 4 back to ridge post mfer.",
-  "cut-the-static": "on Signal Ridge, drop runner vex, off-route pax, and the broken mferGPT shell. then report to relay shack mfer.",
-  "baron-of-static": "bring people to relay shack. the Static Baron is one big body made out of bad feed.",
-  "ogre-raid-daily": "once the relay is charged, drop too much signal at relay shack and go tell relay shack mfer.",
+  "mfer-beginnings": "pick up gm rounds from OG porch mfer, then check in with oldhead mfer in the plaza.",
+  "dao-tour": "oldhead mfer sends you fountain-side. no promises, just seeds and whoever is still posted.",
+  "fountain-vibes": "hear fountain rail mfer out, then take the still-here lesson back to OG porch mfer.",
+  "sealed-note": "carry the folded seed note to drip desk mfer. don't open it just because you can.",
+  "farm-road-handoff": "drip desk mfer points you to claimwatch mfer out by the busted airdrop farm.",
+  "ask-mfergpt": "put @mfergpt anywhere in chat for a lore fragment, then check back with mferGPT.",
+  "feral-farmers": "head into airdrop farm and take out creyzie chaser bran, just-missed-it mae, and nakamigo truther sol.",
+  "hog-livers": "farm-road hogs around the busted farm and claim booth drop chewed EOS. you need 5.",
+  "field-camp-delivery": "take claimwatch's update southwest to route post mfer.",
+  "route-patrol-daily": "clear 6 hogs or claim-burnt mfers near route post, then check back with route post mfer.",
+  "hog-loop": "claim booth mfer pays daily for 5 stash-eating hogs near claim booth. ugly work, steady reset.",
+  "ridge-dispatch": "follow the dirt cut east, hit the 0.069-mile stretch, take the 4:20 turn, and talk to signal post mfer.",
+  "signal-scraps": "signal-jacked ridge crew on Signal Ridge drop fried uplink shards. bring 4 back to signal post mfer.",
+  "cut-the-static": "on Signal Ridge, drop operator vex, repeater pax, and echo-shell ori. then report to uplink shack mfer.",
+  "baron-of-static": "bring people to uplink shack. The Centralizer is one big body made out of bad signal and control.",
+  "ogre-raid-daily": "once the uplink is charged, drop too much signal at uplink shack and go tell uplink shack mfer.",
 };
 
 function describeSafePublicState({ player, players, npcs }: MferGptContext) {

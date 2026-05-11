@@ -64,17 +64,17 @@ export function TargetFrame({
 function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "mfergpt") return "agent";
   if (npc.id === "og-mfer") return "OG";
-  if (npc.id === "dao-mfer") return "board";
+  if (npc.id === "dao-mfer") return "oldhead";
   if (npc.id === "wearables-mfer") return "drip";
   if (npc.id === "traits-mfer") return "traits";
   if (npc.id === "gate-guard") return "watch";
   if (npc.id === "fountain-mfer") return "plaza";
   if (npc.id === "crypto-mfer") return "crypto";
-  if (npc.id === "hogwatch-mfer") return "hogwatch";
-  if (npc.id === "field-guide-mfer") return "route board";
-  if (npc.id === "pen-keeper-mfer") return "loop booth";
-  if (npc.id === "ridge-guide-mfer") return "ridge post";
-  if (npc.id === "beacon-keeper-mfer") return "relay shack";
+  if (npc.id === "hogwatch-mfer") return "claimwatch";
+  if (npc.id === "field-guide-mfer") return "route post";
+  if (npc.id === "pen-keeper-mfer") return "claim booth";
+  if (npc.id === "ridge-guide-mfer") return "signal post";
+  if (npc.id === "beacon-keeper-mfer") return "uplink shack";
   if (npc.role === "merchant") return "stash";
   if (npc.role === "quest_giver" || npc.role === "guard" || npc.role === "wanderer") return "local";
   if (npc.role === "enemy") return "bonk test";

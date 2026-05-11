@@ -7,12 +7,12 @@ test("ready quests point at the turn-in NPC", () => {
   const guidance = getActiveQuestGuidance(
     makeQuest({ id: "mfer-beginnings", status: "ready" }),
     new Map([
-      ["dao-mfer", makeNpc({ id: "dao-mfer", name: "board mfer", x: 14.8, z: -8.8 })],
+      ["dao-mfer", makeNpc({ id: "dao-mfer", name: "oldhead mfer", x: 14.8, z: -8.8 })],
     ]),
     null,
   );
 
-  assert.equal(guidance?.summary, "talk to board mfer");
+  assert.equal(guidance?.summary, "talk to oldhead mfer");
   assert.equal(guidance?.targets[0]?.npcId, "dao-mfer");
   assert.equal(guidance?.targets[0]?.kind, "turnIn");
 });
@@ -21,9 +21,9 @@ test("named kill quests point at incomplete objective NPCs only", () => {
   const guidance = getActiveQuestGuidance(
     makeQuest({ id: "feral-farmers", flags: "farmhand-bran" }),
     new Map([
-      ["farmhand-bran", makeNpc({ id: "farmhand-bran", name: "red-eye mfer bran", x: -77.5, z: 86.5, role: "farmer" })],
-      ["farmhand-mae", makeNpc({ id: "farmhand-mae", name: "red-eye mfer mae", x: -87.5, z: 91.5, role: "farmer" })],
-      ["field-mage-sol", makeNpc({ id: "field-mage-sol", name: "signal-sick mfer sol", x: -73.2, z: 99.8, role: "farmer" })],
+      ["farmhand-bran", makeNpc({ id: "farmhand-bran", name: "creyzie chaser bran", x: -77.5, z: 86.5, role: "farmer" })],
+      ["farmhand-mae", makeNpc({ id: "farmhand-mae", name: "just-missed-it mae", x: -87.5, z: 91.5, role: "farmer" })],
+      ["field-mage-sol", makeNpc({ id: "field-mage-sol", name: "nakamigo truther sol", x: -73.2, z: 99.8, role: "farmer" })],
     ]),
     null,
   );
@@ -38,7 +38,7 @@ test("collection quests point at live source enemies nearest to the player", () 
     new Map([
       ["far-hog", makeNpc({ id: "far-hog", name: "far hog", model: "hog", role: "beast", x: -120, z: 130 })],
       ["near-hog", makeNpc({ id: "near-hog", name: "near hog", model: "hog", role: "beast", x: -76, z: 91 })],
-      ["farmhand-bran", makeNpc({ id: "farmhand-bran", name: "red-eye mfer bran", role: "farmer", x: -77, z: 88 })],
+      ["farmhand-bran", makeNpc({ id: "farmhand-bran", name: "creyzie chaser bran", role: "farmer", x: -77, z: 88 })],
     ]),
     player,
   );

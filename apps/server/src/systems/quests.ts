@@ -104,39 +104,39 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
   }
 
   if (questId === "ask-mfergpt") {
-    return `${QUESTS[questId].title}: put @mfergpt anywhere in chat, then check in with mferGPT.`;
+    return `${QUESTS[questId].title}: put @mfergpt anywhere in chat and ask for one lore fragment.`;
   }
 
   if (questId === "mfergpt-checkin") {
-    return `${QUESTS[questId].title}: say @mfergpt in chat. any message with the mention counts.`;
+    return `${QUESTS[questId].title}: say @mfergpt in chat. any gm with the mention counts.`;
   }
 
   if (questId === "tweet-town-link") {
-    return `${QUESTS[questId].title}: open the tweet composer, post only if you mean it, then claim the ping.`;
+    return `${QUESTS[questId].title}: open the tweet composer, post the plaza signal if you mean it, then claim the ping.`;
   }
 
   if (questId === "set-your-traits") {
-    return `${QUESTS[questId].title}: open the mirror rig, save a trait set, then check back in.`;
+    return `${QUESTS[questId].title}: open the mirror rig, save a trait set that feels yours, then check back in.`;
   }
 
   if (questId === "boar-bristle-cull") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild boars cleared around the farm road.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} stash-eating hogs cleared around the claim pile.`;
   }
 
   if (questId === "hog-livers") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} hog loop livers collected from farm-road hogs. ugly drop rate, normal town problem.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} chewed EOS recovered from farm-road hogs. ugly drop rate, normal town problem.`;
   }
 
   if (questId === "route-patrol-daily") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} farm-road enemies cleared near route board.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} claim-route problems cleared near route post.`;
   }
 
   if (questId === "hog-loop") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} wild hogs cleared near loop booth.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} stash-eating hogs cleared near claim booth.`;
   }
 
   if (questId === "signal-scraps") {
-    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} fried relay scraps collected on Signal Ridge. still buzzing, unfortunately.`;
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} fried uplink shards collected on Signal Ridge. still buzzing, unfortunately.`;
   }
 
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
@@ -158,83 +158,83 @@ export function getNextAvailableQuestId(player: PlayerState, questId: QuestId): 
 
 function getQuestCompletionResponse(questId: QuestId) {
   if (questId === "mfer-beginnings") {
-    return "good. you found the board. don't start respecting it.";
+    return "good. you found an oldhead. that's how town works: memory, not management.";
   }
 
   if (questId === "set-your-traits") {
-    return "clean enough to be yours. first set's on town. changing your mind after this gets onchain.";
+    return "clean enough to be yours. first look's on town. changing your mind after this gets onchain.";
   }
 
   if (questId === "mfergpt-checkin") {
-    return "mferGPT heard the signal. somehow that counts as onboarding.";
+    return "mferGPT heard the gm. signal's alive enough.";
   }
 
   if (questId === "tweet-town-link") {
-    return "mferGPT logs the town link ping. no bot touched the tweet button.";
+    return "mferGPT logs the plaza ping. no bot touched the tweet button.";
   }
 
   if (questId === "sealed-note") {
-    return "yep. that's for me. town still runs on folded notes and side-eye. i've got the farm-road handoff next.";
+    return "yep. seed note landed. town still runs on folded paper and side-eye. i've got the farm handoff next.";
   }
 
   if (questId === "farm-road-handoff") {
-    return "good. farm road starts here. thin the boars before the crazed airdrop farmers get any louder.";
+    return "good. claim-brain starts here. clear the hogs before the airdrop mfers convince themselves this is alpha.";
   }
 
   if (questId === "ask-mfergpt") {
-    return "good. if the agent says farm first, take that as practical advice, not prophecy.";
+    return "good. one lore shard in the pocket. history's scattered, but it is not dead.";
   }
 
   if (questId === "boar-bristle-cull") {
-    return "hogwatch mfer says the farm road is slightly less boar-shaped now.";
+    return "claimwatch mfer says the pile is slightly less hog-shaped now.";
   }
 
   if (questId === "dao-tour") {
-    return "yeah, that's the fountain. more governance happens there than at the board.";
+    return "yeah, that's the fountain. more truth happens on that rail than in any official plan.";
   }
 
   if (questId === "fountain-vibes") {
-    return "good. now you know the town loop. that's enough orientation.";
+    return "good. now you know the loop: mfers kept showing up, so the town stayed alive.";
   }
 
   if (questId === "feral-farmers") {
-    return "good. less loop-brain drifting off that farm now.";
+    return "good. less next-drop sickness drifting off that farm now.";
   }
 
   if (questId === "hog-livers") {
-    return "disgusting. exactly right. route should hold a little longer.";
+    return "disgusting. exactly right. that's enough chewed EOS to keep the route breathing.";
   }
 
   if (questId === "field-camp-delivery") {
-    return "got it. road's open enough to risk sending more mfers through.";
+    return "got it. route still works. tiny miracle, no ceremony.";
   }
 
   if (questId === "route-patrol-daily") {
-    return "nice. road's walkable again. check tomorrow; it never stays civil.";
+    return "nice. claim route's walkable again. check tomorrow; the farm always finds new stupid.";
   }
 
   if (questId === "hog-loop") {
-    return "clean enough. give it a day and the mud will get ideas again.";
+    return "clean enough. give it a day and the hogs will eat the stash again.";
   }
 
   if (questId === "ridge-dispatch") {
-    return "made it. if you can find the ridge once, you can usually find it again.";
+    return "made it. bad signal starts here, so keep your head quieter than the ridge.";
   }
 
   if (questId === "signal-scraps") {
-    return "good scrap. still humming. means it hasn't fully lied to us yet.";
+    return "good shard. still humming. means the uplink hasn't fully lied to us yet.";
   }
 
   if (questId === "cut-the-static") {
-    return "crew's down. now we deal with the one big body holding the mess together.";
+    return "repeaters are down. now we deal with the one big body holding the control loop together.";
   }
 
   if (questId === "baron-of-static") {
-    return "beautiful. ridge can hear itself think again.";
+    return "signal cleared. one old signature made it through: sartoshi_rip. guess the mfer's back.";
   }
 
   if (questId === "ogre-raid-daily") {
-    return "clean hit. that's all the bad feed in one body, and you folded it.";
+    return "clean hit. that's too much signal folded back into silence.";
   }
 
   return "errand handled.";
@@ -262,12 +262,12 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "og-mfer") return "town's still standing. good enough.";
   if (npcId === "wearables-mfer") return "good town. better hats.";
   if (npcId === "traits-mfer") return "mirror's still warm if you need a paid redo.";
-  if (npcId === "dao-mfer") return "nothing here is that organized.";
+  if (npcId === "dao-mfer") return "plant seeds. promises are just noise with better shoes.";
   if (npcId === "fountain-mfer") return "good fountain. good smoke. good enough.";
-  if (npcId === "hogwatch-mfer") return "farm's still full of loop-brain. keep it thin.";
-  if (npcId === "field-guide-mfer") return "camp stays up if the road stays quiet.";
-  if (npcId === "pen-keeper-mfer") return "hog loop resets daily because shame has no cooldown.";
-  if (npcId === "ridge-guide-mfer") return "static's louder uptrail.";
+  if (npcId === "hogwatch-mfer") return "farm's still full of claim-brain. keep it thin.";
+  if (npcId === "field-guide-mfer") return "route stays up if the claim road stays quiet.";
+  if (npcId === "pen-keeper-mfer") return "hog loop resets daily because cope has no cooldown.";
+  if (npcId === "ridge-guide-mfer") return "bad signal gets louder uptrail.";
   if (npcId === "beacon-keeper-mfer") return "too much signal makes one big stupid body.";
   return "nothing else for now.";
 }
@@ -277,13 +277,13 @@ function getNpcDisplayName(npcId: string) {
   if (npcId === "og-mfer") return "OG porch mfer";
   if (npcId === "wearables-mfer") return "drip desk mfer";
   if (npcId === "traits-mfer") return "traits mfer";
-  if (npcId === "dao-mfer") return "board mfer";
+  if (npcId === "dao-mfer") return "oldhead mfer";
   if (npcId === "fountain-mfer") return "fountain rail mfer";
-  if (npcId === "hogwatch-mfer") return "hogwatch mfer";
-  if (npcId === "field-guide-mfer") return "route board mfer";
-  if (npcId === "pen-keeper-mfer") return "loop booth mfer";
-  if (npcId === "ridge-guide-mfer") return "ridge post mfer";
-  if (npcId === "beacon-keeper-mfer") return "relay shack mfer";
+  if (npcId === "hogwatch-mfer") return "claimwatch mfer";
+  if (npcId === "field-guide-mfer") return "route post mfer";
+  if (npcId === "pen-keeper-mfer") return "claim booth mfer";
+  if (npcId === "ridge-guide-mfer") return "signal post mfer";
+  if (npcId === "beacon-keeper-mfer") return "uplink shack mfer";
   return "the right mfer";
 }
 
