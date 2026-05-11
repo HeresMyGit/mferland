@@ -29,7 +29,8 @@ export function TargetFrame({
   const label = npc ? roleLabel(npc) : playerLabel(unit as PlayerSnapshot);
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
   const showMferPortrait = !npc || npc.model === "mfer";
-  const portraitImage = npc?.portraitImage;
+  const showMferGptModelPortrait = npc?.model === "mfergpt" && disposition !== "friendly";
+  const portraitImage = showMferGptModelPortrait ? "" : npc?.portraitImage;
   const portraitTraits = useMemo(
     () => npc
       ? generateMferTraitsForActor(unit.avatarSeed, showMferPortrait ? npc : null)
