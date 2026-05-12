@@ -4,23 +4,63 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { createPublicClient, http, parseEther } from "viem";
+import { createPublicClient, http } from "viem";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const buyer = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 const treasury = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+const burnAddress = "0x000000000000000000000000000000000000dEaD";
 const localRpcUrl = "http://127.0.0.1:8545";
+const traitChangeProductId = "0x691801e90154d786163fb37c5503cafde0bc6f5a2411d53ca8609e222017e6f4";
 const webUrl = process.env.CRYPTO_SMOKE_WEB_URL || "http://127.0.0.1:5173/?cryptoSmoke=1";
-const serverHealthUrl = process.env.CRYPTO_SMOKE_SERVER_HEALTH_URL || "http://127.0.0.1:2567/health";
+const serverBaseUrl = process.env.CRYPTO_SMOKE_SERVER_URL || "http://127.0.0.1:2567";
+const serverHealthUrl = process.env.CRYPTO_SMOKE_SERVER_HEALTH_URL || `${serverBaseUrl}/health`;
 const spawnedProcesses = [];
 
 const storeAbi = [
+  {
+    type: "function",
+    name: "ethPriceByGearType",
+    stateMutability: "view",
+    inputs: [{ name: "gearType", type: "uint16" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
   {
     type: "function",
     name: "discountedTokenPrice",
     stateMutability: "view",
     inputs: [{ name: "gearType", type: "uint16" }, { name: "discountBps", type: "uint256" }],
     outputs: [{ name: "", type: "uint256" }],
+  },
+];
+const launchPassAbi = [
+  {
+    type: "function",
+    name: "ethPrice",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "mferPrice",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "mferGptPrice",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "ownerOf",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
   },
 ];
 const gearAbi = [
@@ -55,8 +95,30 @@ const erc20Abi = [
     outputs: [{ name: "", type: "uint256" }],
   },
 ];
+const pricingAbi = [
+  {
+    type: "function",
+    name: "getProductPrice",
+    stateMutability: "view",
+    inputs: [{ name: "productId", type: "bytes32" }],
+    outputs: [
+      { name: "ethPrice", type: "uint256" },
+      { name: "mferPrice", type: "uint256" },
+      { name: "mferGptPrice", type: "uint256" },
+      { name: "updatedAt", type: "uint64" },
+    ],
+  },
+];
 
 try {
+  process.env.MFERLAND_MARKET_QUOTE_INTERVAL_MS = "60000";
+  process.env.MFERLAND_ENABLE_CRYPTO_STORE = "1";
+  process.env.MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS = "1";
+  process.env.VITE_SERVER_URL = serverBaseUrl;
+  process.env.VITE_CRYPTO_CONTRACTS_URL = "/crypto/local-contracts.json";
+  process.env.VITE_ENABLE_CRYPTO_STORE = "1";
+  process.env.VITE_REQUIRE_INVITE = "0";
+  process.env.MFERLAND_INVITE_CODE = "";
   await ensureLocalStack();
   await run("npm", ["run", "chain:deploy:local"]);
 
@@ -64,12 +126,38 @@ try {
   const addresses = localContracts.addresses;
   const client = createPublicClient({ transport: http(localRpcUrl) });
 
-  await assertDiscount(client, addresses.store, 1, 1000n, "90");
-  await assertDiscount(client, addresses.store, 1, 2500n, "75");
-  await assertDiscount(client, addresses.store, 2, 1000n, "112.5");
-  await assertDiscount(client, addresses.store, 2, 2500n, "93.75");
-  await assertDiscount(client, addresses.store, 3, 1000n, "62.1");
-  await assertDiscount(client, addresses.store, 3, 2500n, "51.75");
+  const pricingRefresh = JSON.parse(await runCapture("npm", ["--silent", "run", "pricing:refresh:market"]));
+  assert.equal(pricingRefresh.ok, true, "market quote refresh should succeed");
+  assert.equal(pricingRefresh.pricing?.disabled, false, "contract pricing updater should run against local contracts");
+  assert.equal(pricingRefresh.pricing?.errors?.length ?? 0, 0, "contract pricing update should not error");
+  assert.ok((pricingRefresh.pricing?.updated?.length ?? 0) > 0, "live quote refresh should update local contract prices");
+
+  const initialMferBalance = await readErc20Balance(client, addresses.mfer, buyer);
+  const initialMferGptBalance = await readErc20Balance(client, addresses.mfergpt, buyer);
+  const initialMferTreasury = await readErc20Balance(client, addresses.mfer, treasury);
+  const initialMferGptSupply = await readErc20Supply(client, addresses.mfergpt);
+  const initialMferGptBurnBalance = await readErc20Balance(client, addresses.mfergpt, burnAddress);
+
+  const gearOneEthPrice = await readGearEthPrice(client, addresses.store, 1);
+  const gearTwoMferPrice = await readGearTokenPrice(client, addresses.store, 2, 1000n);
+  const gearThreeMferGptPrice = await readGearTokenPrice(client, addresses.store, 3, 2500n);
+  const passEthPrice = await readLaunchPassPrice(client, addresses.launchPass, "ethPrice");
+  const passMferPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferPrice");
+  const passMferGptPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferGptPrice");
+  const traitPrice = await readTraitPrice(client, addresses.pricing);
+  const traitMferPrice = traitPrice.mferPrice;
+  const traitMferButtonName = `${formatUiUnits(traitMferPrice)} $mfer 10% off`;
+  const paidTraitName = "paid traits mfer";
+
+  assert.ok(gearOneEthPrice > 0n);
+  assert.ok(gearTwoMferPrice > 0n);
+  assert.ok(gearThreeMferGptPrice > 0n);
+  assert.ok(passEthPrice > 0n);
+  assert.ok(passMferPrice > 0n);
+  assert.ok(passMferGptPrice > 0n);
+  assert.ok(traitPrice.ethPrice > 0n);
+  assert.ok(traitPrice.mferPrice > 0n);
+  assert.ok(traitPrice.mferGptPrice > 0n);
 
   const browser = await chromium.launch({
     args: ["--disable-dev-shm-usage", "--disable-gpu"],
@@ -104,69 +192,120 @@ try {
     await clickWalletEntry(page);
 
     const cryptoButton = page.locator('button[title="Debug travel: Crypto"]');
-    await waitForEnabled(cryptoButton);
+    try {
+      await waitForEnabled(cryptoButton);
+    } catch (error) {
+      const bodyText = await page.locator("body").innerText().catch(() => "");
+      throw new Error(`${error instanceof Error ? error.message : String(error)}\nPage text:\n${bodyText}\nConsole errors:\n${consoleErrors.join("\n")}`);
+    }
     await clickDebugTravel(cryptoButton, page.locator(".debug-travel-position"), "4, 22");
     await pressInteractKey(page);
 
     const dialog = page.getByRole("dialog", { name: "crypto store", exact: true });
     await dialog.waitFor({ state: "visible", timeout: 10000 });
-    await clickExactly(dialog.locator(".crypto-store-contract-toggle"));
+    await clickExactly(dialog.getByRole("button", { name: "Show contracts", exact: true }));
     await waitForAddressPrefill(dialog, "store", addresses.store);
     await waitForAddressPrefill(dialog, "gear nft", addresses.gear);
     await waitForAddressPrefill(dialog, "pricing", addresses.pricing);
     await waitForAddressPrefill(dialog, "$mfer", addresses.mfer);
     await waitForAddressPrefill(dialog, "$mfergpt", addresses.mfergpt);
     await waitForAddressPrefill(dialog, "launch pass", addresses.launchPass);
+    await clickExactly(dialog.getByRole("button", { name: "Show market", exact: true }));
     await waitForMarketQuote(dialog, "$mfer/WETH");
     await waitForMarketQuote(dialog, "MFERGPT/WETH");
+    await clickExactly(dialog.getByRole("button", { name: "Show season pass", exact: true }));
+    await waitForContractPrice(dialog, "launch pass prices", formatUiUnits(passMferPrice));
+    await clickExactly(dialog.getByRole("button", { name: "Show gear", exact: true }));
+    await waitForGearPrice(dialog, formatUiUnits(gearOneEthPrice));
+    await waitForStoreGearStats(dialog, "posted-up deck", ["+3 STR", "+8 HP"]);
     const balances = dialog.locator('[aria-label="wallet balances"]');
-    await waitForBalance(balances, "$mfer", "1000000");
-    await waitForBalance(balances, "$mfergpt", "1000000");
+    await waitForBalance(balances, "$mfer", formatUiUnits(initialMferBalance));
+    await waitForBalance(balances, "$mfergpt", formatUiUnits(initialMferGptBalance));
+    await waitForBalance(balances, "season pass", "none");
 
     await clickExactly(dialog.getByRole("button", { name: "buy ETH", exact: true }));
     await waitForStatus(dialog, "buying with ETH confirmed");
     await assertGear(client, addresses.gear, 1n, 1n, 1n);
+    await waitForChat(page, "Verified gear token #1");
 
-    await clickExactly(dialog.getByRole("button", { name: "posted-up laptop lid, 0.012 ETH, 112.5 mfer, 93.75 mfergpt", exact: true }));
+    await clickExactly(dialog.locator('button[title="posted-up laptop lid"]'));
     assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "2");
     assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.012");
+    await waitForStoreGearStats(dialog, "posted-up laptop lid", ["+14 HP", "+1 STR"]);
     await clickExactly(dialog.getByRole("button", { name: "buy $mfer -10%", exact: true }));
     await waitForStatus(dialog, "buying with $mfer confirmed");
     await assertGear(client, addresses.gear, 2n, 2n, 1n);
-    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), parseEther("999887.5"));
-    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), parseEther("112.5"));
-    await waitForBalance(balances, "$mfer", "999887.5");
+    await waitForChat(page, "Verified gear token #2");
+    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), initialMferBalance - gearTwoMferPrice);
+    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), initialMferTreasury + gearTwoMferPrice);
+    await waitForBalance(balances, "$mfer", formatUiUnits(initialMferBalance - gearTwoMferPrice));
 
-    await clickExactly(dialog.getByRole("button", { name: "last-cig lighter, 0.0069 ETH, 62.1 mfer, 51.75 mfergpt", exact: true }));
+    await clickExactly(dialog.locator('button[title="last-cig lighter"]'));
     assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "3");
     assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.0069");
     await clickExactly(dialog.getByRole("button", { name: "buy $mfergpt -25%", exact: true }));
     await waitForStatus(dialog, "buying with $mfergpt confirmed");
     await assertGear(client, addresses.gear, 3n, 3n, 1n);
-    assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999948.25"));
-    assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999948.25"));
-    await waitForBalance(balances, "$mfergpt", "999948.25");
+    await waitForChat(page, "Verified gear token #3");
+    assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), initialMferGptBalance - gearThreeMferGptPrice);
+    assert.equal(await readErc20Balance(client, addresses.mfergpt, burnAddress), initialMferGptBurnBalance + gearThreeMferGptPrice);
+    assert.equal(await readErc20Supply(client, addresses.mfergpt), initialMferGptSupply);
+    await waitForBalance(balances, "$mfergpt", formatUiUnits(initialMferGptBalance - gearThreeMferGptPrice));
+
+    await clickExactly(dialog.getByRole("button", { name: "Show season pass", exact: true }));
+    await clickExactly(dialog.getByRole("button", { name: "mint ETH", exact: true }));
+    await waitForStatus(dialog, "buying launch pass with ETH confirmed");
+    await assertOwner(client, addresses.launchPass, 1n, buyer);
+    await waitForBalance(balances, "season pass", "1 owned");
 
     await clickExactly(dialog.getByRole("button", { name: "mint $mfer", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfer confirmed");
-    await assertOwner(client, addresses.launchPass, 1n, buyer);
-    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), parseEther("999266.5"));
-    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), parseEther("733.5"));
-    await waitForBalance(balances, "$mfer", "999266.5");
+    await assertOwner(client, addresses.launchPass, 2n, buyer);
+    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), initialMferBalance - gearTwoMferPrice - passMferPrice);
+    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), initialMferTreasury + gearTwoMferPrice + passMferPrice);
+    await waitForBalance(balances, "$mfer", formatUiUnits(initialMferBalance - gearTwoMferPrice - passMferPrice));
 
     await clickExactly(dialog.getByRole("button", { name: "mint $mfergpt", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfergpt confirmed");
-    await assertOwner(client, addresses.launchPass, 2n, buyer);
-    assert.equal(await readErc20Balance(client, addresses.mfergpt, buyer), parseEther("999430.75"));
-    assert.equal(await readErc20Supply(client, addresses.mfergpt), parseEther("999430.75"));
-    await waitForBalance(balances, "$mfergpt", "999430.75");
+    await assertOwner(client, addresses.launchPass, 3n, buyer);
+    assert.equal(
+      await readErc20Balance(client, addresses.mfergpt, buyer),
+      initialMferGptBalance - gearThreeMferGptPrice - passMferGptPrice,
+    );
+    assert.equal(
+      await readErc20Balance(client, addresses.mfergpt, burnAddress),
+      initialMferGptBurnBalance + gearThreeMferGptPrice + passMferGptPrice,
+    );
+    assert.equal(await readErc20Supply(client, addresses.mfergpt), initialMferGptSupply);
+    await waitForBalance(balances, "$mfergpt", formatUiUnits(initialMferGptBalance - gearThreeMferGptPrice - passMferGptPrice));
 
     await clickExactly(dialog.getByRole("button", { name: "Close store", exact: true }));
+
+    const traitsButton = page.locator('button[title="Debug travel: Traits"]');
+    await clickDebugTravel(traitsButton, page.locator(".debug-travel-position"), "-4, 24");
+    await pressInteractKey(page);
+    const traits = await openTraitsDialog(page);
+    if (await traits.getByRole("button", { name: "save free set", exact: true }).count() === 1) {
+      await clickExactly(traits.getByRole("button", { name: "save free set", exact: true }));
+      await waitForTraitPaymentButton(traits, traitMferButtonName);
+    }
+    await traits.getByRole("textbox", { name: "character name", exact: true }).fill(paidTraitName);
+    await clickExactly(traits.getByRole("button", { name: "random", exact: true }));
+    await traits.getByRole("button", { name: traitMferButtonName, exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+    await clickExactly(traits.getByRole("button", { name: traitMferButtonName, exact: true }));
+    await waitForErc20Balance(client, addresses.mfer, buyer, initialMferBalance - gearTwoMferPrice - passMferPrice - traitMferPrice);
+    await waitForErc20Balance(client, addresses.mfer, treasury, initialMferTreasury + gearTwoMferPrice + passMferPrice + traitMferPrice);
+    await waitForHudName(page, paidTraitName);
+    await assertNoTraitError(traits);
+    await waitForWalletProfileName(paidTraitName);
+    await clickExactly(traits.getByRole("button", { name: "Close traits", exact: true }));
+
     const characterButton = page.getByRole("button", { name: "Character", exact: true });
     await clickExactly(characterButton);
     const character = page.getByRole("dialog", { name: "Character", exact: true });
     await character.waitFor({ state: "visible", timeout: 10_000 });
-    await waitForEquipmentTooltip(character, "posted-up laptop lid", "T1 #2", "+14 HP, +1 STR");
+    await waitForEquipmentSlot(character, "posted-up laptop lid", "T1 #2", ["+14 HP", "+1 STR"]);
+    await waitForCharacterStat(character, "Season Pass", "owned");
     await waitForCharacterStat(character, "STR", "10");
 
     if (consoleErrors.length > 0) {
@@ -196,6 +335,11 @@ async function ensureLocalStack() {
   }
   const nextHealth = await fetchJson(serverHealthUrl);
   assert.equal(nextHealth.debugMessagesEnabled, true, "server must run with debug messages enabled for debug travel");
+  assert.equal(
+    nextHealth.cryptoSmokeWalletAuthBypassEnabled,
+    true,
+    "server must run with MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS=1 for the local mock wallet smoke",
+  );
 
   if (!await isHttpOk(webUrl)) {
     spawnManaged("npm", ["run", "dev:web"]);
@@ -220,6 +364,25 @@ async function run(command, args) {
     child.on("exit", (code) => {
       if (code === 0) resolveRun();
       else rejectRun(new Error(`${command} ${args.join(" ")} exited with ${code}`));
+    });
+  });
+}
+
+async function runCapture(command, args) {
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(command, args, { cwd: repoRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", rejectRun);
+    child.on("exit", (code) => {
+      if (code === 0) resolveRun(stdout);
+      else rejectRun(new Error(`${command} ${args.join(" ")} exited with ${code}\n${stderr}`));
     });
   });
 }
@@ -347,10 +510,14 @@ async function waitForBalance(balancePanel, label, expected) {
   const normalizedLabel = label.toLowerCase();
   while (Date.now() - startedAt < 10_000) {
     const text = await balancePanel.innerText();
-    if (text.toLowerCase().includes(normalizedLabel) && text.includes(expected)) return;
+    const tooltips = await getTooltipText(balancePanel);
+    if (
+      text.toLowerCase().includes(normalizedLabel)
+      && (text.includes(expected) || tooltips.includes(expected))
+    ) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
-  throw new Error(`Expected ${label} balance ${expected}, got "${await balancePanel.innerText()}"`);
+  throw new Error(`Expected ${label} balance ${expected}, got "${await balancePanel.innerText()}" and tooltips "${await getTooltipText(balancePanel)}"`);
 }
 
 async function waitForMarketQuote(dialog, label) {
@@ -365,14 +532,154 @@ async function waitForMarketQuote(dialog, label) {
   throw new Error(`Expected market quote ${label}, got "${await marketQuotes.innerText()}"`);
 }
 
-async function waitForEquipmentTooltip(character, itemName, tierLabel, statLabel) {
+async function waitForChat(page, expected) {
   const startedAt = Date.now();
-  const selector = `button.equipment-slot[data-tooltip*="${itemName}"][data-tooltip*="${tierLabel}"][data-tooltip*="${statLabel}"]`;
-  while (Date.now() - startedAt < 10_000) {
-    if (await character.locator(selector).count() > 0) return;
+  const chatLog = page.locator(".chat-log");
+  while (Date.now() - startedAt < 30_000) {
+    const text = await chatLog.innerText();
+    if (text.includes(expected)) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
-  throw new Error(`Expected ${itemName} ${tierLabel} stats in character gear`);
+  throw new Error(`Expected chat to include "${expected}", got "${await chatLog.innerText()}"`);
+}
+
+async function waitForContractPrice(dialog, label, expected) {
+  const startedAt = Date.now();
+  const prices = dialog.locator(`[aria-label="${label}"]`);
+  while (Date.now() - startedAt < 10_000) {
+    const text = await prices.innerText();
+    const tooltips = await getTooltipText(prices);
+    if ((text.includes(expected) || tooltips.includes(expected)) && !text.includes("--")) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected ${label} to include ${expected}, got "${await prices.innerText()}" and tooltips "${await getTooltipText(prices)}"`);
+}
+
+async function waitForGearPrice(dialog, expected) {
+  const startedAt = Date.now();
+  const input = dialog.getByRole("textbox", { name: "ETH", exact: true });
+  while (Date.now() - startedAt < 10_000) {
+    if (await input.inputValue() === expected) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected selected gear ETH price ${expected}, got "${await input.inputValue()}"`);
+}
+
+async function waitForStoreGearStats(dialog, itemName, expectedStats) {
+  const startedAt = Date.now();
+  const stats = dialog.locator(`[aria-label="${itemName} stats"]`);
+  await stats.waitFor({ state: "visible", timeout: 10_000 });
+  while (Date.now() - startedAt < 10_000) {
+    const text = await stats.innerText();
+    const tooltips = `${await stats.getAttribute("data-tooltip") ?? ""}\n${await getTooltipText(stats)}`;
+    const combined = `${text}\n${tooltips}`;
+    if (expectedStats.every((stat) => combined.includes(stat))) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  const tooltips = `${await stats.getAttribute("data-tooltip") ?? ""}\n${await getTooltipText(stats)}`;
+  throw new Error(`Expected ${itemName} stats ${expectedStats.join(", ")}, got "${await stats.innerText()}" and tooltips "${tooltips}"`);
+}
+
+async function getTooltipText(locator) {
+  return locator.locator("[data-tooltip]").evaluateAll((nodes) => nodes
+    .map((node) => node.getAttribute("data-tooltip") || "")
+    .join("\n"));
+}
+
+async function waitForEquipmentSlot(character, itemName, tierLabel, statLabels = []) {
+  const startedAt = Date.now();
+  const slots = character.locator("button.equipment-slot");
+  while (Date.now() - startedAt < 30_000) {
+    const hasSlot = await slots.evaluateAll((buttons, [expectedItemName, expectedTierLabel, expectedStatLabels]) => {
+      return buttons.some((button) => {
+        const tooltip = button.getAttribute("data-tooltip") || button.textContent || "";
+        const lowerTooltip = tooltip.toLowerCase();
+        return lowerTooltip.includes(String(expectedItemName).toLowerCase())
+          && tooltip.includes(String(expectedTierLabel))
+          && Array.isArray(expectedStatLabels)
+          && expectedStatLabels.every((statLabel) => tooltip.includes(String(statLabel)));
+      });
+    }, [itemName, tierLabel, statLabels]);
+    if (hasSlot) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected ${itemName} ${tierLabel} in character gear, got "${await character.innerText()}"`);
+}
+
+async function waitForTraitStatus(traits, expected) {
+  const startedAt = Date.now();
+  const status = traits.locator(".traits-status");
+  while (Date.now() - startedAt < 30_000) {
+    if ((await status.innerText()).includes(expected)) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected traits status "${expected}", got "${await status.innerText()}"`);
+}
+
+async function waitForTraitPaymentButton(traits, buttonName) {
+  const button = traits.getByRole("button", { name: buttonName, exact: true });
+  await button.waitFor({ state: "visible", timeout: 30_000 });
+}
+
+async function waitForHudName(page, expectedName) {
+  const startedAt = Date.now();
+  const name = page.locator(".player-card .player-name-row strong");
+  while (Date.now() - startedAt < 30_000) {
+    if (await name.innerText() === expectedName) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected HUD name "${expectedName}", got "${await name.innerText()}"`);
+}
+
+async function waitForWalletProfileName(expectedName) {
+  const url = new URL("/wallet-character", serverBaseUrl);
+  url.searchParams.set("wallet", buyer);
+  const startedAt = Date.now();
+  let lastProfile = null;
+  while (Date.now() - startedAt < 30_000) {
+    const response = await fetch(url, { cache: "no-store" });
+    const cacheControl = response.headers.get("cache-control") ?? "";
+    assert.ok(cacheControl.includes("no-store"), "wallet character profile response must not be cached");
+    if (response.ok) {
+      lastProfile = await response.json();
+      if (lastProfile?.character?.name === expectedName) return;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected wallet profile name "${expectedName}", got ${JSON.stringify(lastProfile)}`);
+}
+
+async function assertNoTraitError(traits) {
+  const text = (await traits.locator(".traits-status").innerText()).toLowerCase();
+  if (/(failed|required|mismatch|unavailable|missing|talk to|invalid)/.test(text)) {
+    throw new Error(`Unexpected traits status "${text}"`);
+  }
+}
+
+async function waitForErc20Balance(client, tokenAddress, account, expected) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 30_000) {
+    const balance = await readErc20Balance(client, tokenAddress, account);
+    if (balance === expected) return;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`Expected ERC-20 balance ${expected} for ${account}, got ${await readErc20Balance(client, tokenAddress, account)}`);
+}
+
+async function openTraitsDialog(page) {
+  const acceptQuest = page.getByTestId("quest-accept-button");
+  const traits = page.getByRole("dialog", { name: "traits", exact: true });
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 15_000) {
+    if (await traits.count() === 1 && await traits.isVisible()) return traits;
+    if (await acceptQuest.count() === 1 && await acceptQuest.isVisible()) {
+      await clickExactly(acceptQuest);
+      await traits.waitFor({ state: "visible", timeout: 10_000 });
+      return traits;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+  }
+  throw new Error(`traits dialog did not open; page text:\n${await page.locator("body").innerText().catch(() => "")}`);
 }
 
 async function waitForCharacterStat(character, label, expectedValue) {
@@ -385,14 +692,40 @@ async function waitForCharacterStat(character, label, expectedValue) {
   throw new Error(`Expected character stat ${label} ${expectedValue}`);
 }
 
-async function assertDiscount(client, store, gearType, discountBps, expectedEther) {
-  const value = await client.readContract({
+async function readGearEthPrice(client, store, gearType) {
+  return client.readContract({
+    address: store,
+    abi: storeAbi,
+    functionName: "ethPriceByGearType",
+    args: [gearType],
+  });
+}
+
+async function readGearTokenPrice(client, store, gearType, discountBps) {
+  return client.readContract({
     address: store,
     abi: storeAbi,
     functionName: "discountedTokenPrice",
     args: [gearType, discountBps],
   });
-  assert.equal(value, parseEther(expectedEther));
+}
+
+async function readLaunchPassPrice(client, launchPass, functionName) {
+  return client.readContract({
+    address: launchPass,
+    abi: launchPassAbi,
+    functionName,
+  });
+}
+
+async function readTraitPrice(client, pricing) {
+  const [ethPrice, mferPrice, mferGptPrice, updatedAt] = await client.readContract({
+    address: pricing,
+    abi: pricingAbi,
+    functionName: "getProductPrice",
+    args: [traitChangeProductId],
+  });
+  return { ethPrice, mferPrice, mferGptPrice, updatedAt };
 }
 
 async function assertGear(client, gearAddress, tokenId, expectedGearType, expectedTier) {
@@ -416,7 +749,7 @@ async function assertGear(client, gearAddress, tokenId, expectedGearType, expect
 async function assertOwner(client, contractAddress, tokenId, expectedOwner) {
   const owner = await client.readContract({
     address: contractAddress,
-    abi: gearAbi,
+    abi: launchPassAbi,
     functionName: "ownerOf",
     args: [tokenId],
   });
@@ -453,4 +786,18 @@ async function readErc20Supply(client, token) {
     abi: erc20Abi,
     functionName: "totalSupply",
   });
+}
+
+function formatUiUnits(value, decimals = 18, maxFractionDigits = 4) {
+  const base = 10n ** BigInt(decimals);
+  const whole = value / base;
+  const fraction = value % base;
+  if (fraction === 0n || maxFractionDigits <= 0) return whole.toString();
+
+  const fractionText = fraction
+    .toString()
+    .padStart(decimals, "0")
+    .slice(0, maxFractionDigits)
+    .replace(/0+$/, "");
+  return fractionText ? `${whole}.${fractionText}` : whole.toString();
 }

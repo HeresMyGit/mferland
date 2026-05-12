@@ -11,7 +11,12 @@ import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { closeDatabase } from "./db/client.js";
 import { getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
-import { areDebugMessagesEnabled, readDebugPlacementMap, TownRoom } from "./rooms/TownRoom.js";
+import {
+  areDebugMessagesEnabled,
+  isCryptoSmokeWalletAuthBypassEnabled,
+  readDebugPlacementMap,
+  TownRoom,
+} from "./rooms/TownRoom.js";
 import { createWalletAuthChallenge } from "./walletAuth.js";
 
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
@@ -21,6 +26,28 @@ const WEB_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const WEB_INDEX_CACHE_CONTROL = "no-store";
 const MAX_ANALYTICS_BODY_BYTES = 8 * 1024;
 const MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES = 2 * 1024;
+const MAX_LOCAL_RPC_PROXY_BODY_BYTES = 64 * 1024;
+const LOCAL_RPC_PROXY_METHODS = new Set([
+  "eth_blockNumber",
+  "eth_call",
+  "eth_chainId",
+  "eth_estimateGas",
+  "eth_feeHistory",
+  "eth_gasPrice",
+  "eth_getBalance",
+  "eth_getBlockByHash",
+  "eth_getBlockByNumber",
+  "eth_getCode",
+  "eth_getLogs",
+  "eth_getStorageAt",
+  "eth_getTransactionByHash",
+  "eth_getTransactionCount",
+  "eth_getTransactionReceipt",
+  "eth_maxPriorityFeePerGas",
+  "eth_sendRawTransaction",
+  "net_version",
+  "web3_clientVersion",
+]);
 const PUBLIC_ANALYTICS_EVENTS = new Set([
   "app_loaded",
   "main_menu_viewed",
@@ -68,6 +95,8 @@ const server = createServer((req, res) => {
       room: ROOM_NAME,
       maxPlayers: MAX_PLAYERS,
       debugMessagesEnabled: areDebugMessagesEnabled(),
+      cryptoSmokeWalletAuthBypassEnabled: isCryptoSmokeWalletAuthBypassEnabled(),
+      localRpcProxyEnabled: isLocalRpcProxyEnabled(),
     }));
     return;
   }
@@ -99,6 +128,7 @@ const server = createServer((req, res) => {
     void getWalletCharacterProfile(requestUrl.searchParams.get("wallet") ?? "")
       .then((character) => {
         writeCorsHeaders(res);
+        writeNoStoreHeaders(res);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({
           exists: Boolean(character),
@@ -108,6 +138,7 @@ const server = createServer((req, res) => {
       .catch((error) => {
         console.error("Failed to load wallet character profile", error);
         writeCorsHeaders(res);
+        writeNoStoreHeaders(res);
         const status = error instanceof PersistenceUnavailableError ? 503 : 500;
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify({
@@ -121,6 +152,11 @@ const server = createServer((req, res) => {
 
   if (url === "/wallet-auth-challenge") {
     void handleWalletAuthChallenge(req, res);
+    return;
+  }
+
+  if (url === "/crypto-rpc") {
+    void handleLocalRpcProxy(req, res);
     return;
   }
 
@@ -248,6 +284,54 @@ async function handleWalletAuthChallenge(req: IncomingMessage, res: ServerRespon
   res.end(JSON.stringify(challenge));
 }
 
+async function handleLocalRpcProxy(req: IncomingMessage, res: ServerResponse) {
+  writeCorsHeaders(res);
+  if (!isLocalRpcProxyEnabled()) {
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "local rpc proxy disabled" }));
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.writeHead(405, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  let payload: unknown;
+  try {
+    payload = await readJsonBody<unknown>(req, MAX_LOCAL_RPC_PROXY_BODY_BYTES);
+  } catch (error) {
+    const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: status === 413 ? "payload too large" : "invalid json" }));
+    return;
+  }
+
+  const requests = Array.isArray(payload) ? payload : [payload];
+  if (requests.length === 0 || !requests.every(isAllowedLocalRpcRequest)) {
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32601, message: "rpc method not allowed" } }));
+    return;
+  }
+
+  const response = await fetch(getLocalRpcProxyUrl(), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch((error) => error instanceof Error ? error : new Error("local rpc unavailable"));
+
+  if (response instanceof Error) {
+    res.writeHead(502, { "content-type": "application/json" });
+    res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: response.message } }));
+    return;
+  }
+
+  const text = await response.text();
+  res.writeHead(response.status, { "content-type": response.headers.get("content-type") || "application/json" });
+  res.end(text);
+}
+
 type PublicAnalyticsPayload = {
   eventType: string;
   sessionId: string;
@@ -261,6 +345,20 @@ type WalletAuthChallengePayload = {
 };
 
 class RequestBodyTooLargeError extends Error {}
+
+function isLocalRpcProxyEnabled() {
+  return process.env.MFERLAND_LOCAL_RPC_PROXY === "1";
+}
+
+function getLocalRpcProxyUrl() {
+  return (process.env.MFERLAND_LOCAL_RPC_PROXY_URL ?? process.env.MFERLAND_PRICING_RPC_URL ?? "http://127.0.0.1:8545").trim();
+}
+
+function isAllowedLocalRpcRequest(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const method = (value as { method?: unknown }).method;
+  return typeof method === "string" && LOCAL_RPC_PROXY_METHODS.has(method);
+}
 
 function readJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<T> {
   return new Promise((resolvePromise, reject) => {
@@ -309,6 +407,11 @@ function writeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type");
+}
+
+function writeNoStoreHeaders(res: ServerResponse) {
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("pragma", "no-cache");
 }
 
 function getWalletCharacterProfileErrorMessage(error: unknown, status: number) {

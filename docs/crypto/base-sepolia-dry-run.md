@@ -9,7 +9,7 @@ Base Sepolia is useful for:
 - deployment rehearsal with disposable keys.
 - proving the address-config shape before Base mainnet.
 
-Base Sepolia is not better than local for the current `$mfergpt` path unless we also deploy a mock `$mfergpt` token there. The live `$mfergpt` token is on Base mainnet, not Base Sepolia, so local remains the cleaner full-path test for `$mfergpt` burn payments.
+Base Sepolia is not better than local for the current `$mfergpt` path unless we also deploy a mock `$mfergpt` token there. The live `$mfergpt` token is on Base mainnet, not Base Sepolia, so local remains the cleaner full-path test for `$mfergpt` burn-address payments.
 
 ## Disposable Test Wallets
 
@@ -42,7 +42,7 @@ Public RPCs and faucets are fine for rehearsal. They are not production reliabil
 
 ## Recommended Path
 
-1. Stay local for the full `$mfergpt` launch-pass burn test.
+1. Stay local for the full `$mfergpt` launch-pass burn-address test.
 2. Use Base Sepolia only when we want a real wallet/network rehearsal.
 3. Use disposable wallets for Base Sepolia.
 4. Deploy mocks to Base Sepolia only if we specifically need public-testnet `$mfergpt` behavior.

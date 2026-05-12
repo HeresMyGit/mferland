@@ -132,8 +132,14 @@ type DebugPlacementMapDocument = {
   placements?: unknown;
   sourceDefaults?: unknown;
 };
+type LocalTraitUpdateOverride = {
+  name?: string;
+  traits: PlayerSnapshot["appearanceTraits"];
+  expiresAt: number;
+};
 
 const SNAPSHOT_RENDER_INTERVAL_MS = 125;
+const LOCAL_TRAIT_UPDATE_OVERRIDE_MS = 30_000;
 const DEBUG_PLACEMENT_SAVE_CHUNK_SIZE = 8;
 const COMBAT_EVENT_RETAIN_MS = 1400;
 const EXPERIENCE_EVENT_RETAIN_MS = 1800;
@@ -169,6 +175,8 @@ export function useTownRoom(identity: JoinOptions) {
   const combatEventQueueRef = useRef<CombatEvent[]>([]);
   const experienceEventQueueRef = useRef<ExperienceEvent[]>([]);
   const bubbleTimeoutsRef = useRef<number[]>([]);
+  const pendingTraitUpdateNameRef = useRef("");
+  const localTraitUpdateOverrideRef = useRef<LocalTraitUpdateOverride | null>(null);
 
   const requestSnapshotRender = useCallback((force = false, includeScene = true) => {
     if (includeScene) pendingSceneRenderRef.current = true;
@@ -273,6 +281,8 @@ export function useTownRoom(identity: JoinOptions) {
 
     playersRef.current.clear();
     npcsRef.current.clear();
+    pendingTraitUpdateNameRef.current = "";
+    localTraitUpdateOverrideRef.current = null;
     clearQueuedFeedbackEvents();
     requestSnapshotRender(true);
     setChatBubbles([]);
@@ -298,7 +308,15 @@ export function useTownRoom(identity: JoinOptions) {
         room.onStateChange((state) => {
           const playersChanged = syncPlayerSnapshots(playersRef.current, state.players);
           const npcsChanged = syncNpcSnapshots(npcsRef.current, state.npcs);
-          if (playersChanged || npcsChanged) requestSnapshotRender();
+          const overrideChanged = applyActiveLocalTraitUpdateOverride(
+            playersRef.current,
+            room.sessionId,
+            localTraitUpdateOverrideRef.current,
+          );
+          if (localTraitUpdateOverrideRef.current && localTraitUpdateOverrideRef.current.expiresAt <= Date.now()) {
+            localTraitUpdateOverrideRef.current = null;
+          }
+          if (playersChanged || npcsChanged || overrideChanged) requestSnapshotRender();
         });
 
         room.onMessage("chat", (message: ChatMessage) => {
@@ -373,7 +391,23 @@ export function useTownRoom(identity: JoinOptions) {
         });
 
         room.onMessage("traitUpdateResult", (message: TraitUpdateResult) => {
-          setTraitUpdateResult(message);
+          const result = message.ok && !message.name && pendingTraitUpdateNameRef.current
+            ? { ...message, name: pendingTraitUpdateNameRef.current }
+            : message;
+          pendingTraitUpdateNameRef.current = "";
+          if (result.ok) {
+            localTraitUpdateOverrideRef.current = {
+              name: result.name,
+              traits: result.traits,
+              expiresAt: Date.now() + LOCAL_TRAIT_UPDATE_OVERRIDE_MS,
+            };
+          } else {
+            localTraitUpdateOverrideRef.current = null;
+          }
+          setTraitUpdateResult(result);
+          if (applyTraitUpdateResultToLocalSnapshot(playersRef.current, room.sessionId, result)) {
+            requestSnapshotRender(true);
+          }
         });
 
         room.onMessage("persistenceStatus", (message: Partial<PersistenceStatus>) => {
@@ -554,6 +588,7 @@ export function useTownRoom(identity: JoinOptions) {
   }, []);
 
   const sendUpdateTraits = useCallback((message: ClientUpdateTraits) => {
+    pendingTraitUpdateNameRef.current = typeof message.name === "string" ? message.name : "";
     roomRef.current?.send("updateTraits", message);
   }, []);
 
@@ -803,6 +838,54 @@ function syncPlayerSnapshots(target: Map<string, PlayerSnapshot>, source: Runtim
   });
 
   return deleteMissingSnapshots(target, seen) || changed;
+}
+
+function applyTraitUpdateResultToLocalSnapshot(
+  target: Map<string, PlayerSnapshot>,
+  sessionId: string,
+  result: TraitUpdateResult,
+) {
+  if (!result.ok) return false;
+  const player = target.get(sessionId);
+  if (!player) return false;
+
+  let changed = false;
+  if (result.name && player.name !== result.name) {
+    player.name = result.name;
+    changed = true;
+  }
+
+  const nextAppearanceTraitsKey = appearanceTraitsKey(result.traits);
+  if (appearanceTraitsKey(player.appearanceTraits) !== nextAppearanceTraitsKey) {
+    player.appearanceTraits = { ...result.traits };
+    changed = true;
+  }
+
+  return changed;
+}
+
+function applyActiveLocalTraitUpdateOverride(
+  target: Map<string, PlayerSnapshot>,
+  sessionId: string,
+  override: LocalTraitUpdateOverride | null,
+) {
+  if (!override || override.expiresAt <= Date.now()) return false;
+  const player = target.get(sessionId);
+  if (!player) return false;
+
+  let changed = false;
+  if (override.name && player.name !== override.name) {
+    player.name = override.name;
+    changed = true;
+  }
+
+  const nextAppearanceTraitsKey = appearanceTraitsKey(override.traits);
+  if (appearanceTraitsKey(player.appearanceTraits) !== nextAppearanceTraitsKey) {
+    player.appearanceTraits = { ...override.traits };
+    changed = true;
+  }
+
+  return changed;
 }
 
 function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot {

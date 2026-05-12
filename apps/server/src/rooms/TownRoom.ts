@@ -18,7 +18,7 @@ import {
   SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
   TALENTS,
-  TRAIT_CHANGE_PRICES_WEI,
+  TRAIT_CHANGE_PRODUCT_ID,
   clamp,
   getNpcDisposition,
   getChainGearItemId,
@@ -65,6 +65,7 @@ import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, Talent
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
+import { readCryptoProductPriceWei } from "../crypto/contractPricing.js";
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
@@ -165,6 +166,15 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
 
 export function areDebugMessagesEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_ENABLE_DEBUG_MESSAGES === "1";
+}
+
+export function isCryptoSmokeWalletAuthBypassEnabled() {
+  return process.env.NODE_ENV === "development" && process.env.MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS === "1";
+}
+
+function isCryptoSmokeWalletAuthBypassAllowed(walletAddress: string) {
+  return isCryptoSmokeWalletAuthBypassEnabled()
+    && walletAddress === "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 }
 
 function getRequiredInviteCode() {
@@ -386,7 +396,7 @@ export class TownRoom extends Room<TownState> {
   private readonly lastMferGptAt = new Map<string, number>();
   private readonly lastInteractAt = new Map<string, number>();
   private readonly persistentCharacterIds = new Map<string, string>();
-  private readonly pendingCharacterSaves = new Map<string, Promise<void>>();
+  private readonly pendingCharacterSaves = new Map<string, Promise<boolean>>();
   private readonly queuedCharacterSaveFingerprints = new Map<string, string>();
   private readonly savedCharacterFingerprints = new Map<string, string>();
   private readonly sessionJoinedAt = new Map<string, number>();
@@ -404,7 +414,11 @@ export class TownRoom extends Room<TownState> {
   async onAuth(_client: Client, options?: JoinOptions) {
     if (!isAllowedInvite(options)) throw new ServerError(ErrorCode.AUTH_FAILED, "invalid invite");
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
-    if ((options?.identityType === "wallet" || walletAddress) && !await verifyWalletAuthProof(walletAddress, options?.walletAuth)) {
+    if (
+      (options?.identityType === "wallet" || walletAddress)
+      && !isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
+      && !await verifyWalletAuthProof(walletAddress, options?.walletAuth)
+    ) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");
     }
     return true;
@@ -467,7 +481,17 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("updateTraits", (client, message: Partial<ClientUpdateTraits>) => {
-      this.handleUpdateTraits(client, message);
+      void this.handleUpdateTraits(client, message).catch((error) => {
+        const player = this.state.players.get(client.sessionId);
+        client.send("traitUpdateResult", {
+          ok: false,
+          traits: parseMferAppearanceTraitsJson(player?.appearanceTraitsJson),
+          name: player?.name ?? "",
+          free: false,
+          paid: false,
+          error: error instanceof Error ? error.message : "trait update failed",
+        });
+      });
     });
 
     this.onMessage("respawn", (client) => {
@@ -1747,7 +1771,8 @@ export class TownRoom extends Room<TownState> {
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
     if (!completeQuest(player, questId, Date.now())) return;
     const xpReward = getPlayerQuestXpReward(player, QUESTS[questId].xpReward);
-    awardExperience(player, xpReward);
+    const award = awardExperience(player, xpReward);
+    if (award.levelsGained > 0) recalculatePlayerStats(player);
     void this.awardSeason0QuestReward(client, player, questId);
 
     this.persistPlayerProgress(client.sessionId, player);
@@ -1844,17 +1869,19 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
   }
 
-  private handleUpdateTraits(client: Client, message: Partial<ClientUpdateTraits>) {
+  private async handleUpdateTraits(client: Client, message: Partial<ClientUpdateTraits>) {
     const player = this.state.players.get(client.sessionId);
     if (!player || player.health <= 0) return;
 
     const traitsNpc = this.state.npcs.get("traits-mfer");
     const traitQuest = player.quests.get("set-your-traits");
-    if (!traitsNpc || distanceToNpc(player, traitsNpc) > LOOT.interactRange || !traitQuest) {
-      const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+    const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+    const hasExistingTraits = hasExplicitMferAppearanceTraits(existingTraits);
+    if (!traitsNpc || distanceToNpc(player, traitsNpc) > LOOT.interactRange) {
       client.send("traitUpdateResult", {
         ok: false,
         traits: existingTraits,
+        name: player.name,
         free: false,
         paid: false,
         error: "talk to traits mfer first",
@@ -1862,12 +1889,12 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
-    const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
     const nextTraits = normalizeMferAppearanceTraits(message?.traits, existingTraits);
     if (!hasExplicitMferAppearanceTraits(nextTraits)) {
       client.send("traitUpdateResult", {
         ok: false,
         traits: existingTraits,
+        name: player.name,
         free: false,
         paid: false,
         error: "pick a valid trait set",
@@ -1876,33 +1903,54 @@ export class TownRoom extends Room<TownState> {
     }
 
     const isWalletCharacter = player.identityType === "wallet" && Boolean(this.persistentCharacterIds.get(client.sessionId));
-    const free = !hasExplicitMferAppearanceTraits(existingTraits);
-    const payment = free || !isWalletCharacter ? null : normalizeTraitPaymentProof(message?.payment);
+    const free = !hasExistingTraits;
+    const paymentValidation = free || !isWalletCharacter
+      ? { payment: null, error: "" }
+      : await validateTraitPaymentProof(message?.payment);
+    const payment = paymentValidation.payment;
     if (isWalletCharacter && !free && !payment) {
       client.send("traitUpdateResult", {
         ok: false,
         traits: existingTraits,
+        name: player.name,
         free: false,
         paid: false,
-        error: "paid trait change required",
+        error: paymentValidation.error || "paid trait change required",
       });
       return;
     }
 
+    const previousName = player.name;
+    const nextName = sanitizePlayerName(message?.name, player.name || "mfer");
     player.appearanceTraitsJson = serializeMferAppearanceTraits(nextTraits);
-    const progressedQuest = progressTraitQuest(player);
+    player.name = nextName;
+    const progressedQuest = traitQuest ? progressTraitQuest(player) : false;
     this.recordPlayerAnalyticsEvent("traits_updated", client.sessionId, player, {
       free,
       paid: Boolean(payment),
+      nameChanged: nextName !== previousName,
       paymentToken: payment?.token ?? "",
       chainId: payment?.chainId ?? 0,
       txHash: payment?.txHash ?? "",
       progressedQuest,
     });
-    this.persistPlayerProgress(client.sessionId, player);
+    const persisted = await this.persistPlayerProgressNow(client.sessionId, player);
+    if (!persisted && isWalletCharacter) {
+      client.send("traitUpdateResult", {
+        ok: false,
+        traits: nextTraits,
+        name: nextName,
+        free,
+        paid: Boolean(payment),
+        error: "wallet progress failed to save; retry before reloading",
+      });
+      return;
+    }
+
     client.send("traitUpdateResult", {
       ok: true,
       traits: nextTraits,
+      name: nextName,
       free,
       paid: Boolean(payment),
     });
@@ -1959,12 +2007,12 @@ export class TownRoom extends Room<TownState> {
     }
   }
 
-  private async persistPlayerProgressNow(sessionId: string, player: PlayerState) {
+  private async persistPlayerProgressNow(sessionId: string, player: PlayerState): Promise<boolean> {
     const characterId = this.persistentCharacterIds.get(sessionId);
-    if (!characterId) return;
+    if (!characterId) return false;
 
     const state = makePersistableCharacterState(characterId, player);
-    await this.queueCharacterSave(sessionId, characterId, state);
+    return this.queueCharacterSave(sessionId, characterId, state);
   }
 
   private async queueCharacterSave(
@@ -1972,13 +2020,13 @@ export class TownRoom extends Room<TownState> {
     characterId: string,
     state: PersistableCharacterState,
     fingerprint = getPersistableCharacterStateFingerprint(state),
-  ) {
-    const previous = this.pendingCharacterSaves.get(characterId) ?? Promise.resolve();
+  ): Promise<boolean> {
+    const previous = this.pendingCharacterSaves.get(characterId) ?? Promise.resolve(true);
     this.queuedCharacterSaveFingerprints.set(characterId, fingerprint);
     this.sendPersistenceStatus(sessionId, "saving", "saving wallet progress");
-    let next: Promise<void>;
+    let next: Promise<boolean>;
     next = previous
-      .catch(() => undefined)
+      .catch(() => false)
       .then(async () => {
         try {
           await saveCharacterProgress(state);
@@ -1986,9 +2034,11 @@ export class TownRoom extends Room<TownState> {
             this.savedCharacterFingerprints.set(characterId, fingerprint);
             this.sendPersistenceStatus(sessionId, "saved", "wallet progress saved");
           }
+          return true;
         } catch (error) {
           this.sendPersistenceStatus(sessionId, "error", "wallet progress failed to save");
           console.error(`Failed to persist character ${characterId}`, error);
+          return false;
         }
       });
 
@@ -1999,7 +2049,7 @@ export class TownRoom extends Room<TownState> {
         this.queuedCharacterSaveFingerprints.delete(characterId);
       }
     }).catch(() => undefined);
-    await next;
+    return next;
   }
 
   private autosaveWalletCharacters(now: number) {
@@ -2163,6 +2213,7 @@ export class TownRoom extends Room<TownState> {
       if (!player || player.health <= 0) continue;
       const questProgressed = progressDefeatQuests(player, npc);
       const award = awardExperience(player, mobXp);
+      if (award.levelsGained > 0) recalculatePlayerStats(player);
       if (award.xpGained > 0) {
         this.sendExperienceEvent(sessionId, npc, award.xpGained, now);
       }
@@ -2490,7 +2541,29 @@ function normalizeClientAnalyticsProperties(value: unknown): AnalyticsProperties
   return properties;
 }
 
-function normalizeTraitPaymentProof(value: unknown): ClientUpdateTraits["payment"] | null {
+async function validateTraitPaymentProof(value: unknown): Promise<{ payment: ClientUpdateTraits["payment"] | null; error: string }> {
+  const payment = normalizeTraitPaymentProofShape(value);
+  if (!payment) return { payment: null, error: "paid trait change required" };
+
+  let price = null;
+  try {
+    price = await readCryptoProductPriceWei(TRAIT_CHANGE_PRODUCT_ID);
+  } catch {
+    price = null;
+  }
+  if (!price || price.ethPriceWei === "0" || price.mferPriceWei === "0" || price.mferGptPriceWei === "0") {
+    return { payment: null, error: "trait pricing unavailable" };
+  }
+
+  const expectedAmountWei = getTraitPaymentPriceWei(price, payment.token);
+  if (payment.chainId !== price.chainId || payment.amountWei !== expectedAmountWei) {
+    return { payment: null, error: "trait payment amount changed; retry with current price" };
+  }
+
+  return { payment, error: "" };
+}
+
+function normalizeTraitPaymentProofShape(value: unknown): ClientUpdateTraits["payment"] | null {
   if (!value || typeof value !== "object") return null;
   const proof = value as Record<string, unknown>;
   const token = proof.token === "ETH" || proof.token === "MFER" || proof.token === "MFERGPT" ? proof.token : "";
@@ -2499,9 +2572,8 @@ function normalizeTraitPaymentProof(value: unknown): ClientUpdateTraits["payment
   const txHash = typeof proof.txHash === "string" ? proof.txHash.toLowerCase() : "";
   if (!/^0x[a-f0-9]{64}$/.test(txHash)) return null;
 
-  const expectedAmountWei = TRAIT_CHANGE_PRICES_WEI[token];
   const amountWei = typeof proof.amountWei === "string" ? proof.amountWei : "";
-  if (amountWei !== expectedAmountWei) return null;
+  if (!/^[0-9]+$/.test(amountWei) || amountWei === "0") return null;
 
   const chainId = Number(proof.chainId);
   if (!Number.isInteger(chainId) || chainId <= 0) return null;
@@ -2517,6 +2589,15 @@ function normalizeTraitPaymentProof(value: unknown): ClientUpdateTraits["payment
     chainId,
     ...(contractAddress ? { contractAddress } : {}),
   };
+}
+
+function getTraitPaymentPriceWei(
+  price: NonNullable<Awaited<ReturnType<typeof readCryptoProductPriceWei>>>,
+  token: NonNullable<ClientUpdateTraits["payment"]>["token"],
+) {
+  if (token === "ETH") return price.ethPriceWei;
+  if (token === "MFER") return price.mferPriceWei;
+  return price.mferGptPriceWei;
 }
 
 function isAnalyticsBossNpc(npc: NpcState) {

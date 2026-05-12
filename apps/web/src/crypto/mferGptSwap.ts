@@ -1,4 +1,5 @@
 import { encodeAbiParameters, encodeFunctionData, formatUnits, parseEther, parseUnits } from "viem";
+import { formatReadableDecimal } from "./displayAmounts";
 import { waitForTransactionReceipt, type EthereumProvider } from "./transactionReceipts";
 
 export const MFERGPT_BASE_TOKEN_ADDRESS = "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07";
@@ -145,7 +146,7 @@ export function formatMferGptCompact(amountWei: bigint) {
 export function formatSwapPrice(priceNative: string) {
   const price = Number(priceNative);
   if (!Number.isFinite(price) || price <= 0) return "--";
-  return `${price.toExponential(3)} ETH`;
+  return `${formatReadableDecimal(priceNative)} ETH`;
 }
 
 export function makeMferGptUniswapUrl(ethAmount: string) {

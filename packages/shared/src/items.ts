@@ -1,4 +1,4 @@
-import { PLAYER } from "./config.js";
+import { PLAYER, PROGRESSION } from "./config.js";
 import { clamp } from "./utils.js";
 
 export const STAT_LABELS = {
@@ -27,6 +27,7 @@ export type EquipmentDefinition = {
   slot: EquipmentSlotId;
   build: string;
   stats: Partial<Record<StatKey, number>>;
+  heirloomStatsPerLevel?: Partial<Record<StatKey, number>>;
 };
 
 export type EquippedItemRef = {
@@ -217,6 +218,10 @@ export const ITEMS = {
         strength: 3,
         maxHealth: 8,
       },
+      heirloomStatsPerLevel: {
+        strength: 0.25,
+        maxHealth: 0.8,
+      },
     },
   },
   "bent-slingshot": {
@@ -267,6 +272,10 @@ export const ITEMS = {
         maxHealth: 14,
         strength: 1,
       },
+      heirloomStatsPerLevel: {
+        maxHealth: 1.6,
+        strength: 0.16,
+      },
     },
   },
   "pocket-zine": {
@@ -300,6 +309,10 @@ export const ITEMS = {
       stats: {
         dexterity: 1,
         magic: 1,
+      },
+      heirloomStatsPerLevel: {
+        dexterity: 0.16,
+        magic: 0.16,
       },
     },
   },
@@ -773,6 +786,12 @@ export function normalizeChainGearTier(value: number | string | null | undefined
   return clamp(Math.floor(parsed), CHAIN_GEAR_TIERS.min, CHAIN_GEAR_TIERS.max);
 }
 
+export function normalizeItemLevel(value: number | string | null | undefined) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return clamp(Math.floor(parsed), 1, PROGRESSION.levelCap);
+}
+
 export function getChainGearTierMultiplier(chainTier: number | string | null | undefined) {
   const tier = normalizeChainGearTier(chainTier);
   return roundScaledStat(1 + (tier - 1) * CHAIN_GEAR_TIERS.statBonusPerTier);
@@ -792,16 +811,41 @@ export function scaleEquipmentStats(
   return scaled;
 }
 
-export function getItemEquipment(itemId: keyof typeof ITEMS, chainTier: number | string | null | undefined = 1): EquipmentDefinition | null {
+export function getItemHeirloomStatsPerLevel(itemId: keyof typeof ITEMS): Partial<Record<StatKey, number>> {
+  const equipment = (ITEMS[itemId] as ItemDefinition).equipment ?? null;
+  return { ...(equipment?.heirloomStatsPerLevel ?? {}) };
+}
+
+export function applyHeirloomStats(
+  stats: Partial<Record<StatKey, number>>,
+  heirloomStatsPerLevel: Partial<Record<StatKey, number>> | undefined,
+  playerLevel: number | string | null | undefined,
+): Partial<Record<StatKey, number>> {
+  const levelBonus = normalizeItemLevel(playerLevel) - 1;
+  if (levelBonus <= 0 || !heirloomStatsPerLevel) return { ...stats };
+
+  const scaled: Partial<Record<StatKey, number>> = { ...stats };
+  for (const statKey of Object.keys(heirloomStatsPerLevel) as StatKey[]) {
+    scaled[statKey] = roundScaledStat((scaled[statKey] ?? 0) + (heirloomStatsPerLevel[statKey] ?? 0) * levelBonus);
+  }
+  return scaled;
+}
+
+export function getItemEquipment(
+  itemId: keyof typeof ITEMS,
+  chainTier: number | string | null | undefined = 1,
+  playerLevel: number | string | null | undefined = 1,
+): EquipmentDefinition | null {
   const equipment = (ITEMS[itemId] as ItemDefinition).equipment ?? null;
   if (!equipment) return null;
 
   const tier = normalizeChainGearTier(chainTier);
-  if (tier <= CHAIN_GEAR_TIERS.min) return equipment;
+  const level = normalizeItemLevel(playerLevel);
+  if (tier <= CHAIN_GEAR_TIERS.min && level <= 1) return equipment;
 
   return {
     ...equipment,
-    stats: scaleEquipmentStats(equipment.stats, tier),
+    stats: applyHeirloomStats(scaleEquipmentStats(equipment.stats, tier), equipment.heirloomStatsPerLevel, level),
   };
 }
 
@@ -842,13 +886,16 @@ export function getInventoryItemKey(itemId: keyof typeof ITEMS, chainTokenId?: s
   return normalizedToken ? `${itemId}:${normalizedToken}` : itemId;
 }
 
-export function getEquippedCharacterStats(itemRefs: Iterable<keyof typeof ITEMS | "" | null | undefined | EquippedItemRef>): CharacterStats {
+export function getEquippedCharacterStats(
+  itemRefs: Iterable<keyof typeof ITEMS | "" | null | undefined | EquippedItemRef>,
+  playerLevel: number | string | null | undefined = 1,
+): CharacterStats {
   const stats = getBaseCharacterStats();
   for (const itemRef of itemRefs) {
     const itemId = typeof itemRef === "object" && itemRef !== null ? itemRef.itemId : itemRef;
     const chainTier = typeof itemRef === "object" && itemRef !== null ? itemRef.chainTier : 1;
     if (!itemId) continue;
-    const equipment = getItemEquipment(itemId, chainTier);
+    const equipment = getItemEquipment(itemId, chainTier, playerLevel);
     if (!equipment) continue;
 
     for (const statKey of Object.keys(equipment.stats) as StatKey[]) {

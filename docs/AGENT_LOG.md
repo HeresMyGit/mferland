@@ -12,7 +12,7 @@ Completed work and verification history lives here so [../NEXT_STEPS.md](../NEXT
 ### 2026-05-04 13:52 PDT - Soft Launch Paid Surface
 
 - Selected the first paid soft-launch surface as a Season 0 launch pass instead of combat gear, keeping the respected-tester purchase path separate from early power progression.
-- Added `MferLaunchPass`, a capped ERC-721-ish pass contract with exact ETH payment to treasury, exact `$mfergpt` burn payment, supply-cap enforcement, and owner-controlled price/treasury setters.
+- Added `MferLaunchPass`, a capped ERC-721-ish pass contract with exact ETH payment to treasury, exact `$mfergpt` burn-address payment, supply-cap enforcement, and owner-controlled price/treasury setters.
 - Updated the local deployment/export path so `MferLaunchPass` is deployed with the crypto suite and exported as `launchPass` for app-facing local config.
 - Verified with `npm run chain:test`, covering the new contract behavior and the local address export tests.
 - Verified the updated deploy/export path with `npm run crypto:test:local`, including the local browser merchant smoke after the pass contract was added to the suite.

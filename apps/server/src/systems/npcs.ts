@@ -31,6 +31,7 @@ const CASTER_RETREAT_RANGE = 7.2;
 const ENEMY_ASSIST_AGGRO_RANGE = 7.5;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const MFERGPT_PORTRAIT_IMAGE = "/portraits/npcs/mfergpt.png";
+const CRYPTO_STORE_NPC_ID = "crypto-mfer";
 
 export type NpcSpawnSpec = {
   id: string;
@@ -347,9 +348,14 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
     ...makeRidgeRaiderSpecs(),
   ];
 
-  for (const spec of specs) {
+  for (const spec of specs.filter(shouldSpawnNpcSpec)) {
     spawnNpcFromSpec(npcs, spec);
   }
+}
+
+function shouldSpawnNpcSpec(spec: NpcSpawnSpec) {
+  if (spec.id !== CRYPTO_STORE_NPC_ID) return true;
+  return process.env.MFERLAND_ENABLE_CRYPTO_STORE === "1";
 }
 
 export function spawnNpcFromSpec(npcs: MapSchema<NpcState>, spec: NpcSpawnSpec, now = Date.now()) {

@@ -17,9 +17,11 @@ import {
   getInventoryItemKey,
   getItemConsumable,
   getItemEquipment,
+  getItemHeirloomStatsPerLevel,
   getNpcDisposition,
   getNpcQuestMarker,
   normalizeChainGearTier,
+  normalizeItemLevel,
   type ActionId,
   type ChatMessage,
   type CombatActionId,
@@ -88,6 +90,17 @@ const TOOLTIP_OFFSET = 16;
 const LOW_HEALTH_PERCENT = 32;
 const RECENT_DAMAGE_FLASH_MS = 900;
 const MINIMAP_NPC_REVEAL_RANGE = COMBAT.actions.shoot.maxRange + 8;
+const LOCAL_CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
+const PRODUCTION_CONTRACT_CONFIG_URL = "/crypto/production-contracts.json";
+const LOCAL_CHAIN_ID = 31337;
+const LOCAL_CHAIN_RPC_URL = "http://127.0.0.1:8545";
+const SEASON_PASS_OWNERSHIP_REFRESH_MS = 60_000;
+const BALANCE_OF_SELECTOR = "0x70a08231";
+const EMPTY_SEASON_PASS_OWNERSHIP: SeasonPassOwnershipState = {
+  state: "idle",
+  label: "--",
+  error: "",
+};
 const EMOTE_OPTIONS: Array<{ id: EmoteId; Icon: LucideIcon }> = [
   { id: "wave", Icon: Hand },
   { id: "dance", Icon: Music },
@@ -103,6 +116,25 @@ type HudTooltipState = {
   y: number;
 };
 type CryptoStoreAnalyticsProperties = Record<string, string | number | boolean | null>;
+
+type SeasonPassOwnershipState = {
+  state: "idle" | "loading" | "ready" | "error";
+  label: string;
+  error: string;
+};
+
+type HudCryptoChainConfig = {
+  chainId: number;
+  rpcUrl: string;
+};
+
+type HudCryptoContractsDocument = {
+  chainId?: number;
+  rpcUrl?: string;
+  addresses?: {
+    launchPass?: string;
+  };
+};
 
 type MoveUnlockNotice = {
   id: number;
@@ -226,6 +258,7 @@ export function Hud({
   const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
+  const [seasonPassOwnership, setSeasonPassOwnership] = useState<SeasonPassOwnershipState>(EMPTY_SEASON_PASS_OWNERSHIP);
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
   const [isEmotesOpen, setIsEmotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -303,6 +336,49 @@ export function Hud({
       ?? null;
     setActiveQuestId(nextQuest?.id ?? null);
   }, [activeQuestId, questLog]);
+
+  useEffect(() => {
+    if (!isCharacterOpen) return;
+    if (!isAddress(characterWalletAddress)) {
+      setSeasonPassOwnership(EMPTY_SEASON_PASS_OWNERSHIP);
+      return;
+    }
+
+    let disposed = false;
+    let timer: number | null = null;
+
+    async function refreshSeasonPassOwnership() {
+      setSeasonPassOwnership((current) => ({
+        ...current,
+        state: current.state === "idle" ? "loading" : current.state,
+        error: "",
+      }));
+      try {
+        const balance = await readSeasonPassBalance(characterWalletAddress);
+        if (disposed) return;
+        setSeasonPassOwnership({
+          state: "ready",
+          label: formatSeasonPassBalance(balance),
+          error: "",
+        });
+      } catch (error) {
+        if (!disposed) {
+          setSeasonPassOwnership({
+            state: "error",
+            label: "unavailable",
+            error: getHudCryptoErrorMessage(error),
+          });
+        }
+      }
+    }
+
+    void refreshSeasonPassOwnership();
+    timer = window.setInterval(() => void refreshSeasonPassOwnership(), SEASON_PASS_OWNERSHIP_REFRESH_MS);
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [characterWalletAddress, isCharacterOpen]);
 
   useEffect(() => {
     carriedSlotRef.current = carriedSlot;
@@ -868,6 +944,7 @@ export function Hud({
         <section className="floating-menu-overlay crypto-store-anchor" role="dialog" aria-label="crypto store">
           <CryptoStorePanel
             npc={cryptoStoreNpc}
+            playerLevel={localPlayer?.level ?? 1}
             onClose={onCloseCryptoStore}
             onRegisterChainGear={onRegisterChainGear}
             onAnalyticsEvent={onCryptoStoreAnalytics}
@@ -1103,6 +1180,12 @@ export function Hud({
                       <code>{characterWalletAddress}</code>
                     </div>
                   )}
+                  {characterWalletAddress && (
+                    <div className="character-stat" title={seasonPassOwnership.error || undefined}>
+                      <span>Season Pass</span>
+                      <strong>{seasonPassOwnership.label}</strong>
+                    </div>
+                  )}
                   {showSeasonPoints && (
                     <>
                       <div className="character-stat">
@@ -1131,7 +1214,7 @@ export function Hud({
                   const item = itemId ? ITEMS[itemId] : null;
                   const chainLabel = slot ? formatChainGearLabel(slot) : "";
                   const title = itemId && item
-                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier)}\n${formatItemUtility(itemId)}\nClick to unequip`
+                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier, localPlayer?.level)}\n${formatItemUtility(itemId)}\nClick to unequip`
                     : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
                   return (
                     <button
@@ -2146,6 +2229,97 @@ function QuestRewardList({ rewards }: { rewards: string[] }) {
   );
 }
 
+async function readSeasonPassBalance(walletAddress: string) {
+  const { launchPassAddress, chainConfig } = await fetchHudCryptoConfig();
+  if (!isAddress(launchPassAddress)) throw new Error("launch pass missing");
+  const result = await requestHudJsonRpc(chainConfig.rpcUrl, "eth_call", [{
+    to: launchPassAddress,
+    data: `${BALANCE_OF_SELECTOR}${encodeAddressWord(walletAddress)}`,
+  }, "latest"]);
+  if (typeof result !== "string") throw new Error("season pass read failed");
+  return BigInt(result);
+}
+
+async function fetchHudCryptoConfig() {
+  const response = await fetch(`${getHudContractConfigUrl()}?t=${Date.now()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("contract config missing");
+  const document = await response.json() as HudCryptoContractsDocument;
+  const launchPassAddress = typeof document.addresses?.launchPass === "string" ? document.addresses.launchPass : "";
+  return {
+    launchPassAddress,
+    chainConfig: parseHudCryptoChainConfig(document),
+  };
+}
+
+function getHudContractConfigUrl() {
+  const configured = import.meta.env.VITE_CRYPTO_CONTRACTS_URL;
+  if (typeof configured === "string" && configured.trim()) return configured.trim();
+  return import.meta.env.PROD ? PRODUCTION_CONTRACT_CONFIG_URL : LOCAL_CONTRACT_CONFIG_URL;
+}
+
+function parseHudCryptoChainConfig(document: HudCryptoContractsDocument): HudCryptoChainConfig {
+  const chainId = Number.isInteger(document.chainId) && Number(document.chainId) > 0
+    ? Number(document.chainId)
+    : LOCAL_CHAIN_ID;
+  return {
+    chainId,
+    rpcUrl: resolveHudCryptoRpcUrl(typeof document.rpcUrl === "string" ? document.rpcUrl.trim() : "", chainId),
+  };
+}
+
+function resolveHudCryptoRpcUrl(configuredRpcUrl: string, chainId: number) {
+  if (chainId !== LOCAL_CHAIN_ID) return configuredRpcUrl;
+  if (typeof window === "undefined") return configuredRpcUrl || LOCAL_CHAIN_RPC_URL;
+  if (configuredRpcUrl && !isLoopbackRpcUrl(configuredRpcUrl)) return configuredRpcUrl;
+  if (isLoopbackHost(window.location.hostname)) return configuredRpcUrl || LOCAL_CHAIN_RPC_URL;
+  return `${window.location.origin}/crypto-rpc`;
+}
+
+function isLoopbackRpcUrl(value: string) {
+  try {
+    return isLoopbackHost(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHost(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]";
+}
+
+async function requestHudJsonRpc(rpcUrl: string, method: string, params: unknown[]) {
+  if (!rpcUrl) throw new Error("contract RPC unavailable");
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
+  });
+  const payload = await response.json() as { result?: unknown; error?: { message?: string } };
+  if (payload.error) throw new Error(payload.error.message ?? `${method} failed`);
+  return payload.result;
+}
+
+function encodeAddressWord(address: string) {
+  if (!isAddress(address)) throw new Error("wallet missing");
+  return address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+}
+
+function isAddress(value: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+function formatSeasonPassBalance(balance: bigint) {
+  if (balance <= 0n) return "none";
+  return balance === 1n ? "owned" : `${balance.toString()} owned`;
+}
+
+function getHudCryptoErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  return "season pass unavailable";
+}
+
 function getCharacterStatRows(player: PlayerSnapshot | null) {
   const progress = getLevelProgress(player?.xp ?? 0);
   return [
@@ -2189,7 +2363,7 @@ function getCharacterStatRows(player: PlayerSnapshot | null) {
 }
 
 function formatStatNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function getEquippedSlot(player: PlayerSnapshot | null, slotId: EquipmentSlotId) {
@@ -2204,19 +2378,25 @@ function isInventoryItemEquipped(player: PlayerSnapshot | null, item: InventoryI
   return equipped?.itemId === item.id && equipped.chainTokenId === item.chainTokenId;
 }
 
-function formatItemStats(itemId: ItemId, chainTier?: number) {
-  const equipment = getItemEquipment(itemId, chainTier);
+function formatItemStats(itemId: ItemId, chainTier?: number, playerLevel?: number) {
+  const level = normalizeItemLevel(playerLevel);
+  const equipment = getItemEquipment(itemId, chainTier, level);
   if (!equipment) return "";
 
   const statKeys = Object.keys(equipment.stats) as Array<keyof typeof STAT_LABELS>;
   if (statKeys.length === 0) return "No bonuses";
 
-  return statKeys
+  const statLines = statKeys
     .map((statKey) => {
       const value = equipment.stats[statKey] ?? 0;
       return formatStatLine(statKey, value);
-    })
-    .join("\n");
+    });
+  const heirloomLine = formatHeirloomGrowthLine(itemId);
+  return [
+    heirloomLine ? `Level ${level} stats` : "",
+    ...statLines,
+    heirloomLine,
+  ].filter(Boolean).join("\n");
 }
 
 function formatStatLine(statKey: keyof typeof STAT_LABELS, value: number) {
@@ -2255,7 +2435,7 @@ function getInventoryItemTitle(
     item.count > 1 ? `Count: ${item.count}` : "",
     formatChainGearLabel(item),
     equipment ? `${equipment.build} / ${EQUIPMENT_SLOTS[equipment.slot]}` : "",
-    equipment ? formatItemStats(item.id, item.chainTier) : "",
+    equipment ? formatItemStats(item.id, item.chainTier, player?.level) : "",
     consumable ? formatConsumableEffect(item.id) : "",
     formatItemUtility(item.id),
     comparison?.text ?? "",
@@ -2284,7 +2464,8 @@ function formatItemUtility(itemId: ItemId) {
 }
 
 function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot | null) {
-  const equipment = getItemEquipment(item.id, item.chainTier);
+  const playerLevel = player?.level ?? 1;
+  const equipment = getItemEquipment(item.id, item.chainTier, playerLevel);
   if (!equipment) return null;
 
   const equipped = getEquippedSlot(player, equipment.slot);
@@ -2293,7 +2474,7 @@ function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot |
   }
 
   const equippedItem = equipped?.itemId ? ITEMS[equipped.itemId] : null;
-  const equippedStats = equipped?.itemId ? getItemEquipment(equipped.itemId, equipped.chainTier)?.stats ?? {} : {};
+  const equippedStats = equipped?.itemId ? getItemEquipment(equipped.itemId, equipped.chainTier, playerLevel)?.stats ?? {} : {};
   const statKeys = Object.keys(STAT_LABELS) as Array<keyof typeof STAT_LABELS>;
   const deltas = statKeys
     .map((statKey) => ({
@@ -2319,4 +2500,15 @@ function getItemComparison(item: InventoryItemSnapshot, player: PlayerSnapshot |
     text,
     tone: totalDelta > 0 ? "positive" as const : totalDelta < 0 ? "negative" as const : "neutral" as const,
   };
+}
+
+function formatHeirloomGrowthLine(itemId: ItemId) {
+  const growth = getItemHeirloomStatsPerLevel(itemId);
+  const statKeys = Object.keys(growth) as Array<keyof typeof STAT_LABELS>;
+  if (statKeys.length === 0) return "";
+
+  const growthText = statKeys
+    .map((statKey) => formatStatLine(statKey, growth[statKey] ?? 0))
+    .join(", ");
+  return `Heirloom: ${growthText} per level`;
 }

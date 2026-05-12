@@ -66,7 +66,7 @@ export function recalculatePlayerStats(player: PlayerState) {
   const items: EquippedItemRef[] = [];
   player.equipment.forEach((slot) => items.push({ itemId: slot.itemId, chainTier: slot.chainTier }));
 
-  const stats = getEquippedCharacterStats(items);
+  const stats = getEquippedCharacterStats(items, player.level);
   const talentEffects = getPlayerTalentEffects(player);
 
   player.maxHealth = stats.maxHealth + (talentEffects.stats.maxHealth ?? 0);

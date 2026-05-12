@@ -35,6 +35,7 @@ import {
   isTargetSelected,
   isTypingTarget,
   isVisibleNpc,
+  syncLocalVisualPlayerSnapshot,
   updateLocalVisualPlayer,
   wrapAngle,
 } from "./scene/sceneControls";
@@ -170,6 +171,8 @@ function TownSceneComponent({
     localVisualPlayer.current = null;
   } else if (localVisualPlayer.current?.sessionId !== localPlayer.sessionId) {
     localVisualPlayer.current = { ...localPlayer };
+  } else {
+    syncLocalVisualPlayerSnapshot(localVisualPlayer.current, localPlayer);
   }
   const viewerPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
     ? localVisualPlayer.current

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IMferGptBurnable, IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
+import {IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferPricing} from "../src/MferPricing.sol";
 
 interface VmDeploySeasonPass {
@@ -33,7 +33,7 @@ contract DeploySeasonPass {
             "mferland Season 0 Pass",
             "MFPASS0",
             IMferPayment(mfer),
-            IMferGptBurnable(mfergpt),
+            IMferPayment(mfergpt),
             IMferProductPricing(address(pricing)),
             treasury,
             owner,

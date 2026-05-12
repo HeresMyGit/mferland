@@ -128,6 +128,7 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
   { id: "drip", label: "Drip", x: -12, z: 15, yaw: -2.35 },
   { id: "crypto", label: "Crypto", x: 3.8, z: 22, yaw: 0 },
+  { id: "traits", label: "Traits", x: -3.7, z: 24, yaw: 0 },
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
   { id: "field", label: "Field", x: -118, z: 112, yaw: 0 },
@@ -183,7 +184,7 @@ function getInitialInviteCode() {
 }
 
 function isCryptoStoreEnabled() {
-  return import.meta.env.VITE_ENABLE_CRYPTO_STORE !== "0";
+  return import.meta.env.VITE_ENABLE_CRYPTO_STORE === "1";
 }
 
 function makeCreationSeed() {
@@ -200,10 +201,6 @@ function isSwapMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot 
 
 function isTraitsMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return Boolean(npc && TRAITS_MFER_NPC_IDS.has(npc.id));
-}
-
-function hasStartedTraitsQuest(player: PlayerSnapshot | null | undefined) {
-  return Boolean(player?.quests.some((quest) => quest.id === "set-your-traits"));
 }
 
 export function App() {
@@ -1193,6 +1190,12 @@ function GameShell({
   const debugToolsAvailable = import.meta.env.DEV;
   const cryptoSmokeMode = isCryptoSmokeMode();
   const cryptoStoreEnabled = isCryptoStoreEnabled();
+  const debugTravelDestinations = useMemo(
+    () => cryptoStoreEnabled
+      ? DEBUG_TRAVEL_DESTINATIONS
+      : DEBUG_TRAVEL_DESTINATIONS.filter((destination) => destination.id !== "crypto"),
+    [cryptoStoreEnabled],
+  );
   const localPlayer = room.sessionId ? room.players.get(room.sessionId) : undefined;
   const playerCount = room.players.size;
   const hudIdentity = useMemo(() => ({
@@ -1310,7 +1313,7 @@ function GameShell({
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
       if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
-      if (isTraitsMferNpc(selectedNpc) && hasStartedTraitsQuest(localPlayer)) openTraitsPanel(selectedNpc);
+      if (isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
   }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract]);
@@ -1323,7 +1326,7 @@ function GameShell({
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
     if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
-    if (isTraitsMferNpc(nearestNpc) && hasStartedTraitsQuest(localPlayer)) openTraitsPanel(nearestNpc);
+    if (isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
   }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
@@ -1833,7 +1836,12 @@ function GameShell({
       )}
 
       {!hideCaptureHud && debugToolsAvailable && settings.debugTravelPanel && (
-        <DebugTravelPanel localPlayer={localPlayer ?? null} canTravel={room.status === "connected"} onTravel={performDebugTravel} />
+        <DebugTravelPanel
+          localPlayer={localPlayer ?? null}
+          canTravel={room.status === "connected"}
+          destinations={debugTravelDestinations}
+          onTravel={performDebugTravel}
+        />
       )}
       {!hideCaptureHud && debugPlacementMode && debugPlacementPanelOpen && (
         <DebugPlacementEditor
@@ -1856,10 +1864,12 @@ function GameShell({
 function DebugTravelPanel({
   localPlayer,
   canTravel,
+  destinations,
   onTravel,
 }: {
   localPlayer: PlayerSnapshot | null;
   canTravel: boolean;
+  destinations: readonly DebugTravelDestination[];
   onTravel: (destination: DebugTravelDestination) => void;
 }) {
   return (
@@ -1867,7 +1877,7 @@ function DebugTravelPanel({
       <span className="debug-travel-position">
         {localPlayer ? `${Math.round(localPlayer.x)}, ${Math.round(localPlayer.z)}` : "--, --"}
       </span>
-      {DEBUG_TRAVEL_DESTINATIONS.map((destination) => (
+      {destinations.map((destination) => (
         <button
           key={destination.id}
           type="button"

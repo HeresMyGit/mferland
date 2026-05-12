@@ -359,12 +359,14 @@ export type TraitPaymentProof = {
 
 export type ClientUpdateTraits = {
   traits: MferAppearanceTraits;
+  name?: string;
   payment?: TraitPaymentProof;
 };
 
 export type TraitUpdateResult = {
   ok: boolean;
   traits: MferAppearanceTraits;
+  name?: string;
   free: boolean;
   paid: boolean;
   error?: string;

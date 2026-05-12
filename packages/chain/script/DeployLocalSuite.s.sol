@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {MferGearNFT} from "../src/MferGearNFT.sol";
-import {IBurnableToken, IERC20Payment, IGearProductPricing, MferGearStore} from "../src/MferGearStore.sol";
+import {IERC20Payment, IGearProductPricing, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
-import {IMferGptBurnable, IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
+import {IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferPricing} from "../src/MferPricing.sol";
 
 interface Vm {
@@ -28,18 +28,23 @@ contract DeployLocalSuite {
     uint256 internal constant LUCKY_LIGHTER_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LUCKY_LIGHTER_MFER_PRICE = 62.1 ether;
     uint256 internal constant LUCKY_LIGHTER_MFERGPT_PRICE = 51.75 ether;
+    bytes32 internal constant TRAIT_CHANGE_PRODUCT_ID = keccak256("trait-change");
+    uint256 internal constant TRAIT_CHANGE_ETH_PRICE = 0.01 ether;
+    uint256 internal constant TRAIT_CHANGE_MFER_PRICE = 90 ether;
+    uint256 internal constant TRAIT_CHANGE_MFERGPT_PRICE = 75 ether;
     uint256 internal constant LAUNCH_PASS_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LAUNCH_PASS_MFER_PRICE = 621 ether;
     uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 517.5 ether;
     uint256 internal constant LAUNCH_PASS_MAX_SUPPLY = 500;
+    uint256 internal constant LOCAL_MOCK_TOKEN_SUPPLY = 1_000_000_000_000 ether;
 
     function run() external {
         address deployer = msg.sender;
         address payable treasury = LOCAL_TREASURY;
 
         vm.startBroadcast();
-        MferCoin mfer = new MferCoin(deployer, 1_000_000 ether);
-        MferGptToken mfergpt = new MferGptToken(deployer, 1_000_000 ether);
+        MferCoin mfer = new MferCoin(deployer, LOCAL_MOCK_TOKEN_SUPPLY);
+        MferGptToken mfergpt = new MferGptToken(deployer, LOCAL_MOCK_TOKEN_SUPPLY);
         MferGearNFT gear = new MferGearNFT("mferland gear", "MGEAR", deployer);
         MferPricing pricing = new MferPricing(deployer);
         pricing.setSeason0PassPrice(LAUNCH_PASS_ETH_PRICE, LAUNCH_PASS_MFER_PRICE, LAUNCH_PASS_MFERGPT_PRICE);
@@ -48,11 +53,14 @@ contract DeployLocalSuite {
         pricing.setGearPrice(
             LUCKY_LIGHTER, LUCKY_LIGHTER_ETH_PRICE, LUCKY_LIGHTER_MFER_PRICE, LUCKY_LIGHTER_MFERGPT_PRICE
         );
+        pricing.setProductPrice(
+            TRAIT_CHANGE_PRODUCT_ID, TRAIT_CHANGE_ETH_PRICE, TRAIT_CHANGE_MFER_PRICE, TRAIT_CHANGE_MFERGPT_PRICE
+        );
         new MferLaunchPass(
             "mferland Season 0 Pass",
             "MFPASS0",
             IMferPayment(address(mfer)),
-            IMferGptBurnable(address(mfergpt)),
+            IMferPayment(address(mfergpt)),
             IMferProductPricing(address(pricing)),
             treasury,
             deployer,
@@ -63,7 +71,7 @@ contract DeployLocalSuite {
                 gear,
                 IGearProductPricing(address(pricing)),
                 IERC20Payment(address(mfer)),
-                IBurnableToken(address(mfergpt)),
+                IERC20Payment(address(mfergpt)),
                 treasury,
                 deployer
             );

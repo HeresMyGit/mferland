@@ -41,44 +41,7 @@ export function updateLocalVisualPlayer(
   jump: boolean,
   delta: number,
 ) {
-  visual.name = authoritative.name;
-  visual.identityType = authoritative.identityType;
-  visual.walletAddress = authoritative.walletAddress;
-  visual.avatarSeed = authoritative.avatarSeed;
-  visual.level = authoritative.level;
-  visual.xp = authoritative.xp;
-  visual.talentPoints = authoritative.talentPoints;
-  visual.health = authoritative.health;
-  visual.maxHealth = authoritative.maxHealth;
-  visual.healthRegenPer5 = authoritative.healthRegenPer5;
-  visual.mana = authoritative.mana;
-  visual.maxMana = authoritative.maxMana;
-  visual.manaRegenPer5 = authoritative.manaRegenPer5;
-  visual.walkSpeed = authoritative.walkSpeed;
-  visual.runSpeed = authoritative.runSpeed;
-  visual.strength = authoritative.strength;
-  visual.dexterity = authoritative.dexterity;
-  visual.magic = authoritative.magic;
-  visual.lastSeq = authoritative.lastSeq;
-  visual.attackReadyAt = authoritative.attackReadyAt;
-  visual.shootReadyAt = authoritative.shootReadyAt;
-  visual.signalShotReadyAt = authoritative.signalShotReadyAt;
-  visual.fireblastReadyAt = authoritative.fireblastReadyAt;
-  visual.frostNovaReadyAt = authoritative.frostNovaReadyAt;
-  visual.healReadyAt = authoritative.healReadyAt;
-  visual.tauntReadyAt = authoritative.tauntReadyAt;
-  visual.whirlwindReadyAt = authoritative.whirlwindReadyAt;
-  visual.multishotReadyAt = authoritative.multishotReadyAt;
-  visual.iceBlastReadyAt = authoritative.iceBlastReadyAt;
-  visual.castingAction = authoritative.castingAction;
-  visual.castStartedAt = authoritative.castStartedAt;
-  visual.castEndsAt = authoritative.castEndsAt;
-  visual.lastCastAt = authoritative.lastCastAt;
-  visual.lastDamagedAt = authoritative.lastDamagedAt;
-  visual.quests = authoritative.quests;
-  visual.inventory = authoritative.inventory;
-  visual.equipment = authoritative.equipment;
-  visual.talents = authoritative.talents;
+  syncLocalVisualPlayerSnapshot(visual, authoritative);
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);
@@ -115,6 +78,54 @@ export function updateLocalVisualPlayer(
 
   const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
   visual.animation = airborne ? "jump" : moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
+}
+
+export function syncLocalVisualPlayerSnapshot(
+  visual: PlayerSnapshot,
+  authoritative: PlayerSnapshot,
+) {
+  visual.sessionId = authoritative.sessionId;
+  visual.name = authoritative.name;
+  visual.identityType = authoritative.identityType;
+  visual.walletAddress = authoritative.walletAddress;
+  visual.avatarSeed = authoritative.avatarSeed;
+  visual.appearanceTraits = authoritative.appearanceTraits;
+  visual.level = authoritative.level;
+  visual.xp = authoritative.xp;
+  visual.talentPoints = authoritative.talentPoints;
+  visual.season0Points = authoritative.season0Points;
+  visual.season0DailyPoints = authoritative.season0DailyPoints;
+  visual.health = authoritative.health;
+  visual.maxHealth = authoritative.maxHealth;
+  visual.healthRegenPer5 = authoritative.healthRegenPer5;
+  visual.mana = authoritative.mana;
+  visual.maxMana = authoritative.maxMana;
+  visual.manaRegenPer5 = authoritative.manaRegenPer5;
+  visual.walkSpeed = authoritative.walkSpeed;
+  visual.runSpeed = authoritative.runSpeed;
+  visual.strength = authoritative.strength;
+  visual.dexterity = authoritative.dexterity;
+  visual.magic = authoritative.magic;
+  visual.lastSeq = authoritative.lastSeq;
+  visual.attackReadyAt = authoritative.attackReadyAt;
+  visual.shootReadyAt = authoritative.shootReadyAt;
+  visual.signalShotReadyAt = authoritative.signalShotReadyAt;
+  visual.fireblastReadyAt = authoritative.fireblastReadyAt;
+  visual.frostNovaReadyAt = authoritative.frostNovaReadyAt;
+  visual.healReadyAt = authoritative.healReadyAt;
+  visual.tauntReadyAt = authoritative.tauntReadyAt;
+  visual.whirlwindReadyAt = authoritative.whirlwindReadyAt;
+  visual.multishotReadyAt = authoritative.multishotReadyAt;
+  visual.iceBlastReadyAt = authoritative.iceBlastReadyAt;
+  visual.castingAction = authoritative.castingAction;
+  visual.castStartedAt = authoritative.castStartedAt;
+  visual.castEndsAt = authoritative.castEndsAt;
+  visual.lastCastAt = authoritative.lastCastAt;
+  visual.lastDamagedAt = authoritative.lastDamagedAt;
+  visual.quests = authoritative.quests;
+  visual.inventory = authoritative.inventory;
+  visual.equipment = authoritative.equipment;
+  visual.talents = authoritative.talents;
 }
 
 function getLocalPositionCorrection(drift: number, moveLength: number, delta: number) {

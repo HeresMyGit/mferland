@@ -96,7 +96,7 @@ export async function fetchWalletCharacterProfile(walletAddress: string): Promis
 
   const url = new URL("/wallet-character", getServerHttpBaseUrl());
   url.searchParams.set("wallet", normalizedWallet);
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   const payload = await response.json().catch(() => null) as Partial<WalletCharacterProfileResponse> & { error?: string } | null;
   if (!response.ok) {
     throw new Error(payload?.error || "wallet persistence unavailable");

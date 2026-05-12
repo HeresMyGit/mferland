@@ -13,11 +13,6 @@ export type MferAppearanceTraitCategory = {
 export type TraitPaymentToken = "ETH" | "MFER" | "MFERGPT";
 
 export const TRAIT_CHANGE_PRODUCT_ID = "trait-change";
-export const TRAIT_CHANGE_PRICES_WEI: Record<TraitPaymentToken, string> = {
-  ETH: "10000000000000000",
-  MFER: "90000000000000000000",
-  MFERGPT: "75000000000000000000",
-};
 
 export const MFER_APPEARANCE_TRAIT_CATEGORIES: MferAppearanceTraitCategory[] = [
   {

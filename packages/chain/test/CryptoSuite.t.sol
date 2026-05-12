@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {MferGearNFT} from "../src/MferGearNFT.sol";
-import {IBurnableToken, IERC20Payment, IGearProductPricing, MferGearStore} from "../src/MferGearStore.sol";
+import {IERC20Payment, IGearProductPricing, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
-import {IMferGptBurnable, IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
+import {IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {MferPricing} from "../src/MferPricing.sol";
 
 contract CryptoSuiteTest {
@@ -25,6 +25,7 @@ contract CryptoSuiteTest {
     uint256 internal constant LAUNCH_PASS_ETH_PRICE = 0.0069 ether;
     uint256 internal constant LAUNCH_PASS_MFER_PRICE = 621 ether;
     uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 517.5 ether;
+    address internal constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     MferPricing internal pricing;
     MferCoin internal mfer;
@@ -51,7 +52,7 @@ contract CryptoSuiteTest {
             gear,
             IGearProductPricing(address(pricing)),
             IERC20Payment(address(mfer)),
-            IBurnableToken(address(mfergpt)),
+            IERC20Payment(address(mfergpt)),
             payable(address(0xBEEF)),
             address(this)
         );
@@ -59,7 +60,7 @@ contract CryptoSuiteTest {
             "mferland Season 0 Pass",
             "MFPASS0",
             IMferPayment(address(mfer)),
-            IMferGptBurnable(address(mfergpt)),
+            IMferPayment(address(mfergpt)),
             IMferProductPricing(address(pricing)),
             payable(address(0xBEEF)),
             address(this),
@@ -145,11 +146,13 @@ contract CryptoSuiteTest {
         assertEq(mfer.balanceOf(address(0xBEEF)), treasuryBefore + ROAD_LID_MFER_PRICE);
 
         uint256 supplyBefore = mfergpt.totalSupply();
+        uint256 burnBefore = mfergpt.balanceOf(BURN_ADDRESS);
         mfergpt.approve(address(store), ROAD_LID_MFERGPT_PRICE);
         uint256 gptTokenId = store.buyWithMferGpt(ROAD_LID, ROAD_LID_MFERGPT_PRICE);
         assertEq(gear.ownerOf(gptTokenId), address(this));
         assertEq(mfergpt.balanceOf(address(0xBEEF)), 0);
-        assertEq(mfergpt.totalSupply(), supplyBefore - ROAD_LID_MFERGPT_PRICE);
+        assertEq(mfergpt.balanceOf(BURN_ADDRESS), burnBefore + ROAD_LID_MFERGPT_PRICE);
+        assertEq(mfergpt.totalSupply(), supplyBefore);
     }
 
     function testTokenPurchasesCannotSpendAboveQuotedMaximumAfterCentralPriceUpdate() public {
@@ -193,15 +196,17 @@ contract CryptoSuiteTest {
         assertEq(mfer.totalSupply(), 1_000 ether);
     }
 
-    function testLaunchPassBurnsMferGptPayment() public {
+    function testLaunchPassSendsMferGptPaymentToBurnAddress() public {
         uint256 supplyBefore = mfergpt.totalSupply();
+        uint256 burnBefore = mfergpt.balanceOf(BURN_ADDRESS);
         mfergpt.approve(address(launchPass), LAUNCH_PASS_MFERGPT_PRICE);
 
         uint256 tokenId = launchPass.mintWithMferGpt(LAUNCH_PASS_MFERGPT_PRICE);
 
         assertEq(tokenId, 1);
         assertEq(launchPass.ownerOf(tokenId), address(this));
-        assertEq(mfergpt.totalSupply(), supplyBefore - LAUNCH_PASS_MFERGPT_PRICE);
+        assertEq(mfergpt.balanceOf(BURN_ADDRESS), burnBefore + LAUNCH_PASS_MFERGPT_PRICE);
+        assertEq(mfergpt.totalSupply(), supplyBefore);
     }
 
     function testLaunchPassTokenMintsCannotSpendAboveQuotedMaximumAfterCentralPriceUpdate() public {
@@ -242,7 +247,7 @@ contract CryptoSuiteTest {
             falseGear,
             IGearProductPricing(address(pricing)),
             IERC20Payment(address(falseMfer)),
-            IBurnableToken(address(mfergpt)),
+            IERC20Payment(address(mfergpt)),
             payable(address(0xBEEF)),
             address(this)
         );
@@ -263,7 +268,7 @@ contract CryptoSuiteTest {
             noOpGear,
             IGearProductPricing(address(pricing)),
             IERC20Payment(address(noOpMfer)),
-            IBurnableToken(address(mfergpt)),
+            IERC20Payment(address(mfergpt)),
             payable(address(0xBEEF)),
             address(this)
         );
@@ -276,14 +281,14 @@ contract CryptoSuiteTest {
         assertEq(noOpGear.nextTokenId(), 1);
     }
 
-    function testBurnTokenPaymentsMustActuallyBurn() public {
-        NoOpBurnToken noOpBurn = new NoOpBurnToken();
+    function testMferGptPaymentsMustActuallyReachBurnAddress() public {
+        NoOpTransferToken noOpMferGpt = new NoOpTransferToken();
         MferGearNFT burnGear = new MferGearNFT("burn gear", "BGEAR", address(this));
         MferGearStore burnStore = new MferGearStore(
             burnGear,
             IGearProductPricing(address(pricing)),
             IERC20Payment(address(mfer)),
-            IBurnableToken(address(noOpBurn)),
+            IERC20Payment(address(noOpMferGpt)),
             payable(address(0xBEEF)),
             address(this)
         );
@@ -291,7 +296,7 @@ contract CryptoSuiteTest {
         burnStore.listGear(BEATER_DECK);
 
         try burnStore.buyWithMferGpt(BEATER_DECK, GEAR_MFERGPT_PRICE) {
-            fail("no-op gear burn payment should revert");
+            fail("no-op gear mferGPT burn-address payment should revert");
         } catch {}
         assertEq(burnGear.nextTokenId(), 1);
     }
@@ -321,7 +326,7 @@ contract CryptoSuiteTest {
             lockedGear,
             IGearProductPricing(address(pricing)),
             IERC20Payment(address(mfer)),
-            IBurnableToken(address(mfergpt)),
+            IERC20Payment(address(mfergpt)),
             payable(address(0xBEEF)),
             address(this)
         );
@@ -386,18 +391,6 @@ contract NoOpTransferToken is IERC20Payment {
 
     function transferFrom(address, address, uint256) external pure returns (bool) {
         return true;
-    }
-}
-
-contract NoOpBurnToken is IBurnableToken, IMferGptBurnable {
-    function burnFrom(address, uint256) external pure override(IBurnableToken, IMferGptBurnable) {}
-
-    function balanceOf(address) external pure override(IBurnableToken, IMferGptBurnable) returns (uint256) {
-        return 1_000_000 ether;
-    }
-
-    function totalSupply() external pure override(IBurnableToken, IMferGptBurnable) returns (uint256) {
-        return 1_000_000 ether;
     }
 }
 

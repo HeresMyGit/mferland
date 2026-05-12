@@ -6,8 +6,10 @@ import {
   getChainGearItemId,
   getChainGearTierMultiplier,
   getEquippedCharacterStats,
+  getItemHeirloomStatsPerLevel,
   getItemEquipment,
   normalizeChainGearTier,
+  normalizeItemLevel,
 } from "./items.js";
 
 test("maps local chain gear types to in-game gear items", () => {
@@ -38,12 +40,19 @@ test("normalizes chain gear tiers to the supported local range", () => {
   assert.equal(normalizeChainGearTier(3.8), 3);
   assert.equal(normalizeChainGearTier(99), 3);
   assert.equal(normalizeChainGearTier(0), 1);
+  assert.equal(normalizeItemLevel(undefined), 1);
+  assert.equal(normalizeItemLevel("4"), 4);
+  assert.equal(normalizeItemLevel(99), 10);
 });
 
-test("scales NFT gear stats by 33% per tier above tier one", () => {
+test("scales NFT gear by tier and heirloom level growth", () => {
   assert.equal(getChainGearTierMultiplier(1), 1);
   assert.equal(getChainGearTierMultiplier(2), 1.33);
   assert.equal(getChainGearTierMultiplier(3), 1.66);
+  assert.deepEqual(getItemHeirloomStatsPerLevel("road-sign-lid"), {
+    maxHealth: 1.6,
+    strength: 0.16,
+  });
 
   assert.deepEqual(getItemEquipment("road-sign-lid", 1)?.stats, {
     maxHealth: 14,
@@ -57,12 +66,20 @@ test("scales NFT gear stats by 33% per tier above tier one", () => {
     maxHealth: 23.24,
     strength: 1.66,
   });
+  assert.deepEqual(getItemEquipment("road-sign-lid", 1, 4)?.stats, {
+    maxHealth: 18.8,
+    strength: 1.48,
+  });
+  assert.deepEqual(getItemEquipment("road-sign-lid", 3, 4)?.stats, {
+    maxHealth: 28.04,
+    strength: 2.14,
+  });
 });
 
-test("applies chain gear tier scaling to equipped character stats", () => {
+test("applies chain gear tier and heirloom level scaling to equipped character stats", () => {
   const baseStats = getBaseCharacterStats();
-  const tierThreeStats = getEquippedCharacterStats([{ itemId: "road-sign-lid", chainTier: 3 }]);
+  const tierThreeStats = getEquippedCharacterStats([{ itemId: "road-sign-lid", chainTier: 3 }], 4);
 
-  assert.equal(tierThreeStats.maxHealth, baseStats.maxHealth + 23.24);
-  assert.equal(tierThreeStats.strength, baseStats.strength + 1.66);
+  assert.equal(tierThreeStats.maxHealth, baseStats.maxHealth + 28.04);
+  assert.equal(tierThreeStats.strength, baseStats.strength + 2.14);
 });

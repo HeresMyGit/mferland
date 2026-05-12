@@ -342,11 +342,19 @@
   }
 
   .crypto-store-overview,
+  .crypto-store-shop-layout,
+  .crypto-store-menu,
   .crypto-store-flow-grid,
+  .crypto-product-layout,
+  .crypto-gear-layout,
+  .crypto-market-layout,
   .crypto-store-config,
   .crypto-store-balance-grid,
+  .crypto-store-currency-bar,
   .crypto-store-collection,
   .crypto-store-item,
+  .crypto-store-stat-grid,
+  .crypto-price-grid,
   .crypto-market-quotes,
   .crypto-store-actions,
   .crypto-pass-actions,
@@ -380,6 +388,10 @@
 
   .crypto-store-account code {
     grid-column: 1 / -1;
+  }
+
+  .crypto-product-preview {
+    min-height: 170px;
   }
 
   .debug-placement-editor {

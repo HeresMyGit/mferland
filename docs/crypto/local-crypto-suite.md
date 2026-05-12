@@ -67,7 +67,7 @@ The full local crypto test path, including a headless browser pass through the i
 npm run crypto:test:local
 ```
 
-That command starts any missing local services, deploys fresh local contracts, opens the game in a browser, connects the dev wallet, opens `drip desk mfer`, buys the starter gear collection through the merchant, checks onchain balances and NFT ownership, and confirms a verified NFT is visible in the character screen.
+That command starts any missing local services, deploys fresh local contracts, refreshes live market quotes into the local price catalog, opens the game in a browser, connects the dev wallet, opens `drip desk mfer`, buys gear with ETH, mock `$mfer`, and mock `$mfergpt`, mints the launch pass with ETH, mock `$mfer`, and mock `$mfergpt`, saves the first trait set, pays for a mock `$mfer` trait change, checks onchain balances, burns, and NFT ownership, and confirms verified gear is visible in the character screen. The browser smoke enables `MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS=1` only for the standard Anvil buyer wallet so a mock connector can enter the room; `/health` reports that flag so an already-running server without the smoke settings fails early.
 
 ## Pricing Model
 
@@ -105,10 +105,10 @@ Current local terms:
 - Max supply: `500`
 - ETH price: `0.0069 ETH`
 - `$mfer` price: `621 $mfer`, paid to treasury
-- `$mfergpt` price: `517.5 MFERGPT`, burned from the buyer
+- `$mfergpt` price: `517.5 MFERGPT`, sent from the buyer to `0x000000000000000000000000000000000000dEaD`
 - Treasury: the same local treasury as the gear store
 
-The pass has owner-controlled price and treasury setters, but mints still enforce exact ETH payment, user-supplied max token payment limits, exact `$mfer` treasury receipt, exact `$mfergpt` allowance/burn, and the supply cap onchain.
+The pass has owner-controlled price and treasury setters, but mints still enforce exact ETH payment, user-supplied max token payment limits, exact `$mfer` treasury receipt, exact `$mfergpt` burn-address receipt, and the supply cap onchain.
 This contract is a local proof path for the first tester purchase surface, not yet an audited production deployment.
 
 ## Base Token Parity
@@ -120,7 +120,7 @@ The local test tokens intentionally mirror the Base token metadata and payment f
 | `$mfer` | `0xe3086852a4b125803c815a158249ae468a3254ca` | `name=mfercoin`, `symbol=$mfer`, `decimals=18` | ERC-20 transfer/approve/transferFrom, `burn`, no `burnFrom` |
 | `$mfergpt` | `0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07` | `name=mferGPT`, `symbol=MFERGPT`, `decimals=18` | ERC-20 transfer/approve/transferFrom, `burn`, `burnFrom`, permit/nonces/domain separator |
 
-The store only transfers `$mfer` to treasury, because the live Base `$mfer` bytecode does not expose `burnFrom`. The `$mfergpt` local mock keeps `burnFrom`, matching the live Base `$mfergpt` payment path.
+The store transfers `$mfer` to treasury and transfers `$mfergpt` to `0x000000000000000000000000000000000000dEaD`. The live Base `$mfergpt` contract exposes `burn`/`burnFrom`, but the app uses the burn-address path for explorer-visible payment sinks.
 
 ## Real Chain Setup Notes
 
@@ -134,7 +134,7 @@ Minimum real-chain requirements:
 - the real `$mfer` / `$mfergpt` token addresses above if we use existing tokens instead of local mocks.
 - a frontend address config file for the target chain, similar to `apps/web/public/crypto/local-contracts.json`.
 
-The current local `$mfergpt` mock supports `burnFrom`, so the store can burn the discounted payment directly. The Base `$mfergpt` contract also exposes `burnFrom`. A different existing ERC-20 may not expose that method, or may not allow the store to call it. For any new token, confirm the actual token contract behavior first. If direct burning is not available, switch the store path to `transferFrom` into a burn address or a treasury/sink address.
+The current local `$mfergpt` mock still supports `burn`/`burnFrom`, matching the live Base ABI, but store, pass, and trait payments intentionally use ERC-20 transfer/transferFrom into the burn address. A different existing ERC-20 may not expose burn methods, so the burn-address path is the safer default for token compatibility.
 
 Base public RPC URLs currently include:
 
@@ -171,7 +171,9 @@ Local `.env`:
 DATABASE_URL="postgresql://USER@localhost:5432/mferland_test"
 VITE_SERVER_URL="http://localhost:2567"
 VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"
-MFERLAND_MARKET_QUOTE_INTERVAL_MS="21600000"
+MFERLAND_MARKET_QUOTE_INTERVAL_MS="60000"
+MFERLAND_CONTRACT_PRICE_UPDATE_INTERVAL_MS="21600000"
+MFERLAND_CONTRACT_PRICE_DRIFT_BPS="2500"
 ```
 
 Then:
@@ -237,6 +239,34 @@ Use it after deploying the local suite:
 7. Buy gear with ETH, `$mfer`, or `$mfergpt`. The game verifies the minted token id against `MferGearNFT.ownerOf` and `MferGearNFT.gear` before adding it to inventory and auto-equipping it.
 
 The contract fields also persist in local storage for manual overrides, but the generated local deployment file is loaded first when available.
+
+## Live Quote Contract Pricing
+
+For real-data testing with mock tokens, the server now refreshes live Base `$mfer/WETH` and `MFERGPT/WETH` quotes every 60 seconds when `DATABASE_URL` is configured. In local development, if `apps/web/public/crypto/local-contracts.json` points at Anvil chain `31337`, the server can use those live quotes to update the local `MferPricing` contract while purchases still spend the locally deployed mock `$mfer` and mock `MFERGPT` tokens.
+
+The updater recalculates token amounts from each product's onchain ETH price:
+
+- `$mfer`: 10% discount against the ETH price.
+- `MFERGPT`: 25% discount against the ETH price.
+
+It writes `MferPricing` only when either condition is true:
+
+- the product's onchain price is at least 6 hours old.
+- the newly calculated `$mfer` or `MFERGPT` amount differs by at least 25% from the current smart contract amount.
+
+Useful env knobs:
+
+```txt
+MFERLAND_MARKET_QUOTE_INTERVAL_MS="60000"
+MFERLAND_CONTRACT_PRICING_DISABLED="0"
+MFERLAND_CONTRACT_PRICING_UPDATER="" # blank allows local auto; set 1 only for explicit configured environments
+MFERLAND_CONTRACT_PRICE_UPDATE_INTERVAL_MS="21600000"
+MFERLAND_CONTRACT_PRICE_DRIFT_BPS="2500"
+MFERLAND_PRICING_OWNER_ADDRESS="" # optional unlocked RPC account override
+MFERLAND_PRICING_OWNER_PRIVATE_KEY="" # only for private local/staging env files, never commit
+```
+
+Base/mainnet contract writes are not automatic. For any non-local chain, set the pricing contract/RPC/owner env explicitly and only after the deployment gate is reopened.
 
 In production builds the same panel defaults to `/crypto/production-contracts.json`, or `VITE_CRYPTO_CONTRACTS_URL` if configured. The production config needs `pricing`, `launchPass`, `$mfer`, and `$mfergpt` for the pass surface; gear and store addresses can stay blank until production gear minting is live.
 

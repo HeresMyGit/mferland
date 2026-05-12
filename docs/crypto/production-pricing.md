@@ -64,7 +64,7 @@ This is boring, but it is the right first production surface. It avoids putting 
 
 ## Local/Staging Market Quote Cache
 
-The game server stores hourly Dex Screener quotes in `crypto_market_quotes` when `DATABASE_URL` is configured. It tracks the highest-liquidity Base `WETH` pair above the configured floor for:
+The game server stores Dex Screener quotes in `crypto_market_quotes` every 60 seconds when `DATABASE_URL` is configured. It tracks the highest-liquidity Base `WETH` pair above the configured floor for:
 
 - `$mfer`: `0xe3086852a4b125803c815a158249ae468a3254ca`
 - `MFERGPT`: `0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07`
@@ -75,7 +75,11 @@ Refresh manually:
 npm run pricing:refresh:market
 ```
 
-The crypto store reads `/crypto/market-quotes` from the server and displays cached labels. These labels do not change what the contract accepts; onchain payment prices stay contract-enforced.
+The crypto store reads `/crypto/market-quotes` from the server and displays cached market labels. It also reads actual pass and gear prices from the configured contracts every 60 seconds, so the checkout amounts shown in ETH, `$mfer`, and `MFERGPT` match what the contracts currently accept.
+
+For local/staging real-data testing with mock tokens, the server can push live-derived prices into the local `MferPricing` contract. Token prices are recalculated from each product's canonical onchain ETH price, then written only when the onchain product price is at least 6 hours old or the recalculated `$mfer`/`MFERGPT` amount has moved by at least 25% from the current smart contract amount.
+
+Local Anvil auto-update is allowed from `apps/web/public/crypto/local-contracts.json`. Non-local/Base writes require explicit pricing contract, RPC, and owner env configuration; keep Base deployment paused until the production gate is reopened.
 
 ## Later Onchain Quote
 

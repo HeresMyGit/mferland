@@ -8,12 +8,6 @@ interface IERC20Payment {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 }
 
-interface IBurnableToken {
-    function burnFrom(address from, uint256 amount) external;
-    function balanceOf(address account) external view returns (uint256);
-    function totalSupply() external view returns (uint256);
-}
-
 interface IGearProductPricing {
     function gearProductId(uint16 gearType) external pure returns (bytes32);
     function getProductPrice(bytes32 productId)
@@ -26,11 +20,12 @@ contract MferGearStore {
     uint256 public constant BASIS_POINTS = 10_000;
     uint256 public constant MFER_DISCOUNT_BPS = 1_000;
     uint256 public constant MFERGPT_DISCOUNT_BPS = 2_500;
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     MferGearNFT public immutable gear;
     IGearProductPricing public immutable pricing;
     IERC20Payment public immutable mfer;
-    IBurnableToken public immutable mfergpt;
+    IERC20Payment public immutable mfergpt;
     address public owner;
     address payable public treasury;
     mapping(uint16 => bool) public gearListed;
@@ -58,7 +53,7 @@ contract MferGearStore {
         MferGearNFT gearNft,
         IGearProductPricing productPricing,
         IERC20Payment mferToken,
-        IBurnableToken mfergptToken,
+        IERC20Payment mfergptToken,
         address payable storeTreasury,
         address initialOwner
     ) {
@@ -134,7 +129,7 @@ contract MferGearStore {
     function buyWithMferGpt(uint16 gearType, uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
         uint256 price = mferGptPriceByGearType(gearType);
         _validateMaxPayment(price, maxPayment);
-        _burnExact(mfergpt, msg.sender, price);
+        _transferExact(mfergpt, msg.sender, BURN_ADDRESS, price);
         tokenId = gear.mintTo(msg.sender, gearType);
         emit GearPurchased(msg.sender, gearType, tokenId, "MFERGPT", price);
     }
@@ -181,22 +176,13 @@ contract MferGearStore {
         if (ethPrice == 0 || mferPrice == 0 || mferGptPrice == 0) revert InvalidPrice();
     }
 
-    function _burnExact(IBurnableToken token, address from, uint256 amount) internal {
-        uint256 balanceBefore = token.balanceOf(from);
-        uint256 supplyBefore = token.totalSupply();
-        token.burnFrom(from, amount);
-        if (token.balanceOf(from) + amount != balanceBefore || token.totalSupply() + amount != supplyBefore) {
-            revert PaymentFailed();
-        }
-    }
-
     function _validateMaxPayment(uint256 amount, uint256 maximum) internal pure {
         if (amount > maximum) revert PaymentExceedsMaximum();
     }
 
     function _transferExact(IERC20Payment token, address from, address to, uint256 amount) internal {
-        uint256 treasuryBefore = token.balanceOf(to);
+        uint256 recipientBefore = token.balanceOf(to);
         bool paid = token.transferFrom(from, to, amount);
-        if (!paid || token.balanceOf(to) != treasuryBefore + amount) revert PaymentFailed();
+        if (!paid || token.balanceOf(to) != recipientBefore + amount) revert PaymentFailed();
     }
 }

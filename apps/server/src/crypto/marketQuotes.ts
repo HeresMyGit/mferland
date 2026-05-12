@@ -1,8 +1,9 @@
 import { asc } from "drizzle-orm";
+import { maybeUpdateCryptoContractPrices } from "./contractPricing.js";
 import { getDatabase } from "../db/client.js";
 import { cryptoMarketQuotes } from "../db/schema.js";
 
-const DEFAULT_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_REFRESH_INTERVAL_MS = 60 * 1000;
 const MIN_REFRESH_INTERVAL_MS = 60 * 1000;
 const DEXSCREENER_SOURCE = "dexscreener";
 
@@ -208,6 +209,15 @@ export function startCryptoMarketQuotePoller() {
       const result = await refreshCryptoMarketQuotes();
       const suffix = result.errors.length > 0 ? `, ${result.errors.length} failed` : "";
       console.info(`crypto_market_quotes.refreshed ${result.updated.length} quote(s)${suffix}`);
+      try {
+        const pricingResult = await maybeUpdateCryptoContractPrices(result.updated);
+        if (!pricingResult.disabled && (pricingResult.updated.length > 0 || pricingResult.errors.length > 0)) {
+          const pricingSuffix = pricingResult.errors.length > 0 ? `, ${pricingResult.errors.length} failed` : "";
+          console.info(`crypto_contract_prices.checked ${pricingResult.checked}, updated ${pricingResult.updated.length}${pricingSuffix}`);
+        }
+      } catch (error) {
+        console.warn("crypto_contract_prices.update_failed", error);
+      }
     } catch (error) {
       console.warn("crypto_market_quotes.refresh_failed", error);
     } finally {

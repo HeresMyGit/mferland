@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Coins, Flame, Gem, PlugZap, RefreshCw, X } from "lucide-react";
+import { Coins, Flame, Gem, PlugZap, RefreshCw, X } from "lucide-react";
 import { useAccount } from "wagmi";
 import {
+  EQUIPMENT_SLOTS,
   ITEMS,
+  STAT_LABELS,
   getChainGearItemId,
+  getItemEquipment,
+  getItemHeirloomStatsPerLevel,
+  normalizeItemLevel,
   type ClientRegisterChainGear,
   type NpcSnapshot,
 } from "@mferland/shared";
 import { trackEvent, type AnalyticsProperties } from "../analytics";
+import { formatCompactTokenAmount, formatReadableDecimal } from "../crypto/displayAmounts";
 import { waitForTransactionReceipt, type EthereumProvider } from "../crypto/transactionReceipts";
 import { ItemIcon } from "./hud/ItemIcon";
+import { formatTooltipLabel } from "./hud/utils";
 
 type CryptoStoreAddresses = {
   store: string;
@@ -42,6 +49,7 @@ type CryptoContractsDocument = {
 
 type CryptoStorePanelProps = {
   npc: NpcSnapshot;
+  playerLevel?: number;
   onClose: () => void;
   onRegisterChainGear: (message: ClientRegisterChainGear) => void;
   onAnalyticsEvent?: (eventType: string, properties?: Record<string, string | number | boolean | null>) => void;
@@ -51,6 +59,7 @@ type CryptoStoreBalances = {
   eth: string;
   mfer: string;
   mfergpt: string;
+  launchPass: string;
   state: "idle" | "loading" | "ready" | "error";
   error: string;
 };
@@ -77,6 +86,21 @@ type CryptoMarketQuotesState = {
   error: string;
   refreshIntervalSeconds: number;
 };
+
+type CryptoProductPrice = {
+  eth: string;
+  mfer: string;
+  mfergpt: string;
+};
+
+type CryptoContractPricesState = {
+  pass: CryptoProductPrice | null;
+  gearByType: Record<string, CryptoProductPrice>;
+  state: "idle" | "loading" | "ready" | "error";
+  error: string;
+};
+
+type CryptoStoreSection = "pass" | "gear" | "market" | "contracts";
 
 const CONTRACT_STORAGE_KEY = "mferland.cryptoStore.localContracts.v1";
 const LOCAL_CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
@@ -127,6 +151,7 @@ const EMPTY_BALANCES: CryptoStoreBalances = {
   eth: "--",
   mfer: "--",
   mfergpt: "--",
+  launchPass: "--",
   state: "idle",
   error: "",
 };
@@ -134,11 +159,18 @@ const EMPTY_MARKET_QUOTES: CryptoMarketQuotesState = {
   quotes: [],
   state: "idle",
   error: "",
-  refreshIntervalSeconds: 21600,
+  refreshIntervalSeconds: 60,
+};
+const EMPTY_CONTRACT_PRICES: CryptoContractPricesState = {
+  pass: null,
+  gearByType: {},
+  state: "idle",
+  error: "",
 };
 const MARKET_QUOTE_UI_REFRESH_MS = 60_000;
+const CONTRACT_PRICE_UI_REFRESH_MS = 60_000;
 
-export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalyticsEvent }: CryptoStorePanelProps) {
+export function CryptoStorePanel({ npc, playerLevel = 1, onClose, onRegisterChainGear, onAnalyticsEvent }: CryptoStorePanelProps) {
   const wagmiAccount = useAccount();
   const [addresses, setAddresses] = useState<CryptoStoreAddresses>(() => readStoredAddresses());
   const [chainConfig, setChainConfig] = useState<CryptoStoreChainConfig>(LOCAL_CHAIN_CONFIG);
@@ -150,7 +182,8 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
   const [isBusy, setIsBusy] = useState(false);
   const [balances, setBalances] = useState<CryptoStoreBalances>(EMPTY_BALANCES);
   const [marketQuotes, setMarketQuotes] = useState<CryptoMarketQuotesState>(EMPTY_MARKET_QUOTES);
-  const [showContractConfig, setShowContractConfig] = useState(false);
+  const [contractPrices, setContractPrices] = useState<CryptoContractPricesState>(EMPTY_CONTRACT_PRICES);
+  const [activeSection, setActiveSection] = useState<CryptoStoreSection>("gear");
   const shortAccount = useMemo(() => account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "not connected", [account]);
   const chainIdHex = useMemo(() => toChainIdHex(chainConfig.chainId), [chainConfig.chainId]);
   const selectedStoreGear = useMemo(
@@ -164,6 +197,22 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
   const configuredContractCount = useMemo(() => Object.values(addresses).filter(isAddress).length, [addresses]);
   const mferQuote = useMemo(() => findMarketQuote(marketQuotes.quotes, "$mfer"), [marketQuotes.quotes]);
   const mferGptQuote = useMemo(() => findMarketQuote(marketQuotes.quotes, "MFERGPT"), [marketQuotes.quotes]);
+  const normalizedPlayerLevel = normalizeItemLevel(playerLevel);
+  const selectedGearPrice = contractPrices.gearByType[String(gearType)] ?? null;
+  const displayedEthPrice = selectedGearPrice?.eth ?? ethPrice;
+  const displayedMferPrice = selectedGearPrice?.mfer ?? "--";
+  const displayedMferGptPrice = selectedGearPrice?.mfergpt ?? "--";
+  const selectedGearName = selectedStoreGearItemId
+    ? ITEMS[selectedStoreGearItemId].name
+    : selectedStoreGear?.label ?? "custom gear";
+  const selectedGearItem = selectedStoreGearItemId ? ITEMS[selectedStoreGearItemId] : null;
+  const selectedGearEquipment = selectedStoreGearItemId ? getItemEquipment(selectedStoreGearItemId, 1, normalizedPlayerLevel) : null;
+  const selectedGearStats = selectedStoreGearItemId ? getStoreGearStatRows(selectedStoreGearItemId, 1, normalizedPlayerLevel) : [];
+  const selectedGearGrowth = selectedStoreGearItemId ? getStoreGearGrowthRows(selectedStoreGearItemId) : [];
+  const selectedGearMeta = selectedGearEquipment && selectedGearItem
+    ? `${EQUIPMENT_SLOTS[selectedGearEquipment.slot]} / ${selectedGearEquipment.build} / heirloom ${selectedGearItem.quality}`
+    : "custom chain gear";
+  const passOwnershipStatus = formatPassOwnershipStatus(balances, launchPassTokenId);
 
   useEffect(() => {
     if (wagmiAccount.address) setAccount(wagmiAccount.address);
@@ -201,7 +250,57 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
 
   useEffect(() => {
     void refreshBalances();
-  }, [account, wagmiAccount.address, addresses.mfer, addresses.mfergpt, chainConfig.chainId]);
+  }, [account, wagmiAccount.address, addresses.launchPass, addresses.mfer, addresses.mfergpt, chainConfig.chainId]);
+
+  useEffect(() => {
+    let disposed = false;
+    let timer: number | null = null;
+
+    async function loadContractPrices() {
+      setContractPrices((current) => ({ ...current, state: current.state === "idle" ? "loading" : current.state, error: "" }));
+      try {
+        const provider = getReadOnlyProvider(chainConfig);
+        if (!provider) throw new Error("contract RPC unavailable");
+        const pass = isAddress(addresses.launchPass)
+          ? await readPassPrice(provider, addresses.launchPass)
+          : null;
+        const gearByType: Record<string, CryptoProductPrice> = {};
+        if (isAddress(addresses.store)) {
+          const gearTypes = getVisibleGearTypes(gearType);
+          await Promise.all(gearTypes.map(async (nextGearType) => {
+            try {
+              gearByType[String(nextGearType)] = await readGearPrice(provider, addresses.store, nextGearType);
+            } catch {
+              // Custom or delisted gear can fail without breaking the listed collection.
+            }
+          }));
+        }
+        if (disposed) return;
+        setContractPrices({
+          pass,
+          gearByType,
+          state: "ready",
+          error: "",
+        });
+      } catch (error) {
+        if (!disposed) {
+          setContractPrices((current) => ({
+            ...current,
+            state: "error",
+            error: getErrorMessage(error),
+          }));
+        }
+      }
+    }
+
+    void loadContractPrices();
+    timer = window.setInterval(() => void loadContractPrices(), CONTRACT_PRICE_UI_REFRESH_MS);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [addresses.launchPass, addresses.store, chainConfig.chainId, chainConfig.rpcUrl, gearType]);
 
   useEffect(() => {
     let disposed = false;
@@ -327,15 +426,17 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
         return;
       }
 
-      const [ethBalance, mferBalance, mferGptBalance] = await Promise.all([
+      const [ethBalance, mferBalance, mferGptBalance, launchPassBalance] = await Promise.all([
         readNativeBalance(provider, wallet),
-        isAddress(addresses.mfer) ? readTokenBalance(provider, addresses.mfer, wallet) : Promise.resolve(null),
-        isAddress(addresses.mfergpt) ? readTokenBalance(provider, addresses.mfergpt, wallet) : Promise.resolve(null),
+        readOptionalTokenBalance(provider, addresses.mfer, wallet),
+        readOptionalTokenBalance(provider, addresses.mfergpt, wallet),
+        readOptionalTokenBalance(provider, addresses.launchPass, wallet),
       ]);
       setBalances({
         eth: formatUnits(ethBalance),
         mfer: mferBalance === null ? "--" : formatUnits(mferBalance),
         mfergpt: mferGptBalance === null ? "--" : formatUnits(mferGptBalance),
+        launchPass: launchPassBalance === null ? "--" : formatPassBalance(launchPassBalance),
         state: "ready",
         error: "",
       });
@@ -396,6 +497,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
         encodeUint(purchasedGearType),
         encodeUint(DISCOUNT_BPS.mfer),
       ));
+      await assertTokenBalanceAtLeast(provider, addresses.mfer, price, "$mfer");
       await approve(provider, addresses.mfer, addresses.store, price);
       const receipt = await sendTransaction(
         provider,
@@ -423,6 +525,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
         encodeUint(purchasedGearType),
         encodeUint(DISCOUNT_BPS.mfergpt),
       ));
+      await assertTokenBalanceAtLeast(provider, addresses.mfergpt, price, "$mfergpt");
       await approve(provider, addresses.mfergpt, addresses.store, price);
       const receipt = await sendTransaction(
         provider,
@@ -460,6 +563,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
       action: async () => {
       const provider = await prepareWallet(["launchPass", "mfer"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferPrice));
+      await assertTokenBalanceAtLeast(provider, addresses.mfer, price, "$mfer");
       await approve(provider, addresses.mfer, addresses.launchPass, price);
       const receipt = await sendTransaction(
         provider,
@@ -481,6 +585,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
       action: async () => {
       const provider = await prepareWallet(["launchPass", "mfergpt"]);
       const price = await readUint(provider, addresses.launchPass, callData(SELECTORS.mferGptPrice));
+      await assertTokenBalanceAtLeast(provider, addresses.mfergpt, price, "$mfergpt");
       await approve(provider, addresses.mfergpt, addresses.launchPass, price);
       const receipt = await sendTransaction(
         provider,
@@ -507,6 +612,7 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
     const tokenId = extractPurchasedTokenId(receipt, addresses.launchPass, PASS_PURCHASED_TOPIC, 2);
     if (tokenId === null) return;
     setLaunchPassTokenId(tokenId.toString());
+    void refreshBalances();
   }
 
   async function prepareWallet(requiredAddresses: Array<keyof CryptoStoreAddresses>) {
@@ -534,172 +640,291 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
         <div className="crypto-store-account">
           <span>{chainConfig.chainName} {chainConfig.chainId}</span>
           <code>{shortAccount}</code>
-          <button type="button" disabled={isBusy} onClick={() => void connectWallet()}>
+          <button
+            type="button"
+            disabled={isBusy}
+            data-tooltip={"Connect wallet\nAdds or switches to the configured chain"}
+            onClick={() => void connectWallet()}
+          >
             <PlugZap size={16} />
             connect
           </button>
         </div>
-
-        <div className="crypto-store-balances" aria-label="wallet balances">
-          <div className="crypto-store-balances-head">
-            <span>wallet balances</span>
-            <button
-              type="button"
-              title="Refresh balances"
-              aria-label="Refresh balances"
-              disabled={isBusy || balances.state === "loading"}
-              onClick={() => void refreshBalances()}
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
-          <div className="crypto-store-balance-grid">
-            <div>
-              <span>ETH</span>
-              <strong>{balances.eth}</strong>
-            </div>
-            <div>
-              <span>$mfer</span>
-              <strong>{balances.mfer}</strong>
-            </div>
-            <div>
-              <span>$mfergpt</span>
-              <strong>{balances.mfergpt}</strong>
-            </div>
-          </div>
-          {balances.state === "error" && balances.error ? <em>{balances.error}</em> : null}
-        </div>
       </div>
 
-      <div className="crypto-store-flow-grid">
-        <section className="crypto-store-flow crypto-pass-flow" aria-label="launch pass">
-          <div className="crypto-store-flow-head">
-            <div>
-              <strong>{LAUNCH_PASS_LABEL}</strong>
-              <span>contract price / pass id {launchPassTokenId || "--"}</span>
-            </div>
-          </div>
+      <div className="crypto-store-shop-layout">
+        <nav className="crypto-store-menu" aria-label="store menu">
+          <button
+            type="button"
+            aria-label="Show season pass"
+            aria-controls="crypto-store-panel-pass"
+            aria-current={activeSection === "pass" ? "page" : undefined}
+            className={activeSection === "pass" ? "selected" : undefined}
+            data-tooltip={"Season pass\nMint access for the connected wallet"}
+            onClick={() => setActiveSection("pass")}
+          >
+            <Gem size={18} />
+            <span>season pass</span>
+            <strong>{passOwnershipStatus}</strong>
+          </button>
+          <button
+            type="button"
+            aria-label="Show gear"
+            aria-controls="crypto-store-panel-gear"
+            aria-current={activeSection === "gear" ? "page" : undefined}
+            className={activeSection === "gear" ? "selected" : undefined}
+            data-tooltip={"Gear\nBrowse equipment NFTs and pay with ETH, $mfer, or $mfergpt"}
+            onClick={() => setActiveSection("gear")}
+          >
+            <Coins size={18} />
+            <span>gear</span>
+            <strong>leveling gear</strong>
+          </button>
+          <button
+            type="button"
+            aria-label="Show market"
+            aria-controls="crypto-store-panel-market"
+            aria-current={activeSection === "market" ? "page" : undefined}
+            className={activeSection === "market" ? "selected" : undefined}
+            data-tooltip={"Market\nLive cached token quotes used by contract pricing"}
+            onClick={() => setActiveSection("market")}
+          >
+            <Flame size={18} />
+            <span>market</span>
+            <strong>{formatMarketTabSummary(marketQuotes)}</strong>
+          </button>
+          <button
+            type="button"
+            aria-label="Show contracts"
+            aria-controls="crypto-store-panel-contracts"
+            aria-current={activeSection === "contracts" ? "page" : undefined}
+            className={activeSection === "contracts" ? "selected" : undefined}
+            data-tooltip={"Contract addresses\nAdvanced local testing configuration"}
+            onClick={() => setActiveSection("contracts")}
+          >
+            <PlugZap size={18} />
+            <span>contracts</span>
+            <strong>{configuredContractCount}/6 ready</strong>
+          </button>
+        </nav>
 
-          <div className="crypto-store-actions crypto-pass-actions">
-            <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithEth()}>
-              <Gem size={16} />
-              mint ETH
-            </button>
-            <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMfer()}>
-              <Coins size={16} />
-              mint $mfer
-            </button>
-            <button type="button" disabled={isBusy} onClick={() => void buyLaunchPassWithMferGpt()}>
-              <Flame size={16} />
-              mint $mfergpt
-            </button>
-          </div>
-        </section>
+        <div className="crypto-store-flow-grid">
+        {activeSection === "pass" ? (
+          <section
+            id="crypto-store-panel-pass"
+            className="crypto-store-flow crypto-pass-flow"
+            aria-label="launch pass"
+          >
+            <div className="crypto-product-layout">
+              <div className="crypto-product-preview crypto-pass-preview" data-tooltip={`Season pass\n${passOwnershipStatus}`}>
+                <Gem size={54} />
+                <strong>{LAUNCH_PASS_LABEL}</strong>
+                <span>{passOwnershipStatus}</span>
+              </div>
 
-        <section className="crypto-store-flow crypto-gear-flow" aria-label="gear purchase">
-          <div className="crypto-store-flow-head">
-            <div className="crypto-store-gear-heading">
-              {selectedStoreGearItemId ? <ItemIcon itemId={selectedStoreGearItemId} /> : null}
-              <div>
-                <strong>{selectedStoreGearItemId ? ITEMS[selectedStoreGearItemId].name : selectedStoreGear?.label ?? "custom gear"}</strong>
-                <span>gear type {gearType} / {ethPrice} ETH / token prices from pricing contract</span>
+              <div className="crypto-product-detail">
+                <div className="crypto-store-flow-head">
+                  <div>
+                    <strong>{LAUNCH_PASS_LABEL}</strong>
+                    <span>{formatContractPriceStatus(contractPrices, "pass")} / {passOwnershipStatus}</span>
+                  </div>
+                </div>
+
+                <ProductPriceGrid price={contractPrices.pass} ariaLabel="launch pass prices" productLabel={LAUNCH_PASS_LABEL} />
+
+                <div className="crypto-store-actions crypto-pass-actions">
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    data-tooltip={getPurchaseTooltip("ETH", "season pass", contractPrices.pass?.eth)}
+                    onClick={() => void buyLaunchPassWithEth()}
+                  >
+                    <Gem size={16} />
+                    mint ETH
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    data-tooltip={getPurchaseTooltip("$mfer", "season pass", contractPrices.pass?.mfer)}
+                    onClick={() => void buyLaunchPassWithMfer()}
+                  >
+                    <Coins size={16} />
+                    mint $mfer
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    data-tooltip={getPurchaseTooltip("$mfergpt", "season pass", contractPrices.pass?.mfergpt)}
+                    onClick={() => void buyLaunchPassWithMferGpt()}
+                  >
+                    <Flame size={16} />
+                    mint $mfergpt
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
+        ) : null}
 
-          <div className="crypto-store-collection" aria-label="gear collection">
-            {STORE_GEAR_COLLECTION.map((gear) => {
-              const itemId = getChainGearItemId(gear.gearType);
-              const itemName = itemId ? ITEMS[itemId].name : gear.label;
-              const isSelected = String(gear.gearType) === gearType;
+        {activeSection === "gear" ? (
+          <section
+            id="crypto-store-panel-gear"
+            className="crypto-store-flow crypto-gear-flow"
+            aria-label="gear purchase"
+          >
+            <div className="crypto-product-layout crypto-gear-layout">
+              <div className="crypto-store-collection crypto-store-catalog" aria-label="gear collection">
+                {STORE_GEAR_COLLECTION.map((gear) => {
+                  const itemId = getChainGearItemId(gear.gearType);
+                  const itemName = itemId ? ITEMS[itemId].name : gear.label;
+                  const isSelected = String(gear.gearType) === gearType;
+                  const gearPrice = contractPrices.gearByType[String(gear.gearType)] ?? null;
+                  const gearTooltip = getGearCollectionTooltip(itemName, itemId, gear, gearPrice, normalizedPlayerLevel);
 
-              return (
-                <button
-                  key={gear.gearType}
-                  type="button"
-                  className={isSelected ? "selected" : undefined}
-                  title={itemName}
-                  aria-label={`${itemName}, ${gear.ethPrice} ETH, ${gear.mferPriceLabel} mfer, ${gear.mferGptPriceLabel} mfergpt`}
-                  aria-pressed={isSelected}
-                  disabled={isBusy}
-                  onClick={() => selectStoreGear(gear)}
-                >
-                  {itemId ? <ItemIcon itemId={itemId} /> : null}
-                  <span>{gear.ethPrice} ETH</span>
-                  <em>{gear.mferPriceLabel} / {gear.mferGptPriceLabel}</em>
-                </button>
-              );
-            })}
-          </div>
+                  return (
+                    <button
+                      key={gear.gearType}
+                      type="button"
+                      className={isSelected ? "selected" : undefined}
+                      title={itemName}
+                      aria-label={formatTooltipLabel(gearTooltip)}
+                      aria-pressed={isSelected}
+                      disabled={isBusy}
+                      data-tooltip={gearTooltip}
+                      onClick={() => selectStoreGear(gear)}
+                    >
+                      {itemId ? <ItemIcon itemId={itemId} /> : null}
+                      <span>{itemName}</span>
+                      <strong>{gearPrice?.eth ?? gear.ethPrice} ETH</strong>
+                    </button>
+                  );
+                })}
+              </div>
 
-          <div className="crypto-store-item">
-            <div className="crypto-store-gear-heading">
-              {selectedStoreGearItemId ? <ItemIcon itemId={selectedStoreGearItemId} /> : null}
-              <div>
-                <strong>gear checkout</strong>
-                <span>selected {selectedStoreGearItemId ? ITEMS[selectedStoreGearItemId].name : selectedStoreGear?.label ?? "custom gear"}</span>
+              <div className="crypto-product-detail">
+                <div className="crypto-store-flow-head">
+                  <div className="crypto-store-gear-heading">
+                    {selectedStoreGearItemId ? <ItemIcon itemId={selectedStoreGearItemId} /> : null}
+                    <div>
+                      <strong>{selectedGearName}</strong>
+                      <span>gear type {gearType} / {selectedGearMeta}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="crypto-store-stat-card" aria-label={`${selectedGearName} stats`} data-tooltip={getGearStatsTooltip(selectedGearName, selectedStoreGearItemId, normalizedPlayerLevel)}>
+                  <div className="crypto-store-stat-head">
+                    <span>heirloom stats</span>
+                    <strong>L{normalizedPlayerLevel}</strong>
+                  </div>
+                  <div className="crypto-store-stat-grid">
+                    {selectedGearStats.length > 0 ? selectedGearStats.map((stat) => (
+                      <div key={stat.key}>
+                        <span>{stat.label}</span>
+                        <strong>{stat.value}</strong>
+                      </div>
+                    )) : (
+                      <div>
+                        <span>bonus</span>
+                        <strong>none</strong>
+                      </div>
+                    )}
+                  </div>
+                  {selectedGearGrowth.length > 0 ? (
+                    <p className="crypto-store-heirloom-line">
+                      grows {selectedGearGrowth.map((stat) => `${stat.value} ${stat.label}`).join(", ")} each level
+                    </p>
+                  ) : null}
+                </div>
+
+                <ProductPriceGrid price={selectedGearPrice} ariaLabel="selected gear prices" productLabel={selectedGearName} />
+
+                <div className="crypto-store-item crypto-gear-checkout">
+                  <label>
+                    <span>gear type</span>
+                    <input aria-label="gear" value={gearType} inputMode="numeric" onChange={(event) => setGearType(event.target.value)} />
+                  </label>
+                  <label>
+                    <span>ETH</span>
+                    <input aria-label="ETH" value={displayedEthPrice} inputMode="decimal" readOnly />
+                  </label>
+                  <label data-tooltip={getPriceTooltip(selectedGearName, "$mfer", displayedMferPrice)}>
+                    <span>$mfer</span>
+                    <input aria-label="$mfer price" value={formatCompactTokenAmount(displayedMferPrice)} inputMode="decimal" readOnly />
+                  </label>
+                  <label data-tooltip={getPriceTooltip(selectedGearName, "$mfergpt", displayedMferGptPrice)}>
+                    <span>$mfergpt</span>
+                    <input aria-label="$mfergpt price" value={formatCompactTokenAmount(displayedMferGptPrice)} inputMode="decimal" readOnly />
+                  </label>
+                </div>
+
+                <div className="crypto-store-actions">
+                  <button type="button" disabled={isBusy} data-tooltip={getPurchaseTooltip("ETH", selectedGearName, selectedGearPrice?.eth)} onClick={() => void buyWithEth()}>
+                    <Gem size={16} />
+                    buy ETH
+                  </button>
+                  <button type="button" disabled={isBusy} data-tooltip={getPurchaseTooltip("$mfer", selectedGearName, selectedGearPrice?.mfer, "10% discount")} onClick={() => void buyWithMfer()}>
+                    <Coins size={16} />
+                    buy $mfer -10%
+                  </button>
+                  <button type="button" disabled={isBusy} data-tooltip={getPurchaseTooltip("$mfergpt", selectedGearName, selectedGearPrice?.mfergpt, "25% discount")} onClick={() => void buyWithMferGpt()}>
+                    <Flame size={16} />
+                    buy $mfergpt -25%
+                  </button>
+                </div>
               </div>
             </div>
-            <label>
-              <span>gear</span>
-              <input aria-label="gear" value={gearType} inputMode="numeric" onChange={(event) => setGearType(event.target.value)} />
-            </label>
-            <label>
-              <span>ETH</span>
-              <input aria-label="ETH" value={ethPrice} inputMode="decimal" readOnly />
-            </label>
-          </div>
+          </section>
+        ) : null}
 
-          <div className="crypto-store-actions">
-            <button type="button" disabled={isBusy} onClick={() => void buyWithEth()}>
-              <Gem size={16} />
-              buy ETH
-            </button>
-            <button type="button" disabled={isBusy} onClick={() => void buyWithMfer()}>
-              <Coins size={16} />
-              buy $mfer -10%
-            </button>
-            <button type="button" disabled={isBusy} onClick={() => void buyWithMferGpt()}>
-              <Flame size={16} />
-              buy $mfergpt -25%
-            </button>
-          </div>
-        </section>
+        {activeSection === "market" ? (
+          <section
+            id="crypto-store-panel-market"
+            className="crypto-store-flow crypto-market-flow"
+            aria-label="market quotes"
+          >
+            <div className="crypto-product-layout crypto-market-layout">
+              <div className="crypto-product-preview crypto-market-preview" data-tooltip={`Quote refresh\nServer updates every ${marketQuotes.refreshIntervalSeconds || 60} seconds`}>
+                <Flame size={54} />
+                <strong>market</strong>
+                <span>{formatMarketTabSummary(marketQuotes)}</span>
+              </div>
 
-        <section className="crypto-store-flow crypto-market-flow" aria-label="market quotes">
-          <div className="crypto-store-flow-head">
-            <div>
-              <strong>market</strong>
-              <span>cached quotes</span>
+              <div className="crypto-product-detail">
+                <div className="crypto-store-flow-head">
+                  <div>
+                    <strong>token quotes</strong>
+                    <span>cached every {marketQuotes.refreshIntervalSeconds || 60}s</span>
+                  </div>
+                </div>
+                <div className="crypto-market-quotes">
+                  <div data-tooltip={getMarketQuoteTooltip("$mfer/WETH", mferQuote, marketQuotes)}>
+                    <span>$mfer/WETH</span>
+                    <strong>{formatMarketQuote(mferQuote)}</strong>
+                    <em>{formatMarketQuoteMeta(mferQuote, marketQuotes)}</em>
+                  </div>
+                  <div data-tooltip={getMarketQuoteTooltip("MFERGPT/WETH", mferGptQuote, marketQuotes)}>
+                    <span>MFERGPT/WETH</span>
+                    <strong>{formatMarketQuote(mferGptQuote)}</strong>
+                    <em>{formatMarketQuoteMeta(mferGptQuote, marketQuotes)}</em>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="crypto-market-quotes">
-            <div>
-              <span>$mfer/WETH</span>
-              <strong>{formatMarketQuote(mferQuote)}</strong>
-              <em>{formatMarketQuoteMeta(mferQuote, marketQuotes)}</em>
+          </section>
+        ) : null}
+        {activeSection === "contracts" ? (
+          <section
+            id="crypto-store-panel-contracts"
+            className="crypto-store-flow crypto-store-contracts"
+            aria-label="contract addresses"
+          >
+            <div className="crypto-store-flow-head">
+              <div>
+                <strong>contracts</strong>
+                <span>{configuredContractCount}/6 configured</span>
+              </div>
             </div>
-            <div>
-              <span>MFERGPT/WETH</span>
-              <strong>{formatMarketQuote(mferGptQuote)}</strong>
-              <em>{formatMarketQuoteMeta(mferGptQuote, marketQuotes)}</em>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <div className="crypto-store-contracts">
-        <button
-          type="button"
-          className="crypto-store-contract-toggle"
-          aria-expanded={showContractConfig}
-          onClick={() => setShowContractConfig((current) => !current)}
-        >
-          {showContractConfig ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          <span>contract addresses</span>
-          <strong>{configuredContractCount}/6</strong>
-        </button>
-        {showContractConfig ? (
           <div className="crypto-store-config">
             <label>
               <span>store</span>
@@ -726,12 +951,113 @@ export function CryptoStorePanel({ npc, onClose, onRegisterChainGear, onAnalytic
               <input aria-label="launch pass" value={addresses.launchPass} placeholder="0x..." onChange={(event) => updateAddress("launchPass", event.target.value)} />
             </label>
           </div>
+          </section>
         ) : null}
+        </div>
       </div>
+
+      <div className="crypto-store-currency-bar" aria-label="wallet balances">
+        <button
+          type="button"
+          className="crypto-store-currency-refresh"
+          title="Refresh balances"
+          aria-label="Refresh balances"
+          disabled={isBusy || balances.state === "loading"}
+          data-tooltip={"Refresh balances\nReads ETH, mock token, and pass ownership state"}
+          onClick={() => void refreshBalances()}
+        >
+          <RefreshCw size={14} />
+        </button>
+        <div data-tooltip={getBalanceTooltip("ETH", balances.eth)}>
+          <span>ETH</span>
+          <strong>{balances.eth}</strong>
+        </div>
+        <div data-tooltip={getBalanceTooltip("$mfer", balances.mfer)}>
+          <span>$mfer</span>
+          <strong>{formatCompactTokenAmount(balances.mfer)}</strong>
+        </div>
+        <div data-tooltip={getBalanceTooltip("$mfergpt", balances.mfergpt)}>
+          <span>$mfergpt</span>
+          <strong>{formatCompactTokenAmount(balances.mfergpt)}</strong>
+        </div>
+        <div data-tooltip={getBalanceTooltip("season pass", balances.launchPass)}>
+          <span>season pass</span>
+          <strong>{balances.launchPass}</strong>
+        </div>
+      </div>
+      {balances.state === "error" && balances.error ? <em className="crypto-store-balance-error">{balances.error}</em> : null}
 
       <p className="crypto-store-status">{status}</p>
     </div>
   );
+}
+
+function ProductPriceGrid({ price, ariaLabel, productLabel }: { price: CryptoProductPrice | null; ariaLabel: string; productLabel: string }) {
+  return (
+    <div className="crypto-price-grid" aria-label={ariaLabel}>
+      <div data-tooltip={getPriceTooltip(productLabel, "ETH", price?.eth)}>
+        <span>ETH</span>
+        <strong>{price?.eth ?? "--"}</strong>
+      </div>
+      <div data-tooltip={getPriceTooltip(productLabel, "$mfer", price?.mfer)}>
+        <span>$mfer</span>
+        <strong>{formatCompactTokenAmount(price?.mfer ?? "--")}</strong>
+      </div>
+      <div data-tooltip={getPriceTooltip(productLabel, "$mfergpt", price?.mfergpt)}>
+        <span>$mfergpt</span>
+        <strong>{formatCompactTokenAmount(price?.mfergpt ?? "--")}</strong>
+      </div>
+    </div>
+  );
+}
+
+function getStoreGearStatRows(itemId: keyof typeof ITEMS, chainTier = 1, playerLevel = 1) {
+  const equipment = getItemEquipment(itemId, chainTier, playerLevel);
+  if (!equipment) return [];
+
+  return (Object.keys(equipment.stats) as Array<keyof typeof STAT_LABELS>)
+    .map((statKey) => ({
+      key: statKey,
+      label: STAT_LABELS[statKey],
+      value: formatSignedStatValue(equipment.stats[statKey] ?? 0),
+    }));
+}
+
+function getStoreGearGrowthRows(itemId: keyof typeof ITEMS) {
+  const growth = getItemHeirloomStatsPerLevel(itemId);
+  return (Object.keys(growth) as Array<keyof typeof STAT_LABELS>)
+    .map((statKey) => ({
+      key: statKey,
+      label: STAT_LABELS[statKey],
+      value: formatSignedStatValue(growth[statKey] ?? 0),
+    }));
+}
+
+function getGearStatsTooltip(itemName: string, itemId: keyof typeof ITEMS | null, playerLevel = 1) {
+  if (!itemId) return `${itemName}\nNo stats available`;
+  const level = normalizeItemLevel(playerLevel);
+  const equipment = getItemEquipment(itemId, 1, level);
+  if (!equipment) return `${itemName}\nNo stats available`;
+  const growthLines = getStoreGearGrowthRows(itemId).map((stat) => `${stat.value} ${stat.label} per level`);
+
+  const lines = [
+    itemName,
+    `${EQUIPMENT_SLOTS[equipment.slot]} / ${equipment.build}`,
+    `Level ${level} stats`,
+    ...getStoreGearStatRows(itemId, 1, level).map((stat) => `${stat.value} ${stat.label}`),
+    growthLines.length > 0 ? "Heirloom growth" : "",
+    ...growthLines,
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+function formatSignedStatValue(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatStatNumber(value)}`;
+}
+
+function formatStatNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function readStoredAddresses(): CryptoStoreAddresses {
@@ -798,13 +1124,34 @@ function parseChainConfig(document: CryptoContractsDocument): CryptoStoreChainCo
     chainName: typeof document.chainName === "string" && document.chainName.trim()
       ? document.chainName.trim()
       : chainId === LOCAL_CHAIN_CONFIG.chainId ? LOCAL_CHAIN_CONFIG.chainName : `chain ${chainId}`,
-    rpcUrl: typeof document.rpcUrl === "string" ? document.rpcUrl.trim() : "",
+    rpcUrl: resolveChainRpcUrl(typeof document.rpcUrl === "string" ? document.rpcUrl.trim() : "", chainId),
     nativeCurrency: {
       name: typeof nativeCurrency.name === "string" && nativeCurrency.name.trim() ? nativeCurrency.name.trim() : "Ether",
       symbol: typeof nativeCurrency.symbol === "string" && nativeCurrency.symbol.trim() ? nativeCurrency.symbol.trim() : "ETH",
       decimals: Number.isInteger(nativeCurrency.decimals) && Number(nativeCurrency.decimals) > 0 ? Number(nativeCurrency.decimals) : 18,
     },
   };
+}
+
+function resolveChainRpcUrl(configuredRpcUrl: string, chainId: number) {
+  if (chainId !== LOCAL_CHAIN_CONFIG.chainId) return configuredRpcUrl;
+  if (typeof window === "undefined") return configuredRpcUrl || LOCAL_CHAIN_CONFIG.rpcUrl;
+  if (configuredRpcUrl && !isLoopbackRpcUrl(configuredRpcUrl)) return configuredRpcUrl;
+  if (isLoopbackHost(window.location.hostname)) return configuredRpcUrl || LOCAL_CHAIN_CONFIG.rpcUrl;
+  return `${window.location.origin}/crypto-rpc`;
+}
+
+function isLoopbackRpcUrl(value: string) {
+  try {
+    return isLoopbackHost(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLoopbackHost(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]";
 }
 
 function isUsableContractConfig(addresses: CryptoStoreAddresses) {
@@ -828,6 +1175,20 @@ function requireProviderForAccount(account: string, chainId: number) {
   return provider;
 }
 
+function getReadOnlyProvider(chainConfig: CryptoStoreChainConfig): EthereumProvider | null {
+  return getJsonRpcProvider(chainConfig.rpcUrl) ?? getEthereum();
+}
+
+function getJsonRpcProvider(rpcUrl: string): EthereumProvider | null {
+  const endpoint = rpcUrl.trim();
+  if (!endpoint) return null;
+  return {
+    async request({ method, params = [] }) {
+      return requestJsonRpc(endpoint, method, params);
+    },
+  };
+}
+
 function getLocalAnvilProvider(account: string, chainId: number): EthereumProvider | null {
   if (!import.meta.env.DEV || chainId !== LOCAL_CHAIN_CONFIG.chainId || !isAddress(account)) return null;
   return {
@@ -835,13 +1196,13 @@ function getLocalAnvilProvider(account: string, chainId: number): EthereumProvid
       if (method === "eth_accounts" || method === "eth_requestAccounts") return [account];
       if (method === "eth_chainId") return toChainIdHex(LOCAL_CHAIN_CONFIG.chainId);
       if (method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") return null;
-      return requestLocalAnvil(method, params);
+      return requestJsonRpc(LOCAL_CHAIN_CONFIG.rpcUrl, method, params);
     },
   };
 }
 
-async function requestLocalAnvil(method: string, params: unknown[]) {
-  const response = await fetch("http://127.0.0.1:8545", {
+async function requestJsonRpc(rpcUrl: string, method: string, params: unknown[]) {
+  const response = await fetch(rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
@@ -853,25 +1214,42 @@ async function requestLocalAnvil(method: string, params: unknown[]) {
 
 async function switchToConfiguredChain(provider: EthereumProvider, chainConfig: CryptoStoreChainConfig) {
   const chainId = toChainIdHex(chainConfig.chainId);
+  if (chainConfig.chainId === LOCAL_CHAIN_CONFIG.chainId && chainConfig.rpcUrl) {
+    await addConfiguredChain(provider, chainId, chainConfig).catch(() => undefined);
+  }
   try {
     await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
   } catch (error) {
     if (!isUnknownChainError(error)) throw error;
     if (!chainConfig.rpcUrl) throw error;
-    await provider.request({
-      method: "wallet_addEthereumChain",
-      params: [{
-        chainId,
-        chainName: chainConfig.chainName,
-        nativeCurrency: chainConfig.nativeCurrency,
-        rpcUrls: [chainConfig.rpcUrl],
-      }],
-    });
+    await addConfiguredChain(provider, chainId, chainConfig);
   }
+}
+
+async function addConfiguredChain(provider: EthereumProvider, chainId: string, chainConfig: CryptoStoreChainConfig) {
+  await provider.request({
+    method: "wallet_addEthereumChain",
+    params: [{
+      chainId,
+      chainName: chainConfig.chainName,
+      nativeCurrency: chainConfig.nativeCurrency,
+      rpcUrls: [chainConfig.rpcUrl],
+    }],
+  });
 }
 
 async function approve(provider: EthereumProvider, tokenAddress: string, spender: string, amount: bigint) {
   await sendTransaction(provider, tokenAddress, callData(SELECTORS.approve, encodeAddress(spender), encodeUint(amount)));
+}
+
+async function assertTokenBalanceAtLeast(provider: EthereumProvider, tokenAddress: string, amount: bigint, label: string) {
+  const accounts = await provider.request({ method: "eth_accounts" });
+  const account = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : "";
+  if (!account) throw new Error("Wallet not connected");
+  const balance = await readTokenBalance(provider, tokenAddress, account);
+  if (balance < amount) {
+    throw new Error(`not enough ${label}: need ${formatUnits(amount)}, have ${formatUnits(balance)}`);
+  }
 }
 
 async function sendTransaction(provider: EthereumProvider, to: string, data: string, value = 0n) {
@@ -890,19 +1268,59 @@ async function sendTransaction(provider: EthereumProvider, to: string, data: str
 async function readUint(provider: EthereumProvider, to: string, data: string) {
   if (!isAddress(to)) throw new Error("Store address missing");
   const result = await provider.request({ method: "eth_call", params: [{ to, data }, "latest"] });
-  if (typeof result !== "string") throw new Error("Read failed");
-  return BigInt(result);
+  return parseRpcUint(result, "Contract read");
 }
 
 async function readNativeBalance(provider: EthereumProvider, account: string) {
   const result = await provider.request({ method: "eth_getBalance", params: [account, "latest"] });
-  if (typeof result !== "string") throw new Error("ETH balance read failed");
-  return BigInt(result);
+  return parseRpcUint(result, "ETH balance read");
 }
 
 async function readTokenBalance(provider: EthereumProvider, tokenAddress: string, account: string) {
   if (!isAddress(tokenAddress)) throw new Error("Token address missing");
   return readUint(provider, tokenAddress, callData(SELECTORS.balanceOf, encodeAddress(account)));
+}
+
+async function readOptionalTokenBalance(provider: EthereumProvider, tokenAddress: string, account: string) {
+  if (!isAddress(tokenAddress)) return null;
+  try {
+    return await readTokenBalance(provider, tokenAddress, account);
+  } catch {
+    return null;
+  }
+}
+
+function parseRpcUint(value: unknown, label: string) {
+  if (typeof value !== "string") throw new Error(`${label} failed`);
+  const normalized = value.trim();
+  if (!/^0x[0-9a-fA-F]+$/.test(normalized)) throw new Error(`${label} returned no data`);
+  return BigInt(normalized);
+}
+
+async function readPassPrice(provider: EthereumProvider, launchPassAddress: string): Promise<CryptoProductPrice> {
+  const [eth, mfer, mfergpt] = await Promise.all([
+    readUint(provider, launchPassAddress, callData(SELECTORS.ethPrice)),
+    readUint(provider, launchPassAddress, callData(SELECTORS.mferPrice)),
+    readUint(provider, launchPassAddress, callData(SELECTORS.mferGptPrice)),
+  ]);
+  return formatProductPrice({ eth, mfer, mfergpt });
+}
+
+async function readGearPrice(provider: EthereumProvider, storeAddress: string, gearType: number): Promise<CryptoProductPrice> {
+  const [eth, mfer, mfergpt] = await Promise.all([
+    readUint(provider, storeAddress, callData(SELECTORS.gearEthPrice, encodeUint(gearType))),
+    readUint(provider, storeAddress, callData(
+      SELECTORS.discountedTokenPrice,
+      encodeUint(gearType),
+      encodeUint(DISCOUNT_BPS.mfer),
+    )),
+    readUint(provider, storeAddress, callData(
+      SELECTORS.discountedTokenPrice,
+      encodeUint(gearType),
+      encodeUint(DISCOUNT_BPS.mfergpt),
+    )),
+  ]);
+  return formatProductPrice({ eth, mfer, mfergpt });
 }
 
 function validateAddresses(addresses: CryptoStoreAddresses, requiredAddresses: Array<keyof CryptoStoreAddresses>) {
@@ -973,6 +1391,96 @@ function formatUnits(value: bigint, decimals = 18, maxFractionDigits = 4) {
     .slice(0, maxFractionDigits)
     .replace(/0+$/, "");
   return fractionText ? `${whole}.${fractionText}` : whole.toString();
+}
+
+function formatProductPrice(values: { eth: bigint; mfer: bigint; mfergpt: bigint }): CryptoProductPrice {
+  return {
+    eth: formatUnits(values.eth, 18, 6),
+    mfer: formatUnits(values.mfer, 18, 4),
+    mfergpt: formatUnits(values.mfergpt, 18, 4),
+  };
+}
+
+function formatPassBalance(value: bigint) {
+  if (value <= 0n) return "none";
+  return `${value.toString()} owned`;
+}
+
+function formatPassOwnershipStatus(balances: CryptoStoreBalances, mintedTokenId: string) {
+  if (mintedTokenId) return `minted pass #${mintedTokenId}`;
+  if (balances.state === "loading" || balances.state === "idle") return "checking pass";
+  if (balances.state === "error") return "pass unknown";
+  if (balances.launchPass === "--") return "pass unavailable";
+  return balances.launchPass === "none" ? "no pass for wallet" : `season pass ${balances.launchPass}`;
+}
+
+function getBalanceTooltip(label: string, value: string) {
+  const detail = value === "--" ? "not available" : value;
+  return `${label}\nWallet balance: ${detail}`;
+}
+
+function getPriceTooltip(productLabel: string, paymentToken: string, amount?: string) {
+  return `${productLabel}\n${paymentToken}: ${amount ?? "loading"}`;
+}
+
+function getPurchaseTooltip(paymentToken: string, productLabel: string, amount?: string, note?: string) {
+  const lines = [
+    productLabel,
+    `Pay ${amount ?? "loading"} ${paymentToken}`,
+  ];
+  if (note) lines.push(note);
+  if (paymentToken === "$mfergpt") lines.push("Mock token is sent to the burn address after approval");
+  if (paymentToken === "$mfer") lines.push("Mock token is transferred to treasury");
+  return lines.join("\n");
+}
+
+function getGearCollectionTooltip(
+  itemName: string,
+  itemId: keyof typeof ITEMS | null,
+  gear: typeof STORE_GEAR_COLLECTION[number],
+  price: CryptoProductPrice | null,
+  playerLevel = 1,
+) {
+  const eth = price?.eth ?? gear.ethPrice;
+  const mfer = price?.mfer ?? gear.mferPriceLabel;
+  const mfergpt = price?.mfergpt ?? gear.mferGptPriceLabel;
+  const level = normalizeItemLevel(playerLevel);
+  const statLines = itemId ? getStoreGearStatRows(itemId, 1, level).map((stat) => `${stat.value} ${stat.label}`) : [];
+  const growthLines = itemId ? getStoreGearGrowthRows(itemId).map((stat) => `${stat.value} ${stat.label}/level`) : [];
+  return [
+    itemName,
+    `Gear type ${gear.gearType}`,
+    `Level ${level} heirloom`,
+    ...statLines,
+    ...growthLines,
+    `${eth} ETH`,
+    `${mfer} $mfer / ${mfergpt} $mfergpt`,
+  ].join("\n");
+}
+
+function getMarketQuoteTooltip(label: string, quote: CryptoMarketQuote | null, state: CryptoMarketQuotesState) {
+  if (!quote) return `${label}\n${state.state === "error" && state.error ? state.error : "waiting for quote"}`;
+  return `${label}\n${formatMarketQuote(quote)}\n${formatMarketQuoteMeta(quote, state)}`;
+}
+
+function formatMarketTabSummary(state: CryptoMarketQuotesState) {
+  if (state.state === "error") return "quotes offline";
+  if (state.state === "idle" || state.state === "loading") return "loading quotes";
+  return state.quotes.length >= 2 ? "live quotes" : "partial quotes";
+}
+
+function formatContractPriceStatus(state: CryptoContractPricesState, product: "pass" | "gear") {
+  if (state.state === "error" && state.error) return state.error;
+  if (state.state === "loading" || state.state === "idle") return "loading contract prices";
+  if (product === "pass" && !state.pass) return "pass price unavailable";
+  return "contract prices";
+}
+
+function getVisibleGearTypes(selectedGearType: string) {
+  const gearTypes = new Set<number>(STORE_GEAR_COLLECTION.map((gear) => gear.gearType));
+  const selected = Number(selectedGearType);
+  if (Number.isInteger(selected) && selected > 0) gearTypes.add(selected);
+  return [...gearTypes];
 }
 
 function toHex(value: bigint) {
@@ -1069,11 +1577,7 @@ function formatQuoteAge(value: string) {
 }
 
 function formatDecimal(value: string) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return value;
-  if (parsed === 0) return "0";
-  if (Math.abs(parsed) < 0.000001) return parsed.toExponential(3);
-  return parsed.toLocaleString(undefined, { maximumSignificantDigits: 6 });
+  return formatReadableDecimal(value);
 }
 
 function getErrorMessage(error: unknown) {

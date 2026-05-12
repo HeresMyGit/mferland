@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-interface IMferGptBurnable {
-    function burnFrom(address from, uint256 amount) external;
-    function balanceOf(address account) external view returns (uint256);
-    function totalSupply() external view returns (uint256);
-}
-
 interface IMferPayment {
     function balanceOf(address account) external view returns (uint256);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
@@ -21,12 +15,14 @@ interface IMferProductPricing {
 }
 
 contract MferLaunchPass {
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
     string public name;
     string public symbol;
     address public owner;
     address payable public treasury;
     IMferPayment public immutable mfer;
-    IMferGptBurnable public immutable mfergpt;
+    IMferPayment public immutable mfergpt;
     IMferProductPricing public immutable pricing;
     bytes32 public immutable productId;
     uint256 public immutable maxSupply;
@@ -60,7 +56,7 @@ contract MferLaunchPass {
         string memory collectionName,
         string memory collectionSymbol,
         IMferPayment mferToken,
-        IMferGptBurnable mferGptToken,
+        IMferPayment mferGptToken,
         IMferProductPricing productPricing,
         address payable passTreasury,
         address initialOwner,
@@ -156,12 +152,7 @@ contract MferLaunchPass {
     function mintWithMferGpt(uint256 maxPayment) external nonReentrant returns (uint256 tokenId) {
         uint256 price = mferGptPrice();
         _validateMaxPayment(price, maxPayment);
-        uint256 balanceBefore = mfergpt.balanceOf(msg.sender);
-        uint256 supplyBefore = mfergpt.totalSupply();
-        mfergpt.burnFrom(msg.sender, price);
-        if (mfergpt.balanceOf(msg.sender) + price != balanceBefore || mfergpt.totalSupply() + price != supplyBefore) {
-            revert PaymentFailed();
-        }
+        _transferExact(mfergpt, msg.sender, BURN_ADDRESS, price);
         tokenId = _mint(msg.sender);
         emit PassPurchased(msg.sender, tokenId, "MFERGPT", price);
     }
@@ -203,8 +194,8 @@ contract MferLaunchPass {
     }
 
     function _transferExact(IMferPayment token, address from, address to, uint256 amount) internal {
-        uint256 treasuryBefore = token.balanceOf(to);
+        uint256 recipientBefore = token.balanceOf(to);
         bool paid = token.transferFrom(from, to, amount);
-        if (!paid || token.balanceOf(to) != treasuryBefore + amount) revert PaymentFailed();
+        if (!paid || token.balanceOf(to) != recipientBefore + amount) revert PaymentFailed();
     }
 }

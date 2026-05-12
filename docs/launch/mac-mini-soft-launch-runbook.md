@@ -30,13 +30,15 @@ Point `DATABASE_URL` at the intended local or staging DB, not production. Then a
 npm run db:migrate -w @mferland/server
 ```
 
-The server refreshes Dex Screener market quotes into `crypto_market_quotes` on startup and then about once per hour. To refresh manually:
+The server refreshes Dex Screener market quotes into `crypto_market_quotes` on startup and then every 60 seconds. To refresh manually:
 
 ```sh
 npm run pricing:refresh:market
 ```
 
-The web crypto store reads `/crypto/market-quotes` from the game server and shows cached `$mfer/WETH` and `MFERGPT/WETH` labels. These labels are informational; local contract payment still uses the contract's configured price.
+The web crypto store reads `/crypto/market-quotes` from the game server and shows cached `$mfer/WETH` and `MFERGPT/WETH` labels. It also reads contract prices every 60 seconds so the pass and item checkout amounts show the actual ETH, `$mfer`, and `MFERGPT` amounts the smart contracts accept.
+
+For real-data testing with mock tokens, local Anvil pricing can auto-update from live Base token quotes. The updater writes the local `MferPricing` contract only every 6 hours or when a recalculated token amount differs by at least 25% from the current smart contract amount. Keep non-local/Base contract writes disabled unless Josh explicitly reopens the deployment gate.
 
 ## 0.75. Remote Test Network Shape
 
@@ -82,16 +84,19 @@ DATABASE_URL="postgresql://..." # Neon staging/test until production cutover is 
 VITE_SERVER_URL="wss://game.mfergpt.lol"
 VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"
 VITE_REQUIRE_INVITE="1"
-VITE_ENABLE_CRYPTO_STORE="1"
+VITE_ENABLE_CRYPTO_STORE="0"
+MFERLAND_ENABLE_CRYPTO_STORE="0"
 MFERLAND_INVITE_CODE="REPLACE_WITH_PRIVATE_DM_CODE"
 MFERLAND_SERVE_WEB_DIST="1"
-MFERLAND_MARKET_QUOTE_INTERVAL_MS="21600000"
+MFERLAND_MARKET_QUOTE_INTERVAL_MS="60000"
+MFERLAND_CONTRACT_PRICE_UPDATE_INTERVAL_MS="21600000"
+MFERLAND_CONTRACT_PRICE_DRIFT_BPS="2500"
 VITE_GA_MEASUREMENT_ID=""
 ```
 
 Use `https://game.mfergpt.lol/?invite=REPLACE_WITH_PRIVATE_DM_CODE` as the DM link. The static page is not secret, but room joins are rejected unless the invite code matches. Rotate `MFERLAND_INVITE_CODE` if the link leaks. Do not commit the invite code.
 
-Keep `VITE_ENABLE_CRYPTO_STORE="1"` for the tester build so merchants open the in-game crypto panel. For the current mock-token setup, `VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"` points the UI at the latest local deployment exported by `npm run chain:deploy:local`. This is test data; public wallet purchase testing should still use disposable wallets and avoid Josh's main wallet.
+Keep `VITE_ENABLE_CRYPTO_STORE="0"` and `MFERLAND_ENABLE_CRYPTO_STORE="0"` while the crypto merchant is hidden from the main game. For mock-token crypto testing, set both flags to `"1"` and keep `VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"` so the UI points at the latest local deployment exported by `npm run chain:deploy:local`. This is test data; public wallet purchase testing should still use disposable wallets and avoid Josh's main wallet.
 
 Keep Base deployment secrets unset while mainnet/Base is paused. When production deployment is explicitly approved later, set chain deployment secrets only in the shell session or a private local env file:
 
@@ -233,6 +238,7 @@ npm run launch:server
 - pass address is prefilled from `/crypto/local-contracts.json` for local rehearsal.
 - wallet is on the configured local chain.
 - `$mfer/WETH` and `MFERGPT/WETH` market labels show cached DB quotes or a clear cache error.
+- pass and gear checkout prices show actual contract amounts in ETH, `$mfer`, and `$mfergpt`.
 - ETH, `$mfer`, and `$mfergpt` pass buttons show wallet prompts.
 - local dashboard loads from `http://<mac-lan-ip>:2567/admin` on your LAN and is blocked through the public game hostname.
 - `npm run support:admin -- analytics-summary --since 24h` shows a `session_joined` row after a wallet/guest smoke.
