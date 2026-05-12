@@ -18,13 +18,9 @@
 
 ## Neon Staging/Test Branch
 
-- Project ID: `shy-frog-66739604`
-- Database: `neondb`
-- Staging project default branch ID: `br-hidden-firefly-aqy5jojx`
-- Remote friend-test branch ID: `br-autumn-rice-aqv3ie10`
-- Remote friend-test branch name: `remote-friend-test-2026-05-05`
+Use a Neon staging/test branch that is separate from production for off-LAN testers. Keep specific project IDs, branch IDs, connection strings, API keys, and passwords in local-only notes or secrets, not in checked-in docs.
 
-This staging project is separate from production. On 2026-05-05, the remote friend-test branch was migrated through `0008_analytics_events.sql` and seeded with cached Dex Screener quotes for remote testing.
+On 2026-05-05, the remote friend-test branch was migrated through `0008_analytics_events.sql` and seeded with cached Dex Screener quotes for remote testing.
 
 ## Current Checked-In Migrations
 

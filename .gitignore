@@ -14,4 +14,5 @@ apps/web/public/crypto/production-contracts.json
 .env
 .env.*
 !.env.example
+docs/db-handoff.local.md
 invite.zip
