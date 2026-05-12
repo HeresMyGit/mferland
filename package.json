@@ -2,6 +2,7 @@
   "name": "mferland",
   "version": "0.1.0",
   "private": true,
+  "license": "CC0-1.0",
   "type": "module",
   "workspaces": [
     "apps/*",
