@@ -13,6 +13,13 @@ export type MferAppearanceTraitCategory = {
 export type TraitPaymentToken = "ETH" | "MFER" | "MFERGPT";
 
 export const TRAIT_CHANGE_PRODUCT_ID = "trait-change";
+export const TRAIT_CHANGE_BASE_CHAIN_ID = 8453;
+export const TRAIT_CHANGE_BASE_CHAIN_ID_HEX = "0x2105";
+export const TRAIT_CHANGE_BASE_RPC_URL = "https://mainnet.base.org";
+export const TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS = "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07";
+export const TRAIT_CHANGE_BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+export const TRAIT_CHANGE_MFERGPT_AMOUNT_WEI = "25000000000000000000000000";
+export const TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL = "25M $MFERGPT";
 
 export const MFER_APPEARANCE_TRAIT_CATEGORIES: MferAppearanceTraitCategory[] = [
   {

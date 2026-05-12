@@ -4,6 +4,8 @@ import { OrbitControls } from "@react-three/drei";
 import { Check, Clock, RefreshCw, Shuffle, X } from "lucide-react";
 import {
   MFER_APPEARANCE_TRAIT_CATEGORIES,
+  TRAIT_CHANGE_BASE_CHAIN_ID,
+  TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL,
   hasExplicitMferAppearanceTraits,
   normalizeMferAppearanceTraits,
   sanitizePlayerName,
@@ -11,8 +13,11 @@ import {
   type MferAppearanceTraits,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type TraitPaymentProof,
   type TraitUpdateResult,
 } from "@mferland/shared";
+import { executeTraitMferGptPayment, getTraitPaymentTxUrl } from "../crypto/traitPayments";
+import type { EthereumProvider } from "../crypto/transactionReceipts";
 import { resolveMferTraitsForPlayer } from "../game/mferTraits";
 import { MferAvatar } from "./MferAvatar";
 import { MferPortrait } from "./MferPortrait";
@@ -25,14 +30,16 @@ type TraitsPanelProps = {
   onUpdateTraits: (message: ClientUpdateTraits) => void;
 };
 
-const TRAIT_CHANGE_COMING_SOON = "trait changes after your first set are coming soon";
+const TRAIT_CHANGE_PAYMENT_PROMPT = `burn ${TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL} to save another set`;
 
 export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: TraitsPanelProps) {
   const [draft, setDraft] = useState<MferAppearanceTraits>(() => makeInitialDraft(player));
   const [draftName, setDraftName] = useState(() => player.name || "mfer");
   const draftNameRef = useRef(draftName);
   const [status, setStatus] = useState("");
-  const [busyToken, setBusyToken] = useState<"free" | null>(null);
+  const [busyToken, setBusyToken] = useState<"free" | "mfergpt" | null>(null);
+  const [paymentTxHash, setPaymentTxHash] = useState("");
+  const [pendingPayment, setPendingPayment] = useState<TraitPaymentProof | null>(null);
   const [activeCategoryId, setActiveCategoryId] = useState(MFER_APPEARANCE_TRAIT_CATEGORIES[0]?.id ?? "");
   const firstSetFree = !hasExplicitMferAppearanceTraits(player.appearanceTraits);
   const canUseWalletPayment = player.identityType === "wallet" && Boolean(player.walletAddress);
@@ -45,6 +52,8 @@ export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: Tr
     draftNameRef.current = nextName;
     setDraftName(nextName);
     setStatus("");
+    setPaymentTxHash("");
+    setPendingPayment(null);
   }, [player.avatarSeed, player.name, savedTraitsKey]);
 
   useEffect(() => {
@@ -54,7 +63,11 @@ export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: Tr
       draftNameRef.current = result.name;
       setDraftName(result.name);
     }
-    if (result.ok) setBusyToken(null);
+    if (result.ok) {
+      setPendingPayment(null);
+      setPaymentTxHash("");
+    }
+    setBusyToken(null);
   }, [result]);
 
   function updateTrait(categoryId: string, value: string) {
@@ -94,13 +107,47 @@ export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: Tr
 
   async function saveFree() {
     if (!firstSetFree) {
-      setStatus(TRAIT_CHANGE_COMING_SOON);
+      setStatus(TRAIT_CHANGE_PAYMENT_PROMPT);
       return;
     }
     setBusyToken("free");
     setStatus("saving");
     onUpdateTraits(getSavePayload());
     window.setTimeout(() => setBusyToken((current) => current === "free" ? null : current), 3500);
+  }
+
+  async function savePaid() {
+    if (firstSetFree) {
+      await saveFree();
+      return;
+    }
+    if (!canUseWalletPayment) {
+      setStatus("wallet character required");
+      return;
+    }
+
+    const provider = getInjectedEthereumProvider();
+    if (!provider) {
+      setStatus("wallet required");
+      return;
+    }
+
+    setBusyToken("mfergpt");
+    setStatus(pendingPayment ? "verifying payment" : `confirm ${TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL} burn`);
+    try {
+      const payment = pendingPayment ?? await executeTraitMferGptPayment(provider, player.walletAddress);
+      setPendingPayment(payment);
+      setPaymentTxHash(payment.txHash);
+      setStatus("verifying payment");
+      onUpdateTraits({
+        ...getSavePayload(),
+        payment,
+      });
+      window.setTimeout(() => setBusyToken((current) => current === "mfergpt" ? null : current), 90_000);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "payment failed");
+      setBusyToken(null);
+    }
   }
 
   return (
@@ -112,7 +159,7 @@ export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: Tr
           </div>
           <div>
             <strong>{npc.name}</strong>
-            <span>{firstSetFree ? "first set free" : "coming soon"}</span>
+            <span>{firstSetFree ? "first set free" : TRAIT_CHANGE_PAYMENT_PROMPT}</span>
           </div>
         </div>
         <button type="button" title="Close traits" aria-label="Close traits" onClick={onClose}>
@@ -206,18 +253,27 @@ export function TraitsPanel({ npc, player, result, onClose, onUpdateTraits }: Tr
           </button>
         ) : (
           <button
-            className="secondary-btn"
+            className="primary-btn"
             type="button"
-            aria-label="trait changes coming soon"
-            data-tooltip={TRAIT_CHANGE_COMING_SOON}
-            disabled
+            disabled={busyToken !== null || !canUseWalletPayment}
+            onClick={() => void savePaid()}
           >
-            <Clock size={17} />
-            coming soon
+            {busyToken === "mfergpt" ? <RefreshCw size={17} /> : <Clock size={17} />}
+            {canUseWalletPayment ? `save for ${TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL}` : "wallet required"}
           </button>
         )}
       </div>
-      <p className="traits-status">{status || (!firstSetFree ? TRAIT_CHANGE_COMING_SOON : "")}</p>
+      <p className="traits-status">
+        {status || (!firstSetFree ? TRAIT_CHANGE_PAYMENT_PROMPT : "")}
+        {paymentTxHash && (
+          <>
+            {" "}
+            <a href={getTraitPaymentTxUrl(paymentTxHash)} target="_blank" rel="noreferrer noopener">
+              view tx
+            </a>
+          </>
+        )}
+      </p>
     </div>
   );
 }
@@ -251,6 +307,13 @@ function getTraitLabel(categoryId: string, value: string | undefined) {
 }
 
 function formatTraitUpdateSuccessStatus(result: TraitUpdateResult) {
-  const action = result.free ? "saved free set" : "saved set";
+  const action = result.free ? "saved free set" : `saved set on Base ${TRAIT_CHANGE_BASE_CHAIN_ID}`;
   return result.name ? `${action} as ${result.name}` : action;
+}
+
+function getInjectedEthereumProvider(): EthereumProvider | null {
+  if (typeof window === "undefined") return null;
+  const maybeWindow = window as Window & { ethereum?: Partial<EthereumProvider> };
+  if (typeof maybeWindow.ethereum?.request !== "function") return null;
+  return maybeWindow.ethereum as EthereumProvider;
 }

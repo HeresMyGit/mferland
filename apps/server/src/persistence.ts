@@ -4,6 +4,7 @@ import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
   QUEST_IDS,
+  TRAIT_CHANGE_PRODUCT_ID,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_ID,
   SEASON_0_TOTAL_POINT_CAP,
@@ -38,6 +39,7 @@ import {
   characterQuests,
   characterTalents,
   characters,
+  cryptoPurchaseEvents,
   inviteCodes,
   seasonRewardEvents,
 } from "./db/schema.js";
@@ -76,6 +78,15 @@ export type PersistableCharacterState = {
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
   talents: TalentRankSnapshot[];
+};
+
+export type CharacterTraitPaymentRecord = {
+  chainId: number;
+  txHash: string;
+  logIndex: number;
+  walletAddress: string;
+  tokenAddress: string;
+  amountWei: string;
 };
 
 export type SeasonRewardAwardResult = {
@@ -322,77 +333,111 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
   const db = getRequiredDatabase();
 
   await db.transaction(async (tx) => {
-    const now = new Date();
-    await tx.update(characters)
-      .set({
-        name: state.name,
-        avatarSeed: normalizeAvatarSeed(state.avatarSeed),
-        appearanceTraits: normalizeMferAppearanceTraits(state.appearanceTraits, {}),
-        level: state.level,
-        xp: state.xp,
-        talentPoints: state.talentPoints,
-        updatedAt: now,
-      })
-      .where(eq(characters.id, state.characterId));
-
-    await tx.delete(characterQuests).where(eq(characterQuests.characterId, state.characterId));
-    if (state.quests.length > 0) {
-      await tx.insert(characterQuests).values(state.quests.map((quest) => ({
-        characterId: state.characterId,
-        questId: quest.id,
-        status: quest.status,
-        progress: quest.progress,
-        required: quest.required,
-        flags: quest.flags,
-        completedAt: quest.completedAt,
-        updatedAt: now,
-      })));
-    }
-
-    await tx.delete(characterInventory).where(eq(characterInventory.characterId, state.characterId));
-    const inventory = state.inventory.filter((item) => item.count > 0);
-    if (inventory.length > 0) {
-      await tx.insert(characterInventory).values(inventory.map((item) => ({
-        characterId: state.characterId,
-        itemId: item.id,
-        chainTokenId: normalizeChainTokenId(item.chainTokenId),
-        chainTier: normalizeChainGearTier(item.chainTier),
-        count: item.count,
-        updatedAt: now,
-      })));
-    }
-
-    await tx.delete(characterEquipment).where(eq(characterEquipment.characterId, state.characterId));
-    const ownedInventoryKeys = new Set(inventory.map((item) => getInventoryItemKey(item.id, item.chainTokenId)));
-    const equipment = state.equipment.filter((slot) => (
-      slot.itemId
-      && isKnownItemId(slot.itemId)
-      && isEquipmentCompatibleWithSlot(slot.itemId, slot.slot)
-      && ownedInventoryKeys.has(getInventoryItemKey(slot.itemId, slot.chainTokenId))
-    ));
-    if (equipment.length > 0) {
-      await tx.insert(characterEquipment).values(equipment.map((slot) => ({
-        characterId: state.characterId,
-        slot: slot.slot,
-        itemId: slot.itemId,
-        chainTokenId: normalizeChainTokenId(slot.chainTokenId),
-        chainTier: normalizeChainGearTier(slot.chainTier),
-        updatedAt: now,
-      })));
-    }
-
-    await tx.delete(characterTalents).where(eq(characterTalents.characterId, state.characterId));
-    const talents = state.talents.filter((talent) => talent.rank > 0 && Object.prototype.hasOwnProperty.call(TALENTS, talent.id));
-    if (talents.length > 0) {
-      await tx.insert(characterTalents).values(talents.map((talent) => ({
-        characterId: state.characterId,
-        tree: talent.tree,
-        nodeId: talent.nodeId,
-        rank: talent.rank,
-        updatedAt: now,
-      })));
-    }
+    await saveCharacterProgressRows(tx, state);
   });
+}
+
+export async function saveCharacterProgressWithTraitPayment(state: PersistableCharacterState, payment: CharacterTraitPaymentRecord) {
+  const db = getRequiredDatabase();
+
+  await db.transaction(async (tx) => {
+    const inserted = await tx.insert(cryptoPurchaseEvents)
+      .values({
+        id: randomUUID(),
+        productId: TRAIT_CHANGE_PRODUCT_ID,
+        walletAddress: payment.walletAddress,
+        characterId: state.characterId,
+        source: "chain",
+        chainId: payment.chainId,
+        contractAddress: payment.tokenAddress,
+        txHash: payment.txHash,
+        logIndex: payment.logIndex,
+        tokenId: "",
+        paymentToken: "MFERGPT",
+        paymentAmountWei: payment.amountWei,
+        status: "confirmed",
+        note: "traits-mfer burn payment",
+        confirmedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: cryptoPurchaseEvents.id });
+
+    if (inserted.length === 0) throw new Error("trait payment already used");
+    await saveCharacterProgressRows(tx, state);
+  });
+}
+
+async function saveCharacterProgressRows(tx: DatabaseTransaction, state: PersistableCharacterState) {
+  const now = new Date();
+  await tx.update(characters)
+    .set({
+      name: state.name,
+      avatarSeed: normalizeAvatarSeed(state.avatarSeed),
+      appearanceTraits: normalizeMferAppearanceTraits(state.appearanceTraits, {}),
+      level: state.level,
+      xp: state.xp,
+      talentPoints: state.talentPoints,
+      updatedAt: now,
+    })
+    .where(eq(characters.id, state.characterId));
+
+  await tx.delete(characterQuests).where(eq(characterQuests.characterId, state.characterId));
+  if (state.quests.length > 0) {
+    await tx.insert(characterQuests).values(state.quests.map((quest) => ({
+      characterId: state.characterId,
+      questId: quest.id,
+      status: quest.status,
+      progress: quest.progress,
+      required: quest.required,
+      flags: quest.flags,
+      completedAt: quest.completedAt,
+      updatedAt: now,
+    })));
+  }
+
+  await tx.delete(characterInventory).where(eq(characterInventory.characterId, state.characterId));
+  const inventory = state.inventory.filter((item) => item.count > 0);
+  if (inventory.length > 0) {
+    await tx.insert(characterInventory).values(inventory.map((item) => ({
+      characterId: state.characterId,
+      itemId: item.id,
+      chainTokenId: normalizeChainTokenId(item.chainTokenId),
+      chainTier: normalizeChainGearTier(item.chainTier),
+      count: item.count,
+      updatedAt: now,
+    })));
+  }
+
+  await tx.delete(characterEquipment).where(eq(characterEquipment.characterId, state.characterId));
+  const ownedInventoryKeys = new Set(inventory.map((item) => getInventoryItemKey(item.id, item.chainTokenId)));
+  const equipment = state.equipment.filter((slot) => (
+    slot.itemId
+    && isKnownItemId(slot.itemId)
+    && isEquipmentCompatibleWithSlot(slot.itemId, slot.slot)
+    && ownedInventoryKeys.has(getInventoryItemKey(slot.itemId, slot.chainTokenId))
+  ));
+  if (equipment.length > 0) {
+    await tx.insert(characterEquipment).values(equipment.map((slot) => ({
+      characterId: state.characterId,
+      slot: slot.slot,
+      itemId: slot.itemId,
+      chainTokenId: normalizeChainTokenId(slot.chainTokenId),
+      chainTier: normalizeChainGearTier(slot.chainTier),
+      updatedAt: now,
+    })));
+  }
+
+  await tx.delete(characterTalents).where(eq(characterTalents.characterId, state.characterId));
+  const talents = state.talents.filter((talent) => talent.rank > 0 && Object.prototype.hasOwnProperty.call(TALENTS, talent.id));
+  if (talents.length > 0) {
+    await tx.insert(characterTalents).values(talents.map((talent) => ({
+      characterId: state.characterId,
+      tree: talent.tree,
+      nodeId: talent.nodeId,
+      rank: talent.rank,
+      updatedAt: now,
+    })));
+  }
 }
 
 export async function awardSeason0QuestReward({

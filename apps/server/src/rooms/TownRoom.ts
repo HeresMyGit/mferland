@@ -65,12 +65,14 @@ import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, Talent
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
+import { verifyTraitPaymentProof, type VerifiedTraitPayment } from "../crypto/traitPayments.js";
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
   getWalletInviteAccess,
   recordWalletInviteUsage,
   saveCharacterProgress,
+  saveCharacterProgressWithTraitPayment,
   PersistenceUnavailableError,
   type PersistableCharacterState,
   type PersistedCharacter,
@@ -152,7 +154,6 @@ const EMOTE_MIN_INTERVAL_MS = 900;
 const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
-const TRAIT_CHANGE_COMING_SOON = "trait changes after your first set are coming soon";
 const SESSION_REPLACED_CLOSE_CODE = 4000;
 const CLIENT_ANALYTICS_EVENTS = new Set([
   "store_opened",
@@ -2066,40 +2067,64 @@ export class TownRoom extends Room<TownState> {
 
     const isWalletCharacter = player.identityType === "wallet" && Boolean(this.persistentCharacterIds.get(client.sessionId));
     const free = !hasExistingTraits;
+    let verifiedPayment: VerifiedTraitPayment | null = null;
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
     if (!free) {
-      client.send("traitUpdateResult", {
-        ok: false,
-        traits: existingTraits,
-        name: player.name,
-        free: false,
-        paid: false,
-        error: TRAIT_CHANGE_COMING_SOON,
-      });
-      return;
+      if (!isWalletCharacter || !player.walletAddress || !characterId) {
+        client.send("traitUpdateResult", {
+          ok: false,
+          traits: existingTraits,
+          name: player.name,
+          free: false,
+          paid: false,
+          error: "wallet character required",
+        });
+        return;
+      }
+
+      try {
+        verifiedPayment = await verifyTraitPaymentProof(message?.payment, player.walletAddress);
+      } catch (error) {
+        client.send("traitUpdateResult", {
+          ok: false,
+          traits: existingTraits,
+          name: player.name,
+          free: false,
+          paid: false,
+          error: error instanceof Error ? error.message : "payment verification failed",
+        });
+        return;
+      }
     }
 
     const previousName = player.name;
+    const previousTraitsJson = player.appearanceTraitsJson;
     const nextName = sanitizePlayerName(message?.name, player.name || "mfer");
     player.appearanceTraitsJson = serializeMferAppearanceTraits(nextTraits);
     player.name = nextName;
-    const progressedQuest = traitQuest ? progressTraitQuest(player) : false;
+    const progressedQuest = free && traitQuest ? progressTraitQuest(player) : false;
     this.recordPlayerAnalyticsEvent("traits_updated", client.sessionId, player, {
       free,
-      paid: false,
+      paid: Boolean(verifiedPayment),
       nameChanged: nextName !== previousName,
-      paymentToken: "",
-      chainId: 0,
-      txHash: "",
+      paymentToken: verifiedPayment ? "MFERGPT" : "",
+      paymentAmountWei: verifiedPayment?.amountWei ?? "0",
+      chainId: verifiedPayment?.chainId ?? 0,
+      txHash: verifiedPayment?.txHash ?? "",
       progressedQuest,
     });
-    const persisted = await this.persistPlayerProgressNow(client.sessionId, player);
+    const persisted = await this.persistPlayerProgressNow(client.sessionId, player, verifiedPayment);
     if (!persisted && isWalletCharacter) {
+      if (verifiedPayment) {
+        player.name = previousName;
+        player.appearanceTraitsJson = previousTraitsJson;
+      }
       client.send("traitUpdateResult", {
         ok: false,
         traits: nextTraits,
         name: nextName,
         free,
-        paid: false,
+        paid: Boolean(verifiedPayment),
         error: "wallet progress failed to save; retry before reloading",
       });
       return;
@@ -2110,7 +2135,7 @@ export class TownRoom extends Room<TownState> {
       traits: nextTraits,
       name: nextName,
       free,
-      paid: false,
+      paid: Boolean(verifiedPayment),
     });
   }
 
@@ -2165,12 +2190,24 @@ export class TownRoom extends Room<TownState> {
     }
   }
 
-  private async persistPlayerProgressNow(sessionId: string, player: PlayerState): Promise<boolean> {
+  private async persistPlayerProgressNow(
+    sessionId: string,
+    player: PlayerState,
+    traitPayment: VerifiedTraitPayment | null = null,
+  ): Promise<boolean> {
     const characterId = this.persistentCharacterIds.get(sessionId);
     if (!characterId) return false;
 
     const state = makePersistableCharacterState(characterId, player);
-    return this.queueCharacterSave(sessionId, characterId, state);
+    return this.queueCharacterSave(
+      sessionId,
+      characterId,
+      state,
+      getPersistableCharacterStateFingerprint(state),
+      traitPayment
+        ? (nextState) => saveCharacterProgressWithTraitPayment(nextState, traitPayment)
+        : saveCharacterProgress,
+    );
   }
 
   private async queueCharacterSave(
@@ -2178,6 +2215,7 @@ export class TownRoom extends Room<TownState> {
     characterId: string,
     state: PersistableCharacterState,
     fingerprint = getPersistableCharacterStateFingerprint(state),
+    saveProgress: (state: PersistableCharacterState) => Promise<void> = saveCharacterProgress,
   ): Promise<boolean> {
     const previous = this.pendingCharacterSaves.get(characterId) ?? Promise.resolve(true);
     this.queuedCharacterSaveFingerprints.set(characterId, fingerprint);
@@ -2187,7 +2225,7 @@ export class TownRoom extends Room<TownState> {
       .catch(() => false)
       .then(async () => {
         try {
-          await saveCharacterProgress(state);
+          await saveProgress(state);
           if (this.pendingCharacterSaves.get(characterId) === next) {
             this.savedCharacterFingerprints.set(characterId, fingerprint);
             this.sendPersistenceStatus(sessionId, "saved", "wallet progress saved");

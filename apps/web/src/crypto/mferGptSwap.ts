@@ -1,8 +1,9 @@
 import { encodeAbiParameters, encodeFunctionData, formatUnits, parseEther, parseUnits } from "viem";
+import { TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS } from "@mferland/shared";
 import { formatReadableDecimal } from "./displayAmounts";
 import { waitForTransactionReceipt, type EthereumProvider } from "./transactionReceipts";
 
-export const MFERGPT_BASE_TOKEN_ADDRESS = "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07";
+export const MFERGPT_BASE_TOKEN_ADDRESS = TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS;
 export const DEFAULT_SWAP_ETH_AMOUNT = "0.01";
 export const DEFAULT_SWAP_SLIPPAGE_PERCENT = "5";
 

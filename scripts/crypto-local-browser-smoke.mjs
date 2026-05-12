@@ -146,8 +146,7 @@ try {
   const passMferGptPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferGptPrice");
   const traitPrice = await readTraitPrice(client, addresses.pricing);
   const freeTraitName = "free traits mfer";
-  const blockedTraitName = "blocked traits mfer";
-  const traitComingSoonStatus = "trait changes after your first set are coming soon";
+  const paidTraitPrompt = "burn 25M $MFERGPT to save another set";
 
   assert.ok(gearOneEthPrice > 0n);
   assert.ok(gearTwoMferPrice > 0n);
@@ -302,10 +301,9 @@ try {
       await waitForHudName(page, freeTraitName);
       await waitForWalletProfileName(freeTraitName);
     }
-    await traits.getByRole("button", { name: "trait changes coming soon", exact: true }).waitFor({ state: "visible", timeout: 10_000 });
-    await traits.getByRole("textbox", { name: "character name", exact: true }).fill(blockedTraitName);
+    await traits.getByRole("button", { name: "save for 25M $MFERGPT", exact: true }).waitFor({ state: "visible", timeout: 10_000 });
     await clickExactly(traits.getByRole("button", { name: "random", exact: true }));
-    await waitForTraitStatus(traits, traitComingSoonStatus);
+    await waitForTraitStatus(traits, paidTraitPrompt);
     assert.equal(await readErc20Balance(client, addresses.mfer, buyer), postPassMferBalance);
     assert.equal(await readErc20Balance(client, addresses.mfer, treasury), postPassMferTreasury);
     await assertNoTraitError(traits);
