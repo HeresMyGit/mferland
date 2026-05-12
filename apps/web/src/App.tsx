@@ -54,6 +54,7 @@ import {
   getWalletConnectorChoices,
   getWalletConnectorLabel,
 } from "./auth/walletConnectors";
+import { DEFAULT_WALLET_CHAIN_ID } from "./auth/wagmi";
 import {
   canCreateWalletCharacterAfterProfileError,
   canEnterWalletCharacter,
@@ -499,14 +500,15 @@ function AuthGate({
   function connectWallet(connector: Connector) {
     setShowWalletConnectors(false);
     setWalletActionError(null);
-    trackEvent("wallet_connect_started", { surface: "auth", connector: connector.id }, { local: true });
-    connect({ connector }, {
-      onSuccess: (data) => trackWalletConnected(getConnectedWalletAddress(data), { surface: "auth", connector: connector.id }),
+    const properties = { surface: "auth", connector: connector.id, chainId: DEFAULT_WALLET_CHAIN_ID };
+    trackEvent("wallet_connect_started", properties, { local: true });
+    connect({ connector, chainId: DEFAULT_WALLET_CHAIN_ID }, {
+      onSuccess: (data) => trackWalletConnected(getConnectedWalletAddress(data), properties),
       onError: (error) => {
         if (!isUserRejectedWalletRequest(error)) {
           setWalletActionError(getWalletConnectFailureMessage(connector));
         }
-        trackEvent("wallet_connect_failed", { surface: "auth", connector: connector.id }, { local: true });
+        trackEvent("wallet_connect_failed", properties, { local: true });
       },
     });
   }
@@ -530,7 +532,7 @@ function AuthGate({
       const promptedAccountPicker = await requestInjectedAccountSelection();
       if (!promptedAccountPicker) {
         await disconnectAsync().catch(() => undefined);
-        await connectAsync({ connector: injected });
+        await connectAsync({ connector: injected, chainId: DEFAULT_WALLET_CHAIN_ID });
       }
       trackEvent("wallet_switch_succeeded", { surface: "auth", connector: injected.id }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     } catch (error) {

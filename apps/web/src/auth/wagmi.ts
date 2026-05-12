@@ -2,6 +2,8 @@ import { createConfig, http } from "wagmi";
 import { base, mainnet } from "wagmi/chains";
 import { coinbaseWallet, injected, metaMask, mock, walletConnect } from "wagmi/connectors";
 
+export const DEFAULT_WALLET_CHAIN_ID = base.id;
+
 export const localAnvil = {
   id: 31337,
   name: "mferland local",
@@ -84,16 +86,24 @@ const connectors = [
     })]
     : []),
 ];
-
-export const wagmiConfig = createConfig({
-  chains: [base, mainnet, localAnvil],
-  connectors,
-  transports: {
-    [base.id]: http(),
-    [mainnet.id]: http(),
-    [localAnvil.id]: http(localAnvil.rpcUrls.default.http[0]),
-  },
-});
+export const wagmiConfig = import.meta.env.DEV
+  ? createConfig({
+    chains: [base, mainnet, localAnvil],
+    connectors,
+    transports: {
+      [base.id]: http(),
+      [mainnet.id]: http(),
+      [localAnvil.id]: http(localAnvil.rpcUrls.default.http[0]),
+    },
+  })
+  : createConfig({
+    chains: [base, mainnet],
+    connectors,
+    transports: {
+      [base.id]: http(),
+      [mainnet.id]: http(),
+    },
+  });
 
 function isMobileWalletHandoffBrowser() {
   if (typeof navigator === "undefined") return false;

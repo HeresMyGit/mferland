@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeWalletAddress } from "@mferland/shared";
+import { TRAIT_CHANGE_BASE_CHAIN_ID, TRAIT_CHANGE_BASE_RPC_URL, normalizeWalletAddress } from "@mferland/shared";
 
 type CryptoContractsDocument = {
   chainId?: number;
@@ -72,8 +72,8 @@ async function getChainGearConfig(): Promise<ChainGearConfig> {
   const gearAddress = normalizeAddress(document.addresses?.gear);
   if (!gearAddress) throw new Error("gear contract address is not configured");
 
-  const chainId = Number.isInteger(document.chainId) && Number(document.chainId) > 0 ? Number(document.chainId) : 31337;
-  const rpcUrl = envRpc || String(document.rpcUrl ?? "").trim() || (chainId === 31337 ? DEFAULT_LOCAL_RPC_URL : "");
+  const chainId = Number.isInteger(document.chainId) && Number(document.chainId) > 0 ? Number(document.chainId) : getDefaultChainId();
+  const rpcUrl = envRpc || String(document.rpcUrl ?? "").trim() || getDefaultRpcUrl(chainId);
   if (!rpcUrl) throw new Error("chain RPC URL is not configured");
 
   return { chainId, rpcUrl, gearAddress };
@@ -81,18 +81,38 @@ async function getChainGearConfig(): Promise<ChainGearConfig> {
 
 function findContractConfigPath() {
   const configured = process.env.MFERLAND_CRYPTO_CONTRACTS_FILE?.trim();
-  const candidates = [
-    configured,
+  const localCandidates = [
     resolve(process.cwd(), "apps/web/public/crypto/local-contracts.json"),
     resolve(process.cwd(), "../web/public/crypto/local-contracts.json"),
     fileURLToPath(new URL("../../../web/public/crypto/local-contracts.json", import.meta.url)),
+  ];
+  const productionCandidates = [
     resolve(process.cwd(), "apps/web/public/crypto/production-contracts.json"),
     fileURLToPath(new URL("../../../web/public/crypto/production-contracts.json", import.meta.url)),
+  ];
+  const candidates = [
+    configured,
+    ...(isProductionLikeRuntime() ? productionCandidates : localCandidates),
+    ...(isProductionLikeRuntime() ? [] : productionCandidates),
   ].filter((path): path is string => Boolean(path));
 
   const found = candidates.find((path) => existsSync(path));
   if (!found) throw new Error("crypto contract config file was not found");
   return found;
+}
+
+function getDefaultChainId() {
+  return isProductionLikeRuntime() ? TRAIT_CHANGE_BASE_CHAIN_ID : 31337;
+}
+
+function getDefaultRpcUrl(chainId: number) {
+  if (chainId === 31337) return DEFAULT_LOCAL_RPC_URL;
+  if (chainId === TRAIT_CHANGE_BASE_CHAIN_ID) return TRAIT_CHANGE_BASE_RPC_URL;
+  return "";
+}
+
+function isProductionLikeRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.MFERLAND_SERVE_WEB_DIST === "1";
 }
 
 async function readOwnerOf(config: ChainGearConfig, tokenId: bigint) {

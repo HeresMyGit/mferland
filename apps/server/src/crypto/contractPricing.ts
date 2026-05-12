@@ -14,7 +14,7 @@ import {
   type LocalAccount,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { TRAIT_CHANGE_PRODUCT_ID } from "@mferland/shared";
+import { TRAIT_CHANGE_BASE_CHAIN_ID, TRAIT_CHANGE_BASE_RPC_URL, TRAIT_CHANGE_PRODUCT_ID } from "@mferland/shared";
 import type { CryptoMarketQuoteView } from "./marketQuotes.js";
 
 const BASIS_POINTS = 10_000n;
@@ -243,14 +243,14 @@ async function getContractPricingConfig(options: { requireUpdater?: boolean } = 
     ? envChainId
     : Number.isInteger(document?.chainId) && Number(document?.chainId) > 0
       ? Number(document?.chainId)
-      : LOCAL_CHAIN_ID;
+      : getDefaultChainId();
   const pricingAddress = envPricingAddress || normalizeAddress(document?.addresses?.pricing);
-  const rpcUrl = envRpc || String(document?.rpcUrl ?? "").trim() || (chainId === LOCAL_CHAIN_ID ? DEFAULT_LOCAL_RPC_URL : "");
+  const rpcUrl = envRpc || String(document?.rpcUrl ?? "").trim() || getDefaultRpcUrl(chainId);
 
   if (!pricingAddress || !rpcUrl) return null;
 
   const localAutoEnabled = chainId === LOCAL_CHAIN_ID
-    && process.env.NODE_ENV !== "production"
+    && !isProductionLikeRuntime()
     && process.env.MFERLAND_CONTRACT_PRICING_UPDATER !== "0";
   if (options.requireUpdater !== false && !explicit && !localAutoEnabled) return null;
 
@@ -270,18 +270,38 @@ async function readContractConfigDocument() {
 function findContractConfigPath() {
   const configured = process.env.MFERLAND_PRICING_CONTRACTS_FILE?.trim()
     || process.env.MFERLAND_CRYPTO_CONTRACTS_FILE?.trim();
-  const candidates = [
-    configured,
+  const localCandidates = [
     resolve(process.cwd(), "apps/web/public/crypto/local-contracts.json"),
     resolve(process.cwd(), "../web/public/crypto/local-contracts.json"),
     fileURLToPath(new URL("../../../web/public/crypto/local-contracts.json", import.meta.url)),
+  ];
+  const productionCandidates = [
     resolve(process.cwd(), "apps/web/public/crypto/production-contracts.json"),
     fileURLToPath(new URL("../../../web/public/crypto/production-contracts.json", import.meta.url)),
+  ];
+  const candidates = [
+    configured,
+    ...(isProductionLikeRuntime() ? productionCandidates : localCandidates),
+    ...(isProductionLikeRuntime() ? [] : productionCandidates),
   ].filter((path): path is string => Boolean(path));
 
   const found = candidates.find((path) => existsSync(path));
   if (!found) throw new Error("crypto contract config file was not found");
   return found;
+}
+
+function getDefaultChainId() {
+  return isProductionLikeRuntime() ? TRAIT_CHANGE_BASE_CHAIN_ID : LOCAL_CHAIN_ID;
+}
+
+function getDefaultRpcUrl(chainId: number) {
+  if (chainId === LOCAL_CHAIN_ID) return DEFAULT_LOCAL_RPC_URL;
+  if (chainId === TRAIT_CHANGE_BASE_CHAIN_ID) return TRAIT_CHANGE_BASE_RPC_URL;
+  return "";
+}
+
+function isProductionLikeRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.MFERLAND_SERVE_WEB_DIST === "1";
 }
 
 function getPricingUpdaterAccount(owner: Address): PricingUpdaterAccount {

@@ -5,6 +5,8 @@ import {
   EQUIPMENT_SLOTS,
   ITEMS,
   STAT_LABELS,
+  TRAIT_CHANGE_BASE_CHAIN_ID,
+  TRAIT_CHANGE_BASE_RPC_URL,
   getChainGearItemId,
   getItemEquipment,
   getItemHeirloomStatsPerLevel,
@@ -105,12 +107,20 @@ type CryptoStoreSection = "pass" | "gear" | "market" | "contracts";
 const CONTRACT_STORAGE_KEY = "mferland.cryptoStore.localContracts.v1";
 const LOCAL_CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
 const PRODUCTION_CONTRACT_CONFIG_URL = "/crypto/production-contracts.json";
+const IS_PRODUCTION_BUILD = Boolean(import.meta.env?.PROD);
+const BASE_CHAIN_CONFIG: CryptoStoreChainConfig = {
+  chainId: TRAIT_CHANGE_BASE_CHAIN_ID,
+  chainName: "Base",
+  rpcUrl: TRAIT_CHANGE_BASE_RPC_URL,
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+};
 const LOCAL_CHAIN_CONFIG: CryptoStoreChainConfig = {
   chainId: 31337,
   chainName: "mferland local",
   rpcUrl: "http://127.0.0.1:8545",
   nativeCurrency: { name: "Anvil ETH", symbol: "ETH", decimals: 18 },
 };
+const DEFAULT_CHAIN_CONFIG = IS_PRODUCTION_BUILD ? BASE_CHAIN_CONFIG : LOCAL_CHAIN_CONFIG;
 const LAUNCH_PASS_LABEL = "Season 0 pass";
 const STORE_GEAR_COLLECTION = [
   { gearType: 1, label: "posted-up deck", ethPrice: "0.01", mferPriceLabel: "90", mferGptPriceLabel: "75" },
@@ -172,13 +182,13 @@ const CONTRACT_PRICE_UI_REFRESH_MS = 60_000;
 
 export function CryptoStorePanel({ npc, playerLevel = 1, onClose, onRegisterChainGear, onAnalyticsEvent }: CryptoStorePanelProps) {
   const wagmiAccount = useAccount();
-  const [addresses, setAddresses] = useState<CryptoStoreAddresses>(() => readStoredAddresses());
-  const [chainConfig, setChainConfig] = useState<CryptoStoreChainConfig>(LOCAL_CHAIN_CONFIG);
+  const [addresses, setAddresses] = useState<CryptoStoreAddresses>(() => IS_PRODUCTION_BUILD ? EMPTY_ADDRESSES : readStoredAddresses());
+  const [chainConfig, setChainConfig] = useState<CryptoStoreChainConfig>(DEFAULT_CHAIN_CONFIG);
   const [account, setAccount] = useState(() => wagmiAccount.address ?? "");
   const [gearType, setGearType] = useState<string>(String(DEFAULT_STORE_GEAR.gearType));
   const [ethPrice, setEthPrice] = useState<string>(DEFAULT_STORE_GEAR.ethPrice);
   const [launchPassTokenId, setLaunchPassTokenId] = useState("");
-  const [status, setStatus] = useState("loading local contracts");
+  const [status, setStatus] = useState(IS_PRODUCTION_BUILD ? "loading Base contracts" : "loading local contracts");
   const [isBusy, setIsBusy] = useState(false);
   const [balances, setBalances] = useState<CryptoStoreBalances>(EMPTY_BALANCES);
   const [marketQuotes, setMarketQuotes] = useState<CryptoMarketQuotesState>(EMPTY_MARKET_QUOTES);
@@ -245,6 +255,7 @@ export function CryptoStorePanel({ npc, playerLevel = 1, onClose, onRegisterChai
   }, []);
 
   useEffect(() => {
+    if (IS_PRODUCTION_BUILD) return;
     window.localStorage.setItem(CONTRACT_STORAGE_KEY, JSON.stringify(addresses));
   }, [addresses]);
 
@@ -699,7 +710,9 @@ export function CryptoStorePanel({ npc, playerLevel = 1, onClose, onRegisterChai
             aria-controls="crypto-store-panel-contracts"
             aria-current={activeSection === "contracts" ? "page" : undefined}
             className={activeSection === "contracts" ? "selected" : undefined}
-            data-tooltip={"Contract addresses\nAdvanced local testing configuration"}
+            data-tooltip={IS_PRODUCTION_BUILD
+              ? "Contract addresses\nProduction chain configuration"
+              : "Contract addresses\nAdvanced local testing configuration"}
             onClick={() => setActiveSection("contracts")}
           >
             <PlugZap size={18} />
@@ -1104,26 +1117,28 @@ async function fetchLocalContractAddresses(signal: AbortSignal): Promise<{ addre
 
 function getContractConfigUrl() {
   const configured = import.meta.env.VITE_CRYPTO_CONTRACTS_URL;
-  if (typeof configured === "string" && configured.trim()) return configured.trim();
+  if (typeof configured === "string" && configured.trim() && !(IS_PRODUCTION_BUILD && isLocalContractConfigUrl(configured))) {
+    return configured.trim();
+  }
   return import.meta.env.PROD ? PRODUCTION_CONTRACT_CONFIG_URL : LOCAL_CONTRACT_CONFIG_URL;
 }
 
 function getMissingConfigStatus() {
   return import.meta.env.PROD
-    ? `add production contract config at ${getContractConfigUrl()}`
+    ? `add Base contract config at ${getContractConfigUrl()}`
     : "run npm run chain:deploy:local to prefill contracts";
 }
 
 function parseChainConfig(document: CryptoContractsDocument): CryptoStoreChainConfig {
   const chainId = Number.isInteger(document.chainId) && Number(document.chainId) > 0
     ? Number(document.chainId)
-    : LOCAL_CHAIN_CONFIG.chainId;
+    : DEFAULT_CHAIN_CONFIG.chainId;
   const nativeCurrency = document.nativeCurrency ?? {};
   return {
     chainId,
     chainName: typeof document.chainName === "string" && document.chainName.trim()
       ? document.chainName.trim()
-      : chainId === LOCAL_CHAIN_CONFIG.chainId ? LOCAL_CHAIN_CONFIG.chainName : `chain ${chainId}`,
+      : getDefaultChainName(chainId),
     rpcUrl: resolveChainRpcUrl(typeof document.rpcUrl === "string" ? document.rpcUrl.trim() : "", chainId),
     nativeCurrency: {
       name: typeof nativeCurrency.name === "string" && nativeCurrency.name.trim() ? nativeCurrency.name.trim() : "Ether",
@@ -1134,11 +1149,22 @@ function parseChainConfig(document: CryptoContractsDocument): CryptoStoreChainCo
 }
 
 function resolveChainRpcUrl(configuredRpcUrl: string, chainId: number) {
+  if (chainId === BASE_CHAIN_CONFIG.chainId) return configuredRpcUrl || BASE_CHAIN_CONFIG.rpcUrl;
   if (chainId !== LOCAL_CHAIN_CONFIG.chainId) return configuredRpcUrl;
   if (typeof window === "undefined") return configuredRpcUrl || LOCAL_CHAIN_CONFIG.rpcUrl;
   if (configuredRpcUrl && !isLoopbackRpcUrl(configuredRpcUrl)) return configuredRpcUrl;
   if (isLoopbackHost(window.location.hostname)) return configuredRpcUrl || LOCAL_CHAIN_CONFIG.rpcUrl;
   return `${window.location.origin}/crypto-rpc`;
+}
+
+function isLocalContractConfigUrl(value: string) {
+  return value.trim().replace(/\?.*$/, "").endsWith(LOCAL_CONTRACT_CONFIG_URL);
+}
+
+function getDefaultChainName(chainId: number) {
+  if (chainId === LOCAL_CHAIN_CONFIG.chainId) return LOCAL_CHAIN_CONFIG.chainName;
+  if (chainId === BASE_CHAIN_CONFIG.chainId) return BASE_CHAIN_CONFIG.chainName;
+  return `chain ${chainId}`;
 }
 
 function isLoopbackRpcUrl(value: string) {

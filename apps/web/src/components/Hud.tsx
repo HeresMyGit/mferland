@@ -12,6 +12,8 @@ import {
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
   STAT_LABELS,
+  TRAIT_CHANGE_BASE_CHAIN_ID,
+  TRAIT_CHANGE_BASE_RPC_URL,
   doesItemRevealAllNpcsOnMinimap,
   getLevelProgress,
   getInventoryItemKey,
@@ -94,6 +96,9 @@ const LOCAL_CONTRACT_CONFIG_URL = "/crypto/local-contracts.json";
 const PRODUCTION_CONTRACT_CONFIG_URL = "/crypto/production-contracts.json";
 const LOCAL_CHAIN_ID = 31337;
 const LOCAL_CHAIN_RPC_URL = "http://127.0.0.1:8545";
+const BASE_CHAIN_ID = TRAIT_CHANGE_BASE_CHAIN_ID;
+const BASE_CHAIN_RPC_URL = TRAIT_CHANGE_BASE_RPC_URL;
+const IS_PRODUCTION_BUILD = Boolean(import.meta.env?.PROD);
 const SEASON_PASS_OWNERSHIP_REFRESH_MS = 60_000;
 const BALANCE_OF_SELECTOR = "0x70a08231";
 const EMPTY_SEASON_PASS_OWNERSHIP: SeasonPassOwnershipState = {
@@ -2253,14 +2258,16 @@ async function fetchHudCryptoConfig() {
 
 function getHudContractConfigUrl() {
   const configured = import.meta.env.VITE_CRYPTO_CONTRACTS_URL;
-  if (typeof configured === "string" && configured.trim()) return configured.trim();
+  if (typeof configured === "string" && configured.trim() && !(IS_PRODUCTION_BUILD && isLocalContractConfigUrl(configured))) {
+    return configured.trim();
+  }
   return import.meta.env.PROD ? PRODUCTION_CONTRACT_CONFIG_URL : LOCAL_CONTRACT_CONFIG_URL;
 }
 
 function parseHudCryptoChainConfig(document: HudCryptoContractsDocument): HudCryptoChainConfig {
   const chainId = Number.isInteger(document.chainId) && Number(document.chainId) > 0
     ? Number(document.chainId)
-    : LOCAL_CHAIN_ID;
+    : IS_PRODUCTION_BUILD ? BASE_CHAIN_ID : LOCAL_CHAIN_ID;
   return {
     chainId,
     rpcUrl: resolveHudCryptoRpcUrl(typeof document.rpcUrl === "string" ? document.rpcUrl.trim() : "", chainId),
@@ -2268,11 +2275,16 @@ function parseHudCryptoChainConfig(document: HudCryptoContractsDocument): HudCry
 }
 
 function resolveHudCryptoRpcUrl(configuredRpcUrl: string, chainId: number) {
+  if (chainId === BASE_CHAIN_ID) return configuredRpcUrl || BASE_CHAIN_RPC_URL;
   if (chainId !== LOCAL_CHAIN_ID) return configuredRpcUrl;
   if (typeof window === "undefined") return configuredRpcUrl || LOCAL_CHAIN_RPC_URL;
   if (configuredRpcUrl && !isLoopbackRpcUrl(configuredRpcUrl)) return configuredRpcUrl;
   if (isLoopbackHost(window.location.hostname)) return configuredRpcUrl || LOCAL_CHAIN_RPC_URL;
   return `${window.location.origin}/crypto-rpc`;
+}
+
+function isLocalContractConfigUrl(value: string) {
+  return value.trim().replace(/\?.*$/, "").endsWith(LOCAL_CONTRACT_CONFIG_URL);
 }
 
 function isLoopbackRpcUrl(value: string) {
