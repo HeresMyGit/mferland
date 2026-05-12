@@ -26,6 +26,7 @@ const ADMIN_CHARACTER_LIMIT = 250;
 const ADMIN_RECENT_LIMIT = 80;
 const ADMIN_LEADERBOARD_LIMIT = 100;
 const ADMIN_INVITE_LIMIT = 120;
+const DEFAULT_INVITE_PUBLIC_ORIGIN = "https://game.mfergpt.lol";
 
 type QueryRow = Record<string, unknown>;
 
@@ -103,13 +104,6 @@ export function getAdminDashboardLanUrls(port: number) {
     .map((address) => `http://${address}:${port}/admin`);
 }
 
-function getGameLanUrls(port: number) {
-  const webPort = process.env.MFERLAND_SERVE_WEB_DIST === "1" ? port : 5173;
-  return getLanAddresses()
-    .filter(isLocalNetworkAddress)
-    .map((address) => `http://${address}:${webPort}`);
-}
-
 async function writeAdminData(req: IncomingMessage, res: ServerResponse) {
   try {
     const payload = await buildAdminPayload();
@@ -173,7 +167,7 @@ async function buildAdminPayload() {
       memory: process.memoryUsage(),
       maxPlayers: MAX_PLAYERS,
       lanUrls: getAdminDashboardLanUrls(Number(process.env.PORT ?? 2567)),
-      webLanUrls: getGameLanUrls(Number(process.env.PORT ?? 2567)),
+      invitePublicOrigin: getInvitePublicOrigin(),
       adminLanOnly: true,
       databaseConfigured: Boolean(process.env.DATABASE_URL),
     },
@@ -891,6 +885,10 @@ function formatAdminError(error: unknown) {
   return `${error.message}${cause}`.replace(/\s+/g, " ").trim();
 }
 
+function getInvitePublicOrigin() {
+  return (process.env.MFERLAND_INVITE_PUBLIC_ORIGIN ?? DEFAULT_INVITE_PUBLIC_ORIGIN).trim().replace(/\/+$/, "") || DEFAULT_INVITE_PUBLIC_ORIGIN;
+}
+
 function toArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -1289,22 +1287,12 @@ function getAdminHtml() {
     }
 
     function inviteUrl(code) {
-      return gameOrigin() + "/?invite=" + encodeURIComponent(code || "");
+      return invitePublicOrigin() + "/?invite=" + encodeURIComponent(code || "");
     }
 
-    function gameOrigin() {
-      var fallback = window.location.origin.replace(/\\/$/, "");
-      var urls = (state.data && state.data.server && state.data.server.webLanUrls) || [];
-      if (!urls.length) return fallback;
-      for (var i = 0; i < urls.length; i += 1) {
-        try {
-          var parsed = new URL(urls[i]);
-          if (parsed.hostname === window.location.hostname) return urls[i].replace(/\\/$/, "");
-        } catch (error) {
-          // Ignore malformed URLs from diagnostics payloads.
-        }
-      }
-      return String(urls[0]).replace(/\\/$/, "") || fallback;
+    function invitePublicOrigin() {
+      var origin = state.data && state.data.server && state.data.server.invitePublicOrigin;
+      return String(origin || "https://game.mfergpt.lol").replace(/\\/$/, "");
     }
 
     function setInviteCopyStatus(message) {
