@@ -153,6 +153,7 @@ const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 const TRAIT_CHANGE_COMING_SOON = "trait changes after your first set are coming soon";
+const SESSION_REPLACED_CLOSE_CODE = 4000;
 const CLIENT_ANALYTICS_EVENTS = new Set([
   "store_opened",
   "wallet_connect_started",
@@ -272,6 +273,17 @@ type DebugNpcSetupMessage = {
 type ClientAnalyticsMessage = {
   eventType?: unknown;
   properties?: unknown;
+};
+
+type SessionHandoff = {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+};
+
+type PendingReconnection = {
+  reject: Function;
 };
 
 type DebugPlacementRecord = {
@@ -422,6 +434,8 @@ export class TownRoom extends Room<TownState> {
   private readonly pendingCharacterSaves = new Map<string, Promise<boolean>>();
   private readonly queuedCharacterSaveFingerprints = new Map<string, string>();
   private readonly savedCharacterFingerprints = new Map<string, string>();
+  private readonly pendingReconnections = new Map<string, PendingReconnection>();
+  private readonly replacedReconnectionSessionIds = new Set<string>();
   private readonly sessionJoinedAt = new Map<string, number>();
   private readonly deadSessionIds = new Set<string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
@@ -705,11 +719,20 @@ export class TownRoom extends Room<TownState> {
       ? Number(options?.avatarSeed)
       : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
     const avatarSeed = normalizeAvatarSeed(requestedAvatarSeed);
-    const persistedCharacter = identityType === "wallet" && walletAddress
+    let replacementHandoff = identityType === "wallet" && walletAddress
+      ? await this.replaceExistingWalletSession(client, walletAddress)
+      : null;
+    let persistedCharacter = identityType === "wallet" && walletAddress
       ? await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter))
       : null;
     if (identityType === "wallet" && !persistedCharacter) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "character creation required");
+    }
+    if (persistedCharacter && !replacementHandoff) {
+      replacementHandoff = await this.replaceExistingCharacterSession(client, persistedCharacter.characterId);
+      if (replacementHandoff) {
+        persistedCharacter = await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter));
+      }
     }
 
     player.name = persistedCharacter?.name ?? name;
@@ -735,6 +758,7 @@ export class TownRoom extends Room<TownState> {
       await recordWalletInviteUsage(walletAddress, options?.inviteCode ?? "", persistedCharacter.accountId);
       this.persistentCharacterIds.set(client.sessionId, persistedCharacter.characterId);
     }
+    if (replacementHandoff) applySessionHandoff(player, replacementHandoff);
     normalizePlayerTalents(player);
     initializeCharacterEquipment(player);
     if (player.identityType === "guest") grantStarterConsumables(player);
@@ -771,11 +795,21 @@ export class TownRoom extends Room<TownState> {
         z: Math.round(player.z),
       });
 
-      const reconnected = Promise.resolve(this.allowReconnection(client, RECONNECT_GRACE_PERIOD_SECONDS))
-        .then(() => true, () => false);
+      const reconnection = this.allowReconnection(client, RECONNECT_GRACE_PERIOD_SECONDS);
+      this.pendingReconnections.set(client.sessionId, reconnection);
+      const reconnected = Promise.resolve(reconnection)
+        .then(() => true, () => false)
+        .finally(() => {
+          if (this.pendingReconnections.get(client.sessionId) === reconnection) {
+            this.pendingReconnections.delete(client.sessionId);
+          }
+        });
       await this.persistPlayerProgressNow(client.sessionId, player);
 
-      if (await reconnected) {
+      const didReconnect = await reconnected;
+      if (this.replacedReconnectionSessionIds.delete(client.sessionId)) return;
+
+      if (didReconnect) {
         this.recordPlayerAnalyticsEvent("session_reconnected", client.sessionId, player, {
           awayMs: Math.max(0, Date.now() - disconnectedAt),
           level: player.level,
@@ -802,6 +836,77 @@ export class TownRoom extends Room<TownState> {
       await this.persistPlayerProgressNow(client.sessionId, player);
     }
     this.cleanupPlayerSession(client.sessionId, characterId);
+  }
+
+  private async replaceExistingWalletSession(client: Client, walletAddress: string) {
+    const normalizedWallet = normalizeWalletAddress(walletAddress);
+    if (!normalizedWallet) return null;
+
+    for (const [sessionId, player] of this.state.players) {
+      if (sessionId === client.sessionId) continue;
+      if (player.identityType !== "wallet") continue;
+      if (normalizeWalletAddress(player.walletAddress) !== normalizedWallet) continue;
+      return this.replaceExistingPlayerSession(client, sessionId, player);
+    }
+    return null;
+  }
+
+  private async replaceExistingCharacterSession(client: Client, characterId: string) {
+    if (!characterId) return null;
+
+    for (const [sessionId, player] of this.state.players) {
+      if (sessionId === client.sessionId) continue;
+      if (this.persistentCharacterIds.get(sessionId) !== characterId) continue;
+      return this.replaceExistingPlayerSession(client, sessionId, player);
+    }
+    return null;
+  }
+
+  private async replaceExistingPlayerSession(client: Client, sessionId: string, player: PlayerState): Promise<SessionHandoff> {
+    const characterId = this.persistentCharacterIds.get(sessionId);
+    const joinedAt = this.sessionJoinedAt.get(sessionId) ?? Date.now();
+    const handoff = {
+      x: player.x,
+      y: player.y,
+      z: player.z,
+      yaw: player.yaw,
+    };
+    const persistState = characterId ? makePersistableCharacterState(characterId, player) : null;
+    const save = persistState && characterId
+      ? this.queueCharacterSave(sessionId, characterId, persistState)
+      : Promise.resolve(false);
+
+    this.recordPlayerAnalyticsEvent("session_replaced", sessionId, player, {
+      durationMs: Math.max(0, Date.now() - joinedAt),
+      replacedBySessionId: client.sessionId,
+      level: player.level,
+      playerCount: Math.max(0, this.state.players.size - 1),
+      x: Math.round(player.x),
+      z: Math.round(player.z),
+    });
+    this.preparePlayerForReconnect(sessionId, player);
+    this.state.players.delete(sessionId);
+    this.persistentCharacterIds.delete(sessionId);
+
+    const pendingReconnection = this.pendingReconnections.get(sessionId);
+    if (pendingReconnection) {
+      this.replacedReconnectionSessionIds.add(sessionId);
+      this.pendingReconnections.delete(sessionId);
+      pendingReconnection.reject(new Error("session replaced by newer login"));
+    }
+
+    const existingClient = this.clients.find((entry) => entry.sessionId === sessionId && entry !== client);
+    if (existingClient) {
+      existingClient.send("sessionReplaced", {
+        message: "This wallet is now active in another tab or device.",
+        replacementSessionId: client.sessionId,
+      });
+      existingClient.leave(SESSION_REPLACED_CLOSE_CODE, "session replaced by newer login");
+    }
+
+    await save;
+    this.cleanupPlayerSession(sessionId);
+    return handoff;
   }
 
   private preparePlayerForReconnect(sessionId: string, player: PlayerState) {
@@ -2479,6 +2584,13 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     talent.rank = savedTalent.rank;
     player.talents.set(savedTalent.id, talent);
   }
+}
+
+function applySessionHandoff(player: PlayerState, handoff: SessionHandoff) {
+  player.x = handoff.x;
+  player.y = handoff.y;
+  player.z = handoff.z;
+  player.yaw = handoff.yaw;
 }
 
 function applySavedDebugNpcPlacements(npcs: TownState["npcs"], placements: Record<string, DebugPlacementRecord>) {
