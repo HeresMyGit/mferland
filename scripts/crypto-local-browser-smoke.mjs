@@ -145,9 +145,9 @@ try {
   const passMferPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferPrice");
   const passMferGptPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferGptPrice");
   const traitPrice = await readTraitPrice(client, addresses.pricing);
-  const traitMferPrice = traitPrice.mferPrice;
-  const traitMferButtonName = `${formatUiUnits(traitMferPrice)} $mfer 10% off`;
-  const paidTraitName = "paid traits mfer";
+  const freeTraitName = "free traits mfer";
+  const blockedTraitName = "blocked traits mfer";
+  const traitComingSoonStatus = "trait changes after your first set are coming soon";
 
   assert.ok(gearOneEthPrice > 0n);
   assert.ok(gearTwoMferPrice > 0n);
@@ -258,26 +258,36 @@ try {
     await assertOwner(client, addresses.launchPass, 1n, buyer);
     await waitForBalance(balances, "season pass", "1 owned");
 
+    const mferBalanceBeforePass = await readErc20Balance(client, addresses.mfer, buyer);
+    const mferTreasuryBeforePass = await readErc20Balance(client, addresses.mfer, treasury);
+    const selectedPassMferPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferPrice");
     await clickExactly(dialog.getByRole("button", { name: "mint $mfer", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfer confirmed");
     await assertOwner(client, addresses.launchPass, 2n, buyer);
-    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), initialMferBalance - gearTwoMferPrice - passMferPrice);
-    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), initialMferTreasury + gearTwoMferPrice + passMferPrice);
-    await waitForBalance(balances, "$mfer", formatUiUnits(initialMferBalance - gearTwoMferPrice - passMferPrice));
+    const postPassMferBalance = await readErc20Balance(client, addresses.mfer, buyer);
+    const postPassMferTreasury = await readErc20Balance(client, addresses.mfer, treasury);
+    assert.equal(postPassMferBalance, mferBalanceBeforePass - selectedPassMferPrice);
+    assert.equal(postPassMferTreasury, mferTreasuryBeforePass + selectedPassMferPrice);
+    await waitForBalance(balances, "$mfer", formatUiUnits(postPassMferBalance));
 
+    const mferGptBalanceBeforePass = await readErc20Balance(client, addresses.mfergpt, buyer);
+    const mferGptBurnBeforePass = await readErc20Balance(client, addresses.mfergpt, burnAddress);
+    const selectedPassMferGptPrice = await readLaunchPassPrice(client, addresses.launchPass, "mferGptPrice");
     await clickExactly(dialog.getByRole("button", { name: "mint $mfergpt", exact: true }));
     await waitForStatus(dialog, "buying launch pass with $mfergpt confirmed");
     await assertOwner(client, addresses.launchPass, 3n, buyer);
+    const postPassMferGptBalance = await readErc20Balance(client, addresses.mfergpt, buyer);
+    const postPassMferGptBurnBalance = await readErc20Balance(client, addresses.mfergpt, burnAddress);
     assert.equal(
-      await readErc20Balance(client, addresses.mfergpt, buyer),
-      initialMferGptBalance - gearThreeMferGptPrice - passMferGptPrice,
+      postPassMferGptBalance,
+      mferGptBalanceBeforePass - selectedPassMferGptPrice,
     );
     assert.equal(
-      await readErc20Balance(client, addresses.mfergpt, burnAddress),
-      initialMferGptBurnBalance + gearThreeMferGptPrice + passMferGptPrice,
+      postPassMferGptBurnBalance,
+      mferGptBurnBeforePass + selectedPassMferGptPrice,
     );
     assert.equal(await readErc20Supply(client, addresses.mfergpt), initialMferGptSupply);
-    await waitForBalance(balances, "$mfergpt", formatUiUnits(initialMferGptBalance - gearThreeMferGptPrice - passMferGptPrice));
+    await waitForBalance(balances, "$mfergpt", formatUiUnits(postPassMferGptBalance));
 
     await clickExactly(dialog.getByRole("button", { name: "Close store", exact: true }));
 
@@ -286,18 +296,19 @@ try {
     await pressInteractKey(page);
     const traits = await openTraitsDialog(page);
     if (await traits.getByRole("button", { name: "save free set", exact: true }).count() === 1) {
+      await traits.getByRole("textbox", { name: "character name", exact: true }).fill(freeTraitName);
+      await clickExactly(traits.getByRole("button", { name: "random", exact: true }));
       await clickExactly(traits.getByRole("button", { name: "save free set", exact: true }));
-      await waitForTraitPaymentButton(traits, traitMferButtonName);
+      await waitForHudName(page, freeTraitName);
+      await waitForWalletProfileName(freeTraitName);
     }
-    await traits.getByRole("textbox", { name: "character name", exact: true }).fill(paidTraitName);
+    await traits.getByRole("button", { name: "trait changes coming soon", exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+    await traits.getByRole("textbox", { name: "character name", exact: true }).fill(blockedTraitName);
     await clickExactly(traits.getByRole("button", { name: "random", exact: true }));
-    await traits.getByRole("button", { name: traitMferButtonName, exact: true }).waitFor({ state: "visible", timeout: 10_000 });
-    await clickExactly(traits.getByRole("button", { name: traitMferButtonName, exact: true }));
-    await waitForErc20Balance(client, addresses.mfer, buyer, initialMferBalance - gearTwoMferPrice - passMferPrice - traitMferPrice);
-    await waitForErc20Balance(client, addresses.mfer, treasury, initialMferTreasury + gearTwoMferPrice + passMferPrice + traitMferPrice);
-    await waitForHudName(page, paidTraitName);
+    await waitForTraitStatus(traits, traitComingSoonStatus);
+    assert.equal(await readErc20Balance(client, addresses.mfer, buyer), postPassMferBalance);
+    assert.equal(await readErc20Balance(client, addresses.mfer, treasury), postPassMferTreasury);
     await assertNoTraitError(traits);
-    await waitForWalletProfileName(paidTraitName);
     await clickExactly(traits.getByRole("button", { name: "Close traits", exact: true }));
 
     const characterButton = page.getByRole("button", { name: "Character", exact: true });
@@ -609,16 +620,12 @@ async function waitForEquipmentSlot(character, itemName, tierLabel, statLabels =
 async function waitForTraitStatus(traits, expected) {
   const startedAt = Date.now();
   const status = traits.locator(".traits-status");
+  const normalizedExpected = expected.toLowerCase();
   while (Date.now() - startedAt < 30_000) {
-    if ((await status.innerText()).includes(expected)) return;
+    if ((await status.innerText()).toLowerCase().includes(normalizedExpected)) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
   throw new Error(`Expected traits status "${expected}", got "${await status.innerText()}"`);
-}
-
-async function waitForTraitPaymentButton(traits, buttonName) {
-  const button = traits.getByRole("button", { name: buttonName, exact: true });
-  await button.waitFor({ state: "visible", timeout: 30_000 });
 }
 
 async function waitForHudName(page, expectedName) {
@@ -654,16 +661,6 @@ async function assertNoTraitError(traits) {
   if (/(failed|required|mismatch|unavailable|missing|talk to|invalid)/.test(text)) {
     throw new Error(`Unexpected traits status "${text}"`);
   }
-}
-
-async function waitForErc20Balance(client, tokenAddress, account, expected) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 30_000) {
-    const balance = await readErc20Balance(client, tokenAddress, account);
-    if (balance === expected) return;
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-  }
-  throw new Error(`Expected ERC-20 balance ${expected} for ${account}, got ${await readErc20Balance(client, tokenAddress, account)}`);
 }
 
 async function openTraitsDialog(page) {

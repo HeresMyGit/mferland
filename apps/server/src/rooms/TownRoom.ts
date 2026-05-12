@@ -18,7 +18,6 @@ import {
   SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
   TALENTS,
-  TRAIT_CHANGE_PRODUCT_ID,
   clamp,
   getNpcDisposition,
   getChainGearItemId,
@@ -65,7 +64,6 @@ import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, Talent
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
-import { readCryptoProductPriceWei } from "../crypto/contractPricing.js";
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
@@ -151,6 +149,7 @@ const EMOTE_MIN_INTERVAL_MS = 900;
 const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
+const TRAIT_CHANGE_COMING_SOON = "trait changes after your first set are coming soon";
 const CLIENT_ANALYTICS_EVENTS = new Set([
   "store_opened",
   "wallet_connect_started",
@@ -1904,18 +1903,14 @@ export class TownRoom extends Room<TownState> {
 
     const isWalletCharacter = player.identityType === "wallet" && Boolean(this.persistentCharacterIds.get(client.sessionId));
     const free = !hasExistingTraits;
-    const paymentValidation = free || !isWalletCharacter
-      ? { payment: null, error: "" }
-      : await validateTraitPaymentProof(message?.payment);
-    const payment = paymentValidation.payment;
-    if (isWalletCharacter && !free && !payment) {
+    if (!free) {
       client.send("traitUpdateResult", {
         ok: false,
         traits: existingTraits,
         name: player.name,
         free: false,
         paid: false,
-        error: paymentValidation.error || "paid trait change required",
+        error: TRAIT_CHANGE_COMING_SOON,
       });
       return;
     }
@@ -1927,11 +1922,11 @@ export class TownRoom extends Room<TownState> {
     const progressedQuest = traitQuest ? progressTraitQuest(player) : false;
     this.recordPlayerAnalyticsEvent("traits_updated", client.sessionId, player, {
       free,
-      paid: Boolean(payment),
+      paid: false,
       nameChanged: nextName !== previousName,
-      paymentToken: payment?.token ?? "",
-      chainId: payment?.chainId ?? 0,
-      txHash: payment?.txHash ?? "",
+      paymentToken: "",
+      chainId: 0,
+      txHash: "",
       progressedQuest,
     });
     const persisted = await this.persistPlayerProgressNow(client.sessionId, player);
@@ -1941,7 +1936,7 @@ export class TownRoom extends Room<TownState> {
         traits: nextTraits,
         name: nextName,
         free,
-        paid: Boolean(payment),
+        paid: false,
         error: "wallet progress failed to save; retry before reloading",
       });
       return;
@@ -1952,7 +1947,7 @@ export class TownRoom extends Room<TownState> {
       traits: nextTraits,
       name: nextName,
       free,
-      paid: Boolean(payment),
+      paid: false,
     });
   }
 
@@ -2539,65 +2534,6 @@ function normalizeClientAnalyticsProperties(value: unknown): AnalyticsProperties
   }
 
   return properties;
-}
-
-async function validateTraitPaymentProof(value: unknown): Promise<{ payment: ClientUpdateTraits["payment"] | null; error: string }> {
-  const payment = normalizeTraitPaymentProofShape(value);
-  if (!payment) return { payment: null, error: "paid trait change required" };
-
-  let price = null;
-  try {
-    price = await readCryptoProductPriceWei(TRAIT_CHANGE_PRODUCT_ID);
-  } catch {
-    price = null;
-  }
-  if (!price || price.ethPriceWei === "0" || price.mferPriceWei === "0" || price.mferGptPriceWei === "0") {
-    return { payment: null, error: "trait pricing unavailable" };
-  }
-
-  const expectedAmountWei = getTraitPaymentPriceWei(price, payment.token);
-  if (payment.chainId !== price.chainId || payment.amountWei !== expectedAmountWei) {
-    return { payment: null, error: "trait payment amount changed; retry with current price" };
-  }
-
-  return { payment, error: "" };
-}
-
-function normalizeTraitPaymentProofShape(value: unknown): ClientUpdateTraits["payment"] | null {
-  if (!value || typeof value !== "object") return null;
-  const proof = value as Record<string, unknown>;
-  const token = proof.token === "ETH" || proof.token === "MFER" || proof.token === "MFERGPT" ? proof.token : "";
-  if (!token) return null;
-
-  const txHash = typeof proof.txHash === "string" ? proof.txHash.toLowerCase() : "";
-  if (!/^0x[a-f0-9]{64}$/.test(txHash)) return null;
-
-  const amountWei = typeof proof.amountWei === "string" ? proof.amountWei : "";
-  if (!/^[0-9]+$/.test(amountWei) || amountWei === "0") return null;
-
-  const chainId = Number(proof.chainId);
-  if (!Number.isInteger(chainId) || chainId <= 0) return null;
-
-  const contractAddress = typeof proof.contractAddress === "string" && /^0x[a-fA-F0-9]{40}$/.test(proof.contractAddress)
-    ? proof.contractAddress.toLowerCase()
-    : "";
-
-  return {
-    token,
-    txHash,
-    amountWei,
-    chainId,
-    ...(contractAddress ? { contractAddress } : {}),
-  };
-}
-
-function getTraitPaymentPriceWei(
-  price: NonNullable<Awaited<ReturnType<typeof readCryptoProductPriceWei>>>,
-  token: NonNullable<ClientUpdateTraits["payment"]>["token"],
-) {
-  if (token === "ETH") return price.ethPriceWei;
-  if (token === "MFER") return price.mferPriceWei;
-  return price.mferGptPriceWei;
 }
 
 function isAnalyticsBossNpc(npc: NpcState) {

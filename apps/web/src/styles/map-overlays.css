@@ -1217,7 +1217,8 @@
   min-height: 40px;
 }
 
-.traits-actions .primary-btn:only-child {
+.traits-actions .primary-btn:only-child,
+.traits-actions .secondary-btn:only-child {
   grid-column: 1 / -1;
 }
 
