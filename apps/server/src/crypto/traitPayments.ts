@@ -5,6 +5,7 @@ import {
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BASE_RPC_URL,
   TRAIT_CHANGE_BURN_ADDRESS,
+  TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL,
   TRAIT_CHANGE_MFERGPT_AMOUNT_WEI,
   TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
   TRAIT_CHANGE_PRODUCT_ID,
@@ -27,7 +28,7 @@ const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
 const ZERO_TX_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 export async function verifyTraitPaymentProof(payment: TraitPaymentProof | undefined, walletAddress: string): Promise<VerifiedTraitPayment> {
-  if (!payment) throw new Error("25M $MFERGPT payment required");
+  if (!payment) throw new Error(`${TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL} payment required`);
   if (payment.token !== "MFERGPT") throw new Error("MFERGPT payment required");
   if (payment.chainId !== TRAIT_CHANGE_BASE_CHAIN_ID) throw new Error("Base payment required");
 
@@ -73,7 +74,7 @@ export async function verifyTraitPaymentProof(payment: TraitPaymentProof | undef
     };
   }
 
-  throw new Error("25M $MFERGPT burn transfer not found");
+  throw new Error(`${TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL} burn transfer not found`);
 }
 
 async function findExistingTraitPayment(txHash: string) {
