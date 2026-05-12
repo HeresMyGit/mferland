@@ -25,6 +25,7 @@ const ADMIN_REFRESH_MS = 5000;
 const ADMIN_CHARACTER_LIMIT = 250;
 const ADMIN_RECENT_LIMIT = 80;
 const ADMIN_LEADERBOARD_LIMIT = 100;
+const ADMIN_INVITE_LIMIT = 120;
 
 type QueryRow = Record<string, unknown>;
 
@@ -102,6 +103,13 @@ export function getAdminDashboardLanUrls(port: number) {
     .map((address) => `http://${address}:${port}/admin`);
 }
 
+function getGameLanUrls(port: number) {
+  const webPort = process.env.MFERLAND_SERVE_WEB_DIST === "1" ? port : 5173;
+  return getLanAddresses()
+    .filter(isLocalNetworkAddress)
+    .map((address) => `http://${address}:${webPort}`);
+}
+
 async function writeAdminData(req: IncomingMessage, res: ServerResponse) {
   try {
     const payload = await buildAdminPayload();
@@ -165,6 +173,7 @@ async function buildAdminPayload() {
       memory: process.memoryUsage(),
       maxPlayers: MAX_PLAYERS,
       lanUrls: getAdminDashboardLanUrls(Number(process.env.PORT ?? 2567)),
+      webLanUrls: getGameLanUrls(Number(process.env.PORT ?? 2567)),
       adminLanOnly: true,
       databaseConfigured: Boolean(process.env.DATABASE_URL),
     },
@@ -325,6 +334,7 @@ async function loadDatabaseSnapshot() {
       seasonLeaderboard: [],
       purchaseSummary: [],
       analytics: emptyAnalytics(),
+      invites: emptyInvites(),
     };
   }
 
@@ -349,6 +359,8 @@ async function loadDatabaseSnapshot() {
       analyticsByTypeRows,
       analyticsBucketRows,
       recentAnalyticsRows,
+      inviteSummaryRows,
+      inviteRows,
     ] = await Promise.all([
       safeExecute<OverviewRow>("overview", sql`
         SELECT
@@ -532,6 +544,27 @@ async function loadDatabaseSnapshot() {
         ORDER BY ae.created_at DESC
         LIMIT ${ADMIN_RECENT_LIMIT}
       `),
+      safeExecute<InviteSummaryRow>("invite summary", sql`
+        SELECT
+          count(*)::int AS total,
+          count(*) FILTER (WHERE claimed_at IS NULL)::int AS open,
+          count(*) FILTER (WHERE claimed_at IS NOT NULL)::int AS claimed,
+          max(created_at) AS last_created_at,
+          max(claimed_at) AS last_claimed_at,
+          max(last_used_at) AS last_used_at
+        FROM invite_codes
+      `),
+      safeExecute<InviteCodeRow>("invite codes", sql`
+        SELECT
+          code,
+          created_at,
+          claimed_wallet_address,
+          claimed_at,
+          last_used_at
+        FROM invite_codes
+        ORDER BY claimed_at IS NOT NULL ASC, created_at ASC, code ASC
+        LIMIT ${ADMIN_INVITE_LIMIT}
+      `),
     ]);
 
     const overview = mapOverviewRow(firstRow(overviewRows));
@@ -561,6 +594,10 @@ async function loadDatabaseSnapshot() {
         hourly: Array.from(analyticsBucketRows).map(mapAnalyticsBucketRow),
         recent: Array.from(recentAnalyticsRows).map(mapRecentAnalyticsRow),
       },
+      invites: {
+        summary: mapInviteSummaryRow(firstRow(inviteSummaryRows)),
+        codes: Array.from(inviteRows).map(mapInviteCodeRow),
+      },
     };
   } catch (error) {
     return {
@@ -575,6 +612,7 @@ async function loadDatabaseSnapshot() {
       seasonLeaderboard: [],
       purchaseSummary: [],
       analytics: emptyAnalytics(),
+      invites: emptyInvites(),
     };
   }
 }
@@ -602,6 +640,8 @@ type AnalyticsTotalsRow = QueryRow;
 type AnalyticsByTypeRow = QueryRow;
 type AnalyticsBucketRow = QueryRow;
 type RecentAnalyticsRow = QueryRow;
+type InviteSummaryRow = QueryRow;
+type InviteCodeRow = QueryRow;
 
 function firstRow<T extends QueryRow>(rows: Iterable<T>) {
   return Array.from(rows)[0] ?? {};
@@ -758,6 +798,27 @@ function mapRecentAnalyticsRow(row: QueryRow) {
   };
 }
 
+function mapInviteSummaryRow(row: QueryRow) {
+  return {
+    total: toNumber(row.total),
+    open: toNumber(row.open),
+    claimed: toNumber(row.claimed),
+    lastCreatedAt: toIsoString(row.last_created_at),
+    lastClaimedAt: toIsoString(row.last_claimed_at),
+    lastUsedAt: toIsoString(row.last_used_at),
+  };
+}
+
+function mapInviteCodeRow(row: QueryRow) {
+  return {
+    code: toStringValue(row.code),
+    createdAt: toIsoString(row.created_at),
+    claimedWalletAddress: toStringValue(row.claimed_wallet_address),
+    claimedAt: toIsoString(row.claimed_at),
+    lastUsedAt: toIsoString(row.last_used_at),
+  };
+}
+
 function normalizeInventoryRow(value: unknown) {
   const row = isRecord(value) ? value : {};
   return {
@@ -807,6 +868,20 @@ function emptyAnalytics() {
     byType: [],
     hourly: [],
     recent: [],
+  };
+}
+
+function emptyInvites() {
+  return {
+    summary: {
+      total: 0,
+      open: 0,
+      claimed: 0,
+      lastCreatedAt: "",
+      lastClaimedAt: "",
+      lastUsedAt: "",
+    },
+    codes: [],
   };
 }
 
@@ -1028,6 +1103,20 @@ function getAdminHtml() {
       padding: 0;
       font: inherit;
     }
+    button.copy-button {
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+    button.copy-button:hover { border-color: var(--info); }
+    button.copy-button:disabled { cursor: not-allowed; opacity: 0.52; }
     tr.selected { background: rgba(100, 181, 246, 0.13); }
 
     .bar-track { height: 8px; min-width: 90px; background: #273241; border-radius: 999px; overflow: hidden; }
@@ -1039,6 +1128,10 @@ function getAdminHtml() {
     .bar-row { display: grid; grid-template-columns: 150px 1fr 64px; align-items: center; gap: 8px; }
     .spark { display: flex; align-items: end; gap: 2px; height: 54px; border-bottom: 1px solid var(--line); padding-top: 4px; }
     .spark span { flex: 1; min-width: 3px; background: var(--info); border-radius: 2px 2px 0 0; }
+    .invite-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .invite-code { font-size: 13px; font-weight: 700; }
+    .invite-url { min-width: 320px; max-width: 720px; overflow-wrap: anywhere; color: var(--muted); }
+    .copy-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
 
     .item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
     .item-card {
@@ -1141,6 +1234,14 @@ function getAdminHtml() {
         </div>
       </div>
     </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Invites</h2><span class="muted" id="invite-total"></span></div>
+      <div class="invite-actions">
+        <button class="copy-button" id="copy-open-invites" type="button">Copy open invite URLs</button>
+        <span class="muted" id="invite-copy-status"></span>
+      </div>
+      <div class="scroll"><table id="invites"></table></div>
+    </section>
     <section>
       <details>
         <summary>Raw payload</summary>
@@ -1185,6 +1286,49 @@ function getAdminHtml() {
       if (hrs > 0) return hrs + "h " + min + "m";
       if (min > 0) return min + "m " + rem + "s";
       return rem + "s";
+    }
+
+    function inviteUrl(code) {
+      return gameOrigin() + "/?invite=" + encodeURIComponent(code || "");
+    }
+
+    function gameOrigin() {
+      var fallback = window.location.origin.replace(/\\/$/, "");
+      var urls = (state.data && state.data.server && state.data.server.webLanUrls) || [];
+      if (!urls.length) return fallback;
+      for (var i = 0; i < urls.length; i += 1) {
+        try {
+          var parsed = new URL(urls[i]);
+          if (parsed.hostname === window.location.hostname) return urls[i].replace(/\\/$/, "");
+        } catch (error) {
+          // Ignore malformed URLs from diagnostics payloads.
+        }
+      }
+      return String(urls[0]).replace(/\\/$/, "") || fallback;
+    }
+
+    function setInviteCopyStatus(message) {
+      var node = document.getElementById("invite-copy-status");
+      if (!node) return;
+      node.textContent = message;
+      window.clearTimeout(setInviteCopyStatus.timer);
+      setInviteCopyStatus.timer = window.setTimeout(function() {
+        node.textContent = "";
+      }, 2600);
+    }
+
+    function copyText(text, label) {
+      if (!text) return;
+      var done = function() { setInviteCopyStatus(label || "Copied"); };
+      var fallback = function() {
+        window.prompt("Copy this", text);
+        done();
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+        return;
+      }
+      fallback();
     }
 
     function catalogItem(id) {
@@ -1469,6 +1613,45 @@ function getAdminHtml() {
         }).join("") + '</tbody>';
     }
 
+    function renderInvites() {
+      var invites = (state.data.database && state.data.database.invites) || { summary: {}, codes: [] };
+      var summary = invites.summary || {};
+      var rows = invites.codes || [];
+      var openRows = rows.filter(function(row) { return !row.claimedAt; });
+      var openCount = summary.open != null ? summary.open : openRows.length;
+      document.getElementById("invite-total").textContent = n(openCount) + " open · " + n(summary.claimed) + " claimed · " + n(summary.total) + " total";
+
+      var copyAll = document.getElementById("copy-open-invites");
+      copyAll.disabled = openRows.length === 0;
+      copyAll.onclick = function() {
+        var links = openRows.map(function(row) { return inviteUrl(row.code); }).join("\\n");
+        copyText(links, "Copied " + openRows.length + " open invite URLs");
+      };
+
+      document.getElementById("invites").innerHTML =
+        '<thead><tr><th>Status</th><th>Invite</th><th>Wallet</th><th>Created</th><th>Claimed</th><th>Last login</th></tr></thead><tbody>' +
+        rows.map(function(row) {
+          var claimed = Boolean(row.claimedAt);
+          var statusClass = claimed ? "good" : "warn";
+          var statusText = claimed ? "claimed" : "open";
+          var url = inviteUrl(row.code);
+          return '<tr><td><span class="pill ' + statusClass + '">' + statusText + '</span></td>' +
+            '<td><div class="mono invite-code">' + esc(row.code) + '</div><div class="mono invite-url">' + esc(url) + '</div>' +
+            '<div class="copy-row"><button class="copy-button" type="button" data-copy-text="' + esc(row.code) + '" data-copy-label="Copied invite code">Copy code</button>' +
+            '<button class="copy-button" type="button" data-copy-text="' + esc(url) + '" data-copy-label="Copied invite URL">Copy URL</button></div></td>' +
+            '<td class="mono">' + esc(shortWallet(row.claimedWalletAddress)) + '</td>' +
+            '<td class="nowrap">' + esc(time(row.createdAt)) + '</td>' +
+            '<td class="nowrap">' + esc(time(row.claimedAt)) + '</td>' +
+            '<td class="nowrap">' + esc(time(row.lastUsedAt)) + '</td></tr>';
+        }).join("") + '</tbody>';
+
+      document.querySelectorAll("[data-copy-text]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          copyText(button.getAttribute("data-copy-text") || "", button.getAttribute("data-copy-label") || "Copied");
+        });
+      });
+    }
+
     function shortWallet(wallet) {
       if (!wallet) return "";
       wallet = String(wallet);
@@ -1512,6 +1695,7 @@ function getAdminHtml() {
       renderQuests();
       renderAnalytics();
       renderSeasonPurchases();
+      renderInvites();
     }
 
     async function refresh() {
