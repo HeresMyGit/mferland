@@ -16,3 +16,14 @@ apps/web/public/crypto/production-contracts.json
 !.env.example
 docs/db-handoff.local.md
 invite.zip
+
+# Internal project notes kept locally only.
+/MFERLAND_*_PLAN.md
+/MFERLAND_*_PASS.md
+/NEXT_STEPS.md
+/docs/AGENT_LOG.md
+/docs/db-handoff.md
+/docs/soft-launch-plan.md
+/docs/soft-launch-tester-brief.md
+/docs/launch/mac-mini-soft-launch-runbook.md
+/docs/plans/*.md
