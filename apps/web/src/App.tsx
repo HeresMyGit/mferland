@@ -420,7 +420,7 @@ function AuthGate({
   }
 
   function enterGuest() {
-    if (inviteRequired && !hasInviteCode) return;
+    if (inviteRequired) return;
     rememberInviteCode(inviteCode);
     rememberName(cleanName);
     trackEvent("auth_enter_guest", { inviteRequired, invitePresent: hasInviteCode }, { local: true, identityType: "guest" });
@@ -428,7 +428,7 @@ function AuthGate({
   }
 
   function openAnonWarning() {
-    if (inviteRequired && !hasInviteCode) return;
+    if (inviteRequired) return;
     setShowAnonWarning(true);
     trackEvent("auth_anon_warning_opened", { inviteRequired, invitePresent: hasInviteCode }, { local: true });
   }
@@ -450,7 +450,8 @@ function AuthGate({
 
   async function enterWallet({ forceCreate = false, allowProfileError = false } = {}) {
     if (!address) return;
-    if (inviteRequired && !hasInviteCode) return;
+    const inviteNeededForWalletCreation = inviteRequired && !existingCharacter && (walletNeedsCreation || forceCreate);
+    if (inviteNeededForWalletCreation && !hasInviteCode) return;
     if (walletSignaturePending) return;
     if (allowProfileError) {
       if (!canCreateAfterProfileError) return;
@@ -654,7 +655,7 @@ function AuthGate({
         )}
 
         <div className="auth-actions">
-          <button className="primary-btn" type="button" onClick={openAnonWarning} disabled={inviteRequired && !hasInviteCode}>
+          <button className="primary-btn" type="button" onClick={openAnonWarning} disabled={inviteRequired}>
             <UserRound size={18} />
             enter as anon mfer
           </button>
@@ -730,7 +731,7 @@ function AuthGate({
             </>
           )}
         </div>
-        {inviteRequired && !hasInviteCode && <p className="wallet-action-error">use your invite link to enter this test</p>}
+        {inviteRequired && !hasInviteCode && !existingCharacter && <p className="wallet-action-error">use your invite link to create a test mfer</p>}
         {walletProfileError && <p className="wallet-action-error">{walletProfileError}</p>}
         {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>

@@ -46,6 +46,15 @@ test("existing wallet characters get an explicit continue action", () => {
     needsCreation: false,
     cleanName: "",
   }), true);
+  assert.equal(canEnterWalletCharacter({
+    hasAddress: true,
+    profilePending: false,
+    profileError: false,
+    inviteRequired: true,
+    hasInviteCode: false,
+    needsCreation: false,
+    cleanName: "",
+  }), true);
 });
 
 test("new wallet characters require a name before creation", () => {
@@ -73,6 +82,15 @@ test("new wallet characters require a name before creation", () => {
     needsCreation: true,
     cleanName: "wallet mfer",
   }), true);
+  assert.equal(canEnterWalletCharacter({
+    hasAddress: true,
+    profilePending: false,
+    profileError: false,
+    inviteRequired: true,
+    hasInviteCode: false,
+    needsCreation: true,
+    cleanName: "wallet mfer",
+  }), false);
 });
 
 test("wallet profile errors expose a retry action instead of an enter action", () => {

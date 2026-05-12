@@ -87,6 +87,21 @@ Wallet lookup:
 npm run support:admin -- wallet --wallet 0x...
 ```
 
+Invite management:
+
+```sh
+npm run support:admin -- invite-create --count 40
+npm run support:admin -- invite-summary
+npm run support:admin -- invite-list --status open
+npm run support:admin -- invite-list --status claimed
+```
+
+End-of-test stats:
+
+```sh
+npm run support:admin -- analytics-summary --since 7d
+```
+
 Season 0 review:
 
 ```sh

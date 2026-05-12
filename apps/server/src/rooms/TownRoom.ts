@@ -22,6 +22,7 @@ import {
   getNpcDisposition,
   getChainGearItemId,
   getInventoryItemKey,
+  getItemConsumable,
   getQuestTurnInNpcId,
   hasExplicitMferAppearanceTraits,
   normalizeAvatarSeed,
@@ -67,6 +68,8 @@ import { verifyChainGearOwnership } from "../crypto/chainGear.js";
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
+  getWalletInviteAccess,
+  recordWalletInviteUsage,
   saveCharacterProgress,
   PersistenceUnavailableError,
   type PersistableCharacterState,
@@ -180,10 +183,31 @@ function getRequiredInviteCode() {
   return (process.env.MFERLAND_INVITE_CODE ?? "").trim();
 }
 
-function isAllowedInvite(options?: JoinOptions) {
+function isInviteGateEnabled() {
+  return process.env.MFERLAND_REQUIRE_INVITE === "1" || Boolean(getRequiredInviteCode());
+}
+
+async function assertInviteAllowed(options: JoinOptions | undefined, walletAddress: string) {
+  if (!isInviteGateEnabled()) return;
+
+  const inviteCode = typeof options?.inviteCode === "string" ? options.inviteCode.trim() : "";
   const requiredInvite = getRequiredInviteCode();
-  if (!requiredInvite) return true;
-  return typeof options?.inviteCode === "string" && options.inviteCode.trim() === requiredInvite;
+  if (requiredInvite && inviteCode === requiredInvite) return;
+
+  if (!walletAddress) {
+    throw new ServerError(ErrorCode.AUTH_FAILED, "wallet invite required");
+  }
+
+  const access = await getWalletInviteAccess(walletAddress, inviteCode);
+  if (access.ok) {
+    if (access.reason === "valid_code" && !await recordWalletInviteUsage(walletAddress, inviteCode)) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "invite already used");
+    }
+    return;
+  }
+  if (access.reason === "used_code") throw new ServerError(ErrorCode.AUTH_FAILED, "invite already used");
+  if (access.reason === "no_database") throw new ServerError(ErrorCode.AUTH_FAILED, "invite database unavailable");
+  throw new ServerError(ErrorCode.AUTH_FAILED, "invalid invite");
 }
 
 type DebugTeleportMessage = {
@@ -411,7 +435,6 @@ export class TownRoom extends Room<TownState> {
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
   async onAuth(_client: Client, options?: JoinOptions) {
-    if (!isAllowedInvite(options)) throw new ServerError(ErrorCode.AUTH_FAILED, "invalid invite");
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
     if (
       (options?.identityType === "wallet" || walletAddress)
@@ -420,6 +443,7 @@ export class TownRoom extends Room<TownState> {
     ) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");
     }
+    await assertInviteAllowed(options, walletAddress);
     return true;
   }
 
@@ -708,6 +732,7 @@ export class TownRoom extends Room<TownState> {
     if (persistedCharacter) {
       applyPersistedCharacter(player, persistedCharacter);
       await this.reconcileOwnedChainGear(player);
+      await recordWalletInviteUsage(walletAddress, options?.inviteCode ?? "", persistedCharacter.accountId);
       this.persistentCharacterIds.set(client.sessionId, persistedCharacter.characterId);
     }
     normalizePlayerTalents(player);
@@ -1216,6 +1241,10 @@ export class TownRoom extends Room<TownState> {
       sentAt: now,
       kind: "emote",
     } satisfies ChatMessage);
+    this.recordPlayerAnalyticsEvent("emote_used", client.sessionId, player, {
+      emoteId,
+      level: player.level,
+    });
   }
 
   private handleCombatAction(client: Client, message: Partial<ClientCombatAction>) {
@@ -1708,6 +1737,9 @@ export class TownRoom extends Room<TownState> {
 
     const itemId = normalizeItemId(message?.itemId);
     if (!itemId) return;
+    const consumable = getItemConsumable(itemId);
+    const previousHealth = player.health;
+    const previousMana = player.mana;
     const used = useInventoryConsumable({
       chainTokenId: message?.chainTokenId,
       cooldowns: this.consumableCooldowns,
@@ -1718,6 +1750,13 @@ export class TownRoom extends Room<TownState> {
     });
     if (!used) return;
 
+    this.recordPlayerAnalyticsEvent("consumable_used", client.sessionId, player, {
+      itemId,
+      kind: consumable?.kind ?? "",
+      healthRestored: Math.max(0, player.health - previousHealth),
+      manaRestored: Math.max(0, player.mana - previousMana),
+      level: player.level,
+    });
     this.persistPlayerProgress(client.sessionId, player);
   }
 
@@ -1772,6 +1811,14 @@ export class TownRoom extends Room<TownState> {
     const xpReward = getPlayerQuestXpReward(player, QUESTS[questId].xpReward);
     const award = awardExperience(player, xpReward);
     if (award.levelsGained > 0) recalculatePlayerStats(player);
+    if (award.levelsGained > 0) {
+      this.recordPlayerAnalyticsEvent("player_level_up", client.sessionId, player, {
+        levelsGained: award.levelsGained,
+        level: player.level,
+        source: "quest_completed",
+        questId,
+      });
+    }
     void this.awardSeason0QuestReward(client, player, questId);
 
     this.persistPlayerProgress(client.sessionId, player);
@@ -1805,16 +1852,27 @@ export class TownRoom extends Room<TownState> {
     const requestedLootKey = itemId ? getInventoryItemKey(itemId, chainTokenId) : "";
     if (itemId && !npc.loot.has(requestedLootKey)) return;
 
+    const lootedItems: Array<{ itemId: ItemId; chainTokenId: string }> = [];
     if (itemId) {
+      lootedItems.push({ itemId, chainTokenId });
       lootCorpseItem(player, npc, itemId, chainTokenId);
     } else {
       const lootItems: Array<{ itemId: ItemId; chainTokenId: string }> = [];
       npc.loot.forEach((item) => lootItems.push({ itemId: item.id, chainTokenId: item.chainTokenId }));
       for (const item of lootItems) {
+        lootedItems.push(item);
         lootCorpseItem(player, npc, item.itemId, item.chainTokenId);
       }
     }
 
+    this.recordPlayerAnalyticsEvent("loot_collected", client.sessionId, player, {
+      npcId: npc.id,
+      npcRole: npc.role,
+      npcModel: npc.model,
+      itemCount: lootedItems.length,
+      itemIds: lootedItems.map((item) => item.itemId),
+      chainItemCount: lootedItems.filter((item) => item.chainTokenId).length,
+    });
     if (npcHasLoot(npc)) {
       client.send("lootWindow", makeLootWindow(npc));
       return;
@@ -2194,8 +2252,17 @@ export class TownRoom extends Room<TownState> {
       if (now - taggedAt <= NPC_DAMAGE_TAG_TTL_MS) creditedSessionIds.add(sessionId);
     });
 
+    const sourcePlayer = this.state.players.get(sourceId);
+    this.recordPlayerAnalyticsEvent("npc_defeated", sourceId, sourcePlayer, {
+      npcId: npc.id,
+      npcName: npc.name,
+      npcRole: npc.role,
+      npcModel: npc.model,
+      xpReward: mobXp,
+      creditedPlayers: creditedSessionIds.size,
+      temporary: this.temporaryNpcExpiresAt.has(npc.id),
+    });
     if (isAnalyticsBossNpc(npc)) {
-      const sourcePlayer = this.state.players.get(sourceId);
       this.recordPlayerAnalyticsEvent("boss_defeated", sourceId, sourcePlayer, {
         npcId: npc.id,
         npcName: npc.name,
@@ -2209,6 +2276,24 @@ export class TownRoom extends Room<TownState> {
       const questProgressed = progressDefeatQuests(player, npc);
       const award = awardExperience(player, mobXp);
       if (award.levelsGained > 0) recalculatePlayerStats(player);
+      this.recordPlayerAnalyticsEvent("npc_defeat_credit", sessionId, player, {
+        npcId: npc.id,
+        npcRole: npc.role,
+        npcModel: npc.model,
+        xpGained: award.xpGained,
+        levelsGained: award.levelsGained,
+        level: player.level,
+        questProgressed,
+      });
+      if (award.levelsGained > 0) {
+        this.recordPlayerAnalyticsEvent("player_level_up", sessionId, player, {
+          levelsGained: award.levelsGained,
+          level: player.level,
+          source: "npc_defeat",
+          npcId: npc.id,
+          npcModel: npc.model,
+        });
+      }
       if (award.xpGained > 0) {
         this.sendExperienceEvent(sessionId, npc, award.xpGained, now);
       }

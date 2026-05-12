@@ -86,7 +86,7 @@ VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"
 VITE_REQUIRE_INVITE="1"
 VITE_ENABLE_CRYPTO_STORE="0"
 MFERLAND_ENABLE_CRYPTO_STORE="0"
-MFERLAND_INVITE_CODE="REPLACE_WITH_PRIVATE_DM_CODE"
+MFERLAND_REQUIRE_INVITE="1"
 MFERLAND_SERVE_WEB_DIST="1"
 MFERLAND_MARKET_QUOTE_INTERVAL_MS="60000"
 MFERLAND_CONTRACT_PRICE_UPDATE_INTERVAL_MS="21600000"
@@ -94,7 +94,15 @@ MFERLAND_CONTRACT_PRICE_DRIFT_BPS="2500"
 VITE_GA_MEASUREMENT_ID=""
 ```
 
-Use `https://game.mfergpt.lol/?invite=REPLACE_WITH_PRIVATE_DM_CODE` as the DM link. The static page is not secret, but room joins are rejected unless the invite code matches. Rotate `MFERLAND_INVITE_CODE` if the link leaks. Do not commit the invite code.
+Run migrations, generate one-time wallet invites, and DM links like `https://game.mfergpt.lol/?invite=MFER-XXXXX-XXXXX`:
+
+```sh
+npm run db:migrate -w @mferland/server
+npm run support:admin -- invite-create --count 40
+npm run support:admin -- invite-list --status open
+```
+
+The static page is not secret. New wallet character creation is rejected unless the invite exists and is unclaimed. Once a wallet claims an invite, that wallet can log in again without the original link. Do not commit invite codes.
 
 Keep `VITE_ENABLE_CRYPTO_STORE="0"` and `MFERLAND_ENABLE_CRYPTO_STORE="0"` while the crypto merchant is hidden from the main game. For mock-token crypto testing, set both flags to `"1"` and keep `VITE_CRYPTO_CONTRACTS_URL="/crypto/local-contracts.json"` so the UI points at the latest local deployment exported by `npm run chain:deploy:local`. This is test data; public wallet purchase testing should still use disposable wallets and avoid Josh's main wallet.
 
@@ -230,7 +238,7 @@ npm run launch:build
 npm run launch:server
 ```
 
-`launch:server` binds the game process to `0.0.0.0`, serves `apps/web/dist` through the same HTTP server as the WebSocket, and exposes the local/LAN-only admin dashboard at `http://<mac-lan-ip>:2567/admin`. The dashboard rejects public hostnames such as `game.mfergpt.lol`; keep it on loopback or your private LAN only. Before inviting anyone, open `https://game.mfergpt.lol/?invite=...` and confirm:
+`launch:server` binds the game process to `0.0.0.0`, serves `apps/web/dist` through the same HTTP server as the WebSocket, and exposes the local/LAN-only admin dashboard at `http://<mac-lan-ip>:2567/admin`. The dashboard rejects public hostnames such as `game.mfergpt.lol`; keep it on loopback or your private LAN only. Before inviting anyone, open an unused invite link and confirm:
 
 - wallet entry works.
 - Character panel shows wallet and Season Points.
@@ -241,7 +249,8 @@ npm run launch:server
 - pass and gear checkout prices show actual contract amounts in ETH, `$mfer`, and `$mfergpt`.
 - ETH, `$mfer`, and `$mfergpt` pass buttons show wallet prompts.
 - local dashboard loads from `http://<mac-lan-ip>:2567/admin` on your LAN and is blocked through the public game hostname.
-- `npm run support:admin -- analytics-summary --since 24h` shows a `session_joined` row after a wallet/guest smoke.
+- `npm run support:admin -- analytics-summary --since 24h` shows a `session_joined` row after a wallet smoke.
+- `npm run support:admin -- invite-summary` shows the smoke invite as claimed.
 
 Do not perform a real purchase from Josh's main wallet during smoke. Use a disposable wallet or a manual grant if needed.
 

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import postgres from "postgres";
 
@@ -12,6 +12,7 @@ const { positionals, values } = parseArgs({
   options: {
     chain: { type: "string", default: "0" },
     contract: { type: "string" },
+    count: { type: "string", default: "40" },
     help: { type: "boolean", short: "h" },
     id: { type: "string" },
     limit: { type: "string", default: "50" },
@@ -60,6 +61,18 @@ try {
         limit: parseLimit(values.limit),
         since: values.since,
       });
+      break;
+    case "invite-create":
+      await createInvites(parseInviteCount(values.count));
+      break;
+    case "invite-list":
+      await printInvites({
+        limit: parseLimit(values.limit),
+        status: values.status,
+      });
+      break;
+    case "invite-summary":
+      await printInviteSummary();
       break;
     case "season-summary":
       await printSeasonSummary(values.season);
@@ -327,12 +340,112 @@ async function printAnalyticsSummary({ since, limit }) {
     ORDER BY events DESC, command ASC, status ASC
     LIMIT ${limit}
   `;
+  const [highlights] = await sql`
+    SELECT
+      count(*) FILTER (WHERE event_type = 'npc_defeated')::int AS npc_slain,
+      count(*) FILTER (WHERE event_type = 'boss_defeated')::int AS bosses_defeated,
+      count(*) FILTER (WHERE event_type = 'player_death')::int AS player_deaths,
+      count(*) FILTER (WHERE event_type = 'player_respawned')::int AS player_respawns,
+      count(*) FILTER (WHERE event_type = 'quest_completed')::int AS quests_completed,
+      count(*) FILTER (WHERE event_type = 'quest_accepted')::int AS quests_accepted,
+      count(*) FILTER (WHERE event_type = 'player_level_up')::int AS level_ups,
+      count(*) FILTER (WHERE event_type = 'consumable_used' AND properties->>'kind' = 'potion')::int AS potions_drank,
+      count(*) FILTER (WHERE event_type = 'consumable_used' AND properties->>'kind' = 'food')::int AS food_eaten,
+      count(*) FILTER (WHERE event_type = 'loot_collected')::int AS loot_events,
+      coalesce(sum(CASE
+        WHEN event_type = 'loot_collected'
+          AND properties ? 'itemCount'
+          AND properties->>'itemCount' ~ '^[0-9]+$'
+        THEN (properties->>'itemCount')::int
+        ELSE 0
+      END), 0)::int AS loot_items,
+      count(*) FILTER (WHERE event_type = 'traits_updated' AND properties->>'free' = 'true')::int AS free_trait_sets,
+      count(*) FILTER (WHERE event_type = 'mfergpt_command')::int AS mfergpt_commands,
+      count(*) FILTER (WHERE event_type = 'emote_used')::int AS emotes_used,
+      count(*) FILTER (WHERE event_type = 'chain_gear_registered')::int AS chain_gear_registered
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+  `;
+  const npcByModel = await sql`
+    SELECT
+      coalesce(nullif(properties->>'npcModel', ''), 'unknown') AS npc_model,
+      count(*)::int AS defeated
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type = 'npc_defeated'
+    GROUP BY npc_model
+    ORDER BY defeated DESC, npc_model ASC
+    LIMIT ${limit}
+  `;
+  const npcByRole = await sql`
+    SELECT
+      coalesce(nullif(properties->>'npcRole', ''), 'unknown') AS npc_role,
+      count(*)::int AS defeated
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type = 'npc_defeated'
+    GROUP BY npc_role
+    ORDER BY defeated DESC, npc_role ASC
+    LIMIT ${limit}
+  `;
+  const consumables = await sql`
+    SELECT
+      coalesce(nullif(properties->>'itemId', ''), 'unknown') AS item_id,
+      coalesce(nullif(properties->>'kind', ''), 'unknown') AS kind,
+      count(*)::int AS used,
+      coalesce(sum(CASE
+        WHEN properties ? 'healthRestored'
+          AND properties->>'healthRestored' ~ '^[0-9]+$'
+        THEN (properties->>'healthRestored')::int
+        ELSE 0
+      END), 0)::int AS health_restored,
+      coalesce(sum(CASE
+        WHEN properties ? 'manaRestored'
+          AND properties->>'manaRestored' ~ '^[0-9]+$'
+        THEN (properties->>'manaRestored')::int
+        ELSE 0
+      END), 0)::int AS mana_restored
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type = 'consumable_used'
+    GROUP BY item_id, kind
+    ORDER BY used DESC, item_id ASC
+    LIMIT ${limit}
+  `;
+  const levelUps = await sql`
+    SELECT
+      coalesce(nullif(properties->>'source', ''), 'unknown') AS source,
+      count(*)::int AS events,
+      coalesce(sum(CASE
+        WHEN properties ? 'levelsGained'
+          AND properties->>'levelsGained' ~ '^[0-9]+$'
+        THEN (properties->>'levelsGained')::int
+        ELSE 0
+      END), 0)::int AS levels_gained
+    FROM analytics_events
+    WHERE created_at >= ${sinceDate}
+      AND event_type = 'player_level_up'
+    GROUP BY source
+    ORDER BY levels_gained DESC, events DESC, source ASC
+    LIMIT ${limit}
+  `;
 
   console.log(JSON.stringify({
     since: sinceDate.toISOString(),
     totals,
     sessions,
+    highlights,
   }, null, 2));
+  console.log("\nPublic test highlights");
+  console.table([highlights]);
+  console.log("\nNPCs defeated by model");
+  console.table(npcByModel);
+  console.log("\nNPCs defeated by role");
+  console.table(npcByRole);
+  console.log("\nConsumables");
+  console.table(consumables);
+  console.log("\nLevel ups");
+  console.table(levelUps);
   console.log("\nEvents by type");
   console.table(byType);
   console.log("\nQuest funnel");
@@ -341,6 +454,76 @@ async function printAnalyticsSummary({ since, limit }) {
   console.table(purchaseFunnel);
   console.log("\nmferGPT");
   console.table(mferGpt);
+}
+
+async function createInvites(count) {
+  const codes = new Set();
+  while (codes.size < count) codes.add(makeInviteCode());
+
+  const inserted = [];
+  for (const code of codes) {
+    const rows = await sql`
+      INSERT INTO invite_codes (code)
+      VALUES (${code})
+      ON CONFLICT (code) DO NOTHING
+      RETURNING code, created_at
+    `;
+    if (rows[0]) inserted.push(rows[0]);
+  }
+
+  console.log(`Created ${inserted.length} invite codes`);
+  console.log("code");
+  for (const row of inserted) console.log(row.code);
+}
+
+async function printInviteSummary() {
+  const [summary] = await sql`
+    SELECT
+      count(*)::int AS total,
+      count(*) FILTER (WHERE claimed_at IS NULL)::int AS open,
+      count(*) FILTER (WHERE claimed_at IS NOT NULL)::int AS claimed,
+      max(claimed_at) AS last_claimed_at,
+      max(last_used_at) AS last_used_at
+    FROM invite_codes
+  `;
+  console.table([summary]);
+}
+
+async function printInvites({ limit, status }) {
+  const normalizedStatus = normalizeInviteStatus(status);
+  let rows;
+  if (normalizedStatus === "open") {
+    rows = await sql`
+      SELECT code, created_at, claimed_wallet_address, claimed_at, last_used_at
+      FROM invite_codes
+      WHERE claimed_at IS NULL
+      ORDER BY created_at ASC, code ASC
+      LIMIT ${limit}
+    `;
+  } else if (normalizedStatus === "claimed") {
+    rows = await sql`
+      SELECT code, created_at, claimed_wallet_address, claimed_at, last_used_at
+      FROM invite_codes
+      WHERE claimed_at IS NOT NULL
+      ORDER BY claimed_at DESC, code ASC
+      LIMIT ${limit}
+    `;
+  } else {
+    rows = await sql`
+      SELECT code, created_at, claimed_wallet_address, claimed_at, last_used_at
+      FROM invite_codes
+      ORDER BY created_at ASC, code ASC
+      LIMIT ${limit}
+    `;
+  }
+  console.table(rows.map((row) => ({
+    code: row.code,
+    status: row.claimed_at ? "claimed" : "open",
+    wallet: row.claimed_wallet_address || "",
+    createdAt: row.created_at,
+    claimedAt: row.claimed_at,
+    lastUsedAt: row.last_used_at,
+  })));
 }
 
 async function printSeasonSummary(seasonId) {
@@ -778,6 +961,27 @@ function parseLimit(value) {
   return limit;
 }
 
+function parseInviteCount(value) {
+  const count = Number.parseInt(value ?? "", 10);
+  if (!Number.isInteger(count) || count < 1 || count > 500) fail("Pass --count between 1 and 500");
+  return count;
+}
+
+function normalizeInviteStatus(value) {
+  const normalized = String(value ?? "all").trim().toLowerCase();
+  if (!normalized || normalized === "all") return "all";
+  if (normalized === "open" || normalized === "claimed") return normalized;
+  fail("Pass --status open, claimed, or all");
+}
+
+function makeInviteCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(10);
+  let text = "";
+  for (const byte of bytes) text += alphabet[byte % alphabet.length];
+  return `MFER-${text.slice(0, 5)}-${text.slice(5)}`;
+}
+
 function parseSince(value) {
   const normalized = String(value ?? "7d").trim().toLowerCase();
   const relative = normalized.match(/^([1-9][0-9]{0,3})(h|d|w)$/);
@@ -948,6 +1152,9 @@ function printHelp() {
   console.log(`Usage:
   npm run support:admin -- wallet --wallet 0x...
   npm run support:admin -- analytics-summary [--since 7d] [--limit 50]
+  npm run support:admin -- invite-create [--count 40]
+  npm run support:admin -- invite-list [--status open|claimed|all] [--limit 50]
+  npm run support:admin -- invite-summary
   npm run support:admin -- season-summary [--season season-0]
   npm run support:admin -- season-list [--status pending] [--wallet 0x...] [--limit 50]
   npm run support:admin -- season-export [--status approved] [--require-product season0-pass]

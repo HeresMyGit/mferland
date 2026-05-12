@@ -28,6 +28,18 @@ export const accountWallets = pgTable("account_wallets", {
   index("account_wallets_account_id_idx").on(table.accountId),
 ]);
 
+export const inviteCodes = pgTable("invite_codes", {
+  code: text("code").primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedWalletAddress: text("claimed_wallet_address").notNull().default(""),
+  claimedAccountId: text("claimed_account_id").references(() => accounts.id, { onDelete: "set null" }),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+}, (table) => [
+  index("invite_codes_claimed_wallet_idx").on(table.claimedWalletAddress),
+  index("invite_codes_claimed_at_idx").on(table.claimedAt),
+]);
+
 export const characters = pgTable("characters", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),

@@ -35,7 +35,7 @@ export function canEnterWalletCharacter({
   return hasAddress
     && !profilePending
     && !profileError
-    && !(inviteRequired && !hasInviteCode)
+    && !(inviteRequired && needsCreation && !hasInviteCode)
     && (!needsCreation || cleanName.trim().length > 0);
 }
 

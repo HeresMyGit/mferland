@@ -38,6 +38,7 @@ import {
   characterQuests,
   characterTalents,
   characters,
+  inviteCodes,
   seasonRewardEvents,
 } from "./db/schema.js";
 
@@ -96,6 +97,60 @@ export class PersistenceUnavailableError extends Error {
     super(message);
     this.name = "PersistenceUnavailableError";
   }
+}
+
+export type WalletInviteAccessResult = {
+  ok: boolean;
+  reason: "claimed" | "valid_code" | "missing_code" | "invalid_code" | "used_code" | "no_database";
+};
+
+export async function getWalletInviteAccess(walletAddress: string, inviteCode: string): Promise<WalletInviteAccessResult> {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return { ok: false, reason: "missing_code" };
+  const db = getDatabase();
+  if (!db) return { ok: false, reason: "no_database" };
+
+  const existingWallet = await findAccountWalletByNormalizedAddress(db, normalizedWallet);
+  if (existingWallet) return { ok: true, reason: "claimed" };
+
+  const normalizedCode = normalizeInviteCode(inviteCode);
+  if (!normalizedCode) return { ok: false, reason: "missing_code" };
+
+  const invite = await db.query.inviteCodes.findFirst({
+    where: eq(inviteCodes.code, normalizedCode),
+  });
+  if (!invite) return { ok: false, reason: "invalid_code" };
+
+  const claimedWallet = normalizeWalletAddress(invite.claimedWalletAddress);
+  if (claimedWallet && claimedWallet !== normalizedWallet) return { ok: false, reason: "used_code" };
+  return { ok: true, reason: "valid_code" };
+}
+
+export async function recordWalletInviteUsage(walletAddress: string, inviteCode: string, accountId = "") {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return false;
+  const db = getDatabase();
+  if (!db) return false;
+
+  const now = new Date();
+  const normalizedCode = normalizeInviteCode(inviteCode);
+  if (normalizedCode) {
+    const claimed = await db.update(inviteCodes)
+      .set({
+        claimedWalletAddress: normalizedWallet,
+        claimedAccountId: accountId || null,
+        claimedAt: now,
+        lastUsedAt: now,
+      })
+      .where(sql`${inviteCodes.code} = ${normalizedCode} AND (${inviteCodes.claimedWalletAddress} = '' OR lower(${inviteCodes.claimedWalletAddress}) = ${normalizedWallet})`)
+      .returning({ code: inviteCodes.code });
+    return claimed.length > 0;
+  }
+
+  await db.update(inviteCodes)
+    .set({ lastUsedAt: now })
+    .where(sql`lower(${inviteCodes.claimedWalletAddress}) = ${normalizedWallet}`);
+  return true;
 }
 
 export async function getWalletCharacterProfile(walletAddress: string): Promise<WalletCharacterPreview | null> {
@@ -460,6 +515,14 @@ async function getSeasonRewardTotals(
 
 function isKnownQuestId(value: string): value is QuestId {
   return QUEST_IDS.includes(value as QuestId);
+}
+
+function normalizeInviteCode(value: string) {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .slice(0, 80);
 }
 
 function isKnownItemId(value: string): value is ItemId {
