@@ -55,6 +55,552 @@ button {
   touch-action: none;
 }
 
+.stream-shell {
+  background: #10130f;
+}
+
+.stream-game-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.stream-status-panel {
+  position: absolute;
+  z-index: 90;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 18px 20px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 226, 96, 0.28);
+  border-radius: 8px;
+  color: #fff7db;
+  background: rgba(14, 16, 12, 0.72);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+  text-align: center;
+  backdrop-filter: blur(6px);
+}
+
+.stream-status-panel strong {
+  color: var(--mfer-yellow);
+  font-size: 18px;
+  font-weight: 1000;
+  line-height: 1.1;
+  text-transform: uppercase;
+  text-shadow: 0 2px 0 #111;
+}
+
+.stream-status-panel span {
+  color: rgba(255, 248, 224, 0.76);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.stream-overlay-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  gap: 12px;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding: 12px;
+  overflow: hidden;
+  color: #f8f2de;
+  background:
+    linear-gradient(135deg, rgba(8, 10, 14, 0.98), rgba(15, 18, 26, 0.98) 42%, rgba(12, 12, 15, 0.98)),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 96px);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.stream-overlay-texture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.028) 0 1px, transparent 1px 4px),
+    linear-gradient(90deg, rgba(255, 182, 112, 0.08), transparent 38%, rgba(102, 242, 255, 0.07));
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.stream-overlay-titlebar,
+.stream-overlay-grid {
+  position: relative;
+  z-index: 1;
+}
+
+.stream-overlay-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  border: 1px solid rgba(255, 182, 112, 0.32);
+  border-radius: 8px;
+  padding: 0 16px;
+  background: rgba(12, 14, 19, 0.82);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+}
+
+.stream-overlay-titleblock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.stream-overlay-titleblock strong {
+  color: #ffb670;
+  font-family: var(--font-mfer-display);
+  font-size: clamp(30px, 2.4vw, 42px);
+  font-weight: 400;
+  line-height: 1;
+  text-shadow: 0 0 18px rgba(255, 182, 112, 0.28);
+  white-space: nowrap;
+}
+
+.stream-overlay-titleblock span:not(.stream-overlay-live-dot) {
+  max-width: 260px;
+  overflow: hidden;
+  color: rgba(248, 242, 222, 0.58);
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stream-overlay-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.86);
+  animation: stream-live-pulse 1.8s ease-in-out infinite;
+}
+
+.stream-overlay-tickers {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stream-overlay-ticker {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 3px;
+  min-height: 32px;
+  min-width: 136px;
+  border: 1px solid rgba(255, 248, 224, 0.12);
+  border-radius: 8px;
+  padding: 6px 11px 7px;
+  background: rgba(255, 255, 255, 0.045);
+  white-space: nowrap;
+}
+
+.stream-overlay-ticker span {
+  color: #ffb670;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.stream-overlay-ticker strong {
+  justify-self: end;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 1000;
+}
+
+.stream-overlay-ticker em {
+  color: rgba(248, 242, 222, 0.54);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 1000;
+  letter-spacing: 0.01em;
+}
+
+.stream-overlay-ticker em:nth-of-type(1) {
+  grid-column: 1;
+}
+
+.stream-overlay-ticker em:nth-of-type(2) {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.stream-overlay-ticker em.up {
+  color: #35d07f;
+}
+
+.stream-overlay-ticker em.down {
+  color: #ff6b6b;
+}
+
+.stream-overlay-grid {
+  display: grid;
+  grid-template-columns: clamp(236px, 15vw, 300px) minmax(0, 1fr) clamp(236px, 15vw, 300px);
+  gap: 12px;
+  min-height: 0;
+}
+
+.stream-overlay-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stream-overlay-panel,
+.stream-overlay-model-panel,
+.stream-overlay-stage-panel {
+  border: 1px solid rgba(255, 182, 112, 0.24);
+  border-radius: 8px;
+  background: rgba(12, 14, 19, 0.82);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+}
+
+.stream-overlay-model-panel {
+  position: relative;
+  height: clamp(174px, 22vh, 230px);
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 182, 112, 0.92), rgba(255, 212, 138, 0.72) 42%, rgba(102, 242, 255, 0.28)),
+    #ffb670;
+}
+
+.stream-overlay-model-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.stream-overlay-model-caption {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: grid;
+  gap: 1px;
+  border: 1px solid rgba(12, 14, 19, 0.22);
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: #101219;
+  background: rgba(255, 248, 224, 0.78);
+  text-align: right;
+}
+
+.stream-overlay-model-caption span,
+.stream-overlay-panel-title span,
+.stream-overlay-stat span,
+.stream-overlay-meter span {
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stream-overlay-model-caption strong {
+  font-size: 16px;
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.stream-overlay-panel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+}
+
+.stream-overlay-panel-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stream-overlay-panel-title span {
+  color: rgba(248, 242, 222, 0.48);
+}
+
+.stream-overlay-panel-title strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 1000;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-overlay-meter {
+  display: grid;
+  gap: 5px;
+}
+
+.stream-overlay-meter div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stream-overlay-meter span {
+  color: rgba(248, 242, 222, 0.56);
+}
+
+.stream-overlay-meter em {
+  overflow: hidden;
+  color: rgba(248, 242, 222, 0.8);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-overlay-meter i {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stream-overlay-meter b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #35d07f;
+}
+
+.stream-overlay-meter.mana b {
+  background: #66f2ff;
+}
+
+.stream-overlay-meter.target b {
+  background: #ff6b6b;
+}
+
+.stream-overlay-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stream-overlay-stat {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid rgba(255, 248, 224, 0.1);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.stream-overlay-stat span {
+  color: rgba(248, 242, 222, 0.48);
+}
+
+.stream-overlay-stat strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-overlay-target-panel {
+  min-height: 112px;
+}
+
+.stream-overlay-stage-panel {
+  align-self: center;
+  display: grid;
+  grid-template-rows: 36px minmax(0, 1fr);
+  width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.stream-overlay-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  border-bottom: 1px solid rgba(255, 182, 112, 0.2);
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.stream-overlay-stage-header span {
+  color: #ffb670;
+  font-family: var(--font-mfer-display);
+  font-size: 25px;
+  line-height: 1;
+}
+
+.stream-overlay-stage-header strong {
+  overflow: hidden;
+  color: rgba(248, 242, 222, 0.72);
+  font-size: 11px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stream-overlay-game-shell {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #050605;
+}
+
+.stream-overlay-roster {
+  flex: 0 0 auto;
+}
+
+.stream-overlay-player-list,
+.stream-overlay-chat-list {
+  display: grid;
+  gap: 7px;
+  min-height: 0;
+}
+
+.stream-overlay-player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(255, 248, 224, 0.1);
+  border-radius: 7px;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stream-overlay-player-row.active {
+  border-color: rgba(102, 242, 255, 0.44);
+  background: rgba(102, 242, 255, 0.08);
+}
+
+.stream-overlay-player-row span,
+.stream-overlay-player-row em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-overlay-player-row span {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.stream-overlay-player-row em {
+  flex: 0 0 auto;
+  color: rgba(248, 242, 222, 0.5);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.stream-overlay-chat-log {
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stream-overlay-chat-list {
+  align-content: start;
+  overflow: hidden;
+}
+
+.stream-overlay-chat-list p,
+.stream-overlay-muted {
+  margin: 0;
+  color: rgba(248, 242, 222, 0.66);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.stream-overlay-chat-list p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.stream-overlay-chat-list span {
+  margin-right: 6px;
+  color: #ffb670;
+  font-weight: 1000;
+}
+
+.stream-overlay-chat-list em {
+  color: rgba(102, 242, 255, 0.88);
+  font-style: normal;
+}
+
+.stream-overlay-muted {
+  color: rgba(248, 242, 222, 0.42);
+}
+
+@keyframes stream-live-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.58;
+    transform: scale(0.82);
+  }
+}
+
+@media (max-width: 1100px) {
+  .stream-overlay-shell {
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .stream-overlay-titlebar {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 10px 12px;
+  }
+
+  .stream-overlay-tickers {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .stream-overlay-grid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .stream-overlay-stage-panel {
+    order: -1;
+  }
+}
+
 .debug-travel-panel {
   position: absolute;
   z-index: 30;

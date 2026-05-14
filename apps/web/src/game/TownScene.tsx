@@ -79,11 +79,22 @@ type TownSceneProps = {
   mobileMoveInputRef?: MobileMoveInputRef;
   renderProfile?: RenderPerformanceProfile;
   lightweightRender?: boolean;
+  controlsEnabled?: boolean;
+  idleCameraNpcId?: string | null;
   onSelectDebugPlacement?: (targetId: string | null) => void;
   onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
 };
 
 const CONTROL_DELTA_CAP = 1 / 30;
+const OBSERVER_POSITION_SNAP = 5.5;
+const OBSERVER_HEIGHT_SNAP = 3;
+const OBSERVER_POSITION_DECAY = 0.78;
+const OBSERVER_HEIGHT_DECAY = 0.62;
+const OBSERVER_ROTATION_DECAY = 0.72;
+const IDLE_CAMERA_ORBIT_SECONDS = 48;
+const IDLE_CAMERA_DISTANCE = 8.8;
+const IDLE_CAMERA_HEIGHT = 2.7;
+const IDLE_CAMERA_SNAP_DISTANCE = 42;
 const DEFAULT_NAMEPLATE_VISIBILITY: NameplateVisibility = {
   localPlayer: false,
   otherPlayers: true,
@@ -127,6 +138,8 @@ function TownSceneComponent({
   mobileMoveInputRef,
   renderProfile,
   lightweightRender = false,
+  controlsEnabled = true,
+  idleCameraNpcId = null,
   onSelectDebugPlacement,
   onChangeDebugPlacement,
 }: TownSceneProps) {
@@ -174,10 +187,15 @@ function TownSceneComponent({
   } else {
     syncLocalVisualPlayerSnapshot(localVisualPlayer.current, localPlayer);
   }
+  const idleCameraNpc = !localPlayer && idleCameraNpcId ? npcs.get(idleCameraNpcId) ?? null : null;
   const viewerPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
     ? localVisualPlayer.current
     : localPlayer;
-  const viewerPosition = viewerPlayer ? { x: viewerPlayer.x, z: viewerPlayer.z } : null;
+  const viewerPosition = viewerPlayer
+    ? { x: viewerPlayer.x, z: viewerPlayer.z }
+    : idleCameraNpc
+      ? { x: idleCameraNpc.x, z: idleCameraNpc.z }
+      : null;
   const renderedPlayers = useMemo(
     () => debugPlacementMode
       ? Array.from(players.entries())
@@ -192,6 +210,11 @@ function TownSceneComponent({
   );
 
   useEffect(() => {
+    if (!controlsEnabled) {
+      keyState.current.clear();
+      return;
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
       if (isGameKey(event)) event.preventDefault();
@@ -209,9 +232,11 @@ function TownSceneComponent({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, []);
+  }, [controlsEnabled]);
 
   useEffect(() => {
+    if (!controlsEnabled) return;
+
     const resetControls = () => {
       keyState.current.clear();
       clearMobileMoveInput(mobileMoveInputRef);
@@ -237,7 +262,7 @@ function TownSceneComponent({
       window.removeEventListener("blur", resetControls);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [sendInput]);
+  }, [controlsEnabled, mobileMoveInputRef, sendInput]);
 
   useEffect(() => {
     if (!debugTravelView) return;
@@ -275,6 +300,15 @@ function TownSceneComponent({
   }, [debugPlacementMode, selectedDebugPlacementId, localPlayer?.x, localPlayer?.z]);
 
   useEffect(() => {
+    if (!controlsEnabled && !debugPlacementMode) {
+      keyState.current.clear();
+      clearMobileMoveInput(mobileMoveInputRef);
+      pointerState.current.left = false;
+      pointerState.current.right = false;
+      inputTimer.current = 0;
+      return;
+    }
+
     if (debugPlacementMode) {
       const canvas = gl.domElement;
       keyState.current.clear();
@@ -397,7 +431,7 @@ function TownSceneComponent({
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("contextmenu", onContextMenu);
     };
-  }, [debugPlacementMode, gl, mobileMoveInputRef, sendInput]);
+  }, [controlsEnabled, debugPlacementMode, gl, mobileMoveInputRef, sendInput]);
 
   useFrame(({ camera }, delta) => {
     if (debugPlacementMode) {
@@ -453,9 +487,21 @@ function TownSceneComponent({
     }
 
     const controlDelta = Math.min(delta, CONTROL_DELTA_CAP);
+
     const keys = keyState.current;
     const pointer = pointerState.current;
     const mobileMove = mobileMoveInputRef?.current ?? EMPTY_MOBILE_MOVE_INPUT;
+
+    if (!controlsEnabled) {
+      keyState.current.clear();
+      clearMobileMoveInput(mobileMoveInputRef);
+      pointer.left = false;
+      pointer.right = false;
+      if (localPlayer) {
+        facingYaw.current = localPlayer.yaw;
+        cameraYaw.current = localPlayer.yaw;
+      }
+    }
     const localIsDead = Boolean(localPlayer && localPlayer.health <= 0);
     const turnLeft = keys.has("a") || keys.has("arrowleft");
     const turnRight = keys.has("d") || keys.has("arrowright");
@@ -505,7 +551,7 @@ function TownSceneComponent({
     escapeHeld.current = escapePressed;
 
     inputTimer.current += delta;
-    if (inputTimer.current >= 1 / INPUT_SEND_RATE) {
+    if (controlsEnabled && inputTimer.current >= 1 / INPUT_SEND_RATE) {
       inputTimer.current = 0;
       sendInput({
         seq: ++seqRef.current,
@@ -518,7 +564,11 @@ function TownSceneComponent({
     }
 
     if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
-      updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, controlDelta);
+      if (controlsEnabled) {
+        updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, controlDelta);
+      } else {
+        updateObserverVisualPlayer(localVisualPlayer.current, localPlayer, controlDelta);
+      }
     }
 
     const cameraPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
@@ -534,6 +584,23 @@ function TownSceneComponent({
         .addScaledVector(cameraForward, -horizontalDistance);
       cameraDesired.y += verticalDistance;
       camera.position.lerp(cameraDesired, 1 - Math.pow(0.05, controlDelta));
+      camera.lookAt(cameraLookAt);
+      return;
+    }
+
+    if (idleCameraNpc) {
+      cameraYaw.current = wrapAngle(cameraYaw.current + controlDelta * (Math.PI * 2 / IDLE_CAMERA_ORBIT_SECONDS));
+      cameraLookAt.set(idleCameraNpc.x, idleCameraNpc.y + 1.55, idleCameraNpc.z);
+      cameraForward.set(Math.sin(cameraYaw.current), 0, Math.cos(cameraYaw.current));
+      cameraDesired
+        .copy(cameraLookAt)
+        .addScaledVector(cameraForward, -IDLE_CAMERA_DISTANCE);
+      cameraDesired.y += IDLE_CAMERA_HEIGHT;
+      if (camera.position.distanceToSquared(cameraDesired) > IDLE_CAMERA_SNAP_DISTANCE ** 2) {
+        camera.position.copy(cameraDesired);
+      } else {
+        camera.position.lerp(cameraDesired, 1 - Math.pow(0.06, controlDelta));
+      }
       camera.lookAt(cameraLookAt);
     }
   });
@@ -701,6 +768,8 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.mobileMoveInputRef === next.mobileMoveInputRef
     && previous.renderProfile === next.renderProfile
     && previous.lightweightRender === next.lightweightRender
+    && previous.controlsEnabled === next.controlsEnabled
+    && previous.idleCameraNpcId === next.idleCameraNpcId
     && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
     && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;
 }
@@ -711,6 +780,32 @@ function clearMobileMoveInput(inputRef: MobileMoveInputRef | undefined) {
   inputRef.current.forward = 0;
   inputRef.current.right = 0;
   inputRef.current.sprint = false;
+}
+
+function updateObserverVisualPlayer(visual: PlayerSnapshot, authoritative: PlayerSnapshot, delta: number) {
+  syncLocalVisualPlayerSnapshot(visual, authoritative);
+
+  const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
+  const heightDrift = Math.abs(visual.y - authoritative.y);
+  if (drift > OBSERVER_POSITION_SNAP || heightDrift > OBSERVER_HEIGHT_SNAP) {
+    visual.x = authoritative.x;
+    visual.y = authoritative.y;
+    visual.z = authoritative.z;
+  } else {
+    visual.x += (authoritative.x - visual.x) * (1 - Math.pow(OBSERVER_POSITION_DECAY, delta * 60));
+    visual.z += (authoritative.z - visual.z) * (1 - Math.pow(OBSERVER_POSITION_DECAY, delta * 60));
+    visual.y += (authoritative.y - visual.y) * (1 - Math.pow(OBSERVER_HEIGHT_DECAY, delta * 60));
+  }
+
+  visual.yaw = lerpAngle(visual.yaw, authoritative.yaw, 1 - Math.pow(OBSERVER_ROTATION_DECAY, delta * 60));
+  visual.animation = authoritative.animation;
+  visual.emote = authoritative.emote;
+  visual.emoteStartedAt = authoritative.emoteStartedAt;
+  visual.emoteEndsAt = authoritative.emoteEndsAt;
+}
+
+function lerpAngle(current: number, target: number, alpha: number) {
+  return current + Math.atan2(Math.sin(target - current), Math.cos(target - current)) * alpha;
 }
 
 function targetsEqual(previous: TargetSelection | null, next: TargetSelection | null) {

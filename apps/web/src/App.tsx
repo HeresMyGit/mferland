@@ -74,6 +74,7 @@ import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
 import { TraitsPanel } from "./components/TraitsPanel";
+import { StreamPage } from "./StreamPage";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 import {
   DEBUG_PLACEMENT_STORAGE_KEY,
@@ -205,6 +206,12 @@ function isTraitsMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsho
 }
 
 export function App() {
+  const streamRoute = getStreamRoute();
+  if (streamRoute) return <StreamPage overlay={streamRoute === "overlay"} />;
+  return <GameApp />;
+}
+
+function GameApp() {
   const [identity, setIdentity] = useState<JoinOptions | null>(null);
   const [savedDebugPlacementDefaults, setSavedDebugPlacementDefaults] = useState<DebugPlacementOverrides>({});
 
@@ -247,6 +254,15 @@ export function App() {
       onExit={() => setIdentity(null)}
     />
   );
+}
+
+function getStreamRoute(): "plain" | "overlay" | null {
+  if (typeof window === "undefined") return null;
+  const path = window.location.pathname.replace(/\/+$/, "");
+  const params = new URLSearchParams(window.location.search);
+  if (path === "/stream/overlay" || path === "/stream-overlay" || params.get("overlay") === "1") return "overlay";
+  if (path === "/stream" || params.get("stream") === "1") return "plain";
+  return null;
 }
 
 function AuthGate({
@@ -567,12 +583,12 @@ function AuthGate({
         <div className="auth-scene-vignette" />
       </div>
       {showAuthLoader && <MferHeadLoader ready={previewReady} renderProfile={renderProfile} onComplete={handleLoaderComplete} />}
-      <section className="auth-title-lockup" aria-label="mferland">
+      <section className="auth-title-lockup" aria-label="mfertown">
         <div className="brand-mark">
           <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
         </div>
         <div>
-          <h1>mferland</h1>
+          <h1>mfertown</h1>
           <p>officially unofficial plaza build</p>
         </div>
       </section>
