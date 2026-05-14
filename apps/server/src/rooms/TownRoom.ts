@@ -110,6 +110,13 @@ import {
 } from "../systems/equipment.js";
 import { findInteractNpc } from "../systems/interactions.js";
 import { lootCorpseItem, makeLootWindow, normalizeItemId, npcHasLoot } from "../systems/loot.js";
+import {
+  recordMferlandMferGptCommand,
+  recordMferlandNpcDefeated,
+  recordMferlandQuestCompleted,
+  recordMferlandServerStarted,
+  updateMferlandLiveStatus,
+} from "../systems/mferlandLiveMemory.js";
 import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
 import { spawnNpcFromSpec, spawnNpcs, updateNpcs } from "../systems/npcs.js";
 import { applyFrostNova, applyMultishot, applyWhirlwind } from "../systems/playerCombatAbilities.js";
@@ -447,6 +454,7 @@ export class TownRoom extends Room<TownState> {
   private readonly consumableCooldowns = new Map<string, number>();
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
   private lastCharacterAutosaveAt = 0;
+  private lastLiveMemoryStatusAt = 0;
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
   async onAuth(_client: Client, options?: JoinOptions) {
@@ -468,6 +476,8 @@ export class TownRoom extends Room<TownState> {
     spawnNpcs(this.state.npcs);
     void this.loadSavedDebugPlacementMap();
     this.setSimulationInterval((dt) => this.update(dt / 1000), 1000 / SERVER_TICK_RATE);
+    recordMferlandServerStarted(this.roomId, this.maxClients);
+    this.publishLiveMemoryStatus(Date.now(), true);
 
     this.onMessage("input", (client, message: Partial<ClientInput>) => {
       const input = normalizeInput(message);
@@ -779,6 +789,7 @@ export class TownRoom extends Room<TownState> {
         message: "wallet progress saved",
       });
     }
+    this.publishLiveMemoryStatus(Date.now(), true);
   }
 
   async onLeave(client: Client, consented?: boolean) {
@@ -837,6 +848,7 @@ export class TownRoom extends Room<TownState> {
       await this.persistPlayerProgressNow(client.sessionId, player);
     }
     this.cleanupPlayerSession(client.sessionId, characterId);
+    this.publishLiveMemoryStatus(Date.now(), true);
   }
 
   private async replaceExistingWalletSession(client: Client, walletAddress: string) {
@@ -938,6 +950,7 @@ export class TownRoom extends Room<TownState> {
   }
 
   onDispose() {
+    this.publishLiveMemoryStatus(Date.now(), true);
     activeTownRooms.delete(this);
   }
 
@@ -961,6 +974,25 @@ export class TownRoom extends Room<TownState> {
       }),
       npcs: snapshotNpcs(this.state.npcs),
     };
+  }
+
+  private publishLiveMemoryStatus(now = Date.now(), force = false) {
+    if (!force && now - this.lastLiveMemoryStatusAt < 15_000) return;
+    this.lastLiveMemoryStatusAt = now;
+
+    let hostileNpcCount = 0;
+    let temporaryNpcCount = 0;
+    this.state.npcs.forEach((npc, npcId) => {
+      if (this.temporaryNpcExpiresAt.has(npcId)) temporaryNpcCount += 1;
+      if (isNpcAlive(npc) && getNpcDisposition(npc) === "hostile") hostileNpcCount += 1;
+    });
+
+    updateMferlandLiveStatus({
+      roomId: this.roomId,
+      playerCount: this.state.players.size,
+      temporaryNpcCount,
+      hostileNpcCount,
+    });
   }
 
   private async handleDebugSavePlacements(client: Client, message: DebugPlacementSaveMessage) {
@@ -1252,6 +1284,11 @@ export class TownRoom extends Room<TownState> {
         status: "cooldown",
         latencyMs: 0,
       });
+      recordMferlandMferGptCommand({
+        command: "chat",
+        status: "cooldown",
+        temporaryNpcCount: 0,
+      });
       return;
     }
     this.lastMferGptAt.set(client.sessionId, now);
@@ -1285,6 +1322,12 @@ export class TownRoom extends Room<TownState> {
         latencyMs: Date.now() - startedAt,
         temporaryNpcCount: result.temporaryNpcs.length,
       });
+      recordMferlandMferGptCommand({
+        command: result.command,
+        status: "ok",
+        temporaryNpcCount: result.temporaryNpcs.length,
+      });
+      this.publishLiveMemoryStatus(Date.now(), true);
       if (result.command === "hint") {
         this.recordPlayerAnalyticsEvent("mfergpt_hint_requested", client.sessionId, player, {
           status: "ok",
@@ -1303,6 +1346,11 @@ export class TownRoom extends Room<TownState> {
         command: "unknown",
         status: "error",
         latencyMs: Date.now() - startedAt,
+      });
+      recordMferlandMferGptCommand({
+        command: "chat",
+        status: "error",
+        temporaryNpcCount: 0,
       });
     }
   }
@@ -1937,6 +1985,14 @@ export class TownRoom extends Room<TownState> {
       level: player.level,
       nextQuestId: nextQuestId ?? "",
     });
+    recordMferlandQuestCompleted({
+      questId,
+      questTitle: QUESTS[questId].title,
+      level: player.level,
+      nextQuestId,
+      nextQuestTitle: nextQuestId ? QUESTS[nextQuestId].title : undefined,
+    });
+    this.publishLiveMemoryStatus(Date.now(), true);
     if (nextQuestId && QUESTS[nextQuestId].giverNpcId === npc.id) {
       client.send("questOffer", makeQuestOffer(nextQuestId, npc));
     }
@@ -2380,6 +2436,7 @@ export class TownRoom extends Room<TownState> {
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
     });
     this.autosaveWalletCharacters(now);
+    this.publishLiveMemoryStatus(now);
   }
 
   private creditNearbyPlayersForNpcDefeat(sourceId: string, npc: NpcState, now: number) {
@@ -2396,6 +2453,8 @@ export class TownRoom extends Room<TownState> {
     });
 
     const sourcePlayer = this.state.players.get(sourceId);
+    const isTemporaryNpc = this.temporaryNpcExpiresAt.has(npc.id);
+    const isBossNpc = isAnalyticsBossNpc(npc);
     this.recordPlayerAnalyticsEvent("npc_defeated", sourceId, sourcePlayer, {
       npcId: npc.id,
       npcName: npc.name,
@@ -2403,14 +2462,22 @@ export class TownRoom extends Room<TownState> {
       npcModel: npc.model,
       xpReward: mobXp,
       creditedPlayers: creditedSessionIds.size,
-      temporary: this.temporaryNpcExpiresAt.has(npc.id),
+      temporary: isTemporaryNpc,
     });
-    if (isAnalyticsBossNpc(npc)) {
+    if (isBossNpc) {
       this.recordPlayerAnalyticsEvent("boss_defeated", sourceId, sourcePlayer, {
         npcId: npc.id,
         npcName: npc.name,
         creditedPlayers: creditedSessionIds.size,
       });
+    }
+    if (isBossNpc || isTemporaryNpc) {
+      recordMferlandNpcDefeated({
+        npcName: npc.name,
+        label: isBossNpc ? "boss" : "temporary npc",
+        creditedPlayers: creditedSessionIds.size,
+      });
+      this.publishLiveMemoryStatus(now, true);
     }
 
     for (const sessionId of creditedSessionIds) {

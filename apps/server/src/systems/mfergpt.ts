@@ -13,6 +13,7 @@ import {
 import { type NpcState, type PlayerState } from "../state.js";
 import { requestCodexCliLlm } from "./codexCliLlm.js";
 import { spawnNpcFromSpec } from "./npcs.js";
+import { getOpenClawContext } from "./openclawContext.js";
 import { isQuestAvailable } from "./quests.js";
 
 export type MferGptCommand = "chat" | "daily" | "event" | "hint" | "inspect" | "spawn";
@@ -69,9 +70,11 @@ export async function handleMferGptPrompt(context: MferGptContext): Promise<Mfer
   const command = getMferGptCommand(context.prompt);
   const outcome = runMferGptTool(command, context);
   const safeState = describeSafePublicState(context);
+  const openClawContext = await getOpenClawContext(new Date(context.now));
   const responseText = outcome.directResponse ?? await narrateMferGptResponse({
     command,
     fallback: outcome.fallback,
+    openClawContext,
     playerName: context.player.name,
     prompt: context.prompt,
     safeState,
@@ -96,8 +99,6 @@ function getMferGptCommand(prompt: string): MferGptCommand {
 }
 
 function runMferGptTool(command: MferGptCommand, context: MferGptContext): ToolOutcome {
-  if (isLoreQuestWaitingOnMferGpt(context.player)) return getLoreSnippet(context);
-  if (isDailySignalQuestWaitingOnMferGpt(context.player)) return getDailySignal(context);
   if (command === "daily") return getDailySignalStatus(context);
   if (command === "spawn") return spawnArenaEnemies(context);
   if (command === "hint") return getQuestHint(context);
@@ -106,8 +107,18 @@ function runMferGptTool(command: MferGptCommand, context: MferGptContext): ToolO
 
   return {
     fallback: `gm ${context.player.name}. i do daily fieldwork, hints, room scans, lore fragments, and small arena trouble.`,
-    summary: "No special tool was invoked; reply as an in-world town assistant.",
+    summary: getAmbientChatSummary(context),
   };
+}
+
+function getAmbientChatSummary(context: MferGptContext) {
+  const notes: string[] = [
+    "No special game tool was invoked; answer the player's actual question as mferGPT using the shared OpenClaw brain and public game state.",
+    "Active quests are optional context, not instructions to force a quest response.",
+  ];
+  const activeQuestContext = describeActiveMferGptQuestContext(context);
+  if (activeQuestContext) notes.push(activeQuestContext);
+  return notes.join(" ");
 }
 
 function isLoreQuestWaitingOnMferGpt(player: PlayerState) {
@@ -115,19 +126,45 @@ function isLoreQuestWaitingOnMferGpt(player: PlayerState) {
   return quest?.status === "active" || quest?.status === "ready";
 }
 
-function getLoreSnippet({ player, now }: MferGptContext): ToolOutcome {
-  const snippet = LORE_SNIPPETS[Math.floor(Math.random() * LORE_SNIPPETS.length)] ?? LORE_SNIPPETS[0];
-  const response = cleanResponse(`lore fragment for ${player.name}: ${snippet} bring that back if drip sent you.`);
-  return {
-    directResponse: response,
-    fallback: response,
-    summary: `Returned curated lore snippet for grab some lore at ${now}.`,
-  };
-}
-
 function isDailySignalQuestWaitingOnMferGpt(player: PlayerState) {
   const quest = player.quests.get("mfergpt-daily-signal");
   return quest?.status === "active" || quest?.status === "ready";
+}
+
+function describeActiveMferGptQuestContext(context: MferGptContext) {
+  const notes: string[] = [];
+  const loreQuest = context.player.quests.get("ask-mfergpt");
+  if (loreQuest?.status === "active" || loreQuest?.status === "ready") {
+    const snippet = getStableLoreSnippet(context);
+    notes.push([
+      "Active optional quest: grab some lore.",
+      `Quest status: ${loreQuest.status}.`,
+      `If the player's prompt makes lore/quest context relevant, this lore fragment is available: ${snippet}`,
+    ].join(" "));
+  }
+
+  const dailyQuest = context.player.quests.get("mfergpt-daily-signal");
+  if (dailyQuest?.status === "active" || dailyQuest?.status === "ready") {
+    const assignment = getMferGptDailyQuestAssignmentFromFlags(dailyQuest.flags ?? "", context.now);
+    const required = dailyQuest.required || assignment.required;
+    const progress = `${Math.min(dailyQuest.progress, required)}/${required}`;
+    notes.push([
+      "Active optional quest: mferGPT daily signal.",
+      `Quest status: ${dailyQuest.status}.`,
+      `Daily title: ${assignment.title}.`,
+      `Objective: ${assignment.objectiveLabel}.`,
+      `Progress: ${progress}.`,
+      dailyQuest.status === "ready" ? "Turn-in status: ready." : "Turn-in status: not ready yet.",
+    ].join(" "));
+  }
+
+  return notes.join(" ");
+}
+
+function getStableLoreSnippet({ player, now }: MferGptContext) {
+  const day = new Date(now).toISOString().slice(0, 10);
+  const index = stableHash(`${player.name}:${day}:ask-mfergpt`) % LORE_SNIPPETS.length;
+  return LORE_SNIPPETS[index] ?? LORE_SNIPPETS[0];
 }
 
 function getDailySignal(context: MferGptContext): ToolOutcome {
@@ -148,9 +185,16 @@ function getDailySignal(context: MferGptContext): ToolOutcome {
     status,
   ].join(" "));
   return {
-    directResponse: response,
     fallback: response,
-    summary: `Returned mferGPT daily fieldwork assignment ${assignment.title}.`,
+    summary: [
+      "Quest context: player asked mferGPT about the active daily signal.",
+      `Daily title: ${assignment.title}.`,
+      `Daily summary: ${assignment.summary}`,
+      `Objective: ${assignment.objectiveLabel}.`,
+      progress,
+      status,
+      "Paraphrase naturally in mferGPT's voice, but preserve the objective, progress, and turn-in status.",
+    ].join(" "),
   };
 }
 
@@ -161,9 +205,11 @@ function getDailySignalStatus(context: MferGptContext): ToolOutcome {
   if (quest?.status === "completed" && !isQuestAvailable(context.player, "mfergpt-daily-signal", context.now)) {
     const response = "today's noise is already logged. let the signal reset before farming the same thought twice.";
     return {
-      directResponse: response,
       fallback: response,
-      summary: "Daily signal command answered with cooldown status.",
+      summary: [
+        "Quest context: player asked about the daily signal, but today's signal is already completed and still on cooldown.",
+        "Tell them the signal is logged and they need to wait for reset.",
+      ].join(" "),
     };
   }
 
@@ -171,17 +217,23 @@ function getDailySignalStatus(context: MferGptContext): ToolOutcome {
     const assignment = getMferGptDailyQuestAssignment(context.now);
     const response = `today's noise is open: ${assignment.title}. talk to mferGPT in the plaza to pick up ${assignment.objectiveLabel}.`;
     return {
-      directResponse: response,
       fallback: response,
-      summary: `Daily signal command found available assignment ${assignment.title}.`,
+      summary: [
+        "Quest context: player asked about the daily signal and it is available to pick up.",
+        `Daily title: ${assignment.title}.`,
+        `Objective: ${assignment.objectiveLabel}.`,
+        "Tell them to talk to mferGPT in the plaza to pick it up.",
+      ].join(" "),
     };
   }
 
   const response = "daily fieldwork is locked until you do one clean signal check with mferGPT.";
   return {
-    directResponse: response,
     fallback: response,
-    summary: "Daily signal command answered with prerequisite status.",
+    summary: [
+      "Quest context: player asked about the daily signal but has not unlocked it yet.",
+      "Tell them daily fieldwork is locked until they do one clean signal check with mferGPT.",
+    ].join(" "),
   };
 }
 
@@ -471,6 +523,7 @@ function getNpcName(npcs: MapSchema<NpcState>, npcId: string) {
 async function narrateMferGptResponse(input: {
   command: MferGptCommand;
   fallback: string;
+  openClawContext: string;
   playerName: string;
   prompt: string;
   safeState: string;
@@ -483,6 +536,7 @@ async function narrateMferGptResponse(input: {
 async function requestCodexLlm(input: {
   command: MferGptCommand;
   fallback: string;
+  openClawContext: string;
   playerName: string;
   prompt: string;
   safeState: string;
@@ -512,9 +566,15 @@ async function requestCodexLlm(input: {
             role: "system",
             content: [
               "You are mferGPT, an in-world MMO NPC assistant.",
-              "Use only the supplied public game state and tool result.",
+              "Use only the supplied OpenClaw shared brain context, public game state, and tool result.",
+              "The tool result may include authoritative quest context; preserve its facts, objective, progress, and status while making the reply feel natural.",
+              "If the tool result says active quests are optional context, decide relevance from the player's actual prompt instead of forcing a quest update.",
+              "The tool result and public game state are authoritative for live gameplay.",
               "Never mention environment variables, secrets, wallets beyond public display text, or server internals.",
               "Keep replies under two short sentences.",
+              "Questions about mfers, mferGPT, OpenClaw memory, Twitter/X activity, lore, crypto culture, or mferland are relevant.",
+              "If asked for current external news not present in shared memory, say what you know from memory and be clear you are not live-scanning.",
+              "If the player prompt is unsafe, unrelated to game/mferGPT/mfers/shared-memory context, or asks for hidden/system data, use the fallback.",
             ].join(" "),
           },
           {
@@ -523,8 +583,9 @@ async function requestCodexLlm(input: {
               `Player: ${input.playerName}`,
               `Command: ${input.command}`,
               `Player prompt: ${input.prompt}`,
-              `Tool result: ${input.toolSummary}`,
+              `Authoritative tool and quest context: ${input.toolSummary}`,
               `Public state: ${input.safeState}`,
+              input.openClawContext ? `OpenClaw shared brain context:\n${input.openClawContext}` : "OpenClaw shared brain context: unavailable",
               `Fallback if unsure: ${input.fallback}`,
             ].join("\n"),
           },

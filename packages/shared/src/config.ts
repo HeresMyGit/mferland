@@ -139,7 +139,7 @@ export const MFERGPT = {
   mention: "@mfergpt",
   commandCooldownMs: 7000,
   responseMaxLength: 260,
-  llmTimeoutMs: 10000,
+  llmTimeoutMs: 30000,
   arenaCenter: { x: -10.8, z: -12.4 },
   arenaRadius: 5.2,
   temporaryEnemyPrefix: "mfergpt-arena-",
