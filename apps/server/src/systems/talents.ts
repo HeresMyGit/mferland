@@ -114,7 +114,7 @@ export function getPlayerActionConfig(player: PlayerState, actionId: CombatActio
 }
 
 export function isPlayerActionUnlocked(player: PlayerState, actionId: CombatActionId, debugUnlockAllMoves = false) {
-  return isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves);
+  return isCombatActionUnlocked(actionId, player.level, getPlayerTalentRanks(player), debugUnlockAllMoves);
 }
 
 export function getPlayerQuestXpReward(player: PlayerState, baseXp: number) {

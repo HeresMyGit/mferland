@@ -11,6 +11,8 @@ import {
   getInventoryItemKey,
   getItemConsumable,
   getNpcDisposition,
+  getCombatActionUnlockTalent,
+  getTalentUnlockedCombatActions,
   isAttackableNpcRole,
   isCombatActionUnlocked,
   normalizeAvatarSeed,
@@ -157,7 +159,7 @@ type DebugPlacementSaveStatus = {
 type MoveUnlockNotice = {
   id: number;
   actionId: CombatActionId;
-  level: number;
+  sourceLabel: string;
   buttonIndex: number | null;
 };
 type QueuedMoveUnlockNotice = Omit<MoveUnlockNotice, "id">;
@@ -1532,7 +1534,8 @@ function GameShell({
       return;
     }
     const debugUnlockAllMoves = debugToolsAvailable && settings.debugUnlockAllMoves;
-    const unlockedActions = getUnlockedCombatActions(localPlayer.level, debugUnlockAllMoves) as CombatActionId[];
+    const talentUnlockedActions = getTalentUnlockedCombatActions(localPlayer.talents);
+    const unlockedActions = getUnlockedCombatActions(localPlayer.level, debugUnlockAllMoves, talentUnlockedActions) as CombatActionId[];
     const unlockedActionKey = unlockedActions.join("|");
     const previousUnlockedActionKey = unlockedActionKeyRef.current;
     const previousUnlockedActions = new Set(previousUnlockedActionKey ? previousUnlockedActionKey.split("|") as CombatActionId[] : []);
@@ -1979,7 +1982,7 @@ function getCombatActionBlockMessage(
                   : player.iceBlastReadyAt;
   if (Math.max(readyAt, globalCooldownReadyAt) > now) return "Ability is not ready";
   if (player.mana < action.manaCost) return "Not enough mana";
-  if (!isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves)) return "Ability is locked";
+  if (!isCombatActionUnlocked(actionId, player.level, player.talents, debugUnlockAllMoves)) return "Ability is locked";
   if (actionId === "frostNova" || actionId === "whirlwind") return null;
   if (actionId === "heal") {
     const targetUnit = selectedTarget ? selectedTargetUnit : player;
@@ -2203,7 +2206,7 @@ function reconcileActionSlots({
     if (assignedActions.has(actionId)) {
       const buttonIndex = next.findIndex((slot) => slot === actionId);
       if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
-        notices.push({ actionId, buttonIndex: buttonIndex >= 0 ? buttonIndex : null, level: player.level });
+        notices.push({ actionId, buttonIndex: buttonIndex >= 0 ? buttonIndex : null, sourceLabel: getMoveUnlockSourceLabel(actionId, player) });
       }
       continue;
     }
@@ -2211,7 +2214,7 @@ function reconcileActionSlots({
     const emptyIndex = next.findIndex((slot) => !slot);
     if (emptyIndex === -1) {
       if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
-        notices.push({ actionId, buttonIndex: null, level: player.level });
+        notices.push({ actionId, buttonIndex: null, sourceLabel: getMoveUnlockSourceLabel(actionId, player) });
       }
       continue;
     }
@@ -2219,14 +2222,19 @@ function reconcileActionSlots({
     next[emptyIndex] = actionId;
     assignedActions.add(actionId);
     if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
-      notices.push({ actionId, buttonIndex: emptyIndex, level: player.level });
+      notices.push({ actionId, buttonIndex: emptyIndex, sourceLabel: getMoveUnlockSourceLabel(actionId, player) });
     }
   }
 
   return {
-    slots: debugUnlockAllMoves ? next : next.map((slot) => isLockedCombatActionSlot(slot, player.level) ? null : slot),
+    slots: debugUnlockAllMoves ? next : next.map((slot) => isLockedCombatActionSlot(slot, player) ? null : slot),
     notices,
   };
+}
+
+function getMoveUnlockSourceLabel(actionId: CombatActionId, player: PlayerSnapshot) {
+  const unlockTalent = getCombatActionUnlockTalent(actionId);
+  return unlockTalent ? "Talent" : `Level ${player.level}`;
 }
 
 function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {
@@ -2255,8 +2263,8 @@ function isCombatActionSlot(slot: ActionSlot): slot is CombatActionId {
   return Boolean(slot && typeof slot === "string" && slot !== "interact");
 }
 
-function isLockedCombatActionSlot(slot: ActionSlot, playerLevel: number) {
-  return isCombatActionSlot(slot) && !isCombatActionUnlocked(slot, playerLevel);
+function isLockedCombatActionSlot(slot: ActionSlot, player: PlayerSnapshot) {
+  return isCombatActionSlot(slot) && !isCombatActionUnlocked(slot, player.level, player.talents);
 }
 
 function isStoredItemSlot(value: unknown): value is { type: "item"; itemId: ItemId; chainTokenId?: string } {

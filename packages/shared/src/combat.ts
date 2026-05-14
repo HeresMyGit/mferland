@@ -56,7 +56,7 @@ export const COMBAT = {
       requiresStationary: true,
     },
     frostNova: {
-      label: "slippage bolt",
+      label: "freeze assets",
       description: "A close burst that freezes nearby enemies.",
       damage: 5,
       cooldownMs: 12000,
@@ -120,8 +120,8 @@ export const COMBAT = {
       splashRadius: 8,
     },
     iceBlast: {
-      label: "freeze assets",
-      description: "A casted cold bolt that slows the target.",
+      label: "slippage bolt",
+      description: "A casted ice bolt that slows the target.",
       damage: 14,
       cooldownMs: 0,
       minRange: 0,
@@ -140,23 +140,33 @@ export const COMBAT_ACTION_UNLOCKS = [
   { actionId: "shoot", level: 2 },
   { actionId: "signalShot", level: 3 },
   { actionId: "fireblast", level: 4 },
-  { actionId: "frostNova", level: 5 },
+  { actionId: "iceBlast", level: 5 },
   { actionId: "heal", level: 6 },
   { actionId: "taunt", level: 7 },
-  { actionId: "whirlwind", level: 8 },
-  { actionId: "multishot", level: 9 },
-  { actionId: "iceBlast", level: 10 },
 ] as const satisfies readonly { actionId: keyof typeof COMBAT.actions; level: number }[];
 
 export function getCombatActionUnlockLevel(actionId: keyof typeof COMBAT.actions) {
-  return COMBAT_ACTION_UNLOCKS.find((unlock) => unlock.actionId === actionId)?.level ?? 1;
+  return COMBAT_ACTION_UNLOCKS.find((unlock) => unlock.actionId === actionId)?.level ?? Number.POSITIVE_INFINITY;
 }
 
-export function getUnlockedCombatActions(playerLevel: number, debugUnlockAllMoves = false) {
+export function getUnlockedCombatActions(
+  playerLevel: number,
+  debugUnlockAllMoves = false,
+  extraUnlockedActions: readonly (keyof typeof COMBAT.actions)[] = [],
+) {
+  if (debugUnlockAllMoves) return Object.keys(COMBAT.actions) as (keyof typeof COMBAT.actions)[];
+
   const level = Math.max(1, Math.floor(playerLevel));
-  return COMBAT_ACTION_UNLOCKS
-    .filter((unlock) => debugUnlockAllMoves || level >= unlock.level)
+  const unlocked: (keyof typeof COMBAT.actions)[] = COMBAT_ACTION_UNLOCKS
+    .filter((unlock) => level >= unlock.level)
     .map((unlock) => unlock.actionId);
+  const seen = new Set<keyof typeof COMBAT.actions>(unlocked);
+  for (const actionId of extraUnlockedActions) {
+    if (seen.has(actionId)) continue;
+    unlocked.push(actionId);
+    seen.add(actionId);
+  }
+  return unlocked;
 }
 
 export function isCombatActionUnlockedByLevel(

@@ -279,7 +279,7 @@ function getCombatUsability(
 ) {
   if (!player) return { usable: false, reason: "" };
   if (player.castingAction) return { usable: false, reason: "Casting" };
-  if (!isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves)) return { usable: false, reason: "Locked" };
+  if (!isCombatActionUnlocked(actionId, player.level, player.talents, debugUnlockAllMoves)) return { usable: false, reason: "Locked" };
 
   const action = COMBAT.actions[actionId];
   if (Math.max(getActionReadyAt(player, actionId), globalCooldownReadyAt) > now) return { usable: false, reason: "" };

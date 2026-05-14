@@ -95,17 +95,14 @@ export const TALENTS = {
   "brawler:whirlwind": {
     tree: "brawler",
     nodeId: "whirlwind",
-    name: "tornado crash control",
-    description: "crash through nearby enemies with more snap.",
+    name: "tornado crash",
+    description: "unlock a close crash through nearby enemies.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "brawler:snap-swing", rank: 1 }],
-    effectText: "+3 tornado crash damage",
-    effectPerRank: {
-      actionDamage: {
-        whirlwind: 3,
-      },
-    },
+    effectText: "Unlocks tornado crash",
+    effectPerRank: {},
+    unlockAction: "whirlwind",
   },
   "caster:deep-pockets": {
     tree: "caster",
@@ -131,7 +128,7 @@ export const TALENTS = {
     effectPerRank: {
       actionDamage: {
         fireblast: 3,
-        frostNova: 1,
+        iceBlast: 1,
       },
     },
   },
@@ -148,20 +145,17 @@ export const TALENTS = {
       manaRegenPer5: 4,
     },
   },
-  "caster:ice-blast": {
+  "caster:frost-nova": {
     tree: "caster",
-    nodeId: "ice-blast",
-    name: "freeze assets bite",
-    description: "put more bite behind your cold bolt.",
+    nodeId: "frost-nova",
+    name: "freeze assets",
+    description: "unlock a close frost burst that freezes nearby enemies.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "caster:flow-state", rank: 1 }],
-    effectText: "+3 freeze assets damage",
-    effectPerRank: {
-      actionDamage: {
-        iceBlast: 3,
-      },
-    },
+    effectText: "Unlocks freeze assets",
+    effectPerRank: {},
+    unlockAction: "frostNova",
   },
   "utility:light-step": {
     tree: "utility",
@@ -204,17 +198,14 @@ export const TALENTS = {
   "utility:multishot": {
     tree: "utility",
     nodeId: "multishot",
-    name: "thread spray rhythm",
-    description: "recover faster after spraying nearby enemies.",
+    name: "thread spray",
+    description: "unlock a shot that splits across nearby enemies.",
     maxRank: 1,
     minLevel: 6,
     requires: [{ talentId: "utility:recovery-loop", rank: 1 }],
-    effectText: "-1500 ms thread spray cooldown",
-    effectPerRank: {
-      actionCooldownMs: {
-        multishot: -1500,
-      },
-    },
+    effectText: "Unlocks thread spray",
+    effectPerRank: {},
+    unlockAction: "multishot",
   },
 } as const satisfies Record<string, TalentDefinition>;
 
@@ -241,8 +232,13 @@ export function isTalentId(value: unknown): value is TalentId {
 }
 
 export function getTalentId(tree: string, nodeId: string): TalentId | null {
+  if (tree === "caster" && nodeId === "ice-blast") return "caster:frost-nova";
   const talentId = `${tree}:${nodeId}`;
   return isTalentId(talentId) ? talentId : null;
+}
+
+export function getCanonicalTalentId(tree: string, nodeId: string): TalentId | null {
+  return getTalentId(tree, nodeId);
 }
 
 export function getTalentRank(talents: Iterable<TalentRankLike> | undefined, talentId: TalentId) {
@@ -317,8 +313,25 @@ export function getCombatActionUnlockTalent(actionId: CombatActionId): TalentId 
   return null;
 }
 
-export function isCombatActionUnlocked(actionId: CombatActionId, playerLevel: number, debugUnlockAllMoves = false) {
-  return isCombatActionUnlockedByLevel(actionId, playerLevel, debugUnlockAllMoves);
+export function getTalentUnlockedCombatActions(talents: Iterable<TalentRankLike> | undefined) {
+  const actions: CombatActionId[] = [];
+  for (const talentId of TALENT_IDS) {
+    const unlockAction = (TALENTS[talentId] as TalentDefinition).unlockAction;
+    if (!unlockAction || getTalentRank(talents, talentId) <= 0) continue;
+    actions.push(unlockAction);
+  }
+  return actions;
+}
+
+export function isCombatActionUnlocked(
+  actionId: CombatActionId,
+  playerLevel: number,
+  talents?: Iterable<TalentRankLike>,
+  debugUnlockAllMoves = false,
+) {
+  if (isCombatActionUnlockedByLevel(actionId, playerLevel, debugUnlockAllMoves)) return true;
+  const unlockTalent = getCombatActionUnlockTalent(actionId);
+  return Boolean(unlockTalent && getTalentRank(talents, unlockTalent) > 0);
 }
 
 export function isTalentUnlocked(talents: Iterable<TalentRankLike> | undefined, playerLevel: number, talentId: TalentId) {
@@ -375,7 +388,7 @@ export function getTalentRankStatus(
 
 function normalizeTalentRankId(talent: TalentRankLike) {
   if (isTalentId(talent.id)) return talent.id;
-  return getTalentId(talent.tree ?? "", talent.nodeId ?? "");
+  return getCanonicalTalentId(talent.tree ?? "", talent.nodeId ?? "");
 }
 
 function clampTalentRank(talentId: TalentId, rank: number) {

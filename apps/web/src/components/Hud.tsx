@@ -144,7 +144,7 @@ type HudCryptoContractsDocument = {
 type MoveUnlockNotice = {
   id: number;
   actionId: CombatActionId;
-  level: number;
+  sourceLabel: string;
   buttonIndex: number | null;
 };
 
@@ -1830,7 +1830,7 @@ function MoveUnlockToast({ notice }: { notice: MoveUnlockNotice }) {
       <AbilityIcon actionId={notice.actionId} />
       <span>
         <strong>{meta?.label ?? "Move"} unlocked</strong>
-        <em>Level {notice.level} / {location}</em>
+        <em>{notice.sourceLabel} / {location}</em>
       </span>
     </section>
   );

@@ -6,6 +6,7 @@ import {
   TALENT_IDS,
   TALENT_TREES,
   TALENT_TREE_IDS,
+  getCombatActionUnlockTalent,
   getCombatActionUnlockLevel,
   getTalentPointsSpent,
   getTalentRank,
@@ -22,8 +23,8 @@ import { AbilityIcon, TalentIcon, TalentTreeIcon } from "./GameIcon";
 import { type ActionSlot } from "./types";
 import { formatTooltipLabel } from "./utils";
 
-const BASELINE_ABILITY_IDS: ActionId[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "frostNova", "heal", "taunt"];
-const TALENT_ABILITY_IDS: CombatActionId[] = ["whirlwind", "multishot", "iceBlast"];
+const BASELINE_ABILITY_IDS: ActionId[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "iceBlast", "heal", "taunt"];
+const TALENT_ABILITY_IDS: CombatActionId[] = ["whirlwind", "multishot", "frostNova"];
 const SPELLBOOK_ABILITY_IDS: ActionId[] = [...BASELINE_ABILITY_IDS, ...TALENT_ABILITY_IDS];
 
 export function AbilitiesPanel({
@@ -115,7 +116,7 @@ function AbilityBookTile({
   if (!meta) return null;
 
   const isCombat = actionId !== "interact";
-  const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.level, debugUnlockAllMoves));
+  const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.level, player.talents, debugUnlockAllMoves));
   const unlockLevel = isCombat ? getCombatActionUnlockLevel(actionId) : 1;
   const assignedIndex = actionSlots.findIndex((slot) => slot === actionId);
   const title = getAbilityTitle(actionId, unlockLevel, assignedIndex, locked);
@@ -143,8 +144,19 @@ function getAbilityTitle(actionId: ActionId, unlockLevel: number, assignedIndex:
     meta?.label ?? "Ability",
     getAbilityDescription(actionId),
     state,
-    locked ? `Unlocks at level ${unlockLevel}` : "",
+    locked ? getAbilityUnlockText(actionId, unlockLevel) : "",
   ].filter(Boolean).join("\n");
+}
+
+function getAbilityUnlockText(actionId: ActionId, unlockLevel: number) {
+  if (actionId === "interact") return "";
+  if (Number.isFinite(unlockLevel)) return `Unlocks at level ${unlockLevel}`;
+
+  const talentId = getCombatActionUnlockTalent(actionId);
+  if (!talentId) return "Unlocks from talents";
+
+  const talent = TALENTS[talentId];
+  return `Unlocks from ${TALENT_TREES[talent.tree].label} final talent`;
 }
 
 function getAbilityDescription(actionId: ActionId) {

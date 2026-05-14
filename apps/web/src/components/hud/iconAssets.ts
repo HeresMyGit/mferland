@@ -108,7 +108,7 @@ const TALENT_ICON_SOURCES = {
   "caster:deep-pockets": `${ICON_ROOT}/talents/caster-deep-pockets.png`,
   "caster:sticker-sparks": `${ICON_ROOT}/talents/caster-sticker-sparks.png`,
   "caster:flow-state": `${ICON_ROOT}/talents/caster-flow-state.png`,
-  "caster:ice-blast": `${ICON_ROOT}/talents/caster-ice-blast.png`,
+  "caster:frost-nova": `${ICON_ROOT}/talents/caster-frost-nova.png`,
   "utility:light-step": `${ICON_ROOT}/talents/utility-light-step.png`,
   "utility:errand-brain": `${ICON_ROOT}/talents/utility-errand-brain.png`,
   "utility:recovery-loop": `${ICON_ROOT}/talents/utility-recovery-loop.png`,
