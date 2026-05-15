@@ -162,6 +162,8 @@ export function applyCombatDamage(
   tagNpcForCredit?: NpcDamageTagHandler,
   recordNpcThreat?: NpcThreatHandler,
 ) {
+  if (target.isEvading) return;
+
   if (actionId === "fireblast" || actionId === "iceBlast") {
     const impactAt = now + getProjectileTravelMs(player.x, player.z, target.x, target.z);
     recordNpcThreat?.(sourceId, target, actionId, damage, now);
@@ -317,7 +319,7 @@ export function processPendingCombatImpacts(
     if (impact.target.kind === "npc") {
       const npc = npcs.get(impact.target.id);
       const sourcePlayer = impact.sourcePlayerId ? players.get(impact.sourcePlayerId) : undefined;
-      if (npc && isNpcAlive(npc)) {
+      if (npc && isNpcAlive(npc) && !npc.isEvading) {
         if (sourcePlayer && impact.sourcePlayerId) {
           tagNpcForCredit?.(impact.sourcePlayerId, npc, now);
         }
@@ -341,9 +343,14 @@ export function processPendingCombatImpacts(
 
 function aggroNpcOnPlayerHit(npc: NpcState, sourcePlayerId: string, player: PlayerState) {
   if (!canNpcAggroOnPlayerHit(npc)) return;
-  if (npc.health <= 0 || player.health <= 0) return;
+  if (npc.health <= 0 || player.health <= 0 || npc.isEvading) return;
 
+  if (!npc.aggroTargetId) {
+    npc.aggroOriginX = npc.x;
+    npc.aggroOriginZ = npc.z;
+  }
   npc.aggroTargetId = sourcePlayerId;
+  npc.isEvading = false;
   npc.nextDecisionAt = 0;
 }
 

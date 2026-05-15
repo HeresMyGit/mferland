@@ -135,6 +135,9 @@ export class NpcState extends Schema {
   @type("number") frozenUntil = 0;
   @type("number") slowedUntil = 0;
   @type("string") aggroTargetId = "";
+  @type("number") aggroOriginX = 0;
+  @type("number") aggroOriginZ = 0;
+  @type("boolean") isEvading = false;
   @type("number") attackReadyAt = 0;
   @type("string") combatStyle = "";
   @type("boolean") hasLoot = false;

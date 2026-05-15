@@ -381,6 +381,9 @@ export function spawnNpcFromSpec(npcs: MapSchema<NpcState>, spec: NpcSpawnSpec, 
   npc.homeZ = npc.z;
   npc.targetX = npc.x;
   npc.targetZ = npc.z;
+  npc.aggroOriginX = npc.x;
+  npc.aggroOriginZ = npc.z;
+  npc.isEvading = false;
   npc.leashRadius = spec.leashRadius;
   npc.combatStyle = spec.combatStyle ?? "";
   npc.nextDecisionAt = now + randomRange(1000, 5000);
@@ -612,6 +615,7 @@ export function updateNpcs(
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
 ) {
+  const leashResetNpcIds: string[] = [];
   npcs.forEach((npc) => {
     if (!isNpcAlive(npc)) {
       if (npc.respawnAt > 0 && now >= npc.respawnAt) {
@@ -620,6 +624,9 @@ export function updateNpcs(
         npc.despawnAt = 0;
         npc.respawnAt = 0;
         npc.aggroTargetId = "";
+        npc.aggroOriginX = npc.homeX;
+        npc.aggroOriginZ = npc.homeZ;
+        npc.isEvading = false;
         npc.attackReadyAt = 0;
         npc.frozenUntil = 0;
         npc.slowedUntil = 0;
@@ -643,6 +650,11 @@ export function updateNpcs(
       }
     }
 
+    if (npc.isEvading) {
+      updateEvadingNpc(npc, delta);
+      return;
+    }
+
     if (npc.frozenUntil > 0) {
       if (now < npc.frozenUntil) {
         npc.animation = "idle";
@@ -658,13 +670,13 @@ export function updateNpcs(
     }
 
     if (npc.role === "farmer") {
-      updateFarmerNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
+      updateFarmerNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts, leashResetNpcIds);
       spreadAggroToNearbyHostiles(npc, npcs, players);
       return;
     }
 
     if (npc.model === "hog" && npc.aggroTargetId) {
-      updateHogNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts);
+      updateHogNpc(npc, players, delta, now, emitCombatEvent, pendingCombatImpacts, leashResetNpcIds);
       spreadAggroToNearbyHostiles(npc, npcs, players);
       return;
     }
@@ -726,6 +738,8 @@ export function updateNpcs(
     npc.yaw = Math.atan2(dx, dz);
     npc.animation = Math.hypot(npc.x - previousX, npc.z - previousZ) > 0.01 ? "walk" : "idle";
   });
+
+  return leashResetNpcIds;
 }
 
 function updateMferGptNpc(npc: NpcState, players: MapSchema<PlayerState>, now: number) {
@@ -749,15 +763,26 @@ function updateFarmerNpc(
   now: number,
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
+  leashResetNpcIds: string[],
 ) {
   let target = npc.aggroTargetId ? players.get(npc.aggroTargetId) ?? null : null;
-  if (!target || target.health <= 0 || distanceToHome(npc, target) > getFarmerLeashRange(npc)) {
+  const lostTargetToLeash = Boolean(target && distanceToAggroOrigin(npc, target) > getFarmerLeashRange(npc));
+  if (!target || target.health <= 0 || lostTargetToLeash) {
     target = findNearestAggroPlayer(npc, players);
-    npc.aggroTargetId = target ? getPlayerSessionId(players, target) : "";
+    if (target) {
+      startNpcAggro(npc, getPlayerSessionId(players, target));
+    } else {
+      npc.aggroTargetId = "";
+    }
   }
 
   if (!target) {
-    npc.attackReadyAt = 0;
+    if (lostTargetToLeash) {
+      resetNpcEncounter(npc, now);
+      leashResetNpcIds.push(npc.id);
+    } else {
+      npc.attackReadyAt = 0;
+    }
     return moveNpcToward(npc, npc.homeX, npc.homeZ, delta, 1.8);
   }
 
@@ -812,14 +837,21 @@ function updateHogNpc(
   now: number,
   emitCombatEvent: (event: CombatEvent) => void,
   pendingCombatImpacts: PendingCombatImpact[],
+  leashResetNpcIds: string[],
 ) {
   const target = players.get(npc.aggroTargetId);
-  if (!target || target.health <= 0 || distanceToHome(npc, target) > getHogLeashRange(npc)) {
-    npc.aggroTargetId = "";
-    npc.attackReadyAt = 0;
-    npc.targetX = npc.homeX;
-    npc.targetZ = npc.homeZ;
-    npc.nextDecisionAt = now + getNpcWanderDecisionMs(npc);
+  const lostTargetToLeash = Boolean(target && distanceToAggroOrigin(npc, target) > getHogLeashRange(npc));
+  if (!target || target.health <= 0 || lostTargetToLeash) {
+    if (lostTargetToLeash) {
+      resetNpcEncounter(npc, now);
+      leashResetNpcIds.push(npc.id);
+    } else {
+      npc.aggroTargetId = "";
+      npc.attackReadyAt = 0;
+      npc.targetX = npc.homeX;
+      npc.targetZ = npc.homeZ;
+      npc.nextDecisionAt = now + getNpcWanderDecisionMs(npc);
+    }
     return moveNpcToward(npc, npc.homeX, npc.homeZ, delta, getNpcMoveSpeed(npc));
   }
 
@@ -843,13 +875,55 @@ function updateHogNpc(
   applyNpcCombatDamage(npc, npc.aggroTargetId, target, "attack", HOG_COMBAT.meleeDamage, now, emitCombatEvent, pendingCombatImpacts);
 }
 
+function resetNpcEncounter(npc: NpcState, now: number) {
+  npc.health = npc.maxHealth;
+  npc.aggroTargetId = "";
+  npc.aggroOriginX = npc.x;
+  npc.aggroOriginZ = npc.z;
+  npc.isEvading = true;
+  npc.attackReadyAt = 0;
+  npc.frozenUntil = 0;
+  npc.slowedUntil = 0;
+  npc.targetX = npc.homeX;
+  npc.targetZ = npc.homeZ;
+  npc.animation = "idle";
+  npc.nextDecisionAt = now + getNpcWanderDecisionMs(npc);
+}
+
+function updateEvadingNpc(npc: NpcState, delta: number) {
+  npc.health = npc.maxHealth;
+  npc.aggroTargetId = "";
+  npc.attackReadyAt = 0;
+  npc.frozenUntil = 0;
+  npc.slowedUntil = 0;
+  npc.targetX = npc.homeX;
+  npc.targetZ = npc.homeZ;
+  moveNpcToward(npc, npc.homeX, npc.homeZ, delta, getNpcMoveSpeed(npc));
+  if (Math.hypot(npc.x - npc.homeX, npc.z - npc.homeZ) < 0.2) {
+    npc.x = npc.homeX;
+    npc.z = npc.homeZ;
+    npc.aggroOriginX = npc.homeX;
+    npc.aggroOriginZ = npc.homeZ;
+    npc.isEvading = false;
+    npc.animation = "idle";
+  }
+}
+
+function startNpcAggro(npc: NpcState, sessionId: string) {
+  npc.aggroTargetId = sessionId;
+  npc.aggroOriginX = npc.x;
+  npc.aggroOriginZ = npc.z;
+  npc.isEvading = false;
+  npc.nextDecisionAt = 0;
+}
+
 function findNearestAggroPlayer(npc: NpcState, players: MapSchema<PlayerState>) {
   let nearest: PlayerState | null = null;
   let nearestDistance = Infinity;
   players.forEach((player) => {
     if (player.health <= 0) return;
     const distance = Math.hypot(player.x - npc.x, player.z - npc.z);
-    if (distance > FARMER_COMBAT.aggroRange || distanceToHome(npc, player) > FARMER_COMBAT.leashRange) return;
+    if (distance > FARMER_COMBAT.aggroRange) return;
     if (distance < nearestDistance) {
       nearest = player;
       nearestDistance = distance;
@@ -886,8 +960,7 @@ function spreadAggroToNearbyHostiles(
     if (getNpcDisposition(candidate) !== "hostile") return;
     if (Math.hypot(candidate.x - source.x, candidate.z - source.z) > ENEMY_ASSIST_AGGRO_RANGE) return;
 
-    candidate.aggroTargetId = source.aggroTargetId;
-    candidate.nextDecisionAt = 0;
+    startNpcAggro(candidate, source.aggroTargetId);
   });
 }
 
@@ -961,6 +1034,10 @@ function moveNpcAwayFrom(npc: NpcState, x: number, z: number, delta: number, spe
 
 function distanceToHome(npc: NpcState, point: { x: number; z: number }) {
   return Math.hypot(point.x - npc.homeX, point.z - npc.homeZ);
+}
+
+function distanceToAggroOrigin(npc: NpcState, point: { x: number; z: number }) {
+  return Math.hypot(point.x - npc.aggroOriginX, point.z - npc.aggroOriginZ);
 }
 
 function getNpcWanderTarget(npc: NpcState) {

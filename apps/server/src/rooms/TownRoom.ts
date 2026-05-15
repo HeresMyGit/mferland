@@ -600,13 +600,15 @@ export class TownRoom extends Room<TownState> {
         npc.homeZ = z;
         npc.targetX = x;
         npc.targetZ = z;
+        npc.aggroOriginX = x;
+        npc.aggroOriginZ = z;
+        npc.isEvading = false;
         npc.animation = "idle";
         npc.aggroTargetId = "";
         npc.attackReadyAt = 0;
         npc.frozenUntil = 0;
         npc.slowedUntil = 0;
-        this.npcThreat.delete(npc.id);
-        this.forcedNpcTargets.delete(npc.id);
+        this.clearNpcThreat(npc.id);
       });
 
       this.onMessage("debugSetWorldPlacement", (_client, message: DebugWorldPlacementMessage = {}) => {
@@ -1223,6 +1225,9 @@ export class TownRoom extends Room<TownState> {
     npc.homeZ = z;
     npc.targetX = x;
     npc.targetZ = z;
+    npc.aggroOriginX = x;
+    npc.aggroOriginZ = z;
+    npc.isEvading = false;
     npc.yaw = Number.isFinite(yaw) ? yaw : npc.yaw;
     npc.leashRadius = leashRadius;
     npc.dialogue = dialogue;
@@ -1620,7 +1625,7 @@ export class TownRoom extends Room<TownState> {
   }
 
   private addNpcThreat(sourceId: string, npc: NpcState, actionId: CombatActionId, amount: number, now: number) {
-    if (!sourceId || !isNpcAlive(npc) || npc.isImmortal) return;
+    if (!sourceId || !isNpcAlive(npc) || npc.isImmortal || npc.isEvading) return;
 
     const table = this.npcThreat.get(npc.id) ?? new Map<string, number>();
     const threat = this.getThreatValue(actionId, amount);
@@ -1630,11 +1635,19 @@ export class TownRoom extends Room<TownState> {
     const player = this.state.players.get(sourceId);
     if (player?.health && !npc.aggroTargetId) {
       npc.aggroTargetId = sourceId;
+      npc.aggroOriginX = npc.x;
+      npc.aggroOriginZ = npc.z;
+      npc.isEvading = false;
       npc.nextDecisionAt = 0;
     }
     if (actionId === "taunt") {
       this.forcedNpcTargets.set(npc.id, { sessionId: sourceId, until: now + COMBAT.actions.taunt.forceMs });
+      if (!npc.aggroTargetId) {
+        npc.aggroOriginX = npc.x;
+        npc.aggroOriginZ = npc.z;
+      }
       npc.aggroTargetId = sourceId;
+      npc.isEvading = false;
       npc.nextDecisionAt = 0;
     }
   }
@@ -1674,7 +1687,7 @@ export class TownRoom extends Room<TownState> {
 
   private applyThreatTargets(now: number) {
     this.state.npcs.forEach((npc) => {
-      if (!isNpcAlive(npc) || npc.isImmortal) {
+      if (!isNpcAlive(npc) || npc.isImmortal || npc.isEvading) {
         this.npcThreat.delete(npc.id);
         this.forcedNpcTargets.delete(npc.id);
         return;
@@ -1684,6 +1697,10 @@ export class TownRoom extends Room<TownState> {
       if (forcedTarget) {
         const player = this.state.players.get(forcedTarget.sessionId);
         if (now < forcedTarget.until && this.isThreatTargetEligible(npc, player)) {
+          if (!npc.aggroTargetId) {
+            npc.aggroOriginX = npc.x;
+            npc.aggroOriginZ = npc.z;
+          }
           npc.aggroTargetId = forcedTarget.sessionId;
           npc.nextDecisionAt = 0;
           return;
@@ -1716,6 +1733,10 @@ export class TownRoom extends Room<TownState> {
       const currentThreat = npc.aggroTargetId ? table.get(npc.aggroTargetId) ?? 0 : 0;
       const shouldSwitch = !npc.aggroTargetId || highestSessionId === npc.aggroTargetId || highestThreat >= currentThreat * 1.15 + 8;
       if (shouldSwitch && npc.aggroTargetId !== highestSessionId) {
+        if (!npc.aggroTargetId) {
+          npc.aggroOriginX = npc.x;
+          npc.aggroOriginZ = npc.z;
+        }
         npc.aggroTargetId = highestSessionId;
         npc.nextDecisionAt = 0;
       }
@@ -1724,7 +1745,12 @@ export class TownRoom extends Room<TownState> {
 
   private isThreatTargetEligible(npc: NpcState, player: PlayerState | undefined) {
     if (!player || player.health <= 0) return false;
-    return Math.hypot(player.x - npc.homeX, player.z - npc.homeZ) <= Math.max(npc.leashRadius + 8, PLAYER_ATTACK_PULL_LEASH_RANGE);
+    return Math.hypot(player.x - npc.aggroOriginX, player.z - npc.aggroOriginZ) <= Math.max(npc.leashRadius + 8, PLAYER_ATTACK_PULL_LEASH_RANGE);
+  }
+
+  private clearNpcThreat(npcId: string) {
+    this.npcThreat.delete(npcId);
+    this.forcedNpcTargets.delete(npcId);
   }
 
   private removePlayerThreat(sessionId: string) {
@@ -2332,7 +2358,7 @@ export class TownRoom extends Room<TownState> {
     this.removeExpiredTemporaryNpcs(now);
     this.pruneNpcDamageTags(now);
     this.applyThreatTargets(now);
-    updateNpcs(
+    const leashResetNpcIds = updateNpcs(
       this.state.npcs,
       this.state.players,
       delta,
@@ -2340,6 +2366,7 @@ export class TownRoom extends Room<TownState> {
       (event) => this.broadcast("combatEvent", event),
       this.pendingCombatImpacts,
     );
+    for (const npcId of leashResetNpcIds) this.clearNpcThreat(npcId);
     processPendingCombatImpacts(
       this.pendingCombatImpacts,
       this.state.players,

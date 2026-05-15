@@ -472,7 +472,8 @@ export function useTownRoom(identity: JoinOptions) {
     if (!questOffer || !sessionId) return;
 
     const localPlayer = playersRef.current.get(sessionId);
-    if (localPlayer?.quests.some((quest) => quest.id === questOffer.questId)) {
+    const quest = localPlayer?.quests.find((entry) => entry.id === questOffer.questId);
+    if (quest && quest.status !== "completed") {
       setQuestOffer(null);
     }
   }, [questOffer, sessionId, snapshotRevision]);
