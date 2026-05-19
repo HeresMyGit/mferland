@@ -198,6 +198,7 @@ type HudProps = {
   settings: GameSettings;
   renderProfile: RenderPerformanceProfile;
   debugToolsAvailable: boolean;
+  hideChatPanel?: boolean;
   onSettingsChange: (settings: GameSettings) => void;
 };
 
@@ -247,6 +248,7 @@ export function Hud({
   settings,
   renderProfile,
   debugToolsAvailable,
+  hideChatPanel = false,
   onSettingsChange,
 }: HudProps) {
   const [draft, setDraft] = useState("");
@@ -1360,35 +1362,37 @@ export function Hud({
         </section>
       )}
 
-      <section className="chat-panel">
-        <div className="chat-log">
-          {chat.length === 0 ? (
-            <p className="muted">gm mfers</p>
-          ) : chat.map((message, index) => message.kind === "emote" ? (
-            <p key={`${message.sentAt}-${index}`} className="chat-emote">
-              <strong>{message.name} </strong>
-              {message.text}
-            </p>
-          ) : (
-            <p key={`${message.sentAt}-${index}`}>
-              <strong>{message.name}: </strong>
-              {message.identityType === "agent" && <em>agent </em>}
-              {message.identityType === "npc" && <em>npc </em>}
-              {message.text}
-            </p>
-          ))}
-        </div>
-        <form onSubmit={submit}>
-          <input
-            ref={chatInputRef}
-            value={draft}
-            maxLength={CHAT.maxLength}
-            placeholder="post to plaza..."
-            onKeyDown={handleChatKeyDown}
-            onChange={(event) => setDraft(event.target.value)}
-          />
-        </form>
-      </section>
+      {!hideChatPanel && (
+        <section className="chat-panel">
+          <div className="chat-log">
+            {chat.length === 0 ? (
+              <p className="muted">gm mfers</p>
+            ) : chat.map((message, index) => message.kind === "emote" ? (
+              <p key={`${message.sentAt}-${index}`} className="chat-emote">
+                <strong>{message.name} </strong>
+                {message.text}
+              </p>
+            ) : (
+              <p key={`${message.sentAt}-${index}`}>
+                <strong>{message.name}: </strong>
+                {message.identityType === "agent" && <em>agent </em>}
+                {message.identityType === "npc" && <em>npc </em>}
+                {message.text}
+              </p>
+            ))}
+          </div>
+          <form onSubmit={submit}>
+            <input
+              ref={chatInputRef}
+              value={draft}
+              maxLength={CHAT.maxLength}
+              placeholder="post to plaza..."
+              onKeyDown={handleChatKeyDown}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+          </form>
+        </section>
+      )}
 
       <section className="hotbar">
         {actionSlots.map((slot, index) => (

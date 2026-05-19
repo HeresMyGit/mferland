@@ -380,6 +380,7 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
           settings={settings}
           renderProfile={renderProfile}
           debugToolsAvailable={false}
+          hideChatPanel
           onSettingsChange={setSettings}
         />
       )}
