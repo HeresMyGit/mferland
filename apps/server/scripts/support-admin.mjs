@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import postgres from "postgres";
 
@@ -138,6 +138,13 @@ try {
         status: values.status ?? "confirmed",
       });
       break;
+    case "trait-change-list":
+      await printTraitChangeEvents({
+        limit: parseLimit(values.limit),
+        txHash: values.tx,
+        wallet: values.wallet,
+      });
+      break;
     case "purchase-record":
       await recordChainPurchase({
         chainId: parseChainId(values.chain),
@@ -237,6 +244,11 @@ async function printWallet(wallet) {
     GROUP BY product_id, status, source
     ORDER BY product_id, status, source
   `;
+  const traitChangeEvents = await getTraitChangeEvents({
+    limit: 10,
+    txHash: "",
+    walletHash: hashWallet(normalizedWallet),
+  });
 
   console.log(JSON.stringify({
     wallet: account.wallet_address,
@@ -253,6 +265,7 @@ async function printWallet(wallet) {
     equipment,
     seasonRewards: rewards,
     cryptoPurchases: purchases,
+    traitChangeEvents,
   }, null, 2));
 }
 
@@ -738,6 +751,63 @@ async function exportPurchases({ productId, status }) {
   }
 }
 
+async function printTraitChangeEvents({ limit, txHash, wallet }) {
+  const normalizedWallet = wallet ? normalizeWallet(wallet) : "";
+  if (wallet && !normalizedWallet) fail("Pass --wallet 0x...");
+  const normalizedTxHash = txHash ? normalizeTxHash(txHash) : "";
+  if (txHash && !normalizedTxHash) fail("Pass --tx 0x...");
+
+  const events = await getTraitChangeEvents({
+    limit,
+    txHash: normalizedTxHash,
+    walletHash: normalizedWallet ? hashWallet(normalizedWallet) : "",
+  });
+  console.log(JSON.stringify(events, null, 2));
+}
+
+async function getTraitChangeEvents({ limit, txHash, walletHash }) {
+  const rows = await sql`
+    SELECT
+      id,
+      event_type,
+      session_id,
+      character_id,
+      properties,
+      created_at
+    FROM analytics_events
+    WHERE event_type IN ('trait_change_attempted', 'trait_change_saved', 'trait_change_failed')
+      AND (${walletHash} = '' OR wallet_hash = ${walletHash})
+      AND (${txHash} = '' OR properties->>'chainTx' = ${txHash})
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  return rows.map(formatTraitChangeEvent);
+}
+
+function formatTraitChangeEvent(row) {
+  const properties = isRecord(row.properties) ? row.properties : {};
+  return {
+    id: row.id,
+    eventType: row.event_type,
+    createdAt: row.created_at?.toISOString?.() ?? row.created_at ?? "",
+    sessionId: row.session_id,
+    characterId: row.character_id,
+    attemptId: stringProperty(properties.attemptId),
+    chainTx: stringProperty(properties.chainTx),
+    chainId: numberProperty(properties.chainId),
+    logIndex: numberProperty(properties.logIndex),
+    paymentToken: stringProperty(properties.paymentToken),
+    paymentAmountWei: stringProperty(properties.paymentAmountWei),
+    contractAddress: stringProperty(properties.contractAddress),
+    beforeName: stringProperty(properties.beforeName),
+    afterName: stringProperty(properties.afterName),
+    beforeTraits: isRecord(properties.beforeTraits) ? properties.beforeTraits : {},
+    afterTraits: isRecord(properties.afterTraits) ? properties.afterTraits : {},
+    error: stringProperty(properties.error),
+  };
+}
+
 async function recordChainPurchase({
   chainId,
   contract,
@@ -1138,6 +1208,22 @@ function normalizeWallet(wallet) {
   return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
 }
 
+function hashWallet(wallet) {
+  return createHash("sha256").update(wallet).digest("hex");
+}
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringProperty(value) {
+  return typeof value === "string" ? value : "";
+}
+
+function numberProperty(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
 function escapeCsv(value) {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replaceAll("\"", "\"\"")}"` : text;
@@ -1161,8 +1247,9 @@ function printHelp() {
   npm run support:admin -- season-payout-export --pool 1000 [--status approved] [--require-product season0-pass] [--per-wallet-cap 100] [--minimum-points 1]
   npm run support:admin -- season-set-status --id <id> --status approved|rejected|distributed [--note "..."]
   npm run support:admin -- purchase-summary [--product season0-pass]
-  npm run support:admin -- purchase-list [--product season0-pass] [--status confirmed] [--wallet 0x...] [--limit 50]
+  npm run support:admin -- purchase-list [--product season0-pass|potion-shop] [--status confirmed] [--wallet 0x...] [--limit 50]
   npm run support:admin -- purchase-export [--product season0-pass] [--status confirmed]
+  npm run support:admin -- trait-change-list [--wallet 0x...] [--tx 0x...] [--limit 50]
   npm run support:admin -- purchase-record --wallet 0x... --chain 8453 --contract 0x... --tx 0x... --log-index 0 --token-id 1 --payment-token ETH --payment-amount <wei> [--status confirmed] [--note "..."]
   npm run support:admin -- purchase-grant --wallet 0x... [--product season0-pass] [--token-id manual-id] [--note "..."]
   npm run support:admin -- purchase-revoke --id <id> [--note "..."]

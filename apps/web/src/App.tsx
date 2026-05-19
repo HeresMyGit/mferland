@@ -5,8 +5,12 @@ import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector } from "wagmi";
 import {
   COMBAT,
+  CRYPTO_MFER_NPC_ID,
   ITEMS,
   LOOT,
+  POTION_SHOP_NPC_ID,
+  SWAP_MFER_NPC_ID,
+  TRAITS_MFER_NPC_ID,
   getUnlockedCombatActions,
   getInventoryItemKey,
   getItemConsumable,
@@ -24,6 +28,7 @@ import {
   type ClientEmote,
   type ClientEquipItem,
   type ClientLootCorpse,
+  type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientUpdateTraits,
@@ -75,6 +80,7 @@ import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
+import { PotionShopPanel } from "./components/PotionShopPanel";
 import { TraitsPanel } from "./components/TraitsPanel";
 import { StreamPage } from "./StreamPage";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
@@ -124,9 +130,6 @@ const HIDDEN_CAPTURE_NAMEPLATES = {
 };
 const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
-const CRYPTO_STORE_NPC_IDS = new Set(["crypto-mfer"]);
-const SWAP_MFER_NPC_IDS = new Set(["swap-mfer"]);
-const TRAITS_MFER_NPC_IDS = new Set(["traits-mfer"]);
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -196,15 +199,19 @@ function makeCreationSeed() {
 }
 
 function isCryptoStoreNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
-  return Boolean(npc && CRYPTO_STORE_NPC_IDS.has(npc.id));
+  return npc?.id === CRYPTO_MFER_NPC_ID;
 }
 
 function isSwapMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
-  return Boolean(npc && SWAP_MFER_NPC_IDS.has(npc.id));
+  return npc?.id === SWAP_MFER_NPC_ID;
 }
 
 function isTraitsMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
-  return Boolean(npc && TRAITS_MFER_NPC_IDS.has(npc.id));
+  return npc?.id === TRAITS_MFER_NPC_ID;
+}
+
+function isPotionShopNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return npc?.id === POTION_SHOP_NPC_ID;
 }
 
 export function App() {
@@ -1103,6 +1110,7 @@ function GameShell({
   const room = useTownRoom(identity);
   const [selectedTarget, setSelectedTarget] = useState<TargetSelection | null>(null);
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
+  const [potionShopNpcId, setPotionShopNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
@@ -1165,6 +1173,10 @@ function GameShell({
   const cryptoStoreNpc = useMemo(
     () => cryptoStoreNpcId ? room.npcs.get(cryptoStoreNpcId) ?? null : null,
     [cryptoStoreNpcId, room.npcs, room.snapshotRevision],
+  );
+  const potionShopNpc = useMemo(
+    () => potionShopNpcId ? room.npcs.get(potionShopNpcId) ?? null : null,
+    [potionShopNpcId, room.npcs, room.snapshotRevision],
   );
   const swapNpc = useMemo(
     () => swapNpcId ? room.npcs.get(swapNpcId) ?? null : null,
@@ -1244,6 +1256,11 @@ function GameShell({
     trackEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("store_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openPotionShop = useCallback((npc: NpcSnapshot) => {
+    setPotionShopNpcId(npc.id);
+    trackEvent("potion_shop_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("potion_shop_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const openSwapMfer = useCallback((npc: NpcSnapshot) => {
     setSwapNpcId(npc.id);
     trackEvent("mfergpt_swap_panel_opened", { surface: "swap_mfer", npcId: npc.id, npcRole: npc.role }, { local: true });
@@ -1260,11 +1277,12 @@ function GameShell({
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
+      if (isPotionShopNpc(selectedNpc)) openPotionShop(selectedNpc);
       if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
       if (isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1273,10 +1291,11 @@ function GameShell({
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
+    if (isPotionShopNpc(nearestNpc)) openPotionShop(nearestNpc);
     if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
     if (isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openSwapMfer, openTraitsPanel, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1325,7 +1344,7 @@ function GameShell({
     audio.play("uiConfirm");
     room.sendAcceptQuest(message);
     if (message.questId === "set-your-traits") {
-      const traitsNpc = room.npcs.get(message.npcId || "traits-mfer");
+      const traitsNpc = room.npcs.get(message.npcId || TRAITS_MFER_NPC_ID);
       if (traitsNpc) openTraitsPanel(traitsNpc);
     }
   }, [audio, openTraitsPanel, room.npcs, room.sendAcceptQuest]);
@@ -1353,6 +1372,10 @@ function GameShell({
     audio.play("inventoryLoot");
     room.sendRegisterChainGear(message);
   }, [audio, room.sendRegisterChainGear]);
+  const purchasePotionShopItem = useCallback((message: ClientPurchasePotionShopItem) => {
+    audio.play("inventoryLoot");
+    room.sendPurchasePotionShopItem(message);
+  }, [audio, room.sendPurchasePotionShopItem]);
   const selectTalent = useCallback((message: ClientSelectTalent) => {
     audio.play("uiConfirm");
     room.sendSelectTalent(message);
@@ -1764,6 +1787,18 @@ function GameShell({
                 result={room.traitUpdateResult}
                 onClose={() => setTraitsNpcId(null)}
                 onUpdateTraits={updateTraits}
+              />
+            </section>
+          )}
+          {potionShopNpc && (
+            <section className="floating-menu-overlay potion-shop-anchor" role="dialog" aria-label="potion shop">
+              <PotionShopPanel
+                npc={potionShopNpc}
+                player={localPlayer ?? null}
+                result={room.potionShopPurchaseResult}
+                onClose={() => setPotionShopNpcId(null)}
+                onPurchasePotionShopItem={purchasePotionShopItem}
+                onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </section>
           )}
