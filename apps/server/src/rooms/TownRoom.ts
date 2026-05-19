@@ -2109,6 +2109,9 @@ export class TownRoom extends Room<TownState> {
     }
 
     const nextTraits = normalizeMferAppearanceTraits(message?.traits, existingTraits);
+    const previousName = player.name;
+    const previousTraitsJson = player.appearanceTraitsJson;
+    const nextName = sanitizePlayerName(message?.name, player.name || "mfer");
     if (!hasExplicitMferAppearanceTraits(nextTraits)) {
       client.send("traitUpdateResult", {
         ok: false,
@@ -2125,6 +2128,7 @@ export class TownRoom extends Room<TownState> {
     const free = !hasExistingTraits;
     let verifiedPayment: VerifiedTraitPayment | null = null;
     const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    const attemptId = makeTraitChangeAttemptId(message?.attemptId);
     if (!free) {
       if (!isWalletCharacter || !player.walletAddress || !characterId) {
         client.send("traitUpdateResult", {
@@ -2138,9 +2142,27 @@ export class TownRoom extends Room<TownState> {
         return;
       }
 
+      this.recordTraitChangeSupportEvent("trait_change_attempted", client.sessionId, player, {
+        attemptId,
+        beforeName: previousName,
+        afterName: nextName,
+        beforeTraits: existingTraits,
+        afterTraits: nextTraits,
+        payment: summarizeTraitPaymentProof(message?.payment),
+      });
+
       try {
         verifiedPayment = await verifyTraitPaymentProof(message?.payment, player.walletAddress);
       } catch (error) {
+        this.recordTraitChangeSupportEvent("trait_change_failed", client.sessionId, player, {
+          attemptId,
+          beforeName: previousName,
+          afterName: nextName,
+          beforeTraits: existingTraits,
+          afterTraits: nextTraits,
+          payment: summarizeTraitPaymentProof(message?.payment),
+          error: error instanceof Error ? error.message : "payment verification failed",
+        });
         client.send("traitUpdateResult", {
           ok: false,
           traits: existingTraits,
@@ -2153,9 +2175,6 @@ export class TownRoom extends Room<TownState> {
       }
     }
 
-    const previousName = player.name;
-    const previousTraitsJson = player.appearanceTraitsJson;
-    const nextName = sanitizePlayerName(message?.name, player.name || "mfer");
     player.appearanceTraitsJson = serializeMferAppearanceTraits(nextTraits);
     player.name = nextName;
     const progressedQuest = free && traitQuest ? progressTraitQuest(player) : false;
@@ -2174,6 +2193,15 @@ export class TownRoom extends Room<TownState> {
       if (verifiedPayment) {
         player.name = previousName;
         player.appearanceTraitsJson = previousTraitsJson;
+        this.recordTraitChangeSupportEvent("trait_change_failed", client.sessionId, player, {
+          attemptId,
+          beforeName: previousName,
+          afterName: nextName,
+          beforeTraits: existingTraits,
+          afterTraits: nextTraits,
+          payment: summarizeVerifiedTraitPayment(verifiedPayment),
+          error: "wallet progress failed to save",
+        });
       }
       client.send("traitUpdateResult", {
         ok: false,
@@ -2184,6 +2212,17 @@ export class TownRoom extends Room<TownState> {
         error: "wallet progress failed to save; retry before reloading",
       });
       return;
+    }
+
+    if (verifiedPayment) {
+      this.recordTraitChangeSupportEvent("trait_change_saved", client.sessionId, player, {
+        attemptId,
+        beforeName: previousName,
+        afterName: nextName,
+        beforeTraits: existingTraits,
+        afterTraits: nextTraits,
+        payment: summarizeVerifiedTraitPayment(verifiedPayment),
+      });
     }
 
     client.send("traitUpdateResult", {
@@ -2531,6 +2570,47 @@ export class TownRoom extends Room<TownState> {
     });
   }
 
+  private recordTraitChangeSupportEvent(
+    eventType: "trait_change_attempted" | "trait_change_saved" | "trait_change_failed",
+    sessionId: string,
+    player: PlayerState,
+    {
+      afterName,
+      afterTraits,
+      attemptId,
+      beforeName,
+      beforeTraits,
+      error = "",
+      payment,
+    }: {
+      afterName: string;
+      afterTraits: Record<string, string>;
+      attemptId: string;
+      beforeName: string;
+      beforeTraits: Record<string, string>;
+      error?: string;
+      payment: Record<string, unknown>;
+    },
+  ) {
+    void recordAnalyticsEvent({
+      eventType,
+      sessionId,
+      characterId: this.persistentCharacterIds.get(sessionId) ?? null,
+      identityType: player.identityType,
+      walletAddress: player.walletAddress,
+      properties: {
+        supportKind: "trait_change",
+        attemptId,
+        beforeName,
+        afterName,
+        beforeTraits,
+        afterTraits,
+        ...payment,
+        ...(error ? { error } : {}),
+      },
+    });
+  }
+
   private sendExperienceEvent(sessionId: string, npc: NpcState, amount: number, now: number) {
     const client = this.clients.find((entry) => entry.sessionId === sessionId);
     if (!client) return;
@@ -2622,6 +2702,56 @@ function makeSystemChat(name: string, text: string): ChatMessage {
     text,
     sentAt: Date.now(),
   };
+}
+
+function makeTraitChangeAttemptId(value: unknown) {
+  if (typeof value === "string") {
+    const normalized = value.trim().replaceAll(/[^a-zA-Z0-9_.:-]+/g, "_").slice(0, 96);
+    if (normalized) return normalized;
+  }
+  return `trait-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function summarizeTraitPaymentProof(payment: unknown): Record<string, unknown> {
+  if (!payment || typeof payment !== "object") return {};
+  const proof = payment as Record<string, unknown>;
+  return {
+    paymentToken: sanitizeSupportText(proof.token),
+    chainId: Number.isFinite(Number(proof.chainId)) ? Number(proof.chainId) : 0,
+    chainTx: normalizeSupportTxHash(proof.txHash),
+    contractAddress: normalizeSupportAddress(proof.contractAddress),
+    paymentAmountWei: sanitizeSupportIntegerString(proof.amountWei),
+  };
+}
+
+function summarizeVerifiedTraitPayment(payment: VerifiedTraitPayment): Record<string, unknown> {
+  return {
+    paymentToken: "MFERGPT",
+    chainId: payment.chainId,
+    chainTx: payment.txHash,
+    contractAddress: payment.tokenAddress,
+    logIndex: payment.logIndex,
+    paymentAmountWei: payment.amountWei,
+  };
+}
+
+function sanitizeSupportText(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 64) : "";
+}
+
+function sanitizeSupportIntegerString(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[0-9]{1,80}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeSupportTxHash(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return /^0x[a-f0-9]{64}$/.test(normalized) ? normalized : "";
+}
+
+function normalizeSupportAddress(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
 }
 
 function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {

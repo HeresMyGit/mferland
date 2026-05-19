@@ -360,6 +360,7 @@ export type TraitPaymentProof = {
 export type ClientUpdateTraits = {
   traits: MferAppearanceTraits;
   name?: string;
+  attemptId?: string;
   payment?: TraitPaymentProof;
 };
 
