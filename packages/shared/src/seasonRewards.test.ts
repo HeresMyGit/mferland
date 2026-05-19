@@ -9,7 +9,7 @@ import {
 
 test("defines conservative Season 0 point caps", () => {
   assert.equal(SEASON_0_DAILY_POINT_CAP, 100);
-  assert.equal(SEASON_0_TOTAL_POINT_CAP, 500);
+  assert.equal(SEASON_0_TOTAL_POINT_CAP, 3000);
 });
 
 test("keeps repeatable hog loop out of liquid-reward eligibility", () => {

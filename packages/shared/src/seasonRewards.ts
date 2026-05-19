@@ -2,7 +2,7 @@ import type { QuestId } from "./types.js";
 
 export const SEASON_0_ID = "season-0";
 export const SEASON_0_DAILY_POINT_CAP = 100;
-export const SEASON_0_TOTAL_POINT_CAP = 500;
+export const SEASON_0_TOTAL_POINT_CAP = 3000;
 
 export type SeasonRewardCadence = "once" | "daily";
 export type SeasonRewardStatus = "pending" | "approved" | "rejected" | "distributed";
