@@ -6,10 +6,13 @@ import {
   CHAT,
   COMBAT,
   EMOTES,
+  ITEMS,
   LOOT,
   MAX_PLAYERS,
   MFERGPT,
   PLAYER,
+  POTION_SHOP_NPC_ID,
+  POTION_SHOP_PRODUCT_ID,
   PROGRESSION,
   QUESTS,
   RECONNECT_GRACE_PERIOD_SECONDS,
@@ -18,13 +21,17 @@ import {
   SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
   TALENTS,
+  TRAITS_MFER_NPC_ID,
   clamp,
   getNpcDisposition,
   getChainGearItemId,
   getInventoryItemKey,
   getItemConsumable,
+  getPotionShopPrice,
   getQuestTurnInNpcId,
   hasExplicitMferAppearanceTraits,
+  isPotionShopItemId,
+  isPotionShopPurchaseQuantity,
   normalizeAvatarSeed,
   normalizeChainTokenId,
   normalizeChainGearTier,
@@ -47,6 +54,7 @@ import {
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
+  type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientShareQuestLink,
@@ -59,12 +67,15 @@ import {
   type IdentityType,
   type ItemId,
   type JoinOptions,
+  type PotionShopPurchaseResult,
   type QuestId,
 } from "@mferland/shared";
 import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
+import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
+import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
 import { verifyTraitPaymentProof, type VerifiedTraitPayment } from "../crypto/traitPayments.js";
 import {
   loadOrCreateWalletCharacter,
@@ -72,6 +83,7 @@ import {
   getWalletInviteAccess,
   recordWalletInviteUsage,
   saveCharacterProgress,
+  saveCharacterProgressWithCryptoPurchase,
   saveCharacterProgressWithTraitPayment,
   PersistenceUnavailableError,
   type PersistableCharacterState,
@@ -130,6 +142,7 @@ import {
   makeQuestOffer,
   makeQuestTurnIn,
   normalizeQuestId,
+  addInventoryItem,
   progressTraitQuest,
   progressMferGptAskQuest,
   progressMferGptMentionQuest,
@@ -173,6 +186,10 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "gear_purchase_started",
   "gear_purchase_confirmed",
   "gear_purchase_failed",
+  "potion_shop_opened",
+  "potion_shop_item_selected",
+  "potion_shop_purchase_started",
+  "potion_shop_purchase_failed",
 ]);
 
 export function areDebugMessagesEnabled() {
@@ -522,6 +539,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("registerChainGear", (client, message: Partial<ClientRegisterChainGear> = {}) => {
       void this.handleRegisterChainGear(client, message);
+    });
+
+    this.onMessage("purchasePotionShopItem", (client, message: Partial<ClientPurchasePotionShopItem> = {}) => {
+      void this.handlePurchasePotionShopItem(client, message);
     });
 
     this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
@@ -1816,6 +1837,149 @@ export class TownRoom extends Room<TownState> {
     }
   }
 
+  private async handlePurchasePotionShopItem(client: Client, message: Partial<ClientPurchasePotionShopItem>) {
+    const player = this.state.players.get(client.sessionId);
+    const itemId = isPotionShopItemId(message?.itemId) ? message.itemId : "";
+    const itemName = itemId ? ITEMS[itemId].name : "";
+    const quantity = isPotionShopPurchaseQuantity(message?.quantity) ? message.quantity : 1;
+    const price = getPotionShopPrice(quantity);
+    const sendResult = (result: Omit<PotionShopPurchaseResult, "itemId" | "itemName" | "quantity" | "count" | "paymentAmountWei" | "chainId"> & Partial<PotionShopPurchaseResult>) => {
+      client.send("potionShopPurchaseResult", {
+        ok: result.ok,
+        itemId,
+        itemName,
+        quantity,
+        count: result.count ?? 0,
+        paymentAmountWei: result.paymentAmountWei ?? price.amountWei,
+        chainId: result.chainId ?? 0,
+        txHash: result.txHash,
+        error: result.error,
+      } satisfies PotionShopPurchaseResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+    if (!itemId) {
+      sendResult({ ok: false, error: "pick a valid item" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    if (player.identityType !== "wallet" || !player.walletAddress || !characterId) {
+      this.recordPlayerAnalyticsEvent("potion_shop_purchase_failed", client.sessionId, player, {
+        supportKind: "potion_shop_purchase",
+        npcId: POTION_SHOP_NPC_ID,
+        itemId,
+        itemName,
+        quantity,
+        stage: "preflight",
+        error: "wallet character required",
+      });
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    const npc = this.state.npcs.get(POTION_SHOP_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? POTION_SHOP_NPC_ID,
+      npcName: npc?.name ?? "potion mfer",
+      npcDistance,
+    };
+
+    this.recordPlayerAnalyticsEvent("potion_shop_purchase_attempted", client.sessionId, player, {
+      supportKind: "potion_shop_purchase",
+      ...npcAnalytics,
+      itemId,
+      itemName,
+      quantity,
+      priceLabel: price.label,
+      expectedPaymentAmountWei: price.amountWei,
+      ...summarizeMferGptPaymentProof(message?.payment),
+    });
+
+    let verifiedPayment: VerifiedPotionShopPayment;
+    try {
+      verifiedPayment = await verifyPotionShopPaymentProof(message?.payment, player.walletAddress, quantity);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "payment verification failed";
+      this.recordPlayerAnalyticsEvent("potion_shop_purchase_failed", client.sessionId, player, {
+        supportKind: "potion_shop_purchase",
+        ...npcAnalytics,
+        itemId,
+        itemName,
+        quantity,
+        stage: "payment_verification",
+        error: errorMessage,
+        ...summarizeMferGptPaymentProof(message?.payment),
+      });
+      sendResult({ ok: false, error: errorMessage });
+      return;
+    }
+
+    const inventoryKey = getInventoryItemKey(itemId);
+    const previousItem = player.inventory.get(inventoryKey);
+    const previousCount = previousItem?.count ?? 0;
+    addInventoryItem(player, itemId, quantity);
+    const nextCount = player.inventory.get(inventoryKey)?.count ?? 0;
+    const persisted = await this.queueCharacterSave(
+      client.sessionId,
+      characterId,
+      makePersistableCharacterState(characterId, player),
+      undefined,
+      (state) => saveCharacterProgressWithCryptoPurchase(state, {
+        ...verifiedPayment,
+        productId: POTION_SHOP_PRODUCT_ID,
+        tokenId: getPotionShopLedgerTokenId(itemId, quantity),
+        paymentToken: "MFERGPT",
+        note: `potion mfer ${itemName} x${quantity}`,
+      }),
+    );
+
+    if (!persisted) {
+      if (previousItem) previousItem.count = previousCount;
+      else player.inventory.delete(inventoryKey);
+      this.recordPlayerAnalyticsEvent("potion_shop_purchase_failed", client.sessionId, player, {
+        supportKind: "potion_shop_purchase",
+        ...npcAnalytics,
+        itemId,
+        itemName,
+        quantity,
+        stage: "save",
+        error: "wallet progress failed to save",
+        ...summarizeVerifiedMferGptPayment(verifiedPayment),
+      });
+      sendResult({
+        ok: false,
+        error: "wallet progress failed to save; retry before reloading",
+        paymentAmountWei: verifiedPayment.amountWei,
+        chainId: verifiedPayment.chainId,
+        txHash: verifiedPayment.txHash,
+      });
+      return;
+    }
+
+    this.recordPlayerAnalyticsEvent("potion_shop_purchase_confirmed", client.sessionId, player, {
+      supportKind: "potion_shop_purchase",
+      ...npcAnalytics,
+      itemId,
+      itemName,
+      quantity,
+      count: nextCount,
+      productId: POTION_SHOP_PRODUCT_ID,
+      ...summarizeVerifiedMferGptPayment(verifiedPayment),
+    });
+    sendResult({
+      ok: true,
+      count: nextCount,
+      paymentAmountWei: verifiedPayment.amountWei,
+      chainId: verifiedPayment.chainId,
+      txHash: verifiedPayment.txHash,
+    });
+  }
+
   private handleDebugUpdateChainGearTier(client: Client, message: Partial<ClientDebugUpdateChainGearTier>) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
@@ -2092,22 +2256,10 @@ export class TownRoom extends Room<TownState> {
     const player = this.state.players.get(client.sessionId);
     if (!player || player.health <= 0) return;
 
-    const traitsNpc = this.state.npcs.get("traits-mfer");
+    const traitsNpc = this.state.npcs.get(TRAITS_MFER_NPC_ID);
     const traitQuest = player.quests.get("set-your-traits");
     const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
     const hasExistingTraits = hasExplicitMferAppearanceTraits(existingTraits);
-    if (!traitsNpc || distanceToNpc(player, traitsNpc) > LOOT.interactRange) {
-      client.send("traitUpdateResult", {
-        ok: false,
-        traits: existingTraits,
-        name: player.name,
-        free: false,
-        paid: false,
-        error: "talk to traits mfer first",
-      });
-      return;
-    }
-
     const nextTraits = normalizeMferAppearanceTraits(message?.traits, existingTraits);
     const previousName = player.name;
     const previousTraitsJson = player.appearanceTraitsJson;
@@ -2129,6 +2281,18 @@ export class TownRoom extends Room<TownState> {
     let verifiedPayment: VerifiedTraitPayment | null = null;
     const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
     const attemptId = makeTraitChangeAttemptId(message?.attemptId);
+    if (free && (!traitsNpc || distanceToNpc(player, traitsNpc) > LOOT.interactRange)) {
+      client.send("traitUpdateResult", {
+        ok: false,
+        traits: existingTraits,
+        name: player.name,
+        free: false,
+        paid: false,
+        error: "talk to traits mfer first",
+      });
+      return;
+    }
+
     if (!free) {
       if (!isWalletCharacter || !player.walletAddress || !characterId) {
         client.send("traitUpdateResult", {
@@ -2148,7 +2312,7 @@ export class TownRoom extends Room<TownState> {
         afterName: nextName,
         beforeTraits: existingTraits,
         afterTraits: nextTraits,
-        payment: summarizeTraitPaymentProof(message?.payment),
+        payment: summarizeMferGptPaymentProof(message?.payment),
       });
 
       try {
@@ -2160,7 +2324,7 @@ export class TownRoom extends Room<TownState> {
           afterName: nextName,
           beforeTraits: existingTraits,
           afterTraits: nextTraits,
-          payment: summarizeTraitPaymentProof(message?.payment),
+          payment: summarizeMferGptPaymentProof(message?.payment),
           error: error instanceof Error ? error.message : "payment verification failed",
         });
         client.send("traitUpdateResult", {
@@ -2199,7 +2363,7 @@ export class TownRoom extends Room<TownState> {
           afterName: nextName,
           beforeTraits: existingTraits,
           afterTraits: nextTraits,
-          payment: summarizeVerifiedTraitPayment(verifiedPayment),
+          payment: summarizeVerifiedMferGptPayment(verifiedPayment),
           error: "wallet progress failed to save",
         });
       }
@@ -2221,7 +2385,7 @@ export class TownRoom extends Room<TownState> {
         afterName: nextName,
         beforeTraits: existingTraits,
         afterTraits: nextTraits,
-        payment: summarizeVerifiedTraitPayment(verifiedPayment),
+        payment: summarizeVerifiedMferGptPayment(verifiedPayment),
       });
     }
 
@@ -2704,6 +2868,10 @@ function makeSystemChat(name: string, text: string): ChatMessage {
   };
 }
 
+function getPotionShopLedgerTokenId(itemId: string, quantity: number) {
+  return quantity > 1 ? `${itemId}:x${quantity}` : itemId;
+}
+
 function makeTraitChangeAttemptId(value: unknown) {
   if (typeof value === "string") {
     const normalized = value.trim().replaceAll(/[^a-zA-Z0-9_.:-]+/g, "_").slice(0, 96);
@@ -2712,7 +2880,7 @@ function makeTraitChangeAttemptId(value: unknown) {
   return `trait-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function summarizeTraitPaymentProof(payment: unknown): Record<string, unknown> {
+function summarizeMferGptPaymentProof(payment: unknown): Record<string, unknown> {
   if (!payment || typeof payment !== "object") return {};
   const proof = payment as Record<string, unknown>;
   return {
@@ -2724,7 +2892,7 @@ function summarizeTraitPaymentProof(payment: unknown): Record<string, unknown> {
   };
 }
 
-function summarizeVerifiedTraitPayment(payment: VerifiedTraitPayment): Record<string, unknown> {
+function summarizeVerifiedMferGptPayment(payment: VerifiedMferGptBurnPayment): Record<string, unknown> {
   return {
     paymentToken: "MFERGPT",
     chainId: payment.chainId,

@@ -288,6 +288,7 @@
   .character-panel,
   .inventory-panel,
   .crypto-store-panel,
+  .potion-shop-panel,
   .traits-panel,
   .settings-panel {
     width: calc(100vw - 24px);
@@ -332,6 +333,11 @@
     bottom: auto;
   }
 
+  .floating-menu-overlay.potion-shop-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
   .swap-anchor .auth-swap-panel {
     position: static;
     width: min(318px, calc(100vw - 28px));
@@ -349,6 +355,9 @@
   .crypto-gear-layout,
   .crypto-market-layout,
   .crypto-store-config,
+  .potion-shop-layout,
+  .potion-shop-items,
+  .potion-shop-packs,
   .crypto-store-balance-grid,
   .crypto-store-currency-bar,
   .crypto-store-collection,
@@ -357,6 +366,7 @@
   .crypto-price-grid,
   .crypto-market-quotes,
   .crypto-store-actions,
+  .potion-shop-actions,
   .crypto-pass-actions,
   .crypto-upgrade-row,
   .traits-layout,

@@ -1247,7 +1247,7 @@ function printHelp() {
   npm run support:admin -- season-payout-export --pool 1000 [--status approved] [--require-product season0-pass] [--per-wallet-cap 100] [--minimum-points 1]
   npm run support:admin -- season-set-status --id <id> --status approved|rejected|distributed [--note "..."]
   npm run support:admin -- purchase-summary [--product season0-pass]
-  npm run support:admin -- purchase-list [--product season0-pass] [--status confirmed] [--wallet 0x...] [--limit 50]
+  npm run support:admin -- purchase-list [--product season0-pass|potion-shop] [--status confirmed] [--wallet 0x...] [--limit 50]
   npm run support:admin -- purchase-export [--product season0-pass] [--status confirmed]
   npm run support:admin -- trait-change-list [--wallet 0x...] [--tx 0x...] [--limit 50]
   npm run support:admin -- purchase-record --wallet 0x... --chain 8453 --contract 0x... --tx 0x... --log-index 0 --token-id 1 --payment-token ETH --payment-amount <wei> [--status confirmed] [--note "..."]

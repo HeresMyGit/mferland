@@ -1,6 +1,7 @@
 import type { COMBAT } from "./combat.js";
 import type { EMOTES } from "./config.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
+import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
@@ -349,13 +350,15 @@ export type ClientSelectTalent = {
   talentId: TalentId;
 };
 
-export type TraitPaymentProof = {
+export type MferGptPaymentProof = {
   token: TraitPaymentToken;
   txHash: string;
   amountWei: string;
   chainId: number;
   contractAddress?: string;
 };
+
+export type TraitPaymentProof = MferGptPaymentProof;
 
 export type ClientUpdateTraits = {
   traits: MferAppearanceTraits;
@@ -370,6 +373,24 @@ export type TraitUpdateResult = {
   name?: string;
   free: boolean;
   paid: boolean;
+  error?: string;
+};
+
+export type ClientPurchasePotionShopItem = {
+  itemId: PotionShopItemId;
+  quantity?: PotionShopPurchaseQuantity;
+  payment?: MferGptPaymentProof;
+};
+
+export type PotionShopPurchaseResult = {
+  ok: boolean;
+  itemId: PotionShopItemId | "";
+  itemName: string;
+  quantity: PotionShopPurchaseQuantity;
+  count: number;
+  paymentAmountWei: string;
+  chainId: number;
+  txHash?: string;
   error?: string;
 };
 

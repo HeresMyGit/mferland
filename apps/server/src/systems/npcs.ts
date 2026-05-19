@@ -1,8 +1,12 @@
 import { type MapSchema } from "@colyseus/schema";
 import {
   COMBAT,
+  CRYPTO_MFER_NPC_ID,
   FARMER_COMBAT,
   PLAYER,
+  POTION_SHOP_NPC_ID,
+  SWAP_MFER_NPC_ID,
+  TRAITS_MFER_NPC_ID,
   getNpcDisposition,
   resolveWorldCollision,
   stableHash,
@@ -31,7 +35,6 @@ const CASTER_RETREAT_RANGE = 7.2;
 const ENEMY_ASSIST_AGGRO_RANGE = 7.5;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const MFERGPT_PORTRAIT_IMAGE = "/portraits/npcs/mfergpt.png";
-const CRYPTO_STORE_NPC_ID = "crypto-mfer";
 
 export type NpcSpawnSpec = {
   id: string;
@@ -78,7 +81,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
     {
       id: "wearables-mfer",
       name: "drip desk mfer",
-      role: "merchant",
+      role: "quest_giver",
       x: -14.8,
       z: 12.5,
       yaw: 1.1,
@@ -86,9 +89,9 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       dialogue: "town can look busted and still not dress like a reply guy.",
     },
     {
-      id: "traits-mfer",
+      id: TRAITS_MFER_NPC_ID,
       name: "traits mfer",
-      role: "quest_giver",
+      role: "merchant",
       x: -3.7,
       z: 25.4,
       yaw: 0,
@@ -97,7 +100,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       questId: "set-your-traits",
     },
     {
-      id: "swap-mfer",
+      id: SWAP_MFER_NPC_ID,
       name: "swap mfer",
       role: "merchant",
       x: 0,
@@ -107,7 +110,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       dialogue: "need $MFERGPT? same base route, less tab-hunting.",
     },
     {
-      id: "crypto-mfer",
+      id: CRYPTO_MFER_NPC_ID,
       name: "crypto mfer",
       role: "merchant",
       x: 3.7,
@@ -115,6 +118,16 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       yaw: 0,
       leashRadius: 1.2,
       dialogue: "wallets, passes, chain gear. testnet first, mainnet when the town deserves it.",
+    },
+    {
+      id: POTION_SHOP_NPC_ID,
+      name: "potion mfer",
+      role: "merchant",
+      x: 7.4,
+      z: 25.4,
+      yaw: 0,
+      leashRadius: 1.2,
+      dialogue: "plaza red, static blue, road snacks. single bottle, clean receipt.",
     },
     {
       id: "gate-guard",
@@ -354,7 +367,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
 }
 
 function shouldSpawnNpcSpec(spec: NpcSpawnSpec) {
-  if (spec.id !== CRYPTO_STORE_NPC_ID) return true;
+  if (spec.id !== CRYPTO_MFER_NPC_ID) return true;
   return process.env.MFERLAND_ENABLE_CRYPTO_STORE === "1";
 }
 

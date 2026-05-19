@@ -6,6 +6,7 @@ import {
   TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL,
   TRAIT_CHANGE_MFERGPT_AMOUNT_WEI,
   TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
+  type MferGptPaymentProof,
 } from "@mferland/shared";
 import { waitForTransactionReceipt, type EthereumProvider } from "./transactionReceipts";
 
@@ -14,6 +15,15 @@ const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 const ERC20_BALANCE_OF_SELECTOR = "0x70a08231";
 
 export async function executeTraitMferGptPayment(provider: EthereumProvider, expectedWalletAddress: string) {
+  return executeMferGptBurnPayment(provider, expectedWalletAddress, TRAIT_CHANGE_MFERGPT_AMOUNT_WEI, TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL);
+}
+
+export async function executeMferGptBurnPayment(
+  provider: EthereumProvider,
+  expectedWalletAddress: string,
+  amountWei: string,
+  amountLabel: string,
+): Promise<MferGptPaymentProof> {
   const account = await getConnectedAccount(provider);
   if (account.toLowerCase() !== expectedWalletAddress.trim().toLowerCase()) {
     throw new Error("connected wallet changed");
@@ -21,10 +31,10 @@ export async function executeTraitMferGptPayment(provider: EthereumProvider, exp
 
   await switchToBase(provider);
 
-  const amount = BigInt(TRAIT_CHANGE_MFERGPT_AMOUNT_WEI);
+  const amount = BigInt(amountWei);
   const balance = await readTokenBalance(provider, TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS, account);
   if (balance < amount) {
-    throw new Error(`not enough ${TRAIT_CHANGE_MFERGPT_AMOUNT_LABEL}`);
+    throw new Error(`not enough ${amountLabel}`);
   }
 
   const txHash = await provider.request({
@@ -42,13 +52,17 @@ export async function executeTraitMferGptPayment(provider: EthereumProvider, exp
   return {
     token: "MFERGPT" as const,
     txHash,
-    amountWei: TRAIT_CHANGE_MFERGPT_AMOUNT_WEI,
+    amountWei,
     chainId: TRAIT_CHANGE_BASE_CHAIN_ID,
     contractAddress: TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
   };
 }
 
 export function getTraitPaymentTxUrl(txHash: string) {
+  return getMferGptPaymentTxUrl(txHash);
+}
+
+export function getMferGptPaymentTxUrl(txHash: string) {
   return `${BASE_BLOCK_EXPLORER_URL}/tx/${txHash}`;
 }
 

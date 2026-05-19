@@ -89,6 +89,13 @@ export type CharacterTraitPaymentRecord = {
   amountWei: string;
 };
 
+export type CharacterCryptoPurchaseRecord = CharacterTraitPaymentRecord & {
+  productId: string;
+  tokenId?: string;
+  paymentToken?: string;
+  note?: string;
+};
+
 export type SeasonRewardAwardResult = {
   status: "awarded" | "duplicate" | "capped" | "ineligible" | "no_database";
   points: number;
@@ -338,31 +345,47 @@ export async function saveCharacterProgress(state: PersistableCharacterState) {
 }
 
 export async function saveCharacterProgressWithTraitPayment(state: PersistableCharacterState, payment: CharacterTraitPaymentRecord) {
+  await saveCharacterProgressWithCryptoPurchase(state, {
+    ...payment,
+    productId: TRAIT_CHANGE_PRODUCT_ID,
+    tokenId: "",
+    paymentToken: "MFERGPT",
+    note: "traits-mfer burn payment",
+  });
+}
+
+export async function saveCharacterProgressWithCryptoPurchase(state: PersistableCharacterState, purchase: CharacterCryptoPurchaseRecord) {
   const db = getRequiredDatabase();
 
   await db.transaction(async (tx) => {
-    const inserted = await tx.insert(cryptoPurchaseEvents)
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`crypto-purchase:${purchase.txHash}:${purchase.logIndex}`}), 0)`);
+    const existing = await tx.query.cryptoPurchaseEvents.findFirst({
+      where: and(
+        eq(cryptoPurchaseEvents.txHash, purchase.txHash),
+        eq(cryptoPurchaseEvents.logIndex, purchase.logIndex),
+      ),
+    });
+    if (existing) throw new Error("crypto payment already used");
+
+    await tx.insert(cryptoPurchaseEvents)
       .values({
         id: randomUUID(),
-        productId: TRAIT_CHANGE_PRODUCT_ID,
-        walletAddress: payment.walletAddress,
+        productId: purchase.productId,
+        walletAddress: purchase.walletAddress,
         characterId: state.characterId,
         source: "chain",
-        chainId: payment.chainId,
-        contractAddress: payment.tokenAddress,
-        txHash: payment.txHash,
-        logIndex: payment.logIndex,
-        tokenId: "",
-        paymentToken: "MFERGPT",
-        paymentAmountWei: payment.amountWei,
+        chainId: purchase.chainId,
+        contractAddress: purchase.tokenAddress,
+        txHash: purchase.txHash,
+        logIndex: purchase.logIndex,
+        tokenId: purchase.tokenId ?? "",
+        paymentToken: purchase.paymentToken ?? "MFERGPT",
+        paymentAmountWei: purchase.amountWei,
         status: "confirmed",
-        note: "traits-mfer burn payment",
+        note: purchase.note ?? "",
         confirmedAt: new Date(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: cryptoPurchaseEvents.id });
+      });
 
-    if (inserted.length === 0) throw new Error("trait payment already used");
     await saveCharacterProgressRows(tx, state);
   });
 }

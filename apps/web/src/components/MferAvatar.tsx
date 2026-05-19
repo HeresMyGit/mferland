@@ -7,6 +7,7 @@ import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
 import {
   getNpcDisposition,
+  isMerchantNpcId,
   type AnimationState,
   type CombatActionId,
   type EmoteId,
@@ -117,6 +118,8 @@ const NAMEPLATE_RENDER_DISTANCE_SQ = 34 * 34;
 const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 40 * 40;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
+const SHOPKEEPER_CUE_RENDER_DISTANCE_SQ = 38 * 38;
+const MERCHANT_PRICE_TAG_EMOJI = "🏷️";
 
 avatarHitGeometry.computeBoundingBox();
 avatarHitGeometry.computeBoundingSphere();
@@ -168,6 +171,8 @@ export function MferAvatar({
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
+  const showMerchantCue = isMerchantNpcId(npc?.id) && !isDefeated && (isTargeted || distanceToViewerSq <= SHOPKEEPER_CUE_RENDER_DISTANCE_SQ);
+  const chatBubbleY = showQuestMarker ? 4.72 : showMerchantCue ? 4.18 : isLocal ? 3.9 : 3.76;
   const isFrozen = Boolean(npc && npc.frozenUntil > Date.now());
   const isCold = Boolean(npc && !isFrozen && npc.slowedUntil > Date.now());
   const castingOrbVariant = "castingAction" in player && player.castEndsAt > Date.now()
@@ -250,6 +255,7 @@ export function MferAvatar({
   return (
     <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} scale={actorScale}>
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
+      {showMerchantCue && <ShopkeeperBuyAura radius={0.98} />}
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
       {npc && isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.95} y={1.35} />}
@@ -268,6 +274,7 @@ export function MferAvatar({
       />
       <group ref={poseRef}>
         <primitive object={avatar} />
+        {showMerchantCue && <ShopkeeperPriceTag y={3.58} />}
         {showNameplate && (
           <Billboard position={[0, isLocal ? 3.22 : 3.08, 0]}>
             <ActorNameplate
@@ -284,7 +291,7 @@ export function MferAvatar({
           </Billboard>
         )}
         {showChatBubble && chatBubble && (
-          <Billboard position={[0, showQuestMarker ? 4.72 : isLocal ? 3.9 : 3.76, 0]}>
+          <Billboard position={[0, chatBubbleY, 0]}>
             <ActorChatBubble bubble={chatBubble} />
           </Billboard>
         )}
@@ -449,6 +456,78 @@ export function DispositionBaseMarker({
         </mesh>
       )}
     </group>
+  );
+}
+
+function ShopkeeperBuyAura({ radius = 0.98 }: { radius?: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(({ clock }) => {
+    const group = groupRef.current;
+    if (!group) return;
+
+    const pulse = (Math.sin(clock.elapsedTime * 2.4) + 1) / 2;
+    group.scale.setScalar(1 + pulse * 0.065);
+    group.rotation.y = clock.elapsedTime * 0.28;
+  });
+
+  return (
+    <group ref={groupRef} position={[0, 0.07, 0]}>
+      <mesh rotation-x={-Math.PI / 2} renderOrder={20}>
+        <circleGeometry args={[radius * 1.2, 72]} />
+        <meshBasicMaterial
+          color="#42ff78"
+          depthWrite={false}
+          opacity={0.12}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+          transparent
+        />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.01, 0]} renderOrder={21}>
+        <ringGeometry args={[radius * 0.78, radius * 1.16, 72]} />
+        <meshBasicMaterial
+          color="#5dff85"
+          depthWrite={false}
+          opacity={0.34}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+          transparent
+        />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.026, 0]} renderOrder={22}>
+        <torusGeometry args={[radius * 1.18, 0.018, 6, 72]} />
+        <meshBasicMaterial color="#b8ff67" depthWrite={false} opacity={0.82} toneMapped={false} transparent />
+      </mesh>
+    </group>
+  );
+}
+
+function ShopkeeperPriceTag({ y }: { y: number }) {
+  return (
+    <Billboard position={[0, y, 0]}>
+      <group>
+        <mesh position={[0, 0, -0.045]} renderOrder={62}>
+          <circleGeometry args={[0.28, 32]} />
+          <meshBasicMaterial color="#102117" depthWrite={false} opacity={0.82} transparent />
+        </mesh>
+        <mesh position={[0, 0, -0.035]} renderOrder={63}>
+          <ringGeometry args={[0.23, 0.3, 32]} />
+          <meshBasicMaterial color="#5dff85" depthWrite={false} opacity={0.72} toneMapped={false} transparent />
+        </mesh>
+        <Text
+          renderOrder={64}
+          fontSize={0.36}
+          anchorX="center"
+          anchorY="middle"
+          color="#fff8e0"
+          outlineColor="#041309"
+          outlineWidth={0.018}
+        >
+          {MERCHANT_PRICE_TAG_EMOJI}
+        </Text>
+      </group>
+    </Billboard>
   );
 }
 
