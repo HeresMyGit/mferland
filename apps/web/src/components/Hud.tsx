@@ -22,6 +22,7 @@ import {
   getItemHeirloomStatsPerLevel,
   getNpcDisposition,
   getNpcQuestMarker,
+  isMerchantNpcId,
   normalizeChainGearTier,
   normalizeItemLevel,
   type ActionId,
@@ -1964,6 +1965,7 @@ function shouldShowNpcOnMaps({
 
   const disposition = getNpcDisposition(npc);
   if (disposition === "hostile") return true;
+  if (isMerchantNpcId(npc.id)) return true;
   return false;
 }
 

@@ -135,6 +135,7 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
   { id: "drip", label: "Drip", x: -12, z: 15, yaw: -2.35 },
   { id: "crypto", label: "Crypto", x: 3.8, z: 22, yaw: 0 },
+  { id: "potion", label: "Potion", x: 7.4, z: 24, yaw: 0 },
   { id: "traits", label: "Traits", x: -3.7, z: 24, yaw: 0 },
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
