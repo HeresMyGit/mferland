@@ -1185,13 +1185,7 @@ export function Hud({
                   {characterWalletAddress && (
                     <div className="character-stat character-wallet-stat" title={characterWalletAddress}>
                       <span>wallet</span>
-                      <code>{characterWalletAddress}</code>
-                    </div>
-                  )}
-                  {characterWalletAddress && (
-                    <div className="character-stat" title={seasonPassOwnership.error || undefined}>
-                      <span>Season Pass</span>
-                      <strong>{seasonPassOwnership.label}</strong>
+                      <code>{formatShortAddress(characterWalletAddress)}</code>
                     </div>
                   )}
                   {showSeasonPoints && (
@@ -1201,10 +1195,16 @@ export function Hud({
                         <strong>{localPlayer?.season0Points ?? 0}/{SEASON_0_TOTAL_POINT_CAP}</strong>
                       </div>
                       <div className="character-stat">
-                        <span>Today</span>
+                        <span>Points Today</span>
                         <strong>{localPlayer?.season0DailyPoints ?? 0}/{SEASON_0_DAILY_POINT_CAP}</strong>
                       </div>
                     </>
+                  )}
+                  {characterWalletAddress && (
+                    <div className="character-stat" title={seasonPassOwnership.error || undefined}>
+                      <span>Season Pass</span>
+                      <strong>{seasonPassOwnership.label}</strong>
+                    </div>
                   )}
                   {getCharacterStatRows(localPlayer).map((stat) => (
                     <div key={stat.label} className="character-stat">
@@ -2325,6 +2325,12 @@ function encodeAddressWord(address: string) {
 
 function isAddress(value: string) {
   return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+function formatShortAddress(address: string) {
+  const trimmed = address.trim();
+  if (trimmed.length <= 12) return trimmed;
+  return `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
 }
 
 function formatSeasonPassBalance(balance: bigint) {
