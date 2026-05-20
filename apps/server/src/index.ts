@@ -9,8 +9,9 @@ import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
+import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
 import { closeDatabase } from "./db/client.js";
-import { getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
+import { getSeason0Leaderboard, getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
 import {
   areDebugMessagesEnabled,
   isCryptoSmokeWalletAuthBypassEnabled,
@@ -124,6 +125,11 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (url === "/season/leaderboard") {
+    void handleSeasonLeaderboard(req, requestUrl, res);
+    return;
+  }
+
   if (url === "/wallet-character") {
     void getWalletCharacterProfile(requestUrl.searchParams.get("wallet") ?? "")
       .then((character) => {
@@ -180,6 +186,26 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (url === "/crypto/mfergpt-burn") {
+    void getMferGptBurnStats()
+      .then((document) => {
+        writeCorsHeaders(res);
+        writeNoStoreHeaders(res);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(document));
+      })
+      .catch((error) => {
+        writeCorsHeaders(res);
+        writeNoStoreHeaders(res);
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          ok: false,
+          error: error instanceof Error ? error.message : "Unable to read MFERGPT burn stats.",
+        }));
+      });
+    return;
+  }
+
   if (serveAdminDashboard(req, res, url)) return;
 
   if (serveWebDist(req, res, url)) return;
@@ -221,6 +247,48 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   void shutdown();
 });
+
+async function handleSeasonLeaderboard(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "allow": "GET, HEAD", "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  const limit = normalizeLeaderboardLimit(requestUrl.searchParams.get("limit"));
+  try {
+    const payload = await getSeason0Leaderboard({ limit });
+    const body = JSON.stringify(payload);
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  } catch (error) {
+    console.error("Failed to load season leaderboard", error);
+    const status = error instanceof PersistenceUnavailableError ? 503 : 500;
+    const body = JSON.stringify({
+      ok: false,
+      error: status === 503 ? "wallet persistence unavailable" : "unable to load leaderboard",
+      entries: [],
+    });
+    res.writeHead(status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  }
+}
 
 async function handlePublicAnalyticsEvent(req: IncomingMessage, res: ServerResponse) {
   writeCorsHeaders(res);
@@ -383,6 +451,12 @@ function readJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<T> {
       }
     });
   });
+}
+
+function normalizeLeaderboardLimit(value: string | null) {
+  const limit = Number(value ?? 100);
+  if (!Number.isFinite(limit)) return 100;
+  return Math.min(Math.max(Math.floor(limit), 1), 250);
 }
 
 function normalizePublicIdentityType(value: unknown) {

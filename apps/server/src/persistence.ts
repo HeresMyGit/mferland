@@ -104,6 +104,32 @@ export type SeasonRewardAwardResult = {
   label: string;
 };
 
+export type SeasonLeaderboardEntry = {
+  rank: number;
+  walletAddress: string;
+  characterName: string;
+  avatarSeed: number;
+  appearanceTraits: MferAppearanceTraits;
+  level: number;
+  xp: number;
+  seasonPoints: number;
+  dailyPoints: number;
+  pendingPoints: number;
+  approvedPoints: number;
+  distributedPoints: number;
+  events: number;
+  lastEventAt: string;
+};
+
+export type SeasonLeaderboardSnapshot = {
+  ok: true;
+  seasonId: typeof SEASON_0_ID;
+  generatedAt: string;
+  dailyPointCap: typeof SEASON_0_DAILY_POINT_CAP;
+  totalPointCap: typeof SEASON_0_TOTAL_POINT_CAP;
+  entries: SeasonLeaderboardEntry[];
+};
+
 function getRequiredDatabase() {
   const db = getDatabase();
   if (!db) throw new PersistenceUnavailableError();
@@ -548,6 +574,91 @@ export async function awardSeason0QuestReward({
   });
 }
 
+export async function getSeason0Leaderboard({
+  limit = 100,
+  now = new Date(),
+}: {
+  limit?: number;
+  now?: Date;
+} = {}): Promise<SeasonLeaderboardSnapshot> {
+  const db = getRequiredDatabase();
+  const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 250);
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayStartIso = dayStart.toISOString();
+  const rows = await db.execute<SeasonLeaderboardQueryRow>(sql`
+    WITH totals AS (
+      SELECT
+        lower(nullif(sre.wallet_address, '')) AS wallet_address,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status IN ('pending', 'approved', 'distributed')), 0)::int AS season_points,
+        coalesce(sum(sre.points) FILTER (
+          WHERE sre.status IN ('pending', 'approved', 'distributed') AND sre.created_at >= ${dayStartIso}::timestamptz
+        ), 0)::int AS daily_points,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status = 'pending'), 0)::int AS pending_points,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status = 'approved'), 0)::int AS approved_points,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status = 'distributed'), 0)::int AS distributed_points,
+        count(*) FILTER (WHERE sre.status IN ('pending', 'approved', 'distributed'))::int AS events,
+        max(sre.created_at) FILTER (WHERE sre.status IN ('pending', 'approved', 'distributed')) AS last_event_at
+      FROM season_reward_events sre
+      WHERE sre.season_id = ${SEASON_0_ID}
+      GROUP BY lower(nullif(sre.wallet_address, ''))
+    ),
+    ranked AS (
+      SELECT
+        totals.*,
+        rank() OVER (
+          ORDER BY totals.season_points DESC, totals.last_event_at ASC NULLS LAST, totals.wallet_address ASC
+        )::int AS rank
+      FROM totals
+      WHERE totals.wallet_address IS NOT NULL AND totals.season_points > 0
+    )
+    SELECT
+      ranked.rank,
+      ranked.wallet_address,
+      coalesce(account_character.name, event_character.name, accounts.display_name, 'mfer') AS character_name,
+      coalesce(account_character.avatar_seed, event_character.avatar_seed, 1)::int AS avatar_seed,
+      coalesce(account_character.appearance_traits, event_character.appearance_traits, '{}'::jsonb) AS appearance_traits,
+      coalesce(account_character.level, event_character.level, 1)::int AS level,
+      coalesce(account_character.xp, event_character.xp, 0)::int AS xp,
+      ranked.season_points,
+      ranked.daily_points,
+      ranked.pending_points,
+      ranked.approved_points,
+      ranked.distributed_points,
+      ranked.events,
+      ranked.last_event_at
+    FROM ranked
+    LEFT JOIN account_wallets ON lower(account_wallets.wallet_address) = ranked.wallet_address
+    LEFT JOIN accounts ON accounts.id = account_wallets.account_id
+    LEFT JOIN LATERAL (
+      SELECT c.name, c.avatar_seed, c.appearance_traits, c.level, c.xp
+      FROM characters c
+      WHERE c.account_id = accounts.id
+      ORDER BY c.updated_at DESC
+      LIMIT 1
+    ) account_character ON true
+    LEFT JOIN LATERAL (
+      SELECT c.name, c.avatar_seed, c.appearance_traits, c.level, c.xp
+      FROM season_reward_events sre
+      JOIN characters c ON c.id = sre.character_id
+      WHERE sre.season_id = ${SEASON_0_ID}
+        AND lower(sre.wallet_address) = ranked.wallet_address
+      ORDER BY sre.created_at DESC
+      LIMIT 1
+    ) event_character ON true
+    ORDER BY ranked.season_points DESC, ranked.last_event_at ASC NULLS LAST, ranked.wallet_address ASC
+    LIMIT ${safeLimit}
+  `);
+
+  return {
+    ok: true,
+    seasonId: SEASON_0_ID,
+    generatedAt: now.toISOString(),
+    dailyPointCap: SEASON_0_DAILY_POINT_CAP,
+    totalPointCap: SEASON_0_TOTAL_POINT_CAP,
+    entries: Array.from(rows).map(mapSeasonLeaderboardEntry),
+  };
+}
+
 async function getSeasonRewardTotals(
   tx: DatabaseTransaction,
   walletAddress: string,
@@ -579,6 +690,60 @@ async function getSeasonRewardTotals(
     dailyTotal: Number(dailyRow?.total ?? 0),
     seasonTotal: Number(seasonRow?.total ?? 0),
   };
+}
+
+type SeasonLeaderboardQueryRow = {
+  rank?: unknown;
+  wallet_address?: unknown;
+  character_name?: unknown;
+  avatar_seed?: unknown;
+  appearance_traits?: unknown;
+  level?: unknown;
+  xp?: unknown;
+  season_points?: unknown;
+  daily_points?: unknown;
+  pending_points?: unknown;
+  approved_points?: unknown;
+  distributed_points?: unknown;
+  events?: unknown;
+  last_event_at?: unknown;
+};
+
+function mapSeasonLeaderboardEntry(row: SeasonLeaderboardQueryRow): SeasonLeaderboardEntry {
+  return {
+    rank: toLeaderboardNumber(row.rank),
+    walletAddress: toLeaderboardString(row.wallet_address),
+    characterName: toLeaderboardString(row.character_name) || "mfer",
+    avatarSeed: normalizeAvatarSeed(toLeaderboardNumber(row.avatar_seed) || 1),
+    appearanceTraits: normalizeMferAppearanceTraits(row.appearance_traits, {}),
+    level: toLeaderboardNumber(row.level) || 1,
+    xp: toLeaderboardNumber(row.xp),
+    seasonPoints: toLeaderboardNumber(row.season_points),
+    dailyPoints: toLeaderboardNumber(row.daily_points),
+    pendingPoints: toLeaderboardNumber(row.pending_points),
+    approvedPoints: toLeaderboardNumber(row.approved_points),
+    distributedPoints: toLeaderboardNumber(row.distributed_points),
+    events: toLeaderboardNumber(row.events),
+    lastEventAt: toLeaderboardIsoString(row.last_event_at),
+  };
+}
+
+function toLeaderboardNumber(value: unknown) {
+  const number = typeof value === "bigint" ? Number(value) : Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function toLeaderboardString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function toLeaderboardIsoString(value: unknown) {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string" && value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
+  }
+  return "";
 }
 
 function isKnownQuestId(value: string): value is QuestId {

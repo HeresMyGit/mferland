@@ -82,6 +82,7 @@ import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
 import { PotionShopPanel } from "./components/PotionShopPanel";
 import { TraitsPanel } from "./components/TraitsPanel";
+import { LeaderboardPage } from "./LeaderboardPage";
 import { StreamPage } from "./StreamPage";
 import { getActionSlotKey, type ActionSlot, type ItemActionSlot, isItemActionSlot, makeItemActionSlot } from "./components/hud/types";
 import {
@@ -216,6 +217,7 @@ function isPotionShopNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsho
 }
 
 export function App() {
+  if (getLeaderboardRoute()) return <LeaderboardPage />;
   const streamRoute = getStreamRoute();
   if (streamRoute) return <StreamPage overlay={streamRoute === "overlay"} />;
   return <GameApp />;
@@ -273,6 +275,13 @@ function getStreamRoute(): "plain" | "overlay" | null {
   if (path === "/stream/overlay" || path === "/stream-overlay" || params.get("overlay") === "1") return "overlay";
   if (path === "/stream" || params.get("stream") === "1") return "plain";
   return null;
+}
+
+function getLeaderboardRoute() {
+  if (typeof window === "undefined") return false;
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const params = new URLSearchParams(window.location.search);
+  return path === "/leaderboard" || params.get("leaderboard") === "1";
 }
 
 function AuthGate({

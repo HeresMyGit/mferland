@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { getSeasonLeaderboardContext } from "./leaderboardContext.js";
 
 type OpenClawContextFile = {
   name: string;
@@ -16,6 +17,7 @@ const DEFAULT_OPENCLAW_WORKSPACE = "/Users/mfergpt/.openclaw/workspace";
 const DEFAULT_CONTEXT_MAX_CHARS = 12_000;
 const RECENT_MEMORY_MAX_CHARS = 1_200;
 const MEMORY_MAX_CHARS = 6_000;
+const LEADERBOARD_CONTEXT_MAX_CHARS = 1_500;
 
 let cachedContext: OpenClawContextCache | null = null;
 
@@ -24,11 +26,15 @@ export async function getOpenClawContext(now = new Date()) {
 
   const workspace = getOpenClawWorkspacePath();
   const files = getOpenClawContextFiles(workspace, now);
-  const fingerprint = await getFilesFingerprint(files);
-  if (cachedContext?.fingerprint === fingerprint) return cachedContext.text;
-
   const maxChars = getOpenClawContextMaxChars();
-  let remaining = maxChars;
+  const leaderboardSection = await getLeaderboardSection(maxChars, now);
+  const fileMaxChars = Math.max(0, maxChars - leaderboardSection.length);
+  const fingerprint = `${await getFilesFingerprint(files)}|max:${fileMaxChars}`;
+  if (cachedContext?.fingerprint === fingerprint) {
+    return `${cachedContext.text}${leaderboardSection}`.trim();
+  }
+
+  let remaining = fileMaxChars;
   let text = "";
 
   for (const file of files) {
@@ -50,7 +56,7 @@ export async function getOpenClawContext(now = new Date()) {
     fingerprint,
     text: text.trim(),
   };
-  return cachedContext.text;
+  return `${cachedContext.text}${leaderboardSection}`.trim();
 }
 
 export function getOpenClawWorkspacePath() {
@@ -96,6 +102,15 @@ async function readContextFile(file: OpenClawContextFile) {
   } catch {
     return "";
   }
+}
+
+async function getLeaderboardSection(maxChars: number, now: Date) {
+  const leaderboardText = await getSeasonLeaderboardContext(now);
+  if (!leaderboardText) return "";
+
+  const reservedChars = Math.min(LEADERBOARD_CONTEXT_MAX_CHARS, Math.max(0, maxChars));
+  if (reservedChars <= 0) return "";
+  return `\n## MFERLAND LEADERBOARD\n\n${truncateText(leaderboardText, reservedChars)}\n`;
 }
 
 function truncateText(text: string, maxChars: number) {
