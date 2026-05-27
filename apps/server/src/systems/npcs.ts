@@ -18,6 +18,7 @@ import {
 } from "@mferland/shared";
 import { NpcState, type PlayerState } from "../state.js";
 import { applyNpcCombatDamage, isNpcAlive, type PendingCombatImpact } from "./combat.js";
+import { makeNpcFrostNovaCastEvent } from "./combatEvents.js";
 import { randomRange } from "./utils.js";
 
 const HOG_COMBAT = {
@@ -35,6 +36,24 @@ const CASTER_RETREAT_RANGE = 7.2;
 const ENEMY_ASSIST_AGGRO_RANGE = 7.5;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const MFERGPT_PORTRAIT_IMAGE = "/portraits/npcs/mfergpt.png";
+const CENTRALIZER_NPC_ID = "static-baron-nox";
+const RAID_OGRE_NPC_ID = "raid-ogre-mfer";
+type BossNpcId = typeof CENTRALIZER_NPC_ID | typeof RAID_OGRE_NPC_ID;
+type BossAbilityId = Extract<CombatActionId, "frostNova" | "shoot" | "whirlwind" | "multishot">;
+type BossAbilityTarget = { sessionId: string; player: PlayerState; distance: number };
+
+const BOSS_ABILITY_DAMAGE: Record<BossNpcId, Partial<Record<BossAbilityId, number>>> = {
+  [CENTRALIZER_NPC_ID]: {
+    frostNova: 12,
+    shoot: 30,
+  },
+  [RAID_OGRE_NPC_ID]: {
+    frostNova: 18,
+    shoot: 44,
+    whirlwind: 32,
+    multishot: 26,
+  },
+};
 
 export type NpcSpawnSpec = {
   id: string;
@@ -595,7 +614,7 @@ function makeRidgeRaiderSpecs() {
       dialogue: "badge clean. signal cooked.",
     },
     {
-      id: "static-baron-nox",
+      id: CENTRALIZER_NPC_ID,
       name: "The Centralizer",
       x: 151.5,
       z: -124.8,
@@ -612,7 +631,7 @@ function makeRidgeRaiderSpecs() {
     x: raider.x,
     z: raider.z,
     yaw: raider.yaw,
-    leashRadius: raider.id === "static-baron-nox" ? 16 : 10.5,
+    leashRadius: raider.id === CENTRALIZER_NPC_ID ? 16 : 10.5,
     health: raider.health,
     maxHealth: raider.health,
     combatStyle: raider.style as "melee" | "caster",
@@ -641,6 +660,7 @@ export function updateNpcs(
         npc.aggroOriginZ = npc.homeZ;
         npc.isEvading = false;
         npc.attackReadyAt = 0;
+        resetNpcAbilityCooldowns(npc);
         npc.frozenUntil = 0;
         npc.slowedUntil = 0;
         npc.hasLoot = false;
@@ -806,6 +826,10 @@ function updateFarmerNpc(
 
   const isCaster = npc.combatStyle === "caster";
   const attackRange = getFarmerAttackRange(npc, isCaster);
+  if (tryUseBossAbility(npc, target, players, distance, attackRange, now, emitCombatEvent, pendingCombatImpacts)) {
+    return;
+  }
+
   if (isCaster && distance < CASTER_RETREAT_RANGE) {
     moveNpcAwayFrom(npc, target.x, target.z, delta, FARMER_COMBAT.moveSpeed * 0.86);
     return;
@@ -826,21 +850,215 @@ function updateFarmerNpc(
 }
 
 function getFarmerAttackRange(npc: NpcState, isCaster: boolean) {
-  if (npc.id === "raid-ogre-mfer") return 7.2;
-  if (npc.id === "static-baron-nox") return 5.6;
+  if (npc.id === RAID_OGRE_NPC_ID) return 7.2;
+  if (npc.id === CENTRALIZER_NPC_ID) return 5.6;
   return isCaster ? FARMER_COMBAT.spellRange : FARMER_COMBAT.meleeRange;
 }
 
 function getFarmerAttackDamage(npc: NpcState, isCaster: boolean) {
-  if (npc.id === "raid-ogre-mfer") return 38;
-  if (npc.id === "static-baron-nox") return 24;
+  if (npc.id === RAID_OGRE_NPC_ID) return 38;
+  if (npc.id === CENTRALIZER_NPC_ID) return 24;
   return isCaster ? FARMER_COMBAT.spellDamage : FARMER_COMBAT.meleeDamage;
 }
 
 function getFarmerAttackCooldownMs(npc: NpcState, isCaster: boolean) {
-  if (npc.id === "raid-ogre-mfer") return 1400;
-  if (npc.id === "static-baron-nox") return 1500;
+  if (npc.id === RAID_OGRE_NPC_ID) return 1400;
+  if (npc.id === CENTRALIZER_NPC_ID) return 1500;
   return isCaster ? FARMER_COMBAT.spellCooldownMs : FARMER_COMBAT.meleeCooldownMs;
+}
+
+function tryUseBossAbility(
+  npc: NpcState,
+  target: PlayerState,
+  players: MapSchema<PlayerState>,
+  targetDistance: number,
+  basicAttackRange: number,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  if (!isBossNpcId(npc.id)) return false;
+
+  if (isNpcAbilityReady(npc, "frostNova", now)) {
+    const targets = findBossAbilityTargets(npc, players, "frostNova");
+    if (targets.length > 0) {
+      castBossFrostNova(npc, targets, now, emitCombatEvent, pendingCombatImpacts);
+      return true;
+    }
+  }
+
+  if (npc.id === RAID_OGRE_NPC_ID && isNpcAbilityReady(npc, "whirlwind", now)) {
+    const targets = findBossAbilityTargets(npc, players, "whirlwind");
+    if (targets.length > 0) {
+      castBossAreaDamage(npc, "whirlwind", targets, now, emitCombatEvent, pendingCombatImpacts);
+      return true;
+    }
+  }
+
+  if (
+    npc.id === RAID_OGRE_NPC_ID
+    && isNpcAbilityReady(npc, "multishot", now)
+    && isDistanceInActionRange(targetDistance, "multishot")
+  ) {
+    castBossMultishot(npc, target, players, now, emitCombatEvent, pendingCombatImpacts);
+    return true;
+  }
+
+  const snipeRange = COMBAT.actions.shoot;
+  const kiteSnipeMinRange = Math.max(snipeRange.minRange, basicAttackRange * 1.05);
+  if (
+    isNpcAbilityReady(npc, "shoot", now)
+    && targetDistance >= kiteSnipeMinRange
+    && targetDistance <= snipeRange.maxRange
+  ) {
+    castBossSingleTargetAbility(npc, "shoot", npc.aggroTargetId, target, now, emitCombatEvent, pendingCombatImpacts);
+    return true;
+  }
+
+  return false;
+}
+
+function castBossFrostNova(
+  npc: NpcState,
+  targets: BossAbilityTarget[],
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  setNpcAbilityReadyAt(npc, "frostNova", now + COMBAT.actions.frostNova.cooldownMs);
+  npc.animation = "idle";
+  npc.targetX = npc.x;
+  npc.targetZ = npc.z;
+  emitCombatEvent(makeNpcFrostNovaCastEvent(npc, now));
+  castBossAreaDamage(npc, "frostNova", targets, now, emitCombatEvent, pendingCombatImpacts, false);
+}
+
+function castBossAreaDamage(
+  npc: NpcState,
+  actionId: BossAbilityId,
+  targets: BossAbilityTarget[],
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+  setCooldown = true,
+) {
+  if (setCooldown) setNpcAbilityReadyAt(npc, actionId, now + COMBAT.actions[actionId].cooldownMs);
+  npc.animation = "idle";
+  npc.targetX = npc.x;
+  npc.targetZ = npc.z;
+  const damage = getBossAbilityDamage(npc, actionId);
+  for (const target of targets) {
+    applyNpcCombatDamage(npc, target.sessionId, target.player, actionId, damage, now, emitCombatEvent, pendingCombatImpacts);
+  }
+}
+
+function castBossSingleTargetAbility(
+  npc: NpcState,
+  actionId: BossAbilityId,
+  targetId: string,
+  target: PlayerState,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  if (!targetId) return;
+  setNpcAbilityReadyAt(npc, actionId, now + COMBAT.actions[actionId].cooldownMs);
+  npc.animation = "idle";
+  npc.targetX = npc.x;
+  npc.targetZ = npc.z;
+  applyNpcCombatDamage(npc, targetId, target, actionId, getBossAbilityDamage(npc, actionId), now, emitCombatEvent, pendingCombatImpacts);
+}
+
+function castBossMultishot(
+  npc: NpcState,
+  primaryTarget: PlayerState,
+  players: MapSchema<PlayerState>,
+  now: number,
+  emitCombatEvent: (event: CombatEvent) => void,
+  pendingCombatImpacts: PendingCombatImpact[],
+) {
+  const primaryTargetId = npc.aggroTargetId;
+  if (!primaryTargetId) return;
+
+  const targets: BossAbilityTarget[] = [{
+    sessionId: primaryTargetId,
+    player: primaryTarget,
+    distance: getDistanceToPlayer(npc, primaryTarget),
+  }];
+  const candidates: BossAbilityTarget[] = [];
+
+  players.forEach((player, sessionId) => {
+    if (sessionId === primaryTargetId || player.health <= 0) return;
+    const distance = getDistanceToPlayer(npc, player);
+    if (!isDistanceInActionRange(distance, "multishot")) return;
+    const splitDistance = Math.hypot(player.x - primaryTarget.x, player.z - primaryTarget.z);
+    if (splitDistance > COMBAT.actions.multishot.splashRadius) return;
+    candidates.push({ sessionId, player, distance: splitDistance });
+  });
+
+  candidates.sort((left, right) => left.distance - right.distance);
+  targets.push(...candidates.slice(0, COMBAT.actions.multishot.maxTargets - 1));
+  castBossAreaDamage(npc, "multishot", targets, now, emitCombatEvent, pendingCombatImpacts);
+}
+
+function findBossAbilityTargets(
+  npc: NpcState,
+  players: MapSchema<PlayerState>,
+  actionId: BossAbilityId,
+) {
+  const targets: BossAbilityTarget[] = [];
+  players.forEach((player, sessionId) => {
+    if (player.health <= 0) return;
+    const distance = getDistanceToPlayer(npc, player);
+    if (!isDistanceInActionRange(distance, actionId)) return;
+    targets.push({ sessionId, player, distance });
+  });
+  targets.sort((left, right) => left.distance - right.distance);
+  return targets;
+}
+
+function isDistanceInActionRange(distance: number, actionId: BossAbilityId) {
+  const action = COMBAT.actions[actionId];
+  return distance >= action.minRange && distance <= action.maxRange;
+}
+
+function getDistanceToPlayer(npc: NpcState, player: PlayerState) {
+  return Math.hypot(player.x - npc.x, player.z - npc.z);
+}
+
+function isBossNpcId(id: string): id is BossNpcId {
+  return id === CENTRALIZER_NPC_ID || id === RAID_OGRE_NPC_ID;
+}
+
+function getBossAbilityDamage(npc: NpcState, actionId: BossAbilityId) {
+  return isBossNpcId(npc.id)
+    ? BOSS_ABILITY_DAMAGE[npc.id][actionId] ?? COMBAT.actions[actionId].damage
+    : COMBAT.actions[actionId].damage;
+}
+
+function isNpcAbilityReady(npc: NpcState, actionId: BossAbilityId, now: number) {
+  return now >= getNpcAbilityReadyAt(npc, actionId);
+}
+
+function getNpcAbilityReadyAt(npc: NpcState, actionId: BossAbilityId) {
+  if (actionId === "shoot") return npc.shootReadyAt;
+  if (actionId === "frostNova") return npc.frostNovaReadyAt;
+  if (actionId === "whirlwind") return npc.whirlwindReadyAt;
+  return npc.multishotReadyAt;
+}
+
+function setNpcAbilityReadyAt(npc: NpcState, actionId: BossAbilityId, readyAt: number) {
+  if (actionId === "shoot") npc.shootReadyAt = readyAt;
+  else if (actionId === "frostNova") npc.frostNovaReadyAt = readyAt;
+  else if (actionId === "whirlwind") npc.whirlwindReadyAt = readyAt;
+  else npc.multishotReadyAt = readyAt;
+}
+
+function resetNpcAbilityCooldowns(npc: NpcState) {
+  npc.shootReadyAt = 0;
+  npc.frostNovaReadyAt = 0;
+  npc.whirlwindReadyAt = 0;
+  npc.multishotReadyAt = 0;
 }
 
 function updateHogNpc(
@@ -895,6 +1113,7 @@ function resetNpcEncounter(npc: NpcState, now: number) {
   npc.aggroOriginZ = npc.z;
   npc.isEvading = true;
   npc.attackReadyAt = 0;
+  resetNpcAbilityCooldowns(npc);
   npc.frozenUntil = 0;
   npc.slowedUntil = 0;
   npc.targetX = npc.homeX;
@@ -907,6 +1126,7 @@ function updateEvadingNpc(npc: NpcState, delta: number) {
   npc.health = npc.maxHealth;
   npc.aggroTargetId = "";
   npc.attackReadyAt = 0;
+  resetNpcAbilityCooldowns(npc);
   npc.frozenUntil = 0;
   npc.slowedUntil = 0;
   npc.targetX = npc.homeX;
@@ -946,8 +1166,8 @@ function findNearestAggroPlayer(npc: NpcState, players: MapSchema<PlayerState>) 
 }
 
 function getFarmerLeashRange(npc: NpcState) {
-  if (npc.id === "raid-ogre-mfer") return 82;
-  if (npc.id === "static-baron-nox") return 56;
+  if (npc.id === RAID_OGRE_NPC_ID) return 82;
+  if (npc.id === CENTRALIZER_NPC_ID) return 56;
   if (!npc.aggroTargetId) return FARMER_COMBAT.leashRange;
   return Math.max(FARMER_COMBAT.leashRange, PLAYER_ATTACK_PULL_LEASH_RANGE);
 }
@@ -1078,8 +1298,8 @@ function getEffectiveNpcMoveSpeed(npc: NpcState, speed: number) {
 }
 
 function getNpcCollisionRadius(npc: NpcState) {
-  if (npc.id === "raid-ogre-mfer") return 1.8;
-  if (npc.id === "static-baron-nox") return 1.05;
+  if (npc.id === RAID_OGRE_NPC_ID) return 1.8;
+  if (npc.id === CENTRALIZER_NPC_ID) return 1.05;
   if (npc.model === "rabbit") return 0.36;
   if (npc.model === "hog") return 0.74;
   if (npc.model === "deer") return 0.62;

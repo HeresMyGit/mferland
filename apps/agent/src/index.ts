@@ -83,6 +83,7 @@ type RuntimePlayer = {
   castEndsAt: number;
   lastCastAt: number;
   lastDamagedAt: number;
+  frozenUntil: number;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -223,6 +224,7 @@ class AgentCharacter {
           castEndsAt: player.castEndsAt,
           lastCastAt: player.lastCastAt,
           lastDamagedAt: player.lastDamagedAt,
+          frozenUntil: player.frozenUntil,
           quests: snapshotQuests(player.quests),
           inventory: snapshotInventory(player.inventory),
           equipment: snapshotEquipment(player.equipment),

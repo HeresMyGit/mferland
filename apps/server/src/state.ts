@@ -98,6 +98,7 @@ export class PlayerState extends Schema {
   @type("number") castEndsAt = 0;
   @type("number") lastCastAt = 0;
   @type("number") lastDamagedAt = 0;
+  @type("number") frozenUntil = 0;
   @type("string") castTargetKind = "";
   @type("string") castTargetId = "";
   @type({ map: QuestState }) quests = new MapSchema<QuestState>();
@@ -139,6 +140,10 @@ export class NpcState extends Schema {
   @type("number") aggroOriginZ = 0;
   @type("boolean") isEvading = false;
   @type("number") attackReadyAt = 0;
+  @type("number") shootReadyAt = 0;
+  @type("number") frostNovaReadyAt = 0;
+  @type("number") whirlwindReadyAt = 0;
+  @type("number") multishotReadyAt = 0;
   @type("string") combatStyle = "";
   @type("boolean") hasLoot = false;
   @type({ map: LootItemState }) loot = new MapSchema<LootItemState>();

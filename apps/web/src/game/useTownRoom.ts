@@ -950,6 +950,7 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     castEndsAt: player.castEndsAt,
     lastCastAt: player.lastCastAt,
     lastDamagedAt: player.lastDamagedAt,
+    frozenUntil: player.frozenUntil,
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
@@ -1002,6 +1003,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.castEndsAt !== player.castEndsAt || changed;
   changed = target.lastCastAt !== player.lastCastAt || changed;
   changed = target.lastDamagedAt !== player.lastDamagedAt || changed;
+  changed = target.frozenUntil !== player.frozenUntil || changed;
 
   target.sessionId = id;
   target.name = player.name;
@@ -1049,6 +1051,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.castEndsAt = player.castEndsAt;
   target.lastCastAt = player.lastCastAt;
   target.lastDamagedAt = player.lastDamagedAt;
+  target.frozenUntil = player.frozenUntil;
   const nextQuests = snapshotQuests(player.quests);
   const nextInventory = snapshotInventory(player.inventory);
   const nextEquipment = snapshotEquipment(player.equipment);

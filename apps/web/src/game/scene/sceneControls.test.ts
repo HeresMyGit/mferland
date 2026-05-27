@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as THREE from "three";
 import type { PlayerSnapshot } from "@mferland/shared";
-import { syncLocalVisualPlayerSnapshot } from "./sceneControls";
+import { syncLocalVisualPlayerSnapshot, updateLocalVisualPlayer } from "./sceneControls";
 
 test("syncLocalVisualPlayerSnapshot refreshes traits without snapping local movement", () => {
   const visual = makePlayer({
@@ -35,6 +36,17 @@ test("syncLocalVisualPlayerSnapshot refreshes traits without snapping local move
   assert.equal(visual.z, 14);
   assert.equal(visual.yaw, 1.2);
   assert.equal(visual.animation, "run");
+});
+
+test("updateLocalVisualPlayer does not predict movement while frozen", () => {
+  const visual = makePlayer({ x: 20, z: 20, animation: "idle" });
+  const authoritative = makePlayer({ x: 20, z: 20, frozenUntil: Date.now() + 5000 });
+
+  updateLocalVisualPlayer(visual, authoritative, new THREE.Vector3(1, 0, 0), 1, 0, true, true, 0.1);
+
+  assert.equal(visual.x, 20);
+  assert.equal(visual.z, 20);
+  assert.equal(visual.animation, "idle");
 });
 
 function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
@@ -85,6 +97,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     castEndsAt: 0,
     lastCastAt: 0,
     lastDamagedAt: 0,
+    frozenUntil: 0,
     quests: [],
     inventory: [],
     equipment: [],

@@ -56,6 +56,26 @@ export function makeFrostNovaCastEvent(sourceId: string, player: PlayerState, no
   };
 }
 
+export function makeNpcFrostNovaCastEvent(source: NpcState, now: number): CombatEvent {
+  return {
+    id: `${now}:${source.id}:frostNova:cast:${Math.random().toString(36).slice(2, 8)}`,
+    sourceId: source.id,
+    actionId: "frostNova",
+    target: { kind: "npc", id: source.id },
+    targetName: source.name,
+    amount: 0,
+    sourceX: source.x,
+    sourceY: source.y + getNpcImpactHeight(source),
+    sourceZ: source.z,
+    targetX: source.x,
+    targetY: source.y + 0.42,
+    targetZ: source.z,
+    sentAt: now,
+    impactAt: now,
+    defeated: false,
+  };
+}
+
 export function makePlayerDamageEvent(
   source: NpcState,
   targetId: string,

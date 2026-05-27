@@ -42,6 +42,7 @@ export function updateLocalVisualPlayer(
   delta: number,
 ) {
   syncLocalVisualPlayerSnapshot(visual, authoritative);
+  const isFrozen = authoritative.frozenUntil > Date.now();
 
   const drift = Math.hypot(visual.x - authoritative.x, visual.z - authoritative.z);
   const heightDrift = Math.abs(visual.y - authoritative.y);
@@ -57,7 +58,7 @@ export function updateLocalVisualPlayer(
     visual.y += (authoritative.y - visual.y) * heightCorrection;
   }
 
-  if (moveLength > 0.01) {
+  if (!isFrozen && moveLength > 0.01) {
     const speed = sprint ? authoritative.runSpeed : authoritative.walkSpeed;
     visual.x += move.x * speed * delta;
     visual.z += move.z * speed * delta;
@@ -70,14 +71,14 @@ export function updateLocalVisualPlayer(
   visual.emote = authoritative.emote;
   visual.emoteStartedAt = authoritative.emoteStartedAt;
   visual.emoteEndsAt = authoritative.emoteEndsAt;
-  if (moveLength > 0.01 || jump) {
+  if (!isFrozen && (moveLength > 0.01 || jump)) {
     visual.emote = "";
     visual.emoteStartedAt = 0;
     visual.emoteEndsAt = 0;
   }
 
-  const airborne = jump || authoritative.y > 0.05 || visual.y > 0.05;
-  visual.animation = airborne ? "jump" : moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
+  const airborne = (!isFrozen && jump) || authoritative.y > 0.05 || visual.y > 0.05;
+  visual.animation = airborne ? "jump" : !isFrozen && moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
 }
 
 export function syncLocalVisualPlayerSnapshot(
@@ -122,6 +123,7 @@ export function syncLocalVisualPlayerSnapshot(
   visual.castEndsAt = authoritative.castEndsAt;
   visual.lastCastAt = authoritative.lastCastAt;
   visual.lastDamagedAt = authoritative.lastDamagedAt;
+  visual.frozenUntil = authoritative.frozenUntil;
   visual.quests = authoritative.quests;
   visual.inventory = authoritative.inventory;
   visual.equipment = authoritative.equipment;

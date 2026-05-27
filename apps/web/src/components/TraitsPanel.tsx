@@ -297,6 +297,7 @@ function makePreviewPlayer(player: PlayerSnapshot, appearanceTraits: MferAppeara
     emoteStartedAt: 0,
     emoteEndsAt: 0,
     health: player.maxHealth,
+    frozenUntil: 0,
   };
 }
 

@@ -173,7 +173,7 @@ export function MferAvatar({
   const showBaseMarker = npc && !isDefeated && (Boolean(questMarker) || isTargeted);
   const showMerchantCue = isMerchantNpcId(npc?.id) && !isDefeated && (isTargeted || distanceToViewerSq <= SHOPKEEPER_CUE_RENDER_DISTANCE_SQ);
   const chatBubbleY = showQuestMarker ? 4.72 : showMerchantCue ? 4.18 : isLocal ? 3.9 : 3.76;
-  const isFrozen = Boolean(npc && npc.frozenUntil > Date.now());
+  const isFrozen = player.frozenUntil > Date.now();
   const isCold = Boolean(npc && !isFrozen && npc.slowedUntil > Date.now());
   const castingOrbVariant = "castingAction" in player && player.castEndsAt > Date.now()
     ? getCastOrbVariant(player.castingAction)
@@ -258,7 +258,7 @@ export function MferAvatar({
       {showMerchantCue && <ShopkeeperBuyAura radius={0.98} />}
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
       {isTargeted && <TargetRing color={targetRingColor} disposition={disposition} radius={0.96} />}
-      {npc && isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.95} y={1.35} />}
+      {isFrozen && <FrozenStatusEffect frozenUntil={player.frozenUntil} radius={0.95} y={1.35} />}
       {npc && isCold && <ColdStatusEffect slowedUntil={npc.slowedUntil} radius={0.95} y={1.35} />}
       {castingOrbVariant && "castStartedAt" in player && (
         <ElementalCastEffect startedAt={player.castStartedAt} endsAt={player.castEndsAt} variant={castingOrbVariant} />

@@ -241,6 +241,13 @@ function applyNpcSlow(npc: NpcState, slowedUntil: number) {
   npc.slowedUntil = Math.max(npc.slowedUntil, slowedUntil);
 }
 
+export function applyPlayerFreeze(player: PlayerState, frozenUntil: number) {
+  if (player.health <= 0) return;
+  player.frozenUntil = Math.max(player.frozenUntil, frozenUntil);
+  clearPlayerCast(player);
+  if (player.y <= 0.001) player.animation = "idle";
+}
+
 export function applyNpcCombatDamage(
   source: NpcState,
   targetId: string,
@@ -264,6 +271,9 @@ export function applyNpcCombatDamage(
   }
 
   const defeated = applyPlayerDamage(player, damage, now);
+  if (actionId === "frostNova" && !defeated) {
+    applyPlayerFreeze(player, now + COMBAT.actions.frostNova.freezeMs);
+  }
   emitCombatEvent(makePlayerDamageEvent(source, targetId, player, actionId, damage, now, defeated, now));
 }
 
@@ -336,7 +346,12 @@ export function processPendingCombatImpacts(
       }
     } else {
       const player = players.get(impact.target.id);
-      if (player) applyPlayerDamage(player, impact.damage, now);
+      if (player) {
+        const defeated = applyPlayerDamage(player, impact.damage, now);
+        if (impact.actionId === "frostNova" && !defeated) {
+          applyPlayerFreeze(player, now + COMBAT.actions.frostNova.freezeMs);
+        }
+      }
     }
   }
 }
@@ -403,5 +418,6 @@ export function respawnPlayerAtFountain(player: PlayerState) {
   player.yaw = RESPAWN_POINT.yaw;
   player.verticalVelocity = 0;
   player.animation = "idle";
+  player.frozenUntil = 0;
   clearPlayerCast(player);
 }

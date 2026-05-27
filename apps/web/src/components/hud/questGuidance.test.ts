@@ -146,6 +146,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     castEndsAt: 0,
     lastCastAt: 0,
     lastDamagedAt: 0,
+    frozenUntil: 0,
     quests: [],
     inventory: [],
     equipment: [],

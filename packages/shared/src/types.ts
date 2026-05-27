@@ -202,6 +202,7 @@ export type PlayerSnapshot = {
   castEndsAt: number;
   lastCastAt: number;
   lastDamagedAt: number;
+  frozenUntil: number;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];

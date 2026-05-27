@@ -398,6 +398,7 @@ export type AdminPlayerSnapshot = {
   castTargetKind: string;
   castTargetId: string;
   lastDamagedAt: number;
+  frozenUntil: number;
   quests: AdminQuestSnapshot[];
   questCounts: Record<AdminQuestSnapshot["status"], number>;
   inventory: AdminInventoryItemSnapshot[];
@@ -627,6 +628,10 @@ export class TownRoom extends Room<TownState> {
         npc.animation = "idle";
         npc.aggroTargetId = "";
         npc.attackReadyAt = 0;
+        npc.shootReadyAt = 0;
+        npc.frostNovaReadyAt = 0;
+        npc.whirlwindReadyAt = 0;
+        npc.multishotReadyAt = 0;
         npc.frozenUntil = 0;
         npc.slowedUntil = 0;
         this.clearNpcThreat(npc.id);
@@ -1194,6 +1199,7 @@ export class TownRoom extends Room<TownState> {
     player.whirlwindReadyAt = 0;
     player.multishotReadyAt = 0;
     player.iceBlastReadyAt = 0;
+    player.frozenUntil = 0;
     clearPlayerCast(player);
   }
 
@@ -1260,6 +1266,10 @@ export class TownRoom extends Room<TownState> {
     npc.despawnAt = 0;
     npc.respawnAt = 0;
     npc.attackReadyAt = 0;
+    npc.shootReadyAt = 0;
+    npc.frostNovaReadyAt = 0;
+    npc.whirlwindReadyAt = 0;
+    npc.multishotReadyAt = 0;
     npc.frozenUntil = 0;
     npc.slowedUntil = 0;
     npc.hasLoot = false;
@@ -1431,6 +1441,8 @@ export class TownRoom extends Room<TownState> {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
     if (player.health <= 0) return;
+    const now = Date.now();
+    if (player.frozenUntil > now) return;
     clearPlayerEmote(player);
 
     const actionId = normalizeCombatActionId(message?.actionId);
@@ -1439,7 +1451,6 @@ export class TownRoom extends Room<TownState> {
     if (!isPlayerActionUnlocked(player, actionId, debugUnlockAllMoves)) return;
 
     const action = getPlayerActionConfig(player, actionId);
-    const now = Date.now();
     if (player.castingAction) return;
     if (getActionReadyAt(player, actionId) > now) return;
     if (action.manaCost > 0 && player.mana < action.manaCost) return;
@@ -2247,8 +2258,8 @@ export class TownRoom extends Room<TownState> {
       name: "too much signal",
       role: "farmer",
       model: "mfer",
-      x: 154.5,
-      z: -124.5,
+      x: 160.9,
+      z: -108,
       yaw: 2.7,
       leashRadius: 22,
       health: 5200,
@@ -2598,33 +2609,38 @@ export class TownRoom extends Room<TownState> {
         clearPlayerCast(player);
         return;
       }
+      if (player.frozenUntil > 0 && player.frozenUntil <= now) player.frozenUntil = 0;
+      const isPlayerFrozen = player.frozenUntil > now;
+      if (isPlayerFrozen) clearPlayerCast(player);
       if (player.emote && player.emoteEndsAt > 0 && now >= player.emoteEndsAt) {
         clearPlayerEmote(player);
       }
-      if (player.castingAction === "heal") {
-        this.updatePlayerHealCast(sessionId, player, activeInput, now);
-      } else {
-        updatePlayerCast(
-          sessionId,
-          player,
-          activeInput,
-          this.state.npcs,
-          now,
-          (event) => this.broadcast("combatEvent", event),
-          this.pendingCombatImpacts,
-          (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
-          (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
-          (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
-        );
+      if (!isPlayerFrozen) {
+        if (player.castingAction === "heal") {
+          this.updatePlayerHealCast(sessionId, player, activeInput, now);
+        } else {
+          updatePlayerCast(
+            sessionId,
+            player,
+            activeInput,
+            this.state.npcs,
+            now,
+            (event) => this.broadcast("combatEvent", event),
+            this.pendingCombatImpacts,
+            (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
+            (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
+            (sourceId, npc, threatActionId, amount, threatAt) => this.addNpcThreat(sourceId, npc, threatActionId, amount, threatAt),
+          );
+        }
       }
       let grounded = player.y <= 0.001;
 
-      if (activeInput?.jump && !this.jumpHeld.get(sessionId) && grounded) {
+      if (!isPlayerFrozen && activeInput?.jump && !this.jumpHeld.get(sessionId) && grounded) {
         player.verticalVelocity = PLAYER.jumpVelocity;
         grounded = false;
       }
-      this.jumpHeld.set(sessionId, Boolean(activeInput?.jump));
-      if (activeInput?.jump) {
+      this.jumpHeld.set(sessionId, Boolean(!isPlayerFrozen && activeInput?.jump));
+      if (!isPlayerFrozen && activeInput?.jump) {
         clearPlayerEmote(player);
       }
 
@@ -2636,6 +2652,15 @@ export class TownRoom extends Room<TownState> {
           player.verticalVelocity = 0;
           grounded = true;
         }
+      }
+
+      if (isPlayerFrozen) {
+        if (activeInput) {
+          player.yaw = activeInput.yaw;
+          player.lastSeq = activeInput.seq;
+        }
+        player.animation = grounded ? "idle" : "jump";
+        return;
       }
 
       if (!activeInput) {
@@ -3295,6 +3320,7 @@ function snapshotPlayers({
       castTargetKind: player.castTargetKind,
       castTargetId: player.castTargetId,
       lastDamagedAt: player.lastDamagedAt,
+      frozenUntil: player.frozenUntil,
       quests,
       questCounts: countAdminQuests(quests),
       inventory: snapshotInventory(player.inventory),
