@@ -124,25 +124,27 @@ test("mferGPT daily fieldwork is repeatable after signal check", () => {
   assert.equal(getNpcQuestMarker({ id: "mfergpt" }, readyDailySignal), "dailyTurnIn");
 });
 
-test("mferGPT daily assignments are large kill or collect work", () => {
+test("mferGPT daily assignments are boss events at the signal camp", () => {
   assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.length >= 5);
-  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.every((assignment) => assignment.required >= 14));
-  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.some((assignment) => assignment.kind === "defeat"));
-  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.some((assignment) => assignment.kind === "collect"));
+  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.every((assignment) => assignment.required === 1));
+  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.every((assignment) => assignment.kind === "defeat"));
+  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.every((assignment) => assignment.targetGroup === "daily-boss"));
+  assert.ok(MFERGPT_DAILY_QUEST_ASSIGNMENTS.every((assignment) => assignment.bossName));
 
   const assignment = getMferGptDailyQuestAssignment(new Date("2026-05-11T12:00:00Z").getTime());
   const flags = makeMferGptDailyQuestFlags(assignment.id);
   assert.equal(getMferGptDailyQuestAssignmentFromFlags(flags).id, assignment.id);
 });
 
-test("mferGPT daily assignment targeting matches existing world mobs", () => {
+test("mferGPT daily assignment targeting matches the daily boss", () => {
   const hogSweep = getMferGptDailyQuestAssignmentFromFlags(makeMferGptDailyQuestFlags("claim-pile-hog-sweep"));
-  assert.equal(isMferGptDailyQuestDefeatTarget(hogSweep, { id: "wild-hog-rooter", model: "hog", role: "beast" }), true);
+  assert.equal(isMferGptDailyQuestDefeatTarget(hogSweep, { id: "mfergpt-daily-boss", model: "mfer", role: "farmer" }), true);
+  assert.equal(isMferGptDailyQuestDefeatTarget(hogSweep, { id: "wild-hog-rooter", model: "hog", role: "beast" }), false);
   assert.equal(isMferGptDailyQuestDefeatTarget(hogSweep, { id: "farmhand-bran", model: "mfer", role: "farmer" }), false);
 
   const eosHaul = getMferGptDailyQuestAssignmentFromFlags(makeMferGptDailyQuestFlags("chewed-eos-haul"));
-  assert.equal(isMferGptDailyQuestDropSource(eosHaul, { id: "wild-hog-rooter", model: "hog", role: "beast" }), true);
-  assert.equal(isMferGptDailyQuestDropSource(eosHaul, { id: "ridge-raider-vex", model: "mfer", role: "farmer" }), false);
+  assert.equal(isMferGptDailyQuestDropSource(eosHaul, { id: "wild-hog-rooter", model: "hog", role: "beast" }), false);
+  assert.equal(isMferGptDailyQuestDropSource(eosHaul, { id: "mfergpt-daily-boss", model: "mfer", role: "farmer" }), false);
 });
 
 test("quest rewards form the early gear progression spine", () => {

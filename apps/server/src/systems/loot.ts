@@ -1,6 +1,7 @@
 import {
   ITEMS,
   LOOT,
+  MFERGPT_DAILY_BOSS_NPC_ID,
   QUESTS,
   getMferGptDailyQuestAssignmentFromFlags,
   getInventoryItemKey,
@@ -86,7 +87,17 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       return;
     }
 
-    if (npc.id === "static-baron-nox") {
+    if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) {
+      if (Math.random() < 0.16) {
+        addLootItem(npc, "blue-juice", 1);
+      }
+      if (Math.random() < 0.12) {
+        addLootItem(npc, "red-juice", 1);
+      }
+      if (Math.random() < 0.06) {
+        addLootItem(npc, "static-loop-ring", 1);
+      }
+    } else if (npc.id === "static-baron-nox") {
       if (Math.random() < 0.16) {
         addLootItem(npc, "static-loop-ring", 1);
       }
@@ -133,32 +144,33 @@ export function populateCorpseLoot(player: PlayerState, npc: NpcState, now: numb
       }
     }
 
-    const bandanaDropRate = !isRidgeRaider(npc) ? 0.35 : 0;
-    if (!isRidgeRaider(npc)) {
+    const isDailySignalBoss = npc.id === MFERGPT_DAILY_BOSS_NPC_ID;
+    const bandanaDropRate = !isRidgeRaider(npc) && !isDailySignalBoss ? 0.35 : 0;
+    if (!isRidgeRaider(npc) && !isDailySignalBoss) {
       addMferGptDailyQuestDrop(player, npc);
     }
     if (bandanaDropRate > 0 && Math.random() < bandanaDropRate) {
       addLootItem(npc, "farmhand-bandana", 1);
     }
-    if (!isRidgeRaider(npc) && Math.random() < 0.05) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && Math.random() < 0.05) {
       addLootItem(npc, "field-patched-hoodie", 1);
     }
-    if (!isRidgeRaider(npc) && !isCasterNpc(npc) && Math.random() < 0.05) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && !isCasterNpc(npc) && Math.random() < 0.05) {
       addLootItem(npc, "farmhand-spade", 1);
     }
-    if (!isRidgeRaider(npc) && Math.random() < 0.04) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && Math.random() < 0.04) {
       addLootItem(npc, "airdrop-burn-hoodie", 1);
     }
-    if (!isRidgeRaider(npc) && Math.random() < 0.04) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && Math.random() < 0.04) {
       addLootItem(npc, "claim-booth-cap", 1);
     }
-    if (!isRidgeRaider(npc) && isCasterNpc(npc) && Math.random() < 0.07) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && isCasterNpc(npc) && Math.random() < 0.07) {
       addLootItem(npc, "claim-clipboard", 1);
     }
-    if (!isRidgeRaider(npc) && Math.random() < 0.035) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && Math.random() < 0.035) {
       addLootItem(npc, "missed-creyzies-keychain", 1);
     }
-    if (!isRidgeRaider(npc) && !isCasterNpc(npc) && Math.random() < 0.06) {
+    if (!isRidgeRaider(npc) && !isDailySignalBoss && !isCasterNpc(npc) && Math.random() < 0.06) {
       addLootItem(npc, "stickerbomb-sling", 1);
     }
     if (Math.random() < 0.1) {

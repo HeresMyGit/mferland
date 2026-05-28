@@ -3,15 +3,22 @@ import {
   COMBAT,
   CRYPTO_MFER_NPC_ID,
   FARMER_COMBAT,
+  MFERGPT_DAILY_BOSS_NPC_ID,
+  MFERGPT_DAILY_FIELD_NODE_NPC_ID,
+  MFERGPT_DAILY_HINT_NPC_ID,
+  MFERGPT_DAILY_HUB_NPC_IDS,
+  MFERGPT_DAILY_WITNESS_NPC_ID,
   PLAYER,
   POTION_SHOP_NPC_ID,
   SWAP_MFER_NPC_ID,
   TRAITS_MFER_NPC_ID,
+  getMferGptDailyQuestAssignment,
   getNpcDisposition,
   resolveWorldCollision,
   stableHash,
   type CombatActionId,
   type CombatEvent,
+  type MferGptDailyQuestAssignment,
   type NpcModel,
   type NpcRole,
   type QuestId,
@@ -38,7 +45,7 @@ const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions)
 const MFERGPT_PORTRAIT_IMAGE = "/portraits/npcs/mfergpt.png";
 const CENTRALIZER_NPC_ID = "static-baron-nox";
 const RAID_OGRE_NPC_ID = "raid-ogre-mfer";
-type BossNpcId = typeof CENTRALIZER_NPC_ID | typeof RAID_OGRE_NPC_ID;
+type BossNpcId = typeof CENTRALIZER_NPC_ID | typeof RAID_OGRE_NPC_ID | typeof MFERGPT_DAILY_BOSS_NPC_ID;
 type BossAbilityId = Extract<CombatActionId, "frostNova" | "shoot" | "whirlwind" | "multishot">;
 type BossAbilityTarget = { sessionId: string; player: PlayerState; distance: number };
 
@@ -52,6 +59,10 @@ const BOSS_ABILITY_DAMAGE: Record<BossNpcId, Partial<Record<BossAbilityId, numbe
     shoot: 44,
     whirlwind: 32,
     multishot: 26,
+  },
+  [MFERGPT_DAILY_BOSS_NPC_ID]: {
+    frostNova: 6,
+    shoot: 14,
   },
 };
 
@@ -421,6 +432,88 @@ export function spawnNpcFromSpec(npcs: MapSchema<NpcState>, spec: NpcSpawnSpec, 
   npc.nextDecisionAt = now + randomRange(1000, 5000);
   npcs.set(npc.id, npc);
   return npc;
+}
+
+export function spawnOrUpdateMferGptDailyHub(
+  npcs: MapSchema<NpcState>,
+  assignment: MferGptDailyQuestAssignment = getMferGptDailyQuestAssignment(),
+  now = Date.now(),
+) {
+  ensureDailyHubNpc(npcs, {
+    id: MFERGPT_DAILY_FIELD_NODE_NPC_ID,
+    name: "mferGPT field node",
+    role: "wanderer",
+    model: "mfergpt",
+    x: -58,
+    z: -52.4,
+    yaw: Math.PI,
+    leashRadius: 0,
+    dialogue: `today's noise: ${assignment.title}. ${assignment.summary}`,
+  }, now);
+
+  ensureDailyHubNpc(npcs, {
+    id: MFERGPT_DAILY_WITNESS_NPC_ID,
+    name: assignment.witnessName ?? "timeline witness mfer",
+    role: "wanderer",
+    model: "mfer",
+    x: -53.6,
+    z: -56.2,
+    yaw: -1.35,
+    leashRadius: 1.8,
+    dialogue: assignment.witnessDialogue ?? assignment.summary,
+  }, now);
+
+  ensureDailyHubNpc(npcs, {
+    id: MFERGPT_DAILY_HINT_NPC_ID,
+    name: assignment.hintName ?? "field note mfer",
+    role: "wanderer",
+    model: "mfer",
+    x: -62.6,
+    z: -57.4,
+    yaw: 1.15,
+    leashRadius: 1.8,
+    dialogue: assignment.hintDialogue ?? "daily boss is nearby. tag it, stay close, and report back to the node.",
+  }, now);
+
+  ensureDailyHubNpc(npcs, {
+    id: MFERGPT_DAILY_BOSS_NPC_ID,
+    name: assignment.bossName ?? "daily signal mfer",
+    role: "farmer",
+    model: "mfer",
+    x: -69.4,
+    z: -55.6,
+    yaw: 1.45,
+    leashRadius: 18,
+    health: 240,
+    maxHealth: 240,
+    combatStyle: "melee",
+    dialogue: assignment.bossDialogue ?? "today's noise found a body.",
+  }, now);
+}
+
+export function clearMferGptDailyHub(npcs: MapSchema<NpcState>) {
+  for (const npcId of MFERGPT_DAILY_HUB_NPC_IDS) {
+    npcs.delete(npcId);
+  }
+}
+
+function ensureDailyHubNpc(npcs: MapSchema<NpcState>, spec: NpcSpawnSpec, now: number) {
+  const existing = npcs.get(spec.id);
+  if (!existing) return spawnNpcFromSpec(npcs, spec, now);
+
+  existing.name = spec.name;
+  existing.role = spec.role;
+  existing.model = spec.model ?? "mfer";
+  existing.portraitImage = spec.portraitImage ?? (existing.model === "mfergpt" ? MFERGPT_PORTRAIT_IMAGE : "");
+  existing.dialogue = spec.dialogue;
+  existing.questId = spec.questId ?? "";
+  existing.leashRadius = spec.leashRadius;
+  existing.combatStyle = spec.combatStyle ?? "";
+  existing.maxHealth = spec.maxHealth ?? spec.health ?? existing.maxHealth;
+  if (isNpcAlive(existing)) {
+    existing.health = Math.min(existing.health, existing.maxHealth);
+  }
+  return existing;
 }
 
 function makeRabbitSpecs() {
@@ -798,6 +891,7 @@ function updateFarmerNpc(
   pendingCombatImpacts: PendingCombatImpact[],
   leashResetNpcIds: string[],
 ) {
+  const hadAggroTarget = Boolean(npc.aggroTargetId);
   let target = npc.aggroTargetId ? players.get(npc.aggroTargetId) ?? null : null;
   const lostTargetToLeash = Boolean(target && distanceToAggroOrigin(npc, target) > getFarmerLeashRange(npc));
   if (!target || target.health <= 0 || lostTargetToLeash) {
@@ -810,7 +904,7 @@ function updateFarmerNpc(
   }
 
   if (!target) {
-    if (lostTargetToLeash) {
+    if (lostTargetToLeash || hadAggroTarget || npc.health < npc.maxHealth) {
       resetNpcEncounter(npc, now);
       leashResetNpcIds.push(npc.id);
     } else {
@@ -852,18 +946,21 @@ function updateFarmerNpc(
 function getFarmerAttackRange(npc: NpcState, isCaster: boolean) {
   if (npc.id === RAID_OGRE_NPC_ID) return 7.2;
   if (npc.id === CENTRALIZER_NPC_ID) return 5.6;
+  if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) return 5.2;
   return isCaster ? FARMER_COMBAT.spellRange : FARMER_COMBAT.meleeRange;
 }
 
 function getFarmerAttackDamage(npc: NpcState, isCaster: boolean) {
   if (npc.id === RAID_OGRE_NPC_ID) return 38;
   if (npc.id === CENTRALIZER_NPC_ID) return 24;
+  if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) return 10;
   return isCaster ? FARMER_COMBAT.spellDamage : FARMER_COMBAT.meleeDamage;
 }
 
 function getFarmerAttackCooldownMs(npc: NpcState, isCaster: boolean) {
   if (npc.id === RAID_OGRE_NPC_ID) return 1400;
   if (npc.id === CENTRALIZER_NPC_ID) return 1500;
+  if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) return 1550;
   return isCaster ? FARMER_COMBAT.spellCooldownMs : FARMER_COMBAT.meleeCooldownMs;
 }
 
@@ -1027,7 +1124,7 @@ function getDistanceToPlayer(npc: NpcState, player: PlayerState) {
 }
 
 function isBossNpcId(id: string): id is BossNpcId {
-  return id === CENTRALIZER_NPC_ID || id === RAID_OGRE_NPC_ID;
+  return id === CENTRALIZER_NPC_ID || id === RAID_OGRE_NPC_ID || id === MFERGPT_DAILY_BOSS_NPC_ID;
 }
 
 function getBossAbilityDamage(npc: NpcState, actionId: BossAbilityId) {
@@ -1070,10 +1167,11 @@ function updateHogNpc(
   pendingCombatImpacts: PendingCombatImpact[],
   leashResetNpcIds: string[],
 ) {
+  const hadAggroTarget = Boolean(npc.aggroTargetId);
   const target = players.get(npc.aggroTargetId);
   const lostTargetToLeash = Boolean(target && distanceToAggroOrigin(npc, target) > getHogLeashRange(npc));
   if (!target || target.health <= 0 || lostTargetToLeash) {
-    if (lostTargetToLeash) {
+    if (lostTargetToLeash || hadAggroTarget || npc.health < npc.maxHealth) {
       resetNpcEncounter(npc, now);
       leashResetNpcIds.push(npc.id);
     } else {
@@ -1168,6 +1266,7 @@ function findNearestAggroPlayer(npc: NpcState, players: MapSchema<PlayerState>) 
 function getFarmerLeashRange(npc: NpcState) {
   if (npc.id === RAID_OGRE_NPC_ID) return 82;
   if (npc.id === CENTRALIZER_NPC_ID) return 56;
+  if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) return 42;
   if (!npc.aggroTargetId) return FARMER_COMBAT.leashRange;
   return Math.max(FARMER_COMBAT.leashRange, PLAYER_ATTACK_PULL_LEASH_RANGE);
 }
@@ -1300,6 +1399,7 @@ function getEffectiveNpcMoveSpeed(npc: NpcState, speed: number) {
 function getNpcCollisionRadius(npc: NpcState) {
   if (npc.id === RAID_OGRE_NPC_ID) return 1.8;
   if (npc.id === CENTRALIZER_NPC_ID) return 1.05;
+  if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) return 1.05;
   if (npc.model === "rabbit") return 0.36;
   if (npc.model === "hog") return 0.74;
   if (npc.model === "deer") return 0.62;

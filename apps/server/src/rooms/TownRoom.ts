@@ -10,6 +10,7 @@ import {
   LOOT,
   MAX_PLAYERS,
   MFERGPT,
+  MFERGPT_DAILY_BOSS_NPC_ID,
   PLAYER,
   POTION_SHOP_NPC_ID,
   POTION_SHOP_PRODUCT_ID,
@@ -28,6 +29,7 @@ import {
   getInventoryItemKey,
   getItemConsumable,
   getPotionShopPrice,
+  getMferGptDailyQuestAssignment,
   getQuestTurnInNpcId,
   hasExplicitMferAppearanceTraits,
   isPotionShopItemId,
@@ -130,7 +132,13 @@ import {
   updateMferlandLiveStatus,
 } from "../systems/mferlandLiveMemory.js";
 import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
-import { spawnNpcFromSpec, spawnNpcs, updateNpcs } from "../systems/npcs.js";
+import {
+  clearMferGptDailyHub,
+  spawnNpcFromSpec,
+  spawnNpcs,
+  spawnOrUpdateMferGptDailyHub,
+  updateNpcs,
+} from "../systems/npcs.js";
 import { applyFrostNova, applyMultishot, applyWhirlwind } from "../systems/playerCombatAbilities.js";
 import { verifyWalletAuthProof } from "../walletAuth.js";
 import {
@@ -476,6 +484,8 @@ export class TownRoom extends Room<TownState> {
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private dailyRaidBossInactiveDespawnAt = 0;
+  private dailySignalHubAssignmentId = "";
+  private lastDailySignalHubSyncAt = 0;
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
   async onAuth(_client: Client, options?: JoinOptions) {
@@ -495,6 +505,7 @@ export class TownRoom extends Room<TownState> {
     activeTownRooms.add(this);
     this.setState(new TownState());
     spawnNpcs(this.state.npcs);
+    this.syncDailySignalHub(Date.now(), true);
     void this.loadSavedDebugPlacementMap();
     this.setSimulationInterval((dt) => this.update(dt / 1000), 1000 / SERVER_TICK_RATE);
     recordMferlandServerStarted(this.roomId, this.maxClients);
@@ -1027,6 +1038,22 @@ export class TownRoom extends Room<TownState> {
       temporaryNpcCount,
       hostileNpcCount,
     });
+  }
+
+  private syncDailySignalHub(now = Date.now(), force = false) {
+    if (!force && now - this.lastDailySignalHubSyncAt < 60_000) return;
+    this.lastDailySignalHubSyncAt = now;
+
+    const assignment = getMferGptDailyQuestAssignment(now);
+    if (this.dailySignalHubAssignmentId && this.dailySignalHubAssignmentId !== assignment.id) {
+      clearMferGptDailyHub(this.state.npcs);
+      this.npcDamageTags.delete(MFERGPT_DAILY_BOSS_NPC_ID);
+      this.clearNpcThreat(MFERGPT_DAILY_BOSS_NPC_ID);
+      this.dailySignalHubAssignmentId = "";
+    }
+
+    spawnOrUpdateMferGptDailyHub(this.state.npcs, assignment, now);
+    this.dailySignalHubAssignmentId = assignment.id;
   }
 
   private async handleDebugSavePlacements(client: Client, message: DebugPlacementSaveMessage) {
@@ -2611,6 +2638,7 @@ export class TownRoom extends Room<TownState> {
   private update(dt: number) {
     const delta = Math.min(dt, 0.1);
     const now = Date.now();
+    this.syncDailySignalHub(now);
     this.removeExpiredTemporaryNpcs(now);
     this.pruneNpcDamageTags(now);
     this.applyThreatTargets(now);
@@ -3022,7 +3050,9 @@ function normalizeSupportAddress(value: unknown) {
 
 function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
   if (player.health <= 0) return false;
-  const radius = npc.id === "raid-ogre-mfer" ? 38 : PROGRESSION.nearbyCreditRadius;
+  const radius = npc.id === "raid-ogre-mfer" || npc.id === MFERGPT_DAILY_BOSS_NPC_ID
+    ? 38
+    : PROGRESSION.nearbyCreditRadius;
   return Math.hypot(player.x - npc.x, player.z - npc.z) <= radius;
 }
 
@@ -3235,7 +3265,7 @@ function normalizeClientAnalyticsProperties(value: unknown): AnalyticsProperties
 }
 
 function isAnalyticsBossNpc(npc: NpcState) {
-  return npc.id === "static-baron-nox" || npc.id === "raid-ogre-mfer";
+  return npc.id === "static-baron-nox" || npc.id === "raid-ogre-mfer" || npc.id === MFERGPT_DAILY_BOSS_NPC_ID;
 }
 
 function normalizeEmoteId(value: unknown): EmoteId | null {

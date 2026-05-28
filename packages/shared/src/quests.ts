@@ -104,10 +104,10 @@ export const QUESTS = {
   "mfergpt-daily-signal": {
     title: "today's noise",
     giverNpcId: "mfergpt",
-    description: "mferGPT picks one daily fieldwork assignment from the current town signal: clear a large stack of existing trouble or recover a big pile of noisy parts.",
-    objectiveLabel: "complete mferGPT's daily fieldwork",
+    description: "mferGPT opens one daily signal camp from the current town noise. Pick up the read in the plaza, drop today's boss at camp, and bring the read back.",
+    objectiveLabel: "drop today's signal boss",
     turnInLabel: "return to mferGPT",
-    required: 20,
+    required: 1,
     requiredQuestId: "mfergpt-checkin",
     repeatCooldownMs: 86_400_000,
     repeatLabel: "daily fieldwork",

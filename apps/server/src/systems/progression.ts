@@ -1,4 +1,5 @@
 import {
+  MFERGPT_DAILY_BOSS_NPC_ID,
   PROGRESSION,
   getLevelForXp,
   getMaxLevelXp,
@@ -55,6 +56,7 @@ export function awardExperience(player: PlayerState, amount: number): Experience
 export function getNpcDefeatXp(npc: Pick<NpcState, "id" | "role" | "model">) {
   if (npc.id === "raid-ogre-mfer") return 135;
   if (npc.id === "static-baron-nox") return 68;
+  if (npc.id === MFERGPT_DAILY_BOSS_NPC_ID) return 45;
   if (npc.role === "farmer") return PROGRESSION.mobXpRewards.farmer;
   if (npc.role === "enemy") return PROGRESSION.mobXpRewards.enemy;
   if (npc.role === "critter") return getModelXpReward(npc.model, PROGRESSION.mobXpRewards.critter);

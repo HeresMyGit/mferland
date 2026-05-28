@@ -21,6 +21,7 @@ export function Quest({ quest, full = false, active = false, onActivate }: Quest
     : null;
   const objectives = getQuestObjectives(quest.id);
   const repeatLabel = getQuestRepeatLabel(quest.id);
+  const title = dailyAssignment ? dailyAssignment.title : definition.title;
   const description = dailyAssignment ? `${definition.description} ${dailyAssignment.summary}` : definition.description;
   const objectiveLabel = dailyAssignment ? dailyAssignment.objectiveLabel : definition.objectiveLabel;
   const statusText = quest.status === "completed"
@@ -42,7 +43,7 @@ export function Quest({ quest, full = false, active = false, onActivate }: Quest
     <>
       <div>
         <strong>
-          {definition.title}
+          {title}
           {repeatLabel && <i>{repeatLabel}</i>}
         </strong>
         {full && <small>{description}</small>}

@@ -42,6 +42,9 @@ export const WORLD_ROADS: WorldRoad[] = [
   { id: "west-market", x: -35, z: 0, width: 34, depth: 7.5, surface: "stone" },
   { id: "east-market", x: 35, z: 0, width: 34, depth: 7.5, surface: "stone" },
   { id: "south-cross", x: 0, z: -34, width: 52, depth: 6.2, surface: "stone" },
+  { id: "daily-signal-cut", x: -42, z: -36, width: 34, depth: 5.8, surface: "dirt" },
+  { id: "daily-signal-lane", x: -58, z: -48, width: 6, depth: 26, surface: "dirt" },
+  { id: "daily-signal-camp-yard", x: -58, z: -56, width: 30, depth: 22, surface: "dirt" },
   { id: "north-cross", x: 0, z: 29, width: 52, depth: 6.2, surface: "stone" },
   { id: "west-row", x: -32, z: 22, width: 7, depth: 28, surface: "stone" },
   { id: "east-row", x: 32, z: 22, width: 7, depth: 28, surface: "stone" },
@@ -61,6 +64,7 @@ export const WORLD_ROADS: WorldRoad[] = [
 
 export const WORLD_HUBS: WorldHub[] = [
   { id: "starter-plaza", name: "Fountain Plaza", x: 0, z: 0, diameter: 24, kind: "plaza" },
+  { id: "daily-signal-camp", name: "Daily Signal Camp", x: -58, z: -56, diameter: 24, kind: "hub" },
   { id: "busted-farm", name: "Loop Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
   { id: "field-camp", name: "Route Board", x: -118, z: 136, diameter: 28, kind: "hub" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },

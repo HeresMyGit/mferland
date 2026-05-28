@@ -176,7 +176,7 @@ function getDailySignal(context: MferGptContext): ToolOutcome {
     : `required: ${assignment.required}.`;
   const status = quest?.status === "ready"
     ? "it is ready to turn in."
-    : "bring it back to mferGPT when the work is done.";
+    : "bring it back to mferGPT in the plaza when the work is done.";
   const response = cleanResponse([
     `today's noise: ${assignment.title}.`,
     assignment.summary,
@@ -215,14 +215,14 @@ function getDailySignalStatus(context: MferGptContext): ToolOutcome {
 
   if (isQuestAvailable(context.player, "mfergpt-daily-signal", context.now)) {
     const assignment = getMferGptDailyQuestAssignment(context.now);
-    const response = `today's noise is open: ${assignment.title}. talk to mferGPT in the plaza to pick up ${assignment.objectiveLabel}.`;
+    const response = `today's noise is open: ${assignment.title}. talk to mferGPT in the plaza to pick it up, then head southwest to the daily signal camp.`;
     return {
       fallback: response,
       summary: [
         "Quest context: player asked about the daily signal and it is available to pick up.",
         `Daily title: ${assignment.title}.`,
         `Objective: ${assignment.objectiveLabel}.`,
-        "Tell them to talk to mferGPT in the plaza to pick it up.",
+        "Tell them to talk to mferGPT in the plaza to pick it up, then head southwest to the daily signal camp.",
       ].join(" "),
     };
   }
@@ -426,7 +426,7 @@ function getActiveQuestHint(
 
   if (questId === "mfergpt-daily-signal") {
     const assignment = getMferGptDailyQuestAssignmentFromFlags(flags);
-    return `for ${quest.title}, ${assignment.objectiveLabel}. progress is ${progress}/${required}.`;
+    return `for ${quest.title}, head southwest of the plaza to the daily signal camp, ${assignment.objectiveLabel}, then report back to mferGPT. progress is ${progress}/${required}.`;
   }
 
   if (questId === "tweet-town-link") {
@@ -467,7 +467,7 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "sealed-note": "carry the folded seed note to drip desk mfer. don't open it just because you can.",
   "farm-road-handoff": "drip desk mfer points you to claimwatch mfer out by the busted airdrop farm.",
   "ask-mfergpt": "put @mfergpt anywhere in chat for a lore fragment, then check back with mferGPT.",
-  "mfergpt-daily-signal": "pick up today's noise from mferGPT, finish the assigned kill or collection work, then return to mferGPT.",
+  "mfergpt-daily-signal": "pick up today's noise from mferGPT in the plaza, head southwest to the daily signal camp, drop the boss, then return to mferGPT.",
   "feral-farmers": "head into airdrop farm and take out creyzie chaser bran, just-missed-it mae, and nakamigo truther sol.",
   "hog-livers": "farm-road hogs around the busted farm and claim booth drop chewed EOS. you need 5.",
   "field-camp-delivery": "take claimwatch's update southwest to route post mfer.",

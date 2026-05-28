@@ -114,7 +114,9 @@ function syncMferGptDailyQuestState(questId: QuestId, quest: QuestState) {
   if (quest.required !== assignment.required) {
     quest.required = assignment.required;
     quest.progress = clamp(quest.progress, 0, quest.required);
-    if (quest.progress < quest.required && quest.status === "ready") {
+    if (quest.progress >= quest.required) {
+      quest.status = "ready";
+    } else if (quest.status === "ready") {
       quest.status = "active";
     }
   }
@@ -197,7 +199,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "mfergpt-daily-signal") {
-    return "daily fieldwork logged. today it uses existing town trouble; later, mferGPT can swap in generated mobs and items without changing the daily slot.";
+    return "daily fieldwork logged. mferGPT folds the camp back into the signal until tomorrow.";
   }
 
   if (questId === "tweet-town-link") {
@@ -290,6 +292,7 @@ function getQuestCompletionNextDirection(questId: QuestId) {
 
 function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "mfergpt") return "signal's clean enough for now.";
+  if (npcId === "mfergpt-daily-field-node") return "camp's quiet until tomorrow's noise.";
   if (npcId === "og-mfer") return "town's still standing. good enough.";
   if (npcId === "wearables-mfer") return "good town. better hats.";
   if (npcId === "traits-mfer") return "mirror's still warm if you need a paid redo.";
@@ -305,6 +308,7 @@ function getFinishedQuestDialogue(npcId: string) {
 
 function getNpcDisplayName(npcId: string) {
   if (npcId === "mfergpt") return "mferGPT";
+  if (npcId === "mfergpt-daily-field-node") return "mferGPT field node";
   if (npcId === "og-mfer") return "OG porch mfer";
   if (npcId === "wearables-mfer") return "drip desk mfer";
   if (npcId === "traits-mfer") return "traits mfer";
@@ -338,7 +342,7 @@ export function makeQuestOffer(questId: QuestId, npc: NpcState) {
     questId,
     npcId: npc.id,
     npcName: npc.name,
-    title: quest.title,
+    title: dailyAssignment ? dailyAssignment.title : quest.title,
     description: dailyAssignment ? `${quest.description} Today's pull: ${dailyAssignment.summary}` : quest.description,
     storyText: dailyAssignment ? dailyAssignment.summary : quest.description,
     objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : quest.objectiveLabel,
@@ -356,7 +360,7 @@ export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: Que
     questId,
     npcId: npc.id,
     npcName: npc.name,
-    title: quest.title,
+    title: dailyAssignment ? dailyAssignment.title : quest.title,
     completionText: getQuestCompletionText(questId),
     completedTaskSummary: getCompletedTaskSummary(questId, questState),
     objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : getQuestTurnInLabel(questId),
@@ -380,7 +384,7 @@ function makeQuestStatusNotice(
     questId,
     npcId: npc.id,
     npcName: npc.name,
-    title: quest.title,
+    title: dailyAssignment ? dailyAssignment.title : quest.title,
     statusText,
     objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : quest.objectiveLabel,
     progress: Math.min(questState.progress, questState.required),
