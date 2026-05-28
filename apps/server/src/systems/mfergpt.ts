@@ -3,7 +3,6 @@ import {
   MFERGPT,
   QUESTS,
   QUEST_IDS,
-  getMferGptDailyQuestAssignment,
   getMferGptDailyQuestAssignmentFromFlags,
   getNpcDisposition,
   getQuestTurnInNpcId,
@@ -12,6 +11,7 @@ import {
 } from "@mferland/shared";
 import { type NpcState, type PlayerState } from "../state.js";
 import { requestCodexCliLlm } from "./codexCliLlm.js";
+import { getActiveMferGptDailyQuestAssignment } from "./generatedDailyQuests.js";
 import { spawnNpcFromSpec } from "./npcs.js";
 import { getOpenClawContext } from "./openclawContext.js";
 import { isQuestAvailable } from "./quests.js";
@@ -214,7 +214,7 @@ function getDailySignalStatus(context: MferGptContext): ToolOutcome {
   }
 
   if (isQuestAvailable(context.player, "mfergpt-daily-signal", context.now)) {
-    const assignment = getMferGptDailyQuestAssignment(context.now);
+    const assignment = getActiveMferGptDailyQuestAssignment(context.now);
     const response = `today's noise is open: ${assignment.title}. talk to mferGPT in the plaza to pick it up, then head southwest to the daily signal camp.`;
     return {
       fallback: response,

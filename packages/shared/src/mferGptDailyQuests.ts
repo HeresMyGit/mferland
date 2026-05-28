@@ -36,6 +36,17 @@ export type MferGptDailyQuestAssignment = {
 };
 
 export const MFERGPT_DAILY_QUEST_FLAG_PREFIX = "mfergpt-daily:";
+export const MFERGPT_DAILY_QUEST_DATA_FLAG_PREFIX = "mfergpt-daily-data:";
+
+const GENERATED_DAILY_TEXT_LIMITS = {
+  id: 64,
+  title: 48,
+  summary: 240,
+  objectiveLabel: 96,
+  sourceTheme: 32,
+  npcName: 48,
+  dialogue: 180,
+} as const;
 
 export const MFERGPT_DAILY_QUEST_ASSIGNMENTS = [
   {
@@ -130,6 +141,15 @@ export function makeMferGptDailyQuestFlags(assignmentId: string) {
   return `${MFERGPT_DAILY_QUEST_FLAG_PREFIX}${assignmentId}`;
 }
 
+export function makeMferGptDailyQuestFlagsForAssignment(assignment: MferGptDailyQuestAssignment) {
+  const normalized = normalizeMferGptDailyQuestAssignment(assignment);
+  if (!normalized) return makeMferGptDailyQuestFlags(assignment.id);
+  return [
+    makeMferGptDailyQuestFlags(normalized.id),
+    `${MFERGPT_DAILY_QUEST_DATA_FLAG_PREFIX}${encodeURIComponent(JSON.stringify(normalized))}`,
+  ].join(",");
+}
+
 export function getMferGptDailyQuestAssignmentId(flags: string) {
   const flag = flags
     .split(",")
@@ -146,8 +166,91 @@ export function getMferGptDailyQuestAssignmentFromFlags(
   flags: string,
   now = Date.now(),
 ): MferGptDailyQuestAssignment {
+  const encodedAssignment = getMferGptDailyQuestAssignmentDataFromFlags(flags);
+  if (encodedAssignment) return encodedAssignment;
+
   const assignmentId = getMferGptDailyQuestAssignmentId(flags);
   return getMferGptDailyQuestAssignmentById(assignmentId) ?? getMferGptDailyQuestAssignment(now);
+}
+
+export function normalizeMferGptDailyQuestAssignment(input: unknown): MferGptDailyQuestAssignment | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  const id = normalizeDailyAssignmentId(record.id);
+  const title = normalizeDailyText(record.title, GENERATED_DAILY_TEXT_LIMITS.title);
+  const summary = normalizeDailyText(record.summary, GENERATED_DAILY_TEXT_LIMITS.summary);
+  const objectiveLabel = normalizeDailyText(record.objectiveLabel, GENERATED_DAILY_TEXT_LIMITS.objectiveLabel);
+  if (!id || !title || !summary || !objectiveLabel) return null;
+
+  const sourceThemes = normalizeSourceThemes(record.sourceThemes);
+  const rawBossName = normalizeDailyText(record.bossName, GENERATED_DAILY_TEXT_LIMITS.npcName) || title;
+  const bossName = rawBossName.toLowerCase().includes("mfer") ? rawBossName : `${rawBossName} mfer`;
+  const bossDialogue = normalizeDailyText(record.bossDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue) || summary;
+  const witnessName = normalizeDailyText(record.witnessName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "signal witness mfer";
+  const witnessDialogue = normalizeDailyText(record.witnessDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue) || summary;
+  const hintName = normalizeDailyText(record.hintName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "field note mfer";
+  const hintDialogue = normalizeDailyText(record.hintDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue)
+    || "boss is posted west of the node. tag it, stay close, bring the noise back.";
+
+  return {
+    id,
+    kind: "defeat",
+    title,
+    summary,
+    objectiveLabel,
+    required: 1,
+    targetGroup: "daily-boss",
+    sourceThemes,
+    bossName,
+    bossDialogue,
+    witnessName,
+    witnessDialogue,
+    hintName,
+    hintDialogue,
+  };
+}
+
+function getMferGptDailyQuestAssignmentDataFromFlags(flags: string) {
+  const encoded = flags
+    .split(",")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(MFERGPT_DAILY_QUEST_DATA_FLAG_PREFIX))
+    ?.slice(MFERGPT_DAILY_QUEST_DATA_FLAG_PREFIX.length);
+  if (!encoded) return null;
+
+  try {
+    return normalizeMferGptDailyQuestAssignment(JSON.parse(decodeURIComponent(encoded)));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDailyAssignmentId(input: unknown) {
+  if (typeof input !== "string") return "";
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, GENERATED_DAILY_TEXT_LIMITS.id);
+}
+
+function normalizeDailyText(input: unknown, maxLength: number) {
+  if (typeof input !== "string") return "";
+  return input
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeSourceThemes(input: unknown): readonly string[] {
+  if (!Array.isArray(input)) return ["generated"];
+  const themes = input
+    .map((theme) => normalizeDailyText(theme, GENERATED_DAILY_TEXT_LIMITS.sourceTheme).toLowerCase())
+    .filter(Boolean)
+    .slice(0, 6);
+  return themes.length > 0 ? themes : ["generated"];
 }
 
 export function isMferGptDailyQuestDefeatTarget(

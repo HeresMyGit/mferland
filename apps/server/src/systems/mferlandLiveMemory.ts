@@ -1,6 +1,7 @@
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MAX_PLAYERS, getMferGptDailyQuestAssignment, type QuestId } from "@mferland/shared";
+import { MAX_PLAYERS, type QuestId } from "@mferland/shared";
+import { getActiveMferGptDailyQuestAssignment } from "./generatedDailyQuests.js";
 import { getOpenClawWorkspacePath } from "./openclawContext.js";
 import { type MferGptCommand } from "./mfergpt.js";
 
@@ -174,7 +175,7 @@ async function writeLiveMemoryNow() {
 
 function renderLiveMemoryMarkdown() {
   const now = Date.now();
-  const daily = getMferGptDailyQuestAssignment(now);
+  const daily = getActiveMferGptDailyQuestAssignment(now);
   const commandSummary = Object.entries(liveState.commandCounts)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([command, count]) => `- ${command}: ${count}`)

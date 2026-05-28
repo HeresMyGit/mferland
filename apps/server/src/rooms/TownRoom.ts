@@ -29,7 +29,6 @@ import {
   getInventoryItemKey,
   getItemConsumable,
   getPotionShopPrice,
-  getMferGptDailyQuestAssignment,
   getQuestTurnInNpcId,
   hasExplicitMferAppearanceTraits,
   isPotionShopItemId,
@@ -132,6 +131,7 @@ import {
   updateMferlandLiveStatus,
 } from "../systems/mferlandLiveMemory.js";
 import { getMferGptPrompt, handleMferGptPrompt, type MferGptCommand } from "../systems/mfergpt.js";
+import { getActiveMferGptDailyQuestAssignment } from "../systems/generatedDailyQuests.js";
 import {
   clearMferGptDailyHub,
   spawnNpcFromSpec,
@@ -1044,7 +1044,7 @@ export class TownRoom extends Room<TownState> {
     if (!force && now - this.lastDailySignalHubSyncAt < 60_000) return;
     this.lastDailySignalHubSyncAt = now;
 
-    const assignment = getMferGptDailyQuestAssignment(now);
+    const assignment = getActiveMferGptDailyQuestAssignment(now);
     if (this.dailySignalHubAssignmentId && this.dailySignalHubAssignmentId !== assignment.id) {
       clearMferGptDailyHub(this.state.npcs);
       this.npcDamageTags.delete(MFERGPT_DAILY_BOSS_NPC_ID);

@@ -3,7 +3,6 @@ import {
   QUEST_IDS,
   clamp,
   getInventoryItemKey,
-  getMferGptDailyQuestAssignment,
   getMferGptDailyQuestAssignmentFromFlags,
   getNpcQuestIds,
   getQuestObjectives,
@@ -20,7 +19,6 @@ import {
   isMferGptDailyQuestItem,
   isStackableItem,
   ITEMS,
-  makeMferGptDailyQuestFlags,
   normalizeChainTokenId,
   shouldConsumeQuestItem,
   type ItemId,
@@ -30,6 +28,10 @@ import {
   type QuestTurnIn,
 } from "@mferland/shared";
 import { InventoryItemState, QuestState, type NpcState, type PlayerState } from "../state.js";
+import {
+  getActiveMferGptDailyQuestAssignment,
+  makeActiveMferGptDailyQuestFlags,
+} from "./generatedDailyQuests.js";
 
 export type NpcQuestInteraction =
   | { type: "offer"; offer: QuestOffer }
@@ -107,9 +109,11 @@ function syncQuestState(player: PlayerState, questId: QuestId, quest: QuestState
 function syncMferGptDailyQuestState(questId: QuestId, quest: QuestState) {
   if (questId !== "mfergpt-daily-signal" || quest.status === "completed") return;
 
-  const assignment = getMferGptDailyQuestAssignmentFromFlags(quest.flags);
+  const assignment = quest.flags
+    ? getMferGptDailyQuestAssignmentFromFlags(quest.flags)
+    : getActiveMferGptDailyQuestAssignment();
   if (!quest.flags) {
-    quest.flags = makeMferGptDailyQuestFlags(assignment.id);
+    quest.flags = makeActiveMferGptDailyQuestFlags();
   }
   if (quest.required !== assignment.required) {
     quest.required = assignment.required;
@@ -337,7 +341,7 @@ export function isQuestAvailable(player: PlayerState, questId: QuestId, now = Da
 
 export function makeQuestOffer(questId: QuestId, npc: NpcState) {
   const quest = QUESTS[questId];
-  const dailyAssignment = questId === "mfergpt-daily-signal" ? getMferGptDailyQuestAssignment() : null;
+  const dailyAssignment = questId === "mfergpt-daily-signal" ? getActiveMferGptDailyQuestAssignment() : null;
   return {
     questId,
     npcId: npc.id,
@@ -472,10 +476,10 @@ function getQuestStartState(questId: QuestId) {
     return { required: QUESTS[questId].required, flags: "" };
   }
 
-  const assignment = getMferGptDailyQuestAssignment();
+  const assignment = getActiveMferGptDailyQuestAssignment();
   return {
     required: assignment.required,
-    flags: makeMferGptDailyQuestFlags(assignment.id),
+    flags: makeActiveMferGptDailyQuestFlags(),
   };
 }
 

@@ -15,6 +15,7 @@ import {
   isMferGptDailyQuestDefeatTarget,
   isMferGptDailyQuestDropSource,
   makeMferGptDailyQuestFlags,
+  makeMferGptDailyQuestFlagsForAssignment,
 } from "./mferGptDailyQuests.js";
 import { QUESTS } from "./quests.js";
 import type { QuestId, QuestSnapshot } from "./types.js";
@@ -145,6 +146,30 @@ test("mferGPT daily assignment targeting matches the daily boss", () => {
   const eosHaul = getMferGptDailyQuestAssignmentFromFlags(makeMferGptDailyQuestFlags("chewed-eos-haul"));
   assert.equal(isMferGptDailyQuestDropSource(eosHaul, { id: "wild-hog-rooter", model: "hog", role: "beast" }), false);
   assert.equal(isMferGptDailyQuestDropSource(eosHaul, { id: "mfergpt-daily-boss", model: "mfer", role: "farmer" }), false);
+});
+
+test("mferGPT generated daily flags preserve dynamic quest copy", () => {
+  const flags = makeMferGptDailyQuestFlagsForAssignment({
+    id: "generated timeline fire",
+    kind: "collect",
+    title: "timeline fire drill",
+    summary: "the feed got loud and mferGPT compressed it into one boss at camp.",
+    objectiveLabel: "drop the timeline fire boss at the daily signal camp",
+    required: 99,
+    targetGroup: "hogs",
+    sourceThemes: ["timeline", "reply loops"],
+    bossName: "timeline fire mfer",
+    bossDialogue: "the replies gave me legs.",
+  });
+
+  const assignment = getMferGptDailyQuestAssignmentFromFlags(flags);
+  assert.equal(assignment.id, "generated-timeline-fire");
+  assert.equal(assignment.title, "timeline fire drill");
+  assert.equal(assignment.kind, "defeat");
+  assert.equal(assignment.required, 1);
+  assert.equal(assignment.targetGroup, "daily-boss");
+  assert.equal(assignment.bossName, "timeline fire mfer");
+  assert.equal(isMferGptDailyQuestDefeatTarget(assignment, { id: "mfergpt-daily-boss", model: "mfer", role: "farmer" }), true);
 });
 
 test("quest rewards form the early gear progression spine", () => {
