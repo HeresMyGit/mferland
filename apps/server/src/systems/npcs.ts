@@ -332,7 +332,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: -91.2,
       yaw: 2.75,
       leashRadius: 1.4,
-      dialogue: "too much signal makes one big stupid body. let's log it off.",
+      dialogue: "say when and i'll call bear market mfer down from the uplink.",
       questId: "cut-the-static",
     },
     {

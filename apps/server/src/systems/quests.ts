@@ -265,7 +265,7 @@ function getQuestCompletionResponse(questId: QuestId) {
   }
 
   if (questId === "ogre-raid-daily") {
-    return "clean hit. that's too much signal folded back into silence.";
+    return "clean hit. bear market mfer folded back into silence.";
   }
 
   return "errand handled.";
@@ -299,7 +299,7 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "field-guide-mfer") return "route stays up if the claim road stays quiet.";
   if (npcId === "pen-keeper-mfer") return "hog loop resets daily because cope has no cooldown.";
   if (npcId === "ridge-guide-mfer") return "bad signal gets louder uptrail.";
-  if (npcId === "beacon-keeper-mfer") return "too much signal makes one big stupid body.";
+  if (npcId === "beacon-keeper-mfer") return "say when and i'll call bear market mfer down from the uplink.";
   return "nothing else for now.";
 }
 

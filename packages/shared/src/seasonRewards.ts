@@ -33,7 +33,7 @@ export const SEASON_0_QUEST_REWARDS = {
   "signal-scraps": { points: 30, cadence: "once", label: "fried uplink scraps" },
   "cut-the-static": { points: 35, cadence: "once", label: "kill the repeaters" },
   "baron-of-static": { points: 60, cadence: "once", label: "log off the centralizer" },
-  "ogre-raid-daily": { points: 75, cadence: "daily", label: "too much signal" },
+  "ogre-raid-daily": { points: 75, cadence: "daily", label: "bear market mfer" },
 } as const satisfies Partial<Record<QuestId, SeasonQuestReward>>;
 
 const SEASON_0_QUEST_REWARD_MAP: Partial<Record<QuestId, SeasonQuestReward>> = SEASON_0_QUEST_REWARDS;

@@ -477,7 +477,7 @@ const MFERGPT_QUEST_HINTS: Partial<Record<QuestId, string>> = {
   "signal-scraps": "signal-jacked ridge crew on Signal Ridge drop fried uplink shards. bring 4 back to signal post mfer.",
   "cut-the-static": "on Signal Ridge, drop operator vex, repeater pax, and echo-shell ori. then report to uplink shack mfer.",
   "baron-of-static": "bring people to uplink shack. The Centralizer is one big body made out of bad signal and control.",
-  "ogre-raid-daily": "once the uplink is charged, drop too much signal at uplink shack and go tell uplink shack mfer.",
+  "ogre-raid-daily": "once the uplink is charged, talk to uplink shack mfer to call bear market mfer, drop him, then report back.",
 };
 
 function describeSafePublicState({ player, players, npcs }: MferGptContext) {

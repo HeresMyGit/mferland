@@ -170,6 +170,8 @@ import {
 } from "../systems/utils.js";
 
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
+const DAILY_RAID_BOSS_NPC_ID = "raid-ogre-mfer";
+const DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS = 5 * 60 * 1000;
 const EMOTE_MIN_INTERVAL_MS = 900;
 const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
@@ -473,6 +475,7 @@ export class TownRoom extends Room<TownState> {
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
+  private dailyRaidBossInactiveDespawnAt = 0;
   private debugWorldPlacementOverrides: Record<string, DebugPlacementRecord> = {};
 
   async onAuth(_client: Client, options?: JoinOptions) {
@@ -725,6 +728,9 @@ export class TownRoom extends Room<TownState> {
       }
 
       if (questInteraction?.type === "status") {
+        if (questInteraction.notice.questId === "ogre-raid-daily") {
+          this.ensureDailyRaidBossForActiveQuest(player);
+        }
         client.send("questStatus", questInteraction.notice);
         this.persistPlayerProgress(client.sessionId, player);
         return;
@@ -2249,32 +2255,68 @@ export class TownRoom extends Room<TownState> {
   }
 
   private ensureDailyRaidBoss() {
-    const existing = this.state.npcs.get("raid-ogre-mfer");
+    const existing = this.state.npcs.get(DAILY_RAID_BOSS_NPC_ID);
     if (existing && isNpcAlive(existing)) return;
     if (existing) this.state.npcs.delete(existing.id);
 
     spawnNpcFromSpec(this.state.npcs, {
-      id: "raid-ogre-mfer",
-      name: "too much signal",
+      id: DAILY_RAID_BOSS_NPC_ID,
+      name: "bear market mfer",
       role: "farmer",
       model: "mfer",
       x: 160.9,
       z: -108,
-      yaw: 2.7,
+      yaw: -1.2,
       leashRadius: 22,
       health: 5200,
       maxHealth: 5200,
       combatStyle: "melee",
-      dialogue: "Too much signal shakes the relay hard enough for the whole ridge to hear.",
+      dialogue: "bear market mfer shakes the relay hard enough for the whole ridge to hear.",
     });
+    this.dailyRaidBossInactiveDespawnAt = Date.now() + DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS;
 
     this.broadcast("chat", {
-      sessionId: "raid-ogre-mfer",
-      name: "too much signal",
+      sessionId: DAILY_RAID_BOSS_NPC_ID,
+      name: "bear market mfer",
       identityType: "npc",
-      text: "Too much signal has been called to Signal Ridge.",
+      text: "bear market mfer has been called to Signal Ridge.",
       sentAt: Date.now(),
     } satisfies ChatMessage);
+  }
+
+  private ensureDailyRaidBossForActiveQuest(player: PlayerState) {
+    const quest = player.quests.get("ogre-raid-daily");
+    if (quest?.status !== "active" || quest.progress >= quest.required) return false;
+
+    this.ensureDailyRaidBoss();
+    return true;
+  }
+
+  private removeInactiveDailyRaidBoss(now: number) {
+    if (this.dailyRaidBossInactiveDespawnAt <= 0 || now < this.dailyRaidBossInactiveDespawnAt) return;
+
+    const npc = this.state.npcs.get(DAILY_RAID_BOSS_NPC_ID);
+    if (!npc || !isNpcAlive(npc)) {
+      this.dailyRaidBossInactiveDespawnAt = 0;
+      return;
+    }
+
+    const taggedPlayers = this.npcDamageTags.get(DAILY_RAID_BOSS_NPC_ID);
+    if (taggedPlayers?.size) {
+      let latestTaggedAt = 0;
+      taggedPlayers.forEach((taggedAt) => {
+        latestTaggedAt = Math.max(latestTaggedAt, taggedAt);
+      });
+      if (now - latestTaggedAt < DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS) {
+        this.dailyRaidBossInactiveDespawnAt = latestTaggedAt + DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS;
+        return;
+      }
+    }
+
+    this.state.npcs.delete(DAILY_RAID_BOSS_NPC_ID);
+    this.npcDamageTags.delete(DAILY_RAID_BOSS_NPC_ID);
+    this.clearNpcThreat(DAILY_RAID_BOSS_NPC_ID);
+    this.dailyRaidBossInactiveDespawnAt = 0;
   }
 
   private handleSelectTalent(client: Client, message: Partial<ClientSelectTalent>) {
@@ -2589,6 +2631,7 @@ export class TownRoom extends Room<TownState> {
       (sourceId, npc, defeatedAt) => this.creditNearbyPlayersForNpcDefeat(sourceId, npc, defeatedAt),
       (sourceId, npc, taggedAt) => this.tagNpcForCredit(sourceId, npc, taggedAt),
     );
+    this.removeInactiveDailyRaidBoss(now);
 
     this.state.players.forEach((player, sessionId) => {
       const input = this.inputs.get(sessionId);
@@ -2850,6 +2893,9 @@ export class TownRoom extends Room<TownState> {
     const taggedPlayers = this.npcDamageTags.get(npc.id) ?? new Map<string, number>();
     taggedPlayers.set(sourceId, now);
     this.npcDamageTags.set(npc.id, taggedPlayers);
+    if (npc.id === DAILY_RAID_BOSS_NPC_ID) {
+      this.dailyRaidBossInactiveDespawnAt = now + DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS;
+    }
   }
 
   private pruneNpcDamageTags(now: number) {
