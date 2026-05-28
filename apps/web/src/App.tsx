@@ -180,7 +180,7 @@ function isCryptoSmokeMode() {
 }
 
 function isInviteRequired() {
-  return import.meta.env.VITE_REQUIRE_INVITE === "1";
+  return import.meta.env.VITE_ENABLE_INVITE_GATE === "1" && import.meta.env.VITE_REQUIRE_INVITE === "1";
 }
 
 function getLinkedInviteCode() {
@@ -735,7 +735,7 @@ function AuthGate({
             </>
           )}
         </div>
-        {inviteRequired && !hasInviteCode && !existingCharacter && <p className="wallet-action-error">use your invite link to create a test mfer</p>}
+        {!isConnected && <p className="wallet-action-hint">connect your wallet to load or create a mfer</p>}
         {walletProfileError && <p className="wallet-action-error">{walletProfileError}</p>}
         {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>

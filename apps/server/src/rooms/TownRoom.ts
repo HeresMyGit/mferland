@@ -222,7 +222,8 @@ function getRequiredInviteCode() {
 }
 
 function isInviteGateEnabled() {
-  return process.env.MFERLAND_REQUIRE_INVITE === "1" || Boolean(getRequiredInviteCode());
+  return process.env.MFERLAND_ENABLE_INVITE_GATE === "1"
+    && (process.env.MFERLAND_REQUIRE_INVITE === "1" || Boolean(getRequiredInviteCode()));
 }
 
 async function assertInviteAllowed(options: JoinOptions | undefined, walletAddress: string) {
@@ -2171,7 +2172,8 @@ export class TownRoom extends Room<TownState> {
     if (!player || player.health <= 0) return;
 
     const questId = normalizeQuestId(message?.questId);
-    if (!questId || !isQuestAvailable(player, questId)) return;
+    if (!questId) return;
+    if (!isQuestAvailable(player, questId)) return;
 
     const npc = this.state.npcs.get(QUESTS[questId].giverNpcId);
     if (!npc) return;

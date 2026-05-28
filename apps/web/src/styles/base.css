@@ -1340,6 +1340,15 @@ button {
   text-transform: uppercase;
 }
 
+.wallet-action-hint {
+  margin: 10px 0 0;
+  color: #e7dcc0;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+}
+
 .auth-modal-backdrop {
   position: fixed;
   inset: 0;

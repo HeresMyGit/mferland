@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_CRYPTO_CONTRACTS_URL?: string;
   readonly VITE_ENABLE_CRYPTO_STORE?: string;
+  readonly VITE_ENABLE_INVITE_GATE?: string;
   readonly VITE_ENABLE_REAL_CAPTURE?: string;
   readonly VITE_GA_MEASUREMENT_ID?: string;
   readonly VITE_REQUIRE_INVITE?: string;
