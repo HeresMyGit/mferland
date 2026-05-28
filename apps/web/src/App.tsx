@@ -24,6 +24,7 @@ import {
   stableHash,
   type ActionId,
   type ClientAcceptQuest,
+  type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientEmote,
   type ClientEquipItem,
@@ -1362,6 +1363,10 @@ function GameShell({
     audio.play("questComplete");
     room.sendCompleteQuest(message);
   }, [audio, room.sendCompleteQuest]);
+  const cancelQuest = useCallback((message: ClientCancelQuest) => {
+    audio.play("uiToggle");
+    room.sendCancelQuest(message);
+  }, [audio, room.sendCancelQuest]);
   const lootCorpse = useCallback((message: ClientLootCorpse) => {
     audio.play("inventoryLoot");
     room.sendLootCorpse(message);
@@ -1766,6 +1771,7 @@ function GameShell({
             onReplaceActionSlots={replaceActionSlots}
             onAcceptQuest={acceptQuest}
             onCompleteQuest={completeQuest}
+            onCancelQuest={cancelQuest}
             onShareQuestLink={room.sendShareQuestLink}
             onDismissQuestOffer={room.dismissQuestOffer}
             onDismissQuestTurnIn={room.dismissQuestTurnIn}

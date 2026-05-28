@@ -46,6 +46,7 @@ import {
   sanitizePlayerName,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
   type ClientDebugRegisterChainGear,
@@ -143,6 +144,7 @@ import { applyFrostNova, applyMultishot, applyWhirlwind } from "../systems/playe
 import { verifyWalletAuthProof } from "../walletAuth.js";
 import {
   completeQuest,
+  cancelQuest,
   getNpcDialogue,
   getNextAvailableQuestId,
   getNpcQuestInteraction,
@@ -530,6 +532,9 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("completeQuest", (client, message: Partial<ClientCompleteQuest>) => {
       this.handleCompleteQuest(client, message);
+    });
+    this.onMessage("cancelQuest", (client, message: Partial<ClientCancelQuest>) => {
+      this.handleCancelQuest(client, message);
     });
 
     this.onMessage("analyticsEvent", (client, message: ClientAnalyticsMessage = {}) => {
@@ -2230,6 +2235,20 @@ export class TownRoom extends Room<TownState> {
     if (nextQuestId && QUESTS[nextQuestId].giverNpcId === npc.id) {
       client.send("questOffer", makeQuestOffer(nextQuestId, npc));
     }
+  }
+
+  private handleCancelQuest(client: Client, message: Partial<ClientCancelQuest>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+
+    const questId = normalizeQuestId(message?.questId);
+    if (!questId || !cancelQuest(player, questId)) return;
+
+    this.recordPlayerAnalyticsEvent("quest_cancelled", client.sessionId, player, {
+      questId,
+      level: player.level,
+    });
+    this.persistPlayerProgress(client.sessionId, player);
   }
 
   private handleLootCorpse(client: Client, message: Partial<ClientLootCorpse>) {

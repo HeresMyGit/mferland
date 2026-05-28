@@ -461,6 +461,16 @@ export function startQuest(player: PlayerState, questId: QuestId) {
   syncQuestItemProgress(player, questId);
 }
 
+export function cancelQuest(player: PlayerState, questId: QuestId) {
+  const quest = player.quests.get(questId);
+  if (!quest || quest.status === "completed") return false;
+
+  const startItemId = getQuestStartItemId(questId);
+  if (startItemId) removeInventoryItem(player, startItemId, quest.required);
+  player.quests.delete(questId);
+  return true;
+}
+
 function resetQuest(quest: QuestState, questId: QuestId) {
   const questStartState = getQuestStartState(questId);
   quest.id = questId;

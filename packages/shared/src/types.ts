@@ -305,6 +305,10 @@ export type ClientCompleteQuest = {
   npcId?: string;
 };
 
+export type ClientCancelQuest = {
+  questId: QuestId;
+};
+
 export type ClientShareQuestLink = {
   questId: QuestId;
   url?: string;

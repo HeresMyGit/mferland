@@ -10,6 +10,7 @@ import {
   getUnlockedCombatActions,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientEquipItem,
   type ClientInput,
@@ -359,6 +360,7 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
           onReplaceActionSlots={noopReplaceActionSlots}
           onAcceptQuest={noopAcceptQuest}
           onCompleteQuest={noopCompleteQuest}
+          onCancelQuest={noopCancelQuest}
           onShareQuestLink={noopShareQuestLink}
           onDismissQuestOffer={noop}
           onDismissQuestTurnIn={noop}
@@ -906,6 +908,7 @@ function noopAction(_slot: NonNullable<ActionSlot>) {}
 function noopReplaceActionSlots(_slots: ActionSlot[]) {}
 function noopAcceptQuest(_message: ClientAcceptQuest) {}
 function noopCompleteQuest(_message: ClientCompleteQuest) {}
+function noopCancelQuest(_message: ClientCancelQuest) {}
 function noopShareQuestLink(_message: ClientShareQuestLink) {}
 function noopLootCorpse(_message: ClientLootCorpse) {}
 function noopActionSlotItem(_message: ClientEquipItem) {}

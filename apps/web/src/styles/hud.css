@@ -650,6 +650,36 @@ button.quest-row {
   padding: 13px 0;
 }
 
+.quest-log-entry {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.quest-log-entry .quest-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.quest-cancel-button {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 248, 224, 0.18);
+  border-radius: 4px;
+  color: rgba(255, 248, 224, 0.76);
+  background: rgba(13, 12, 9, 0.42);
+  cursor: pointer;
+}
+
+.quest-cancel-button:hover {
+  border-color: rgba(255, 112, 112, 0.55);
+  color: #ffd3d3;
+  background: rgba(148, 37, 37, 0.26);
+}
+
 .quest-row strong {
   display: block;
   color: var(--hud-good);

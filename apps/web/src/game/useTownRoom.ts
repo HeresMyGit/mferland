@@ -5,6 +5,7 @@ import {
   ROOM_NAME,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
   type ClientDebugRegisterChainGear,
@@ -537,6 +538,13 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("completeQuest", message);
   }, []);
 
+  const sendCancelQuest = useCallback((message: ClientCancelQuest) => {
+    setQuestOffer(null);
+    setQuestTurnIn(null);
+    setQuestStatus(null);
+    roomRef.current?.send("cancelQuest", message);
+  }, []);
+
   const sendAnalyticsEvent = useCallback((eventType: string, properties: ClientAnalyticsProperties = {}) => {
     roomRef.current?.send("analyticsEvent", { eventType, properties });
   }, []);
@@ -687,6 +695,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendInteract,
     sendAcceptQuest,
     sendCompleteQuest,
+    sendCancelQuest,
     sendAnalyticsEvent,
     sendShareQuestLink,
     dismissQuestOffer,

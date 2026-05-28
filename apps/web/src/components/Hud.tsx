@@ -30,6 +30,7 @@ import {
   type CombatActionId,
   type EmoteId,
   type ClientAcceptQuest,
+  type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientEquipItem,
   type ClientLootCorpse,
@@ -178,6 +179,7 @@ type HudProps = {
   onReplaceActionSlots: (slots: ActionSlot[]) => void;
   onAcceptQuest: (message: ClientAcceptQuest) => void;
   onCompleteQuest: (message: ClientCompleteQuest) => void;
+  onCancelQuest: (message: ClientCancelQuest) => void;
   onShareQuestLink: (message: ClientShareQuestLink) => void;
   onDismissQuestOffer: () => void;
   onDismissQuestTurnIn: () => void;
@@ -228,6 +230,7 @@ export function Hud({
   onReplaceActionSlots,
   onAcceptQuest,
   onCompleteQuest,
+  onCancelQuest,
   onShareQuestLink,
   onDismissQuestOffer,
   onDismissQuestTurnIn,
@@ -271,6 +274,7 @@ export function Hud({
   const [isEmotesOpen, setIsEmotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeQuestId, setActiveQuestId] = useState<QuestId | null>(null);
+  const [showCompletedQuests, setShowCompletedQuests] = useState(false);
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const exploredCellKeyRef = useRef("");
   const minimapHubRefs = useRef(new Map<string, HTMLElement>());
@@ -288,6 +292,11 @@ export function Hud({
   );
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
+  const visibleQuestLog = useMemo(
+    () => showCompletedQuests ? questLog : questLog.filter((quest) => quest.status !== "completed"),
+    [questLog, showCompletedQuests],
+  );
+  const completedQuestCount = questLog.length - questLog.filter((quest) => quest.status !== "completed").length;
   const revealAllNpcsOnMinimap = playerRevealsAllNpcsOnMinimap(localPlayer);
   const visibleMapNpcs = Array.from(npcs.values())
     .map((npc) => ({ npc, questMarker: getNpcQuestMarker(npc, questLog) }))
@@ -1140,23 +1149,43 @@ export function Hud({
             <div className="world-map-header">
               <div>
                 <strong>errand log</strong>
-                <span>{questLog.length} errands</span>
+                <span>{visibleQuestLog.length}/{questLog.length} errands</span>
               </div>
+              <label className="quest-log-toggle">
+                <input
+                  type="checkbox"
+                  checked={showCompletedQuests}
+                  onChange={(event) => setShowCompletedQuests(event.target.checked)}
+                />
+                <span>handled</span>
+              </label>
               <button type="button" title="Close errand log" aria-label="Close errand log" onClick={() => setIsQuestLogOpen(false)}>
                 <X size={22} />
               </button>
             </div>
             <div className="quest-log-list">
-              {questLog.length > 0 ? questLog.map((quest) => (
-                <Quest
-                  key={quest.id}
-                  quest={quest}
-                  full
-                  active={quest.id === activeQuestId}
-                  onActivate={quest.status === "completed" ? undefined : setActiveQuestId}
-                />
+              {visibleQuestLog.length > 0 ? visibleQuestLog.map((quest) => (
+                <div key={quest.id} className="quest-log-entry">
+                  <Quest
+                    quest={quest}
+                    full
+                    active={quest.id === activeQuestId}
+                    onActivate={quest.status === "completed" ? undefined : setActiveQuestId}
+                  />
+                  {quest.status !== "completed" && (
+                    <button
+                      type="button"
+                      className="quest-cancel-button"
+                      title="Cancel errand"
+                      aria-label={`Cancel ${QUESTS[quest.id].title}`}
+                      onClick={() => onCancelQuest({ questId: quest.id })}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               )) : (
-                <p className="quest-empty">no errands yet</p>
+                <p className="quest-empty">{completedQuestCount > 0 ? "handled errands hidden" : "no errands yet"}</p>
               )}
             </div>
           </div>
