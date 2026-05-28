@@ -182,12 +182,12 @@ export function normalizeMferGptDailyQuestAssignment(input: unknown): MferGptDai
   if (!id || !title || !summary || !objectiveLabel) return null;
 
   const sourceThemes = normalizeSourceThemes(record.sourceThemes);
-  const rawBossName = normalizeDailyText(record.bossName, GENERATED_DAILY_TEXT_LIMITS.npcName) || title;
+  const rawBossName = normalizeDailyNpcName(record.bossName, title);
   const bossName = rawBossName.toLowerCase().includes("mfer") ? rawBossName : `${rawBossName} mfer`;
   const bossDialogue = normalizeDailyText(record.bossDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue) || summary;
-  const witnessName = normalizeDailyText(record.witnessName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "signal-bitten mfer";
+  const witnessName = normalizeDailyNpcName(record.witnessName, "signal-bitten mfer");
   const witnessDialogue = normalizeDailyText(record.witnessDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue) || summary;
-  const hintName = normalizeDailyText(record.hintName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "camp static mfer";
+  const hintName = normalizeDailyNpcName(record.hintName, "camp static mfer");
   const hintDialogue = normalizeDailyText(record.hintDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue)
     || "boss is posted west of camp. tag it, stay close, bring the noise back to plaza mferGPT.";
 
@@ -241,6 +241,19 @@ function normalizeDailyText(input: unknown, maxLength: number) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function normalizeDailyNpcName(input: unknown, fallback: string) {
+  const normalized = normalizeDailyText(input, GENERATED_DAILY_TEXT_LIMITS.npcName);
+  if (normalized && !isReservedMferGptNpcName(normalized)) return normalized;
+
+  const fallbackName = normalizeDailyText(fallback, GENERATED_DAILY_TEXT_LIMITS.npcName);
+  if (fallbackName && !isReservedMferGptNpcName(fallbackName)) return fallbackName;
+  return "daily signal mfer";
+}
+
+function isReservedMferGptNpcName(name: string) {
+  return /\bmfer\s*gpt\b/i.test(name);
 }
 
 function normalizeSourceThemes(input: unknown): readonly string[] {

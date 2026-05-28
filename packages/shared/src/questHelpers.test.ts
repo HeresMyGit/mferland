@@ -172,6 +172,30 @@ test("mferGPT generated daily flags preserve dynamic quest copy", () => {
   assert.equal(isMferGptDailyQuestDefeatTarget(assignment, { id: "mfergpt-daily-boss", model: "mfer", role: "farmer" }), true);
 });
 
+test("mferGPT generated daily mob names reserve mferGPT for the plaza NPC", () => {
+  const flags = makeMferGptDailyQuestFlagsForAssignment({
+    id: "generated imposter signal",
+    kind: "defeat",
+    title: "imposter signal",
+    summary: "a fake assistant name tried to walk into camp as a hostile mob.",
+    objectiveLabel: "drop the imposter signal boss at the daily signal camp",
+    required: 1,
+    targetGroup: "daily-boss",
+    sourceThemes: ["agents"],
+    bossName: "mferGPT",
+    bossDialogue: "wrong name. wrong place.",
+    witnessName: "mferGPT echo",
+    witnessDialogue: "borrowed name, bad posture.",
+    hintName: "mferGPT",
+    hintDialogue: "hit the fake name until it stops moving.",
+  });
+
+  const assignment = getMferGptDailyQuestAssignmentFromFlags(flags);
+  assert.equal(/\bmfer\s*gpt\b/i.test(assignment.bossName ?? ""), false);
+  assert.equal(/\bmfer\s*gpt\b/i.test(assignment.witnessName ?? ""), false);
+  assert.equal(/\bmfer\s*gpt\b/i.test(assignment.hintName ?? ""), false);
+});
+
 test("quest rewards form the early gear progression spine", () => {
   assert.deepEqual(QUESTS["fountain-vibes"].rewardItemIds, ["reply-lag-visor"]);
   assert.deepEqual(QUESTS["ask-mfergpt"].rewardItemIds, ["receipt-zine"]);

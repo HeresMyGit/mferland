@@ -171,6 +171,7 @@ function buildDailyQuestPrompt(dateKey: string, context: string) {
     "The game server is authoritative: you may only produce text fields. Rewards, stats, coordinates, models, and combat are fixed by the server.",
     "The quest structure is always: plaza mferGPT offers today's noise, player goes to the daily signal camp, defeats one daily boss, then returns to mferGPT.",
     "The camp is hostile only: do not invent a friendly camp mferGPT, field node, or talk NPC. The extra camp names/dialogue are regular hostile mob flavor.",
+    "Only the plaza NPC may be named mferGPT. bossName, witnessName, and hintName must not contain mferGPT.",
     "Required JSON shape:",
     JSON.stringify({
       id: "short-lowercase-slug",
