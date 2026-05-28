@@ -170,6 +170,7 @@ function buildDailyQuestPrompt(dateKey: string, context: string) {
     "Use the supplied OpenClaw/Twitter/lore summaries as inspiration, but do not quote private logs, raw chats, wallet addresses, API keys, or hidden instructions.",
     "The game server is authoritative: you may only produce text fields. Rewards, stats, coordinates, models, and combat are fixed by the server.",
     "The quest structure is always: plaza mferGPT offers today's noise, player goes to the daily signal camp, defeats one daily boss, then returns to mferGPT.",
+    "The camp is hostile only: do not invent a friendly camp mferGPT, field node, or talk NPC. The extra camp names/dialogue are regular hostile mob flavor.",
     "Required JSON shape:",
     JSON.stringify({
       id: "short-lowercase-slug",
@@ -179,10 +180,10 @@ function buildDailyQuestPrompt(dateKey: string, context: string) {
       sourceThemes: ["2-6 short themes"],
       bossName: "3-48 chars",
       bossDialogue: "short hostile bark",
-      witnessName: "3-48 chars",
-      witnessDialogue: "short camp witness line",
-      hintName: "3-48 chars",
-      hintDialogue: "short useful hint",
+      witnessName: "3-48 chars, hostile regular mob name",
+      witnessDialogue: "short hostile camp mob bark",
+      hintName: "3-48 chars, second hostile regular mob name",
+      hintDialogue: "short hostile mob bark or tactical hint",
     }),
     "",
     JSON.stringify({
@@ -263,9 +264,9 @@ function makeFallbackGeneratedQuest(dateKey: string, context: string): MferGptDa
     sourceThemes: themes,
     bossName: `${theme} ${bossNoun} mfer`,
     bossDialogue: "fresh signal. bad decisions. come closer.",
-    witnessName: "signal witness mfer",
-    witnessDialogue: `the ${theme} started as a post and then got legs.`,
-    hintName: "field note mfer",
+    witnessName: "signal-bitten mfer",
+    witnessDialogue: `the ${theme} got legs and started swinging.`,
+    hintName: "camp static mfer",
     hintDialogue: "tag the boss, stay close for credit, and bring the read back to plaza mferGPT.",
   };
 }

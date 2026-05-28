@@ -296,7 +296,6 @@ function getQuestCompletionNextDirection(questId: QuestId) {
 
 function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "mfergpt") return "signal's clean enough for now.";
-  if (npcId === "mfergpt-daily-field-node") return "camp's quiet until tomorrow's noise.";
   if (npcId === "og-mfer") return "town's still standing. good enough.";
   if (npcId === "wearables-mfer") return "good town. better hats.";
   if (npcId === "traits-mfer") return "mirror's still warm if you need a paid redo.";
@@ -312,7 +311,6 @@ function getFinishedQuestDialogue(npcId: string) {
 
 function getNpcDisplayName(npcId: string) {
   if (npcId === "mfergpt") return "mferGPT";
-  if (npcId === "mfergpt-daily-field-node") return "mferGPT field node";
   if (npcId === "og-mfer") return "OG porch mfer";
   if (npcId === "wearables-mfer") return "drip desk mfer";
   if (npcId === "traits-mfer") return "traits mfer";

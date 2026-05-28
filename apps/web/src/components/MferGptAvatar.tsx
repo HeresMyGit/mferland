@@ -173,7 +173,9 @@ export function MferGptAvatar({
 
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
-      {!isDefeated && <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />}
+      {!isDefeated && !isHostile && (
+        <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />
+      )}
       <ActorBlobShadow scale={isDefeated ? [1.08, 0.58, 1.1] : [0.96, 0.58, 1.08]} />
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={1.12} />}
       {isTargeted && <TargetRing color={badgeColor} disposition={disposition} radius={1.22} />}

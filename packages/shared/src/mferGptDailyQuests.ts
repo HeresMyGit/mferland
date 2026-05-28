@@ -10,7 +10,6 @@ export const MFERGPT_DAILY_WITNESS_NPC_ID = "mfergpt-daily-witness";
 export const MFERGPT_DAILY_HINT_NPC_ID = "mfergpt-daily-hint";
 export const MFERGPT_DAILY_BOSS_NPC_ID = "mfergpt-daily-boss";
 export const MFERGPT_DAILY_HUB_NPC_IDS = [
-  MFERGPT_DAILY_FIELD_NODE_NPC_ID,
   MFERGPT_DAILY_WITNESS_NPC_ID,
   MFERGPT_DAILY_HINT_NPC_ID,
   MFERGPT_DAILY_BOSS_NPC_ID,
@@ -63,7 +62,7 @@ export const MFERGPT_DAILY_QUEST_ASSIGNMENTS = [
     witnessName: "claim witness mfer",
     witnessDialogue: "it started as one screenshot and then the camp began snorting in bullet points.",
     hintName: "field note mfer",
-    hintDialogue: "boss is posted west of the node. tag it, stay close, bring the noise back here.",
+    hintDialogue: "boss is posted west of camp. tag it, stay close, bring the noise back to plaza mferGPT.",
   },
   {
     id: "reply-loop-farm-sweep",
@@ -111,7 +110,7 @@ export const MFERGPT_DAILY_QUEST_ASSIGNMENTS = [
     witnessName: "relay witness mfer",
     witnessDialogue: "it sounded like mferGPT for half a second, then started charging rent.",
     hintName: "antenna mfer",
-    hintDialogue: "burn the static body down, then report to the node before it reboots.",
+    hintDialogue: "burn the static body down, then report back to plaza mferGPT before it reboots.",
   },
   {
     id: "fried-uplink-haul",
@@ -186,11 +185,11 @@ export function normalizeMferGptDailyQuestAssignment(input: unknown): MferGptDai
   const rawBossName = normalizeDailyText(record.bossName, GENERATED_DAILY_TEXT_LIMITS.npcName) || title;
   const bossName = rawBossName.toLowerCase().includes("mfer") ? rawBossName : `${rawBossName} mfer`;
   const bossDialogue = normalizeDailyText(record.bossDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue) || summary;
-  const witnessName = normalizeDailyText(record.witnessName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "signal witness mfer";
+  const witnessName = normalizeDailyText(record.witnessName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "signal-bitten mfer";
   const witnessDialogue = normalizeDailyText(record.witnessDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue) || summary;
-  const hintName = normalizeDailyText(record.hintName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "field note mfer";
+  const hintName = normalizeDailyText(record.hintName, GENERATED_DAILY_TEXT_LIMITS.npcName) || "camp static mfer";
   const hintDialogue = normalizeDailyText(record.hintDialogue, GENERATED_DAILY_TEXT_LIMITS.dialogue)
-    || "boss is posted west of the node. tag it, stay close, bring the noise back.";
+    || "boss is posted west of camp. tag it, stay close, bring the noise back to plaza mferGPT.";
 
   return {
     id,

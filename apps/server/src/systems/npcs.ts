@@ -439,40 +439,36 @@ export function spawnOrUpdateMferGptDailyHub(
   assignment: MferGptDailyQuestAssignment = getMferGptDailyQuestAssignment(),
   now = Date.now(),
 ) {
-  ensureDailyHubNpc(npcs, {
-    id: MFERGPT_DAILY_FIELD_NODE_NPC_ID,
-    name: "mferGPT field node",
-    role: "wanderer",
-    model: "mfergpt",
-    x: -58,
-    z: -52.4,
-    yaw: Math.PI,
-    leashRadius: 0,
-    dialogue: `today's noise: ${assignment.title}. ${assignment.summary}`,
-  }, now);
+  npcs.delete(MFERGPT_DAILY_FIELD_NODE_NPC_ID);
 
   ensureDailyHubNpc(npcs, {
     id: MFERGPT_DAILY_WITNESS_NPC_ID,
-    name: assignment.witnessName ?? "timeline witness mfer",
-    role: "wanderer",
+    name: assignment.witnessName ?? "signal-bitten mfer",
+    role: "farmer",
     model: "mfer",
     x: -53.6,
     z: -56.2,
     yaw: -1.35,
-    leashRadius: 1.8,
+    leashRadius: 9.5,
+    health: 90,
+    maxHealth: 90,
+    combatStyle: "melee",
     dialogue: assignment.witnessDialogue ?? assignment.summary,
   }, now);
 
   ensureDailyHubNpc(npcs, {
     id: MFERGPT_DAILY_HINT_NPC_ID,
-    name: assignment.hintName ?? "field note mfer",
-    role: "wanderer",
+    name: assignment.hintName ?? "camp static mfer",
+    role: "farmer",
     model: "mfer",
     x: -62.6,
     z: -57.4,
     yaw: 1.15,
-    leashRadius: 1.8,
-    dialogue: assignment.hintDialogue ?? "daily boss is nearby. tag it, stay close, and report back to the node.",
+    leashRadius: 10.5,
+    health: 72,
+    maxHealth: 72,
+    combatStyle: "caster",
+    dialogue: assignment.hintDialogue ?? "daily boss is nearby. tag it, stay close, and report back to plaza mferGPT.",
   }, now);
 
   ensureDailyHubNpc(npcs, {
@@ -492,6 +488,7 @@ export function spawnOrUpdateMferGptDailyHub(
 }
 
 export function clearMferGptDailyHub(npcs: MapSchema<NpcState>) {
+  npcs.delete(MFERGPT_DAILY_FIELD_NODE_NPC_ID);
   for (const npcId of MFERGPT_DAILY_HUB_NPC_IDS) {
     npcs.delete(npcId);
   }
