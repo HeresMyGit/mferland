@@ -9,6 +9,7 @@ Networked web-first Mfer Town prototype.
 - `AGENT_COUNT=3 npm run dev:agent` starts multiple agent characters.
 - `npm run build` builds shared types, server, and web app.
 - `npm run build:agent` builds the headless agent runner.
+- `npm run stream:obs` creates or updates the local OBS browser source for the stream overlay.
 
 Default local endpoints:
 
@@ -44,3 +45,9 @@ Agent environment:
 - `AGENT_NAME`: display name base, default `mfer-agent`.
 - `AGENT_COUNT`: number of agents to spawn, default `1`.
 - `AGENT_CHAT=0`: disable agent chat.
+
+OBS stream overlay:
+
+- The stream browser source defaults to `1920x1080`; rerun `npm run stream:obs` after changes to update an existing OBS source.
+- If setting OBS up manually, set the Browser Source width/height to `1920x1080` instead of `1280x720` so the overlay is not upscaled.
+- Optional env knobs: `MFERLAND_STREAM_WIDTH`, `MFERLAND_STREAM_HEIGHT`, `MFERLAND_STREAM_FPS`, `MFERLAND_OBS_CANVAS_WIDTH`, and `MFERLAND_OBS_CANVAS_HEIGHT`.

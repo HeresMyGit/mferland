@@ -24,6 +24,11 @@ const OBS_WS = process.env.OBS_WS || "ws://localhost:4455";
 const OBS_PASSWORD = process.env.OBS_PASSWORD || "";
 const SCENE_NAME = process.env.MFERLAND_OBS_SCENE || "mferGPT Mferland Stream";
 const STREAM_URL = process.env.MFERLAND_STREAM_URL || makeDefaultStreamUrl();
+const STREAM_WIDTH = readPositiveIntegerEnv("MFERLAND_STREAM_WIDTH", 1920);
+const STREAM_HEIGHT = readPositiveIntegerEnv("MFERLAND_STREAM_HEIGHT", 1080);
+const STREAM_FPS = readPositiveIntegerEnv("MFERLAND_STREAM_FPS", 24);
+const OBS_CANVAS_WIDTH = readPositiveIntegerEnv("MFERLAND_OBS_CANVAS_WIDTH", 1920);
+const OBS_CANVAS_HEIGHT = readPositiveIntegerEnv("MFERLAND_OBS_CANVAS_HEIGHT", 1080);
 
 function makeDefaultStreamUrl() {
   const port = process.env.MFERLAND_STREAM_PORT || "5173";
@@ -49,9 +54,9 @@ async function setup() {
 
   await ensureInput(SCENE_NAME, "Mferland Stream Overlay", "browser_source", {
     url: STREAM_URL,
-    width: 1280,
-    height: 720,
-    fps: 24,
+    width: STREAM_WIDTH,
+    height: STREAM_HEIGHT,
+    fps: STREAM_FPS,
     reroute_audio: true,
     restart_when_active: true,
     shutdown: false,
@@ -61,8 +66,8 @@ async function setup() {
     positionX: 0,
     positionY: 0,
     boundsType: "OBS_BOUNDS_STRETCH",
-    boundsWidth: 1920,
-    boundsHeight: 1080,
+    boundsWidth: OBS_CANVAS_WIDTH,
+    boundsHeight: OBS_CANVAS_HEIGHT,
     boundsAlignment: 0,
   });
 
@@ -80,6 +85,8 @@ async function setup() {
   console.log("\n=== OBS stream scene ready ===");
   console.log(`Scene: ${SCENE_NAME}`);
   console.log(`Overlay source: ${STREAM_URL}`);
+  console.log(`Browser source: ${STREAM_WIDTH}x${STREAM_HEIGHT} @ ${STREAM_FPS}fps`);
+  console.log(`OBS bounds: ${OBS_CANVAS_WIDTH}x${OBS_CANVAS_HEIGHT}`);
   console.log("Audio: browser source audio is routed to OBS; desktop audio capture is present as a backup.");
 
   await obs.disconnect();
@@ -152,6 +159,11 @@ async function setInputAudioMonitorType(inputName, monitorType) {
   } catch (error) {
     console.log(`Audio monitor note for ${inputName}: ${error.message || error}`);
   }
+}
+
+function readPositiveIntegerEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 setup().catch(async (error) => {
