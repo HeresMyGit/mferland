@@ -74,6 +74,30 @@ type VisibleObservation = {
     canceledQuestIds: string[];
     recentActions: string[];
   };
+  questProgress: {
+    totalQuestCount: number;
+    completedQuestCount: number;
+    activeQuestIds: string[];
+    readyQuestIds: string[];
+    availableQuestIds: string[];
+    lockedQuestIds: string[];
+    remainingQuestIds: string[];
+    nextRecommendedQuestIds: string[];
+    allQuestsCompletedOnce: boolean;
+    knownQuests: Array<{
+      questId: string;
+      title: string;
+      kind: string;
+      status: string;
+      progress: string;
+      giverNpcId: string;
+      turnInNpcId: string;
+      requiredQuestId: string;
+      nextQuestId: string;
+      objective: string;
+      publicPlan: string;
+    }>;
+  };
   self: {
     name: string;
     level: number;
@@ -283,6 +307,10 @@ export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGa
       continue;
     }
     log(`[llm:${agent.walletAddress.slice(0, 6)}] state ${step}: ${summarizeVisibleState(frame.observation)}`);
+    if (frame.observation.questProgress.allQuestsCompletedOnce) {
+      log(`[llm:${agent.walletAddress.slice(0, 6)}] quest goal complete: all public quests completed once`);
+      break;
+    }
     const decision = await policy.decide(frame.observation);
     log(`[llm:${agent.walletAddress.slice(0, 6)}] step ${step}: ${decision.action} - ${decision.reason}`);
     try {
@@ -391,6 +419,7 @@ export function makeVisibleObservation(
         canceledQuestIds: [...memory.canceledQuestIds],
         recentActions: memory.recentActions.slice(-8),
       },
+      questProgress: getQuestProgress(self.quests, memory),
       self: {
         name: self.name,
         level: self.level,
@@ -467,6 +496,8 @@ export function makeVisibleObservation(
         notes: [
           "Use npcRef/playerRef from this observation when available.",
           "Use questTrackerHints as the public quest-log style guide for what to do next.",
+          "Use questProgress as the public all-quests checklist. Work toward questProgress.allQuestsCompletedOnce by completing remainingQuestIds once.",
+          "When several options are legal, prefer questProgress.nextRecommendedQuestIds in order.",
           "Use known npcId from the handbook only for moving toward public, named NPCs.",
           "When no quest is active, questTrackerHints may name the next public quest giver; use move_near_npc or accept_quest with that npcId to continue.",
           "Use navigation.publicRallyPoints as public map coordinates for move_to. Prefer loop-farm-road for farm danger and plaza-safe for a full reset.",
@@ -548,6 +579,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "You only know the public handbook and the current in-game observation.",
           "Choose one normal in-game action that a human player could take.",
           "For quest actions, treat observation.questTrackerHints plus nearbyNpcs available/ready quest ids as the current legal quest state.",
+          "Use observation.questProgress as the public all-quests checklist and prefer observation.questProgress.nextRecommendedQuestIds.",
           "When no quest is active, questTrackerHints may name a public quest giver npcId; use move_near_npc or accept_quest with that npcId to continue.",
           "Never complete a quest unless the current observation says it is ready.",
           "Never request database reads, scripts, hidden server state, debug messages, teleport, boost, or privileged shortcuts.",
@@ -801,10 +833,14 @@ function summarizeVisibleState(observation: VisibleObservation) {
     .slice(0, 2)
     .map((store) => `${store.npcId}:d${store.distance}:${store.status}`)
     .join("|");
+  const questGoal = `questGoal=${observation.questProgress.completedQuestCount}/${observation.questProgress.totalQuestCount}`;
+  const nextQuests = observation.questProgress.nextRecommendedQuestIds.slice(0, 3).join(",");
   return [
     `hp=${observation.self.health}`,
     `mana=${observation.self.mana}`,
     `pos=${observation.self.position.x},${observation.self.position.z}`,
+    questGoal,
+    nextQuests ? `next=${nextQuests}` : "",
     `aggro=${observation.self.aggroCount}`,
     `hostiles=${observation.self.nearbyHostileCount}`,
     quests ? `quests=${quests}` : "quests=none",
@@ -828,6 +864,120 @@ function rememberAction(memory: RunMemory, decision: LlmDecision, status: "ok" |
 
 function hasPotionShopStock(self: PlayerSnapshot) {
   return self.inventory.some((item) => POTION_SHOP_ITEM_IDS.includes(item.id as PotionShopItemId) && item.count > 0);
+}
+
+function getQuestProgress(quests: PlayerSnapshot["quests"], memory: RunMemory): VisibleObservation["questProgress"] {
+  const questById = new Map(quests.map((quest) => [quest.id, quest]));
+  const knownQuests = QUEST_IDS.map((questId) => {
+    const quest = questById.get(questId);
+    const status = getPublicQuestStatus(questId, quest, quests, memory);
+    return {
+      questId,
+      title: QUESTS[questId].title,
+      kind: getPublicQuestKind(questId),
+      status,
+      progress: quest ? `${quest.progress}/${quest.required}` : `0/${QUESTS[questId].required}`,
+      giverNpcId: QUESTS[questId].giverNpcId,
+      turnInNpcId: getQuestTurnInNpcId(questId),
+      requiredQuestId: getPublicQuestRequirement(questId),
+      nextQuestId: getPublicQuestNextQuestId(questId),
+      objective: QUESTS[questId].objectiveLabel,
+      publicPlan: getPublicQuestPlan(questId),
+    };
+  });
+  const completedQuestIds = knownQuests
+    .filter((quest) => quest.status === "completed")
+    .map((quest) => quest.questId);
+  const activeQuestIds = knownQuests
+    .filter((quest) => quest.status === "active")
+    .map((quest) => quest.questId);
+  const readyQuestIds = knownQuests
+    .filter((quest) => quest.status === "ready")
+    .map((quest) => quest.questId);
+  const availableQuestIds = knownQuests
+    .filter((quest) => quest.status === "available")
+    .map((quest) => quest.questId);
+  const lockedQuestIds = knownQuests
+    .filter((quest) => quest.status === "locked")
+    .map((quest) => quest.questId);
+  const remainingQuestIds = knownQuests
+    .filter((quest) => quest.status !== "completed")
+    .map((quest) => quest.questId);
+  const nextRecommendedQuestIds = [
+    ...readyQuestIds,
+    ...activeQuestIds,
+    ...availableQuestIds.filter((questId) => !isRepeatableQuest(questId)),
+    ...availableQuestIds.filter((questId) => isRepeatableQuest(questId)),
+  ].slice(0, 8);
+
+  return {
+    totalQuestCount: QUEST_IDS.length,
+    completedQuestCount: completedQuestIds.length,
+    activeQuestIds,
+    readyQuestIds,
+    availableQuestIds,
+    lockedQuestIds,
+    remainingQuestIds,
+    nextRecommendedQuestIds,
+    allQuestsCompletedOnce: completedQuestIds.length === QUEST_IDS.length,
+    knownQuests,
+  };
+}
+
+function getPublicQuestStatus(
+  questId: QuestId,
+  quest: PlayerSnapshot["quests"][number] | undefined,
+  quests: PlayerSnapshot["quests"],
+  memory: RunMemory,
+) {
+  if (quest?.status === "active" || quest?.status === "ready") return quest.status;
+  if (quest?.status === "completed" && !isQuestReadyToRepeat(questId, quest)) return "completed";
+  if (quest?.status === "completed" && isQuestReadyToRepeat(questId, quest)) return "completed";
+  if (memory.canceledQuestIds.has(questId)) return "canceled-this-run";
+  if (isQuestAvailableForSnapshots(questId, quests)) return "available";
+  return "locked";
+}
+
+function getPublicQuestKind(questId: QuestId) {
+  if (questId === "ogre-raid-daily") return "daily raid";
+  if (isRepeatableQuest(questId)) return "repeatable";
+  if (questId === "ask-mfergpt" || questId === "mfergpt-checkin" || questId === "tweet-town-link") return "side";
+  return "main";
+}
+
+function getPublicQuestRequirement(questId: QuestId) {
+  const quest = QUESTS[questId];
+  return "requiredQuestId" in quest ? quest.requiredQuestId : "";
+}
+
+function getPublicQuestNextQuestId(questId: QuestId) {
+  const quest = QUESTS[questId];
+  return "nextQuestId" in quest ? quest.nextQuestId : "";
+}
+
+function getPublicQuestPlan(questId: QuestId) {
+  if (questId === "set-your-traits") return "accept at traits-mfer, use update_traits, then complete at traits-mfer";
+  if (questId === "mfer-beginnings") return "accept at og-mfer, then complete at dao-mfer";
+  if (questId === "dao-tour") return "accept at dao-mfer, then complete at fountain-mfer";
+  if (questId === "fountain-vibes") return "accept at fountain-mfer, then complete at og-mfer";
+  if (questId === "sealed-note") return "accept at og-mfer, deliver the note, then complete at wearables-mfer";
+  if (questId === "farm-road-handoff") return "accept at wearables-mfer, travel_route plaza-to-loop-farm, then complete at hogwatch-mfer";
+  if (questId === "ask-mfergpt") return "accept at wearables-mfer, chat @mfergpt, then complete at mfergpt";
+  if (questId === "mfergpt-checkin") return "accept at mfergpt, chat @mfergpt, then complete at mfergpt";
+  if (questId === "tweet-town-link") return "accept at mfergpt, share_quest_link, then complete at mfergpt";
+  if (questId === "mfergpt-daily-signal") return "optional daily: stage at daily-signal-camp edge with players, defeat visible daily boss, then complete at mfergpt";
+  if (questId === "boar-bristle-cull") return "stage at loop-farm-to-claim-pile, fight visible hogs one at a time, then complete at hogwatch-mfer";
+  if (questId === "feral-farmers") return "fight visible farmhand-bran, farmhand-mae, and field-mage-sol one at a time, then complete at hogwatch-mfer";
+  if (questId === "hog-livers") return "fight and loot visible hogs near the claim pile until enough chewed EOS drops, then complete at hogwatch-mfer";
+  if (questId === "field-camp-delivery") return "travel_route loop-farm-to-route-post, then complete at field-guide-mfer";
+  if (questId === "route-patrol-daily") return "clear visible route-post hogs or claim-burnt farmers one at a time, then complete at field-guide-mfer";
+  if (questId === "hog-loop") return "fight visible hogs near the claim booth one at a time, then complete at pen-keeper-mfer";
+  if (questId === "ridge-dispatch") return "travel_route route-post-to-signal-ridge, then complete at ridge-guide-mfer";
+  if (questId === "signal-scraps") return "travel_route signal-ridge-to-static-lot, fight and loot visible ridge enemies for scraps, then complete at ridge-guide-mfer";
+  if (questId === "cut-the-static") return "fight visible ridge-raider-vex, ridge-raider-pax, and static-mage-ori one at a time, then complete at beacon-keeper-mfer";
+  if (questId === "baron-of-static") return "group with visible players, fight static-baron-nox from static-lot edge with items/heals/taunts, then complete at beacon-keeper-mfer";
+  if (questId === "ogre-raid-daily") return "accept at beacon-keeper-mfer, interact there to call raid-ogre-mfer, fight as a group, then complete at beacon-keeper-mfer";
+  return `complete the public objective and turn in at ${getQuestTurnInNpcId(questId)}`;
 }
 
 function getStoreObservations(
@@ -1309,6 +1459,7 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "You know only the public handbook and the current in-game observation.",
     `Current questTrackerHints: ${JSON.stringify(observation.questTrackerHints)}`,
     "For quest actions, only use accept_quest or complete_quest when the current questTrackerHints or nearby NPC quest ids support that exact questId.",
+    "Use observation.questProgress as the public all-quests checklist and prefer observation.questProgress.nextRecommendedQuestIds when several actions are legal.",
     "When no quest is active, questTrackerHints may name a public quest giver npcId; use move_near_npc or accept_quest with that npcId to continue the visible questline.",
     "Never complete a quest unless the current observation says it is ready.",
     "Use observation.self.aggroCount, observation.self.nearbyHostileCount, observation.self.dangerNote, and nearbyNpcs.targeting to avoid overpulls.",
