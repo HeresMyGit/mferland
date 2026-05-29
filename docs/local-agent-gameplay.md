@@ -127,11 +127,14 @@ The LLM observation includes the agent's own character, nearby visible players a
 Harness behavior to expect:
 
 - `fight_npc` and route travel yield back to the LLM when public state shows overpulls, critical health, or multiple NPCs targeting the agent.
+- Movement uses public waypoint approaches for known NPCs and small sidestep/jump recovery when straight-line travel stops making progress.
+- Quest completion retries the same normal `completeQuest` room message for a short window when the room state has not yet reflected completion.
 - Stationary casts hold the agent still so movement does not cancel the cast.
 - AoE abilities remain available in the action context and are exposed with cooldown, mana, range, cast time, and radius information.
 - Social quests use the same room messages as the web HUD; for example `tweet-town-link` uses `shareQuestLink`, not chat.
 - Store knowledge is explicit in `observation.stores`: potion-mfer item ids, prices, effects, owned counts, supported actions, and whether the local MFERGPT burn flow can buy stock.
 - Full-run quest knowledge is explicit in `observation.questProgress`: a public all-quests checklist with completed/active/ready/available/locked status, remaining quest ids, next recommended quest ids, turn-in NPCs, and human-style plans for each known quest. The LLM runner stops when every public quest has been completed once.
+- LLM run results include `llmRun.stepsTaken`, `llmRun.actionFailureCount`, `questProgress.completedQuestCount`, `totalQuestCount`, `allQuestsCompletedOnce`, and `remainingQuestIds` from the final room snapshot.
 - Optional repeatable quests are marked as optional and canceled repeatables are remembered for the current run so agents do not immediately re-accept them.
 
 Latest local LLM playthrough notes:
@@ -140,6 +143,7 @@ Latest local LLM playthrough notes:
 - The LLM selected `buy_potion_shop_item` on step 1, bought `red-juice` quantity `5` through the normal local MFERGPT burn receipt flow, then completed `mfer-beginnings` and `set-your-traits` from normal room observations. No game DB reads, deterministic playtest path, debug messages, or privileged server messages were used for this gameplay verification.
 - The local burn address `0x000000000000000000000000000000000000dEaD` had local MFERGPT balance after the run on Anvil chain id `31337`, confirming the purchase path used the configured burn destination.
 - A follow-up LLM smoke run against the same wallet showed the full-run checklist live in observation logs as `questGoal=2/21` and `next=dao-tour,mfergpt-checkin,tweet-town-link`; the model chose to move toward `dao-mfer` for `dao-tour` from that public quest-progress context.
+- A navigation/result-summary smoke run showed `llmRun.actionFailureCount=0` and final `questProgress.remainingQuestIds` from room state after the model moved normally toward the plaza mferGPT area.
 - Three disposable local wallets authenticated through the local wallet flow and joined the local server against `postgresql://localhost:55432/mferland_agent_test`.
 - The agents completed the intro, farm handoff, `boar-bristle-cull`, `feral-farmers`, and `hog-livers` sequence locally.
 - Two agents also completed `field-camp-delivery`; two completed `ask-mfergpt` and `tweet-town-link`.

@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { stableHash } from "@mferland/shared";
+import { QUEST_IDS, stableHash } from "@mferland/shared";
 import { MferlandAgentClient, delay } from "./client.js";
 import { assertLocalAgentSafety, summarizeDatabaseUrl } from "./localSafety.js";
 import { runLlmGameAgent, type LlmProvider } from "./llmPolicy.js";
@@ -105,20 +105,36 @@ try {
       payment: MferGptBurner.fromEnv(wallet.account),
     })));
     const failed = results.filter((result) => result.status === "rejected");
+    const llmRunResults = results.map((result) => result.status === "fulfilled" ? result.value : null);
     console.log(JSON.stringify({
       ok: failed.length === 0,
       mode: config.mode,
       steps: config.llmSteps,
       failures: failed.map((result) => result.status === "rejected" ? String(result.reason) : ""),
-      agents: agents.map((agent) => {
+      agents: agents.map((agent, index) => {
         const self = agent.getSelf();
+        const completedQuestIds = self?.quests
+          .filter((quest) => quest.status === "completed")
+          .map((quest) => quest.id) ?? [];
+        const llmRun = llmRunResults[index];
         return {
           name: self?.name ?? "",
           walletAddress: `${agent.walletAddress.slice(0, 6)}...${agent.walletAddress.slice(-4)}`,
+          llmRun: {
+            stepsTaken: llmRun?.stepsTaken ?? 0,
+            actionFailureCount: llmRun?.actionFailureCount ?? 0,
+            observedAllQuestsCompletedOnce: llmRun?.lastQuestProgress?.allQuestsCompletedOnce ?? false,
+          },
           level: self?.level ?? 0,
           xp: self?.xp ?? 0,
           health: self ? `${Math.ceil(self.health)}/${Math.ceil(self.maxHealth)}` : "0/0",
           position: self ? { x: round(self.x), z: round(self.z) } : null,
+          questProgress: {
+            completedQuestCount: completedQuestIds.length,
+            totalQuestCount: QUEST_IDS.length,
+            allQuestsCompletedOnce: completedQuestIds.length === QUEST_IDS.length,
+            remainingQuestIds: QUEST_IDS.filter((questId) => !completedQuestIds.includes(questId)),
+          },
           quests: self?.quests ?? [],
           inventory: self?.inventory ?? [],
         };

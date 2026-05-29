@@ -52,6 +52,12 @@ type ActionPolicy = {
   decide(observation: VisibleObservation): Promise<LlmDecision>;
 };
 
+export type LlmRunResult = {
+  stepsTaken: number;
+  actionFailureCount: number;
+  lastQuestProgress: VisibleObservation["questProgress"] | null;
+};
+
 type RunMemory = {
   purchasedPotionShopItemIds: Set<string>;
   canceledQuestIds: Set<string>;
@@ -290,7 +296,7 @@ const ACTION_SCHEMA = {
   required: ["action", "reason", "routeId", "x", "z", "npcRef", "playerRef", "questId", "itemId", "quantity", "actionId", "text", "emoteId", "sprint"],
 };
 
-export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGameAgentOptions) {
+export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGameAgentOptions): Promise<LlmRunResult> {
   const policy = createActionPolicy(options);
   const log = options.log ?? console.log;
   const memory: RunMemory = {
@@ -298,6 +304,9 @@ export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGa
     canceledQuestIds: new Set<string>(),
     recentActions: [],
   };
+  let actionFailureCount = 0;
+  let lastQuestProgress: VisibleObservation["questProgress"] | null = null;
+  let stepsTaken = 0;
   for (let step = 1; step <= options.maxSteps; step += 1) {
     const frame = makeVisibleObservation(agent, {
       mferGptPaymentConfigured: Boolean(options.payment),
@@ -306,6 +315,8 @@ export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGa
       await delay(options.decisionIntervalMs);
       continue;
     }
+    stepsTaken = step;
+    lastQuestProgress = frame.observation.questProgress;
     log(`[llm:${agent.walletAddress.slice(0, 6)}] state ${step}: ${summarizeVisibleState(frame.observation)}`);
     if (frame.observation.questProgress.allQuestsCompletedOnce) {
       log(`[llm:${agent.walletAddress.slice(0, 6)}] quest goal complete: all public quests completed once`);
@@ -318,12 +329,14 @@ export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGa
       rememberAction(memory, decision, "ok");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      actionFailureCount += 1;
       log(`[llm:${agent.walletAddress.slice(0, 6)}] action failed: ${errorMessage}`);
       rememberAction(memory, decision, "failed", errorMessage);
       await delay(750);
     }
     await delay(options.decisionIntervalMs);
   }
+  return { stepsTaken, actionFailureCount, lastQuestProgress };
 }
 
 function createActionPolicy(options: LlmGameAgentOptions): ActionPolicy {
@@ -680,7 +693,7 @@ async function executeDecision(
       return;
     case "move_to":
       await agent.moveToPoint({ x: requiredNumber(decision.x, "x"), z: requiredNumber(decision.z, "z") }, {
-        range: 4,
+        range: 5,
         sprint: decision.sprint ?? true,
         timeoutMs: 60_000,
       });

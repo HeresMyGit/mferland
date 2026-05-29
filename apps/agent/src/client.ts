@@ -302,18 +302,39 @@ export class MferlandAgentClient {
   async moveToPoint(point: Point, options: MoveOptions = {}) {
     const range = options.range ?? 1.5;
     const timeoutMs = options.timeoutMs ?? DEFAULT_MOVE_TIMEOUT_MS;
+    const intervalMs = options.intervalMs ?? 100;
+    const startedAt = Date.now();
+    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestAt = startedAt;
+    let sidestepCount = 0;
     this.targetPoint = point;
     this.sprint = options.sprint ?? true;
     try {
-      await this.waitFor(() => {
+      while (Date.now() - startedAt < timeoutMs) {
         const self = this.getSelf();
         if (self) {
           this.respawnIfDefeated(self);
           const dangerReason = options.stopOnDanger ? this.getDangerYieldReason(self, options) : "";
           if (dangerReason) throw new Error(`${this.name} yielded movement: ${dangerReason}`);
+          const distance = distanceToPoint(self, point);
+          if (distance <= range) return;
+          if (distance + 0.35 < bestDistance) {
+            bestDistance = distance;
+            bestAt = Date.now();
+          }
+          if (distance > range + 0.8 && Date.now() - bestAt > 2200) {
+            this.targetPoint = makeSidestepPoint(self, point, sidestepCount);
+            this.jumpUntil = Date.now() + 260;
+            sidestepCount += 1;
+            await delay(650);
+            this.targetPoint = point;
+            bestDistance = distanceToPoint(self, point);
+            bestAt = Date.now();
+          }
         }
-        return Boolean(self && distanceToPoint(self, point) <= range);
-      }, { timeoutMs, intervalMs: options.intervalMs }, `move to ${formatPoint(point)}`);
+        await delay(intervalMs);
+      }
+      throw new Error(`${this.name} timed out waiting for move to ${formatPoint(point)}`);
     } catch (error) {
       const self = this.getSelf();
       throw new Error(`${error instanceof Error ? error.message : String(error)}${self ? ` from ${formatPoint(self)}` : ""}`);
@@ -334,6 +355,7 @@ export class MferlandAgentClient {
     const range = options.range ?? 2.7;
     const timeoutMs = options.timeoutMs ?? DEFAULT_MOVE_TIMEOUT_MS;
     const startedAt = Date.now();
+    await this.moveThroughNpcApproach(npcId, range, startedAt, timeoutMs, options);
     this.sprint = options.sprint ?? true;
     while (Date.now() - startedAt < timeoutMs) {
       const self = this.getSelf();
@@ -379,7 +401,15 @@ export class MferlandAgentClient {
     if (this.hasCompletedQuest(questId)) return;
     await this.interactWithNpc(npcId);
     this.room?.send("completeQuest", { questId, npcId });
-    await this.waitFor(() => this.hasCompletedQuest(questId), { timeoutMs: DEFAULT_WAIT_TIMEOUT_MS }, `complete ${questId}`);
+    let nextRetryAt = Date.now() + 2000;
+    await this.waitFor(() => {
+      if (this.hasCompletedQuest(questId)) return true;
+      if (Date.now() >= nextRetryAt) {
+        this.room?.send("completeQuest", { questId, npcId });
+        nextRetryAt = Date.now() + 2000;
+      }
+      return false;
+    }, { timeoutMs: 30_000, intervalMs: 250 }, `complete ${questId}`);
   }
 
   cancelQuest(questId: QuestId) {
@@ -842,6 +872,30 @@ export class MferlandAgentClient {
     return npc;
   }
 
+  private async moveThroughNpcApproach(
+    npcId: string,
+    finalRange: number,
+    startedAt: number,
+    timeoutMs: number,
+    options: MoveOptions,
+  ) {
+    const points = getNpcApproachPoints(npcId);
+    if (points.length === 0) return;
+    for (const point of points) {
+      const self = this.getSelf();
+      const npc = this.getNpc(npcId);
+      if (self && npc && distance2d(self, npc) <= finalRange + 1) return;
+      if (self && distanceToPoint(self, point) <= 6) continue;
+      const remainingMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingMs <= 5000) return;
+      await this.moveToPoint(point, {
+        ...options,
+        range: 6,
+        timeoutMs: Math.min(remainingMs, 35_000),
+      });
+    }
+  }
+
   private async waitFor(predicate: () => boolean, options: WaitOptions, label: string) {
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
     const intervalMs = options.intervalMs ?? 100;
@@ -1137,6 +1191,38 @@ function distance2d(a: Pick<PlayerSnapshot | NpcSnapshot, "x" | "z">, b: Pick<Pl
 
 function distanceToPoint(player: Pick<PlayerSnapshot, "x" | "z">, point: Point) {
   return Math.hypot(player.x - point.x, player.z - point.z);
+}
+
+function makeSidestepPoint(self: Pick<PlayerSnapshot, "x" | "z">, target: Point, index: number): Point {
+  const dx = target.x - self.x;
+  const dz = target.z - self.z;
+  const length = Math.hypot(dx, dz) || 1;
+  const forwardX = dx / length;
+  const forwardZ = dz / length;
+  const side = index % 2 === 0 ? 1 : -1;
+  return {
+    x: self.x + forwardX * 1.2 + (-forwardZ) * side * 2.2,
+    z: self.z + forwardZ * 1.2 + forwardX * side * 2.2,
+  };
+}
+
+function getNpcApproachPoints(npcId: string): Point[] {
+  return ({
+    "og-mfer": [{ x: -4.2, z: 3.9 }],
+    "dao-mfer": [{ x: 0, z: 0 }, { x: 12, z: -7.4 }],
+    "fountain-mfer": [{ x: -2.4, z: 4.2 }],
+    "wearables-mfer": [{ x: -18, z: 0 }, { x: -14.8, z: 12.5 }],
+    "traits-mfer": [{ x: 0, z: 20 }, { x: -3.7, z: 25.4 }],
+    "swap-mfer": [{ x: 0, z: 20 }, { x: 0, z: 25.4 }],
+    "crypto-mfer": [{ x: 0, z: 20 }, { x: 3.7, z: 25.4 }],
+    "potion-mfer": [{ x: 0, z: 20 }, { x: 7.4, z: 25.4 }],
+    mfergpt: [{ x: -2.4, z: 4.2 }, { x: 6.8, z: -5.2 }],
+    "hogwatch-mfer": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
+    "field-guide-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -108, z: 92 }, { x: -108, z: 116 }, { x: -119.2, z: 132.4 }],
+    "pen-keeper-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -108, z: 92 }, { x: -108, z: 116 }, { x: -111.2, z: 136.7 }],
+    "ridge-guide-mfer": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+    "beacon-keeper-mfer": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }, { x: 117.6, z: -91.2 }],
+  } satisfies Partial<Record<string, Point[]>>)[npcId] ?? [];
 }
 
 function unitAwayFrom(source: Point, target: Point) {
