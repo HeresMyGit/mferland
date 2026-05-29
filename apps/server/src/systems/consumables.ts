@@ -6,6 +6,8 @@ import {
   type ItemId,
 } from "@mferland/shared";
 import { InventoryItemState, type PlayerState } from "../state.js";
+import { applyElixirBuff } from "./buffs.js";
+import { recalculatePlayerStats } from "./equipment.js";
 
 export type ConsumableCooldowns = Map<string, number>;
 
@@ -58,12 +60,18 @@ export function useInventoryConsumable({
   const cooldownKey = getConsumableCooldownKey(sessionId, consumable.kind);
   if ((cooldowns.get(cooldownKey) ?? 0) > now) return false;
 
-  const nextHealth = clamp(player.health + (consumable.health ?? 0), 0, player.maxHealth);
-  const nextMana = clamp(player.mana + (consumable.mana ?? 0), 0, player.maxMana);
-  if (nextHealth <= player.health && nextMana <= player.mana) return false;
+  if (consumable.buffId) {
+    applyElixirBuff(player, consumable.buffId, now);
+    recalculatePlayerStats(player);
+  } else {
+    const nextHealth = clamp(player.health + (consumable.health ?? 0), 0, player.maxHealth);
+    const nextMana = clamp(player.mana + (consumable.mana ?? 0), 0, player.maxMana);
+    if (nextHealth <= player.health && nextMana <= player.mana) return false;
 
-  player.health = nextHealth;
-  player.mana = nextMana;
+    player.health = nextHealth;
+    player.mana = nextMana;
+  }
+
   inventoryItem.count -= 1;
   if (inventoryItem.count <= 0) player.inventory.delete(inventoryKey);
   cooldowns.set(cooldownKey, now + consumable.cooldownMs);

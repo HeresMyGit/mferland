@@ -11,6 +11,8 @@ import {
   normalizeChainGearTier,
   normalizeItemLevel,
 } from "./items.js";
+import { ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_WEI, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI } from "./elixirs.js";
+import { POTION_SHOP_BULK_MFERGPT_AMOUNT_WEI, getPotionShopPrice, isPotionShopItemId } from "./potionShop.js";
 
 test("maps local chain gear types to in-game gear items", () => {
   assert.equal(getChainGearItemId(1), "rusty-skate-deck");
@@ -32,6 +34,18 @@ test("defines the alpha gear progression spine", () => {
   assert.equal(ITEMS["airdrop-burn-hoodie"].quality, "uncommon");
   assert.equal(ITEMS["router-antenna-wand"].quality, "rare");
   assert.equal(ITEMS["all-nighter-hoodie"].quality, "rare");
+});
+
+test("adds one-hour elixirs to the potion shop with elixir pricing", () => {
+  assert.equal(isPotionShopItemId("mev-bot-elixir"), true);
+  assert.equal(ITEMS["mev-bot-elixir"].consumable?.kind, "elixir");
+  assert.equal(ITEMS["exit-liquidity-elixir"].consumable?.buffId, "exit-liquidity");
+  assert.equal(ITEMS["hopium-elixir"].consumable?.buffId, "hopium");
+  assert.equal(ITEMS["slippage-serum"].consumable?.buffId, "slippage");
+
+  assert.equal(getPotionShopPrice(1, "mev-bot-elixir").amountWei, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI);
+  assert.equal(getPotionShopPrice(5, "mev-bot-elixir").amountWei, ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_WEI);
+  assert.equal(getPotionShopPrice(5, "red-juice").amountWei, POTION_SHOP_BULK_MFERGPT_AMOUNT_WEI);
 });
 
 test("normalizes chain gear tiers to the supported local range", () => {

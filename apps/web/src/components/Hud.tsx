@@ -3,6 +3,7 @@ import { BookOpen, Check, Dumbbell, ExternalLink, Gift, Hand, Laugh, ListChecks,
 import {
   CHAT,
   COMBAT,
+  ELIXIR_BUFFS,
   EMOTES,
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
@@ -26,6 +27,7 @@ import {
   normalizeChainGearTier,
   normalizeItemLevel,
   type ActionId,
+  type ActiveBuffSnapshot,
   type ChatMessage,
   type CombatActionId,
   type EmoteId,
@@ -334,6 +336,10 @@ export function Hud({
   const clockLabel = useMemo(
     () => new Date(clockMinute * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     [clockMinute],
+  );
+  const activeBuffs = useMemo(
+    () => getVisibleActiveBuffs(localPlayer?.activeBuffs ?? [], now),
+    [localPlayer?.activeBuffs, now],
   );
   const hudTickDelay = getHudTickDelay(localPlayer, actionSlots, now, globalCooldownReadyAt);
 
@@ -866,6 +872,7 @@ export function Hud({
             <span style={{ width: `${levelProgress.isMaxLevel ? 100 : percent(levelProgress.current, levelProgress.required)}%` }} />
             <em>{levelProgress.isMaxLevel ? "Level cap" : `${levelProgress.current}/${levelProgress.required} XP`}</em>
           </div>
+          <ActiveBuffStrip buffs={activeBuffs} now={now} />
         </div>
       </section>
 
@@ -1788,6 +1795,29 @@ function HudErrorText({ text }: { text: string }) {
   );
 }
 
+function ActiveBuffStrip({ buffs, now }: { buffs: ActiveBuffSnapshot[]; now: number }) {
+  if (buffs.length === 0) return null;
+
+  return (
+    <div className="active-buff-strip" aria-label="active buffs">
+      {buffs.map((buff) => {
+        const title = `${buff.name}\n${buff.description}\n${buff.effectLabel}\n${formatBuffRemaining(buff, now)} left`;
+        return (
+          <span
+            key={buff.id}
+            className="active-buff"
+            data-tooltip={title}
+            aria-label={formatTooltipLabel(title)}
+          >
+            <ItemIcon itemId={buff.itemId} />
+            <em>{formatBuffRemaining(buff, now)}</em>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function CastBar({
   actionId,
   startedAt,
@@ -2465,12 +2495,26 @@ function formatChainGearLabel(item: { chainTokenId?: string; chainTier?: number 
 function formatConsumableEffect(itemId: ItemId) {
   const consumable = getItemConsumable(itemId);
   if (!consumable) return "";
+  if (consumable.buffId) return `1h ${ELIXIR_BUFFS[consumable.buffId].effectLabel}`;
 
   const effects = [
     consumable.health ? `+${consumable.health} HP` : "",
     consumable.mana ? `+${consumable.mana} MP` : "",
   ].filter(Boolean);
   return effects.join(", ");
+}
+
+function getVisibleActiveBuffs(buffs: ActiveBuffSnapshot[], now: number) {
+  return buffs
+    .filter((buff) => buff.expiresAt > now)
+    .sort((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id));
+}
+
+function formatBuffRemaining(buff: ActiveBuffSnapshot, now: number) {
+  const remainingMs = Math.max(0, buff.expiresAt - now);
+  const totalMinutes = Math.ceil(remainingMs / 60000);
+  if (totalMinutes >= 60) return "1h";
+  return `${Math.max(1, totalMinutes)}m`;
 }
 
 function getInventoryItemTitle(

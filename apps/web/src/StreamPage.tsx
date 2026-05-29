@@ -8,6 +8,7 @@ import {
   getNpcDisposition,
   getTalentUnlockedCombatActions,
   getUnlockedCombatActions,
+  type ActiveBuffSnapshot,
   type ChatMessage,
   type ClientAcceptQuest,
   type ClientCancelQuest,
@@ -30,6 +31,7 @@ import { makeGuestIdentity, rememberInviteCode } from "./auth/identity";
 import { Hud } from "./components/Hud";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MIXAMO_URLS, getMferAnimationClips } from "./components/MferAvatar";
+import { ItemIcon } from "./components/hud/ItemIcon";
 import { getActionSlotKey, type ActionSlot } from "./components/hud/types";
 import { TownScene } from "./game/TownScene";
 import {
@@ -433,9 +435,16 @@ function StreamOverlay({
   cycleSeconds,
   chat,
 }: StreamOverlayProps) {
+  const [now, setNow] = useState(() => Date.now());
   const recentChat = chat.slice(-5).reverse();
   const healthPercent = focusedPlayer ? getUnitHealthPercent(focusedPlayer) : 0;
   const manaPercent = focusedPlayer?.maxMana ? (focusedPlayer.mana / focusedPlayer.maxMana) * 100 : 0;
+  const activeBuffs = getVisibleStreamBuffs(focusedPlayer?.activeBuffs ?? [], now);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   return (
     <main className="stream-overlay-shell">
@@ -470,6 +479,7 @@ function StreamOverlay({
               <StreamStat label="level" value={focusedPlayer ? String(focusedPlayer.level) : "--"} />
               <StreamStat label="cycle" value={`${Math.round(cycleSeconds)}s`} />
             </div>
+            <StreamBuffStrip buffs={activeBuffs} now={now} />
           </section>
 
           <section className="stream-overlay-panel stream-overlay-target-panel">
@@ -658,6 +668,31 @@ function StreamStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function StreamBuffStrip({ buffs, now }: { buffs: ActiveBuffSnapshot[]; now: number }) {
+  if (buffs.length === 0) {
+    return (
+      <div className="stream-overlay-buffs empty">
+        <span>buffs</span>
+        <strong>none</strong>
+      </div>
+    );
+  }
+
+  return (
+    <div className="stream-overlay-buffs" aria-label="active buffs">
+      <span>buffs</span>
+      <div>
+        {buffs.slice(0, 4).map((buff) => (
+          <figure key={buff.id}>
+            <ItemIcon itemId={buff.itemId} />
+            <figcaption>{buff.shortName} {formatStreamBuffRemaining(buff, now)}</figcaption>
+          </figure>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type StreamRecentTarget = {
   eventId: string;
   seenAt: number;
@@ -774,6 +809,18 @@ function getTargetHealthText(unit: PlayerSnapshot | NpcSnapshot) {
 function clampPercent(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
+}
+
+function getVisibleStreamBuffs(buffs: ActiveBuffSnapshot[], now: number) {
+  return buffs
+    .filter((buff) => buff.expiresAt > now)
+    .sort((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id));
+}
+
+function formatStreamBuffRemaining(buff: ActiveBuffSnapshot, now: number) {
+  const totalMinutes = Math.ceil(Math.max(0, buff.expiresAt - now) / 60000);
+  if (totalMinutes >= 60) return "1h";
+  return `${Math.max(1, totalMinutes)}m`;
 }
 
 function playStreamCombatEventAudio(

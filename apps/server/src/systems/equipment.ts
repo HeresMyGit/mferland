@@ -15,6 +15,7 @@ import {
   type ItemId,
 } from "@mferland/shared";
 import { EquipmentSlotState, InventoryItemState, type PlayerState } from "../state.js";
+import { getPlayerBuffEffectTotals } from "./buffs.js";
 import { getPlayerTalentEffects } from "./talents.js";
 
 export function normalizeEquipmentSlotId(input: unknown): EquipmentSlotId | null {
@@ -68,16 +69,17 @@ export function recalculatePlayerStats(player: PlayerState) {
 
   const stats = getEquippedCharacterStats(items, player.level);
   const talentEffects = getPlayerTalentEffects(player);
+  const buffEffects = getPlayerBuffEffectTotals(player);
 
-  player.maxHealth = stats.maxHealth + (talentEffects.stats.maxHealth ?? 0);
-  player.maxMana = stats.maxMana + (talentEffects.stats.maxMana ?? 0);
-  player.strength = stats.strength + (talentEffects.stats.strength ?? 0);
-  player.dexterity = stats.dexterity + (talentEffects.stats.dexterity ?? 0);
-  player.magic = stats.magic + (talentEffects.stats.magic ?? 0);
-  player.healthRegenPer5 = PLAYER.healthRegenPer5 + talentEffects.healthRegenPer5;
-  player.manaRegenPer5 = PLAYER.manaRegenPer5 + talentEffects.manaRegenPer5;
-  player.walkSpeed = PLAYER.walkSpeed + talentEffects.walkSpeed;
-  player.runSpeed = PLAYER.runSpeed + talentEffects.runSpeed;
+  player.maxHealth = stats.maxHealth + (talentEffects.stats.maxHealth ?? 0) + (buffEffects.maxHealth ?? 0);
+  player.maxMana = stats.maxMana + (talentEffects.stats.maxMana ?? 0) + (buffEffects.maxMana ?? 0);
+  player.strength = stats.strength + (talentEffects.stats.strength ?? 0) + (buffEffects.strength ?? 0);
+  player.dexterity = stats.dexterity + (talentEffects.stats.dexterity ?? 0) + (buffEffects.dexterity ?? 0);
+  player.magic = stats.magic + (talentEffects.stats.magic ?? 0) + (buffEffects.magic ?? 0);
+  player.healthRegenPer5 = PLAYER.healthRegenPer5 + talentEffects.healthRegenPer5 + (buffEffects.healthRegenPer5 ?? 0);
+  player.manaRegenPer5 = PLAYER.manaRegenPer5 + talentEffects.manaRegenPer5 + (buffEffects.manaRegenPer5 ?? 0);
+  player.walkSpeed = PLAYER.walkSpeed + talentEffects.walkSpeed + (buffEffects.walkSpeed ?? 0);
+  player.runSpeed = PLAYER.runSpeed + talentEffects.runSpeed + (buffEffects.runSpeed ?? 0);
   player.health = clamp(player.health, 0, player.maxHealth);
   player.mana = clamp(player.mana, 0, player.maxMana);
 }

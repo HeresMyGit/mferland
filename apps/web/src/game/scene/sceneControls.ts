@@ -128,6 +128,7 @@ export function syncLocalVisualPlayerSnapshot(
   visual.inventory = authoritative.inventory;
   visual.equipment = authoritative.equipment;
   visual.talents = authoritative.talents;
+  visual.activeBuffs = authoritative.activeBuffs;
 }
 
 function getLocalPositionCorrection(drift: number, moveLength: number, delta: number) {

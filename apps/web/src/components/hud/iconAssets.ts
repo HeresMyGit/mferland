@@ -52,6 +52,10 @@ const ITEM_ICON_SOURCES = {
   "field-snack": `${ICON_ROOT}/items/field-snack.png`,
   "red-juice": `${ICON_ROOT}/items/red-juice.png`,
   "blue-juice": `${ICON_ROOT}/items/blue-juice.png`,
+  "mev-bot-elixir": `${ICON_ROOT}/items/mev-bot-elixir.png`,
+  "exit-liquidity-elixir": `${ICON_ROOT}/items/exit-liquidity-elixir.png`,
+  "hopium-elixir": `${ICON_ROOT}/items/hopium-elixir.png`,
+  "slippage-serum": `${ICON_ROOT}/items/slippage-serum.png`,
   "frayed-cap": `${ICON_ROOT}/items/frayed-cap.png`,
   "plaza-hoodie": `${ICON_ROOT}/items/plaza-hoodie.png`,
   "rusty-skate-deck": `${ICON_ROOT}/items/rusty-skate-deck.png`,
@@ -156,7 +160,7 @@ export function getItemFallbackIconSrc(itemId: ItemId) {
 
   const consumable = getItemConsumable(itemId);
   if (consumable?.kind === "food") return getCategoryIconSrc("food");
-  if (consumable?.kind === "potion") return getCategoryIconSrc("potion");
+  if (consumable?.kind === "potion" || consumable?.kind === "elixir") return getCategoryIconSrc("potion");
 
   const item = ITEMS[itemId];
   if (item.quality === "quest") return getCategoryIconSrc("quest");

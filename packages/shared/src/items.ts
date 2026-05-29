@@ -1,4 +1,5 @@
 import { PLAYER, PROGRESSION } from "./config.js";
+import type { ElixirBuffId } from "./elixirs.js";
 import { clamp } from "./utils.js";
 
 export const STAT_LABELS = {
@@ -36,9 +37,10 @@ export type EquippedItemRef = {
 };
 
 export type ConsumableDefinition = {
-  kind: "food" | "potion";
+  kind: "food" | "potion" | "elixir";
   health?: number;
   mana?: number;
+  buffId?: ElixirBuffId;
   cooldownMs: number;
 };
 
@@ -166,6 +168,62 @@ export const ITEMS = {
     consumable: {
       kind: "potion",
       mana: 46,
+      cooldownMs: 15000,
+    },
+  },
+  "mev-bot-elixir": {
+    id: "mev-bot-elixir",
+    name: "MEV Bot Elixir",
+    description: "pathing gets uncomfortably optimized for an hour.",
+    quality: "rare",
+    iconColor: "#66f2ff",
+    stackable: true,
+    value: 22,
+    consumable: {
+      kind: "elixir",
+      buffId: "mev-bot",
+      cooldownMs: 15000,
+    },
+  },
+  "exit-liquidity-elixir": {
+    id: "exit-liquidity-elixir",
+    name: "Exit Liquidity Elixir",
+    description: "makes the health bar harder to dump for an hour.",
+    quality: "rare",
+    iconColor: "#8af2c2",
+    stackable: true,
+    value: 22,
+    consumable: {
+      kind: "elixir",
+      buffId: "exit-liquidity",
+      cooldownMs: 15000,
+    },
+  },
+  "hopium-elixir": {
+    id: "hopium-elixir",
+    name: "Hopium Elixir",
+    description: "keeps the mana bar believing for an hour.",
+    quality: "rare",
+    iconColor: "#9f7dff",
+    stackable: true,
+    value: 22,
+    consumable: {
+      kind: "elixir",
+      buffId: "hopium",
+      cooldownMs: 15000,
+    },
+  },
+  "slippage-serum": {
+    id: "slippage-serum",
+    name: "Slippage Serum",
+    description: "things land a little before they should for an hour.",
+    quality: "rare",
+    iconColor: "#f2d067",
+    stackable: true,
+    value: 22,
+    consumable: {
+      kind: "elixir",
+      buffId: "slippage",
       cooldownMs: 15000,
     },
   },

@@ -1,6 +1,7 @@
 import { type CSSProperties, type PointerEvent } from "react";
 import {
   COMBAT,
+  ELIXIR_BUFFS,
   ITEMS,
   getInventoryItemKey,
   getItemConsumable,
@@ -11,6 +12,7 @@ import {
   isCombatActionUnlocked,
   type ActionId,
   type CombatActionId,
+  type ElixirBuffEffects,
   type InventoryItemSnapshot,
   type ItemId,
   type NpcSnapshot,
@@ -166,12 +168,22 @@ export function getActionReadyAt(player: PlayerSnapshot | null, actionId: Combat
 function getCooldownState(player: PlayerSnapshot | null, actionId: CombatActionId, now: number, globalCooldownReadyAt = 0) {
   const readyAt = Math.max(getActionReadyAt(player, actionId), globalCooldownReadyAt);
   const remainingMs = Math.max(0, readyAt - now);
-  const actionCooldownMs = player ? getTalentActionCooldownMs(actionId, player.talents) : COMBAT.actions[actionId].cooldownMs;
+  const baseActionCooldownMs = player ? getTalentActionCooldownMs(actionId, player.talents) : COMBAT.actions[actionId].cooldownMs;
+  const actionCooldownMs = applyActiveBuffCooldownReduction(baseActionCooldownMs, player, now);
   const cooldownMs = Math.max(actionCooldownMs, COMBAT.universalCooldownMs);
   return {
     remainingMs,
     percent: cooldownMs > 0 ? Math.min(100, (remainingMs / cooldownMs) * 100) : 0,
   };
+}
+
+function applyActiveBuffCooldownReduction(cooldownMs: number, player: PlayerSnapshot | null, now: number) {
+  if (cooldownMs <= 0 || !player) return cooldownMs;
+  const reduction = player.activeBuffs
+    .filter((buff) => buff.expiresAt > now)
+    .reduce((total, buff) => total + ((ELIXIR_BUFFS[buff.id]?.effects as ElixirBuffEffects).actionCooldownReductionPercent ?? 0), 0);
+  const multiplier = Math.max(0.5, 1 - reduction / 100);
+  return Math.max(350, Math.round(cooldownMs * multiplier));
 }
 
 function getItemUsability(slot: ItemActionSlot, player: PlayerSnapshot | null) {
@@ -181,6 +193,7 @@ function getItemUsability(slot: ItemActionSlot, player: PlayerSnapshot | null) {
   const consumable = getItemConsumable(slot.itemId);
   if (!consumable) return { usable: false, reason: "Item", count };
   if (!player) return { usable: false, reason: "", count };
+  if (consumable.buffId) return { usable: true, reason: "", count };
 
   const restoresHealth = Boolean(consumable.health && player.health < player.maxHealth);
   const restoresMana = Boolean(consumable.mana && player.mana < player.maxMana);
@@ -203,6 +216,7 @@ function getActionSlotTooltip(
     const effects = [
       consumable?.health ? `Restores ${consumable.health} HP` : "",
       consumable?.mana ? `Restores ${consumable.mana} MP` : "",
+      consumable?.buffId ? `1h ${ELIXIR_BUFFS[consumable.buffId].effectLabel}` : "",
     ].filter(Boolean).join(" / ");
 
     return [

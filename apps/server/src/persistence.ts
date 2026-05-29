@@ -3,12 +3,14 @@ import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
+  ELIXIR_BUFFS,
   QUEST_IDS,
   TRAIT_CHANGE_PRODUCT_ID,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_ID,
   SEASON_0_TOTAL_POINT_CAP,
   TALENTS,
+  isElixirBuffId,
   getInventoryItemKey,
   getTalentId,
   getSeason0QuestReward,
@@ -21,6 +23,7 @@ import {
   normalizeWalletAddress,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
+  type ActiveBuffSnapshot,
   type InventoryItemSnapshot,
   type ItemId,
   type MferAppearanceTraits,
@@ -35,6 +38,7 @@ import {
   accounts,
   accountWallets,
   characterInventory,
+  characterBuffs,
   characterEquipment,
   characterQuests,
   characterTalents,
@@ -64,6 +68,7 @@ export type PersistedCharacter = {
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
   talents: TalentRankSnapshot[];
+  activeBuffs: ActiveBuffSnapshot[];
 };
 
 export type PersistableCharacterState = {
@@ -78,6 +83,7 @@ export type PersistableCharacterState = {
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
   talents: TalentRankSnapshot[];
+  activeBuffs: ActiveBuffSnapshot[];
 };
 
 export type CharacterTraitPaymentRecord = {
@@ -176,25 +182,30 @@ export async function recordWalletInviteUsage(walletAddress: string, inviteCode:
   const db = getDatabase();
   if (!db) return false;
 
-  const now = new Date();
-  const normalizedCode = normalizeInviteCode(inviteCode);
-  if (normalizedCode) {
-    const claimed = await db.update(inviteCodes)
-      .set({
-        claimedWalletAddress: normalizedWallet,
-        claimedAccountId: accountId || null,
-        claimedAt: now,
-        lastUsedAt: now,
-      })
-      .where(sql`${inviteCodes.code} = ${normalizedCode} AND (${inviteCodes.claimedWalletAddress} = '' OR lower(${inviteCodes.claimedWalletAddress}) = ${normalizedWallet})`)
-      .returning({ code: inviteCodes.code });
-    return claimed.length > 0;
-  }
+  try {
+    const now = new Date();
+    const normalizedCode = normalizeInviteCode(inviteCode);
+    if (normalizedCode) {
+      const claimed = await db.update(inviteCodes)
+        .set({
+          claimedWalletAddress: normalizedWallet,
+          claimedAccountId: accountId || null,
+          claimedAt: now,
+          lastUsedAt: now,
+        })
+        .where(sql`${inviteCodes.code} = ${normalizedCode} AND (${inviteCodes.claimedWalletAddress} = '' OR lower(${inviteCodes.claimedWalletAddress}) = ${normalizedWallet})`)
+        .returning({ code: inviteCodes.code });
+      return claimed.length > 0;
+    }
 
-  await db.update(inviteCodes)
-    .set({ lastUsedAt: now })
-    .where(sql`lower(${inviteCodes.claimedWalletAddress}) = ${normalizedWallet}`);
-  return true;
+    await db.update(inviteCodes)
+      .set({ lastUsedAt: now })
+      .where(sql`lower(${inviteCodes.claimedWalletAddress}) = ${normalizedWallet}`);
+    return true;
+  } catch {
+    console.warn("Failed to record wallet invite usage; continuing without blocking wallet join.");
+    return false;
+  }
 }
 
 export async function getWalletCharacterProfile(walletAddress: string): Promise<WalletCharacterPreview | null> {
@@ -290,11 +301,12 @@ export async function loadOrCreateWalletCharacter({
       character = updated;
     }
 
-    const [questRows, inventoryRows, equipmentRows, talentRows, seasonRewardTotals] = await Promise.all([
+    const [questRows, inventoryRows, equipmentRows, talentRows, buffRows, seasonRewardTotals] = await Promise.all([
       tx.select().from(characterQuests).where(eq(characterQuests.characterId, character.id)),
       tx.select().from(characterInventory).where(eq(characterInventory.characterId, character.id)),
       tx.select().from(characterEquipment).where(eq(characterEquipment.characterId, character.id)),
       tx.select().from(characterTalents).where(eq(characterTalents.characterId, character.id)),
+      tx.select().from(characterBuffs).where(eq(characterBuffs.characterId, character.id)),
       getSeasonRewardTotals(tx, normalizedWallet, now),
     ]);
 
@@ -349,6 +361,21 @@ export async function loadOrCreateWalletCharacter({
       talents: talentRows
         .map((talent) => toTalentSnapshot(talent.tree, talent.nodeId, talent.rank))
         .filter((talent): talent is TalentRankSnapshot => talent !== null),
+      activeBuffs: buffRows
+        .filter((buff) => isElixirBuffId(buff.buffId) && buff.expiresAt > Date.now())
+        .map((buff) => {
+          const definition = ELIXIR_BUFFS[buff.buffId as keyof typeof ELIXIR_BUFFS];
+          return {
+            id: buff.buffId,
+            itemId: definition.itemId,
+            name: definition.name,
+            shortName: definition.shortName,
+            description: definition.description,
+            effectLabel: definition.effectLabel,
+            startedAt: buff.startedAt,
+            expiresAt: buff.expiresAt,
+          } as ActiveBuffSnapshot;
+        }),
     };
   });
 }
@@ -484,6 +511,18 @@ async function saveCharacterProgressRows(tx: DatabaseTransaction, state: Persist
       tree: talent.tree,
       nodeId: talent.nodeId,
       rank: talent.rank,
+      updatedAt: now,
+    })));
+  }
+
+  await tx.delete(characterBuffs).where(eq(characterBuffs.characterId, state.characterId));
+  const activeBuffs = state.activeBuffs.filter((buff) => isElixirBuffId(buff.id) && buff.expiresAt > Date.now());
+  if (activeBuffs.length > 0) {
+    await tx.insert(characterBuffs).values(activeBuffs.map((buff) => ({
+      characterId: state.characterId,
+      buffId: buff.id,
+      startedAt: Math.max(0, buff.startedAt),
+      expiresAt: Math.max(0, buff.expiresAt),
       updatedAt: now,
     })));
   }

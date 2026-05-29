@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Client, type Room } from "colyseus.js";
 import {
+  ELIXIR_BUFFS,
   RECONNECT_GRACE_PERIOD_SECONDS,
   ROOM_NAME,
   type ChatMessage,
@@ -23,6 +24,7 @@ import {
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatEvent,
+  type ActiveBuffSnapshot,
   type EquipmentSlotSnapshot,
   type ExperienceEvent,
   type InventoryItemSnapshot,
@@ -37,6 +39,7 @@ import {
   type QuestTurnIn,
   type TalentRankSnapshot,
   type TraitUpdateResult,
+  isElixirBuffId,
   normalizeChainGearTier,
   parseMferAppearanceTraitsJson,
 } from "@mferland/shared";
@@ -59,12 +62,21 @@ type RuntimeEquipmentCollection = {
 type RuntimeTalentCollection = {
   forEach(callback: (talent: TalentRankSnapshot, id: string) => void): void;
 };
-type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents"> & {
+type RuntimeActiveBuffState = {
+  id?: string;
+  startedAt: number;
+  expiresAt: number;
+};
+type RuntimeActiveBuffCollection = {
+  forEach(callback: (buff: RuntimeActiveBuffState, id: string) => void): void;
+};
+type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
   appearanceTraitsJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
   talents?: RuntimeTalentCollection;
+  activeBuffs?: RuntimeActiveBuffCollection;
 };
 type RuntimePlayerCollection = {
   forEach(callback: (player: RuntimePlayer, id: string) => void): void;
@@ -964,6 +976,7 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
     talents: snapshotTalents(player.talents),
+    activeBuffs: snapshotActiveBuffs(player.activeBuffs),
   };
 }
 
@@ -1065,6 +1078,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   const nextInventory = snapshotInventory(player.inventory);
   const nextEquipment = snapshotEquipment(player.equipment);
   const nextTalents = snapshotTalents(player.talents);
+  const nextActiveBuffs = snapshotActiveBuffs(player.activeBuffs);
   if (!questSnapshotsEqual(target.quests, nextQuests)) {
     target.quests = nextQuests;
     changed = true;
@@ -1079,6 +1093,10 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   }
   if (!talentSnapshotsEqual(target.talents, nextTalents)) {
     target.talents = nextTalents;
+    changed = true;
+  }
+  if (!activeBuffSnapshotsEqual(target.activeBuffs, nextActiveBuffs)) {
+    target.activeBuffs = nextActiveBuffs;
     changed = true;
   }
   return changed;
@@ -1250,6 +1268,26 @@ function snapshotTalents(talents: RuntimeTalentCollection | undefined): TalentRa
   return next.sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function snapshotActiveBuffs(activeBuffs: RuntimeActiveBuffCollection | undefined): ActiveBuffSnapshot[] {
+  const next: ActiveBuffSnapshot[] = [];
+  activeBuffs?.forEach((buff, id) => {
+    const buffId = isElixirBuffId(buff.id) ? buff.id : isElixirBuffId(id) ? id : null;
+    if (!buffId) return;
+    const definition = ELIXIR_BUFFS[buffId];
+    next.push({
+      id: buffId,
+      itemId: definition.itemId,
+      name: definition.name,
+      shortName: definition.shortName,
+      description: definition.description,
+      effectLabel: definition.effectLabel,
+      startedAt: buff.startedAt,
+      expiresAt: buff.expiresAt,
+    });
+  });
+  return next.sort((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id));
+}
+
 function questSnapshotsEqual(left: QuestSnapshot[], right: QuestSnapshot[]) {
   if (left.length !== right.length) return false;
   return left.every((quest, index) => {
@@ -1293,6 +1331,21 @@ function talentSnapshotsEqual(left: TalentRankSnapshot[], right: TalentRankSnaps
       && talent.tree === other.tree
       && talent.nodeId === other.nodeId
       && talent.rank === other.rank;
+  });
+}
+
+function activeBuffSnapshotsEqual(left: ActiveBuffSnapshot[], right: ActiveBuffSnapshot[]) {
+  if (left.length !== right.length) return false;
+  return left.every((buff, index) => {
+    const other = right[index];
+    return buff.id === other.id
+      && buff.itemId === other.itemId
+      && buff.name === other.name
+      && buff.shortName === other.shortName
+      && buff.description === other.description
+      && buff.effectLabel === other.effectLabel
+      && buff.startedAt === other.startedAt
+      && buff.expiresAt === other.expiresAt;
   });
 }
 

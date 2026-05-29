@@ -102,6 +102,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     inventory: [],
     equipment: [],
     talents: [],
+    activeBuffs: [],
     ...overrides,
   };
 }

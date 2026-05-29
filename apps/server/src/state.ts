@@ -3,6 +3,7 @@ import {
   PLAYER,
   type AnimationState,
   type CombatActionId,
+  type ElixirBuffId,
   type EmoteId,
   type EquipmentSlotId,
   type IdentityType,
@@ -49,6 +50,12 @@ export class TalentState extends Schema {
   @type("string") tree: TalentTreeId = "brawler";
   @type("string") nodeId = "street-tough";
   @type("number") rank = 0;
+}
+
+export class ActiveBuffState extends Schema {
+  @type("string") id: ElixirBuffId = "mev-bot";
+  @type("number") startedAt = 0;
+  @type("number") expiresAt = 0;
 }
 
 export class PlayerState extends Schema {
@@ -105,6 +112,7 @@ export class PlayerState extends Schema {
   @type({ map: InventoryItemState }) inventory = new MapSchema<InventoryItemState>();
   @type({ map: EquipmentSlotState }) equipment = new MapSchema<EquipmentSlotState>();
   @type({ map: TalentState }) talents = new MapSchema<TalentState>();
+  @type({ map: ActiveBuffState }) activeBuffs = new MapSchema<ActiveBuffState>();
 }
 
 export class NpcState extends Schema {

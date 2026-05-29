@@ -72,7 +72,7 @@ import {
   type PotionShopPurchaseResult,
   type QuestId,
 } from "@mferland/shared";
-import { EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
+import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
@@ -112,6 +112,7 @@ import {
   type PendingCombatImpact,
 } from "../systems/combat.js";
 import { makeNpcUtilityEvent } from "../systems/combatEvents.js";
+import { removeExpiredPlayerBuffs, snapshotActiveBuffs } from "../systems/buffs.js";
 import { clearConsumableCooldownsForPlayer, grantStarterConsumables, useInventoryConsumable } from "../systems/consumables.js";
 import {
   equipInventoryItem,
@@ -1918,7 +1919,7 @@ export class TownRoom extends Room<TownState> {
     const itemId = isPotionShopItemId(message?.itemId) ? message.itemId : "";
     const itemName = itemId ? ITEMS[itemId].name : "";
     const quantity = isPotionShopPurchaseQuantity(message?.quantity) ? message.quantity : 1;
-    const price = getPotionShopPrice(quantity);
+    const price = getPotionShopPrice(quantity, itemId || undefined);
     const sendResult = (result: Omit<PotionShopPurchaseResult, "itemId" | "itemName" | "quantity" | "count" | "paymentAmountWei" | "chainId"> & Partial<PotionShopPurchaseResult>) => {
       client.send("potionShopPurchaseResult", {
         ok: result.ok,
@@ -1978,7 +1979,7 @@ export class TownRoom extends Room<TownState> {
 
     let verifiedPayment: VerifiedPotionShopPayment;
     try {
-      verifiedPayment = await verifyPotionShopPaymentProof(message?.payment, player.walletAddress, quantity);
+      verifiedPayment = await verifyPotionShopPaymentProof(message?.payment, player.walletAddress, quantity, itemId);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "payment verification failed";
       this.recordPlayerAnalyticsEvent("potion_shop_purchase_failed", client.sessionId, player, {
@@ -2147,6 +2148,7 @@ export class TownRoom extends Room<TownState> {
     this.recordPlayerAnalyticsEvent("consumable_used", client.sessionId, player, {
       itemId,
       kind: consumable?.kind ?? "",
+      buffId: consumable?.buffId ?? "",
       healthRestored: Math.max(0, player.health - previousHealth),
       manaRestored: Math.max(0, player.mana - previousMana),
       level: player.level,
@@ -2685,6 +2687,10 @@ export class TownRoom extends Room<TownState> {
     this.state.players.forEach((player, sessionId) => {
       const input = this.inputs.get(sessionId);
       const activeInput = input && now - input.receivedAt < 1000 ? input : null;
+      if (removeExpiredPlayerBuffs(player, now)) {
+        recalculatePlayerStats(player);
+        this.persistPlayerProgress(sessionId, player);
+      }
       updatePlayerRegen(player, delta, now);
       if (player.health <= 0) {
         if (!this.deadSessionIds.has(sessionId)) {
@@ -3136,6 +3142,17 @@ function applyPersistedCharacter(player: PlayerState, character: PersistedCharac
     talent.rank = savedTalent.rank;
     player.talents.set(savedTalent.id, talent);
   }
+
+  player.activeBuffs.clear();
+  const now = Date.now();
+  for (const savedBuff of character.activeBuffs) {
+    if (savedBuff.expiresAt <= now) continue;
+    const buff = new ActiveBuffState();
+    buff.id = savedBuff.id;
+    buff.startedAt = savedBuff.startedAt;
+    buff.expiresAt = savedBuff.expiresAt;
+    player.activeBuffs.set(savedBuff.id, buff);
+  }
 }
 
 function applySessionHandoff(player: PlayerState, handoff: SessionHandoff) {
@@ -3334,6 +3351,7 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
   });
 
   const talents = getPlayerTalentRanks(player);
+  const activeBuffs = snapshotActiveBuffs(player.activeBuffs);
 
   return {
     characterId,
@@ -3347,6 +3365,7 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     inventory,
     equipment,
     talents,
+    activeBuffs,
   };
 }
 

@@ -1,4 +1,4 @@
-import { getPotionShopPrice, type MferGptPaymentProof, type PotionShopPurchaseQuantity } from "@mferland/shared";
+import { getPotionShopPrice, type MferGptPaymentProof, type PotionShopItemId, type PotionShopPurchaseQuantity } from "@mferland/shared";
 import { verifyMferGptBurnPaymentProof, type VerifiedMferGptBurnPayment } from "./mferGptBurnPayments.js";
 
 export type VerifiedPotionShopPayment = VerifiedMferGptBurnPayment;
@@ -7,8 +7,9 @@ export async function verifyPotionShopPaymentProof(
   payment: MferGptPaymentProof | undefined,
   walletAddress: string,
   quantity: PotionShopPurchaseQuantity = 1,
+  itemId?: PotionShopItemId,
 ): Promise<VerifiedPotionShopPayment> {
-  const price = getPotionShopPrice(quantity);
+  const price = getPotionShopPrice(quantity, itemId);
   try {
     return await verifyMferGptBurnPaymentProof({
       payment,

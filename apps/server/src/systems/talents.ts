@@ -15,6 +15,7 @@ import {
   type TalentRankSnapshot,
 } from "@mferland/shared";
 import { TalentState, type PlayerState } from "../state.js";
+import { getPlayerActionCooldownMultiplier } from "./buffs.js";
 
 export function normalizeTalentId(input: unknown): TalentId | null {
   return isTalentId(input) ? input : null;
@@ -106,10 +107,12 @@ export function getPlayerTalentEffects(player: PlayerState) {
 }
 
 export function getPlayerActionConfig(player: PlayerState, actionId: CombatActionId) {
+  const talentCooldownMs = getTalentActionCooldownMs(actionId, getPlayerTalentRanks(player));
+  const cooldownMultiplier = getPlayerActionCooldownMultiplier(player);
   return {
     ...COMBAT.actions[actionId],
     damage: getTalentActionBaseDamage(actionId, getPlayerTalentRanks(player)),
-    cooldownMs: getTalentActionCooldownMs(actionId, getPlayerTalentRanks(player)),
+    cooldownMs: talentCooldownMs > 0 ? Math.max(350, Math.round(talentCooldownMs * cooldownMultiplier)) : 0,
   };
 }
 

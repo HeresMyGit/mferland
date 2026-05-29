@@ -1,5 +1,6 @@
 import type { COMBAT } from "./combat.js";
 import type { EMOTES } from "./config.js";
+import type { ElixirBuffId, ElixirItemId } from "./elixirs.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
 import type { QUESTS } from "./quests.js";
@@ -21,6 +22,17 @@ export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
 export type QuestMarkerType = "available" | "turnIn" | "dailyAvailable" | "dailyTurnIn";
 export type ItemId = keyof typeof ITEMS;
+export type ActiveBuffSnapshot = {
+  id: ElixirBuffId;
+  itemId: ElixirItemId;
+  name: string;
+  shortName: string;
+  description: string;
+  effectLabel: string;
+  startedAt: number;
+  expiresAt: number;
+};
+
 export type QuestSnapshot = {
   id: QuestId;
   status: QuestStatus;
@@ -207,6 +219,7 @@ export type PlayerSnapshot = {
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
   talents: TalentRankSnapshot[];
+  activeBuffs: ActiveBuffSnapshot[];
 };
 
 export type NpcSnapshot = {

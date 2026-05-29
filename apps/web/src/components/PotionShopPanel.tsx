@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, ExternalLink, FlaskConical, X } from "lucide-react";
 import {
   ITEMS,
-  POTION_SHOP_BULK_MFERGPT_AMOUNT_LABEL,
+  ELIXIR_BUFFS,
   POTION_SHOP_ITEM_IDS,
-  POTION_SHOP_MFERGPT_AMOUNT_LABEL,
   getPotionShopPrice,
+  getItemConsumable,
   TRAIT_CHANGE_BASE_CHAIN_ID,
   type ClientPurchasePotionShopItem,
   type NpcSnapshot,
@@ -43,7 +43,9 @@ export function PotionShopPanel({
   const [status, setStatus] = useState("");
   const [pendingPayment, setPendingPayment] = useState<MferGptPaymentProof | null>(null);
   const selectedItem = ITEMS[selectedItemId];
-  const selectedPrice = getPotionShopPrice(selectedQuantity);
+  const selectedSinglePrice = getPotionShopPrice(1, selectedItemId);
+  const selectedBulkPrice = getPotionShopPrice(5, selectedItemId);
+  const selectedPrice = getPotionShopPrice(selectedQuantity, selectedItemId);
   const canUseWalletPayment = player?.identityType === "wallet" && Boolean(player.walletAddress);
   const shortWallet = useMemo(() => {
     const wallet = player?.walletAddress ?? "";
@@ -72,7 +74,7 @@ export function PotionShopPanel({
       itemId: selectedItemId,
       itemName: selectedItem.name,
       quantity,
-      priceLabel: getPotionShopPrice(quantity).label,
+      priceLabel: getPotionShopPrice(quantity, selectedItemId).label,
     });
   }
 
@@ -144,7 +146,7 @@ export function PotionShopPanel({
       <div className="world-map-header">
         <div>
           <strong>{npc.name}</strong>
-          <span>{POTION_SHOP_MFERGPT_AMOUNT_LABEL} single / {POTION_SHOP_BULK_MFERGPT_AMOUNT_LABEL} five-stack</span>
+          <span>potions and 1h elixirs</span>
         </div>
         <button type="button" title="Close potion shop" aria-label="Close potion shop" onClick={onClose}>
           <X size={22} />
@@ -177,7 +179,7 @@ export function PotionShopPanel({
                 <ItemIcon itemId={itemId} />
                 <span>{item.consumable?.kind ?? "item"}</span>
                 <strong>{item.name}</strong>
-                <small>{selectedPrice.label}</small>
+                <small>{getPotionShopPrice(selectedQuantity, itemId).label}</small>
               </button>
             );
           })}
@@ -192,7 +194,7 @@ export function PotionShopPanel({
             onClick={() => selectQuantity(1)}
           >
             <span>single</span>
-            <strong>{POTION_SHOP_MFERGPT_AMOUNT_LABEL}</strong>
+            <strong>{selectedSinglePrice.label}</strong>
           </button>
           <button
             type="button"
@@ -202,7 +204,7 @@ export function PotionShopPanel({
             onClick={() => selectQuantity(5)}
           >
             <span>5-stack</span>
-            <strong>{POTION_SHOP_BULK_MFERGPT_AMOUNT_LABEL}</strong>
+            <strong>{selectedBulkPrice.label}</strong>
           </button>
         </div>
 
@@ -224,8 +226,8 @@ export function PotionShopPanel({
               <strong>{selectedPrice.label}</strong>
             </div>
             <div>
-              <span>restores</span>
-              <strong>{formatRestores(selectedItemId)}</strong>
+              <span>effect</span>
+              <strong>{formatPotionShopEffect(selectedItemId)}</strong>
             </div>
             <div>
               <span>delivery</span>
@@ -253,9 +255,10 @@ export function PotionShopPanel({
   );
 }
 
-function formatRestores(itemId: PotionShopItemId) {
-  const consumable = ITEMS[itemId].consumable;
+function formatPotionShopEffect(itemId: PotionShopItemId) {
+  const consumable = getItemConsumable(itemId);
   if (!consumable) return "item";
+  if (consumable.buffId) return `1h ${ELIXIR_BUFFS[consumable.buffId].effectLabel}`;
   const health = "health" in consumable ? consumable.health : 0;
   const mana = "mana" in consumable ? consumable.mana : 0;
   const parts = [

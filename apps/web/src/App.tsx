@@ -1989,6 +1989,7 @@ function getItemActionBlockMessage(slot: ItemActionSlot, player: PlayerSnapshot 
 
   const consumable = getItemConsumable(slot.itemId);
   if (!consumable) return "Can't use that";
+  if (consumable.buffId) return null;
 
   const needsHealth = Boolean(consumable.health && player.health < player.maxHealth);
   const needsMana = Boolean(consumable.mana && player.mana < player.maxMana);

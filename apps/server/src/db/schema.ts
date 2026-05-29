@@ -101,6 +101,17 @@ export const characterTalents = pgTable("character_talents", {
   primaryKey({ columns: [table.characterId, table.tree, table.nodeId] }),
 ]);
 
+export const characterBuffs = pgTable("character_buffs", {
+  characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  buffId: text("buff_id").notNull(),
+  startedAt: bigint("started_at", { mode: "number" }).notNull().default(0),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.characterId, table.buffId] }),
+  index("character_buffs_expires_at_idx").on(table.expiresAt),
+]);
+
 export const seasonRewardEvents = pgTable("season_reward_events", {
   id: text("id").primaryKey(),
   seasonId: text("season_id").notNull(),
