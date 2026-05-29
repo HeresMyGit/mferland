@@ -11,6 +11,7 @@ import type { PrivateKeyAccount } from "viem/accounts";
 import {
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BURN_ADDRESS,
+  TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
   type MferGptPaymentProof,
 } from "@mferland/shared";
 
@@ -35,6 +36,7 @@ const ERC20_ABI = parseAbi([
   "function balanceOf(address owner) view returns (uint256)",
   "function transfer(address to, uint256 amount) returns (bool)",
 ]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
 
 export class MferGptBurner {
   private readonly account: PrivateKeyAccount;
@@ -66,6 +68,7 @@ export class MferGptBurner {
       || localConfig?.addresses?.mfergpt,
     );
     if (!rpcUrl || !tokenAddress) return null;
+    assertLocalPaymentConfig({ rpcUrl, tokenAddress });
 
     const proofChainId = readPositiveInt(process.env.AGENT_MFERGPT_PROOF_CHAIN_ID)
       ?? TRAIT_CHANGE_BASE_CHAIN_ID;
@@ -193,4 +196,20 @@ function readPositiveInt(value: string | undefined) {
 function normalizeAddress(value: unknown): Address | "" {
   const normalized = cleanString(value).toLowerCase();
   return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized as Address : "";
+}
+
+function assertLocalPaymentConfig({ rpcUrl, tokenAddress }: { rpcUrl: string; tokenAddress: Address }) {
+  if (process.env.MFERLAND_AGENT_LOCAL_ONLY !== "1" && process.env.MFERLAND_LOCAL_ONLY !== "1") return;
+  let parsed: URL;
+  try {
+    parsed = new URL(rpcUrl);
+  } catch {
+    throw new Error("Local MFERGPT payment RPC URL must be valid.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || !LOCAL_HOSTS.has(parsed.hostname.toLowerCase())) {
+    throw new Error(`Refusing non-local MFERGPT payment RPC host ${parsed.hostname}.`);
+  }
+  if (tokenAddress.toLowerCase() === TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS.toLowerCase()) {
+    throw new Error("Refusing production MFERGPT token address for a local agent run.");
+  }
 }

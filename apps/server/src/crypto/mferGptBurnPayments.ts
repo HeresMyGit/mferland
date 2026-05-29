@@ -11,6 +11,7 @@ import {
 } from "@mferland/shared";
 import { getDatabase } from "../db/client.js";
 import { cryptoPurchaseEvents } from "../db/schema.js";
+import { isLocalOnlyEnabled } from "../localSafety.js";
 
 export type VerifiedMferGptBurnPayment = {
   chainId: number;
@@ -30,6 +31,13 @@ type VerifyMferGptBurnPaymentOptions = {
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const ZERO_TX_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000";
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+
+export type MferGptBurnPaymentConfig = {
+  rpcUrl: string;
+  tokenAddress: string;
+  burnAddress: string;
+};
 
 export async function verifyMferGptBurnPaymentProof({
   payment,
@@ -101,28 +109,39 @@ async function findExistingCryptoPayment(txHash: string, logIndex: number) {
 function getMferGptPaymentPublicClient() {
   return createPublicClient({
     chain: base,
-    transport: http(getMferGptPaymentRpcUrl()),
+    transport: http(resolveMferGptBurnPaymentConfig().rpcUrl),
   });
 }
 
-function getMferGptPaymentRpcUrl() {
-  return (
-    process.env.MFERLAND_MFERGPT_PAYMENT_RPC_URL
-    || process.env.MFERLAND_TRAIT_PAYMENT_RPC_URL
-    || TRAIT_CHANGE_BASE_RPC_URL
-  ).trim();
-}
-
 function getMferGptPaymentTokenAddress() {
-  return normalizeAddress(process.env.MFERLAND_MFERGPT_TOKEN_ADDRESS)
-    || normalizeAddress(process.env.MFERLAND_TRAIT_MFERGPT_TOKEN_ADDRESS)
-    || normalizeAddress(TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS);
+  return resolveMferGptBurnPaymentConfig().tokenAddress;
 }
 
 function getMferGptPaymentBurnAddress() {
-  return normalizeAddress(process.env.MFERLAND_MFERGPT_BURN_ADDRESS)
-    || normalizeAddress(process.env.MFERLAND_TRAIT_BURN_ADDRESS)
+  return resolveMferGptBurnPaymentConfig().burnAddress;
+}
+
+export function resolveMferGptBurnPaymentConfig(env: NodeJS.ProcessEnv = process.env): MferGptBurnPaymentConfig {
+  const rpcUrl = (
+    env.MFERLAND_MFERGPT_PAYMENT_RPC_URL
+    || env.MFERLAND_TRAIT_PAYMENT_RPC_URL
+    || TRAIT_CHANGE_BASE_RPC_URL
+  ).trim();
+  const tokenAddress = normalizeAddress(env.MFERLAND_MFERGPT_TOKEN_ADDRESS)
+    || normalizeAddress(env.MFERLAND_TRAIT_MFERGPT_TOKEN_ADDRESS)
+    || normalizeAddress(TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS);
+  const burnAddress = normalizeAddress(env.MFERLAND_MFERGPT_BURN_ADDRESS)
+    || normalizeAddress(env.MFERLAND_TRAIT_BURN_ADDRESS)
     || normalizeAddress(TRAIT_CHANGE_BURN_ADDRESS);
+
+  if (isLocalOnlyEnabled(env)) {
+    assertLocalPaymentRpcUrl(rpcUrl);
+    if (tokenAddress === normalizeAddress(TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS)) {
+      throw new Error("MFERLAND_LOCAL_ONLY=1 requires a local MFERGPT token address.");
+    }
+  }
+
+  return { rpcUrl, tokenAddress, burnAddress };
 }
 
 function normalizeTxHash(value: unknown) {
@@ -136,6 +155,21 @@ function normalizeAddress(value: unknown) {
   if (typeof value !== "string") return "";
   const normalized = value.trim().toLowerCase();
   return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
+}
+
+function assertLocalPaymentRpcUrl(rpcUrl: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(rpcUrl);
+  } catch {
+    throw new Error("MFERLAND_LOCAL_ONLY=1 requires a valid local MFERGPT payment RPC URL.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("MFERLAND_LOCAL_ONLY=1 only allows http/https MFERGPT payment RPC URLs.");
+  }
+  if (!LOCAL_HOSTS.has(parsed.hostname.toLowerCase())) {
+    throw new Error(`MFERLAND_LOCAL_ONLY=1 refused non-local MFERGPT payment RPC host ${parsed.hostname}.`);
+  }
 }
 
 function addressTopic(address: string) {

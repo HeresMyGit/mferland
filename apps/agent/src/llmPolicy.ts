@@ -165,6 +165,26 @@ type VisibleObservation = {
     text: string;
     kind: string;
   }>;
+  stores: Array<{
+    npcId: string;
+    npcRef: string;
+    name: string;
+    kind: string;
+    distance: number;
+    position: Point;
+    payment: string;
+    status: string;
+    supportedActions: string[];
+    items: Array<{
+      itemId: string;
+      name: string;
+      owned: number;
+      price: string;
+      bulkPrice: string;
+      effect: string;
+      recommendedUse: string;
+    }>;
+  }>;
   navigation: {
     publicRallyPoints: Array<{
       id: string;
@@ -433,6 +453,10 @@ export function makeVisibleObservation(
         text: message.text,
         kind: message.kind ?? "say",
       })),
+      stores: getStoreObservations(self, raw.nearbyNpcs, npcRefs, {
+        mferGptPaymentConfigured,
+        potionShopAlreadyStocked,
+      }),
       navigation: {
         publicRallyPoints: getPublicRallyPoints(self),
       },
@@ -461,8 +485,9 @@ export function makeVisibleObservation(
           "Avoid overpulls: do not run through hostile packs; if several hostile NPCs are close or you are low health, move back along a public route, use an item, wait, or fight one visible isolated hostile.",
           "Use share_quest_link for socialAction/tweet quests when questTrackerHints says to share; do not try to complete those quests with chat.",
           "If runMemory.canceledQuestIds contains a repeatable quest, do not accept that quest again during this run unless nearby players are visibly grouping for it.",
-          "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and you intentionally want to burn MFERGPT for potion-mfer inventory.",
-          "Buy at most one potion-shop item per run. If observation.runMemory.purchasedPotionShopItemIds is nonempty or inventory already has potion-shop stock, continue questing and use items instead.",
+          "Use observation.stores for public merchant knowledge and available store actions.",
+          "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
+          "A quantity=5 purchase counts as one stock-up purchase and is useful before leaving town. If observation.runMemory.purchasedPotionShopItemIds is nonempty or inventory already has potion-shop stock, continue questing and use items instead.",
           "Use respawn when your health is 0.",
           "Never ask for database reads, scripts, debug commands, hidden state, teleporting, or boosting.",
         ],
@@ -529,12 +554,13 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use the public aggro/danger fields before fighting or moving deeper; recover or retreat when multiple NPCs are targeting you.",
           "Use observation.self.combatActions for ability readiness, cooldowns, range, cast times, and AoE radius.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
+          "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the local MFERGPT burn flow can buy stock.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
           "Use share_quest_link for socialAction/tweet quests; chat does not progress those quests.",
           "Do not immediately re-accept a repeatable quest that observation.runMemory.canceledQuestIds says was canceled this run.",
           "Repeatable daily quests are optional and often dangerous; do not solo-run into a daily boss pack at low level.",
           "Prefer isolated targets with nearbyHostileCount 0 for normal quest pulls. If no isolated targets remain, group with visible players or intentionally use AoE/defensive recovery for a pack pull.",
-          "Prefer making quest progress. When observation.wallet.mferGptPaymentConfigured is true, buy useful potion-shop items with MFERGPT by burning tokens through the normal payment flow.",
+          "Prefer making quest progress. When observation.wallet.mferGptPaymentConfigured is true and you have no potion-shop stock, buy useful potion-shop items with MFERGPT by burning tokens through the normal payment flow.",
         ].join("\n"),
         input: [{
           role: "user",
@@ -770,6 +796,11 @@ function summarizeVisibleState(observation: VisibleObservation) {
     .slice(0, 3)
     .map((player) => `${player.ref}:${player.name}:${player.health}:d${player.distance}`)
     .join("|");
+  const stores = observation.stores
+    .filter((store) => store.npcId === POTION_SHOP_NPC_ID || store.distance <= 12)
+    .slice(0, 2)
+    .map((store) => `${store.npcId}:d${store.distance}:${store.status}`)
+    .join("|");
   return [
     `hp=${observation.self.health}`,
     `mana=${observation.self.mana}`,
@@ -780,6 +811,7 @@ function summarizeVisibleState(observation: VisibleObservation) {
     observation.self.dangerNote ? `danger=${observation.self.dangerNote}` : "",
     nearby ? `nearby=${nearby}` : "",
     players ? `players=${players}` : "",
+    stores ? `stores=${stores}` : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -796,6 +828,87 @@ function rememberAction(memory: RunMemory, decision: LlmDecision, status: "ok" |
 
 function hasPotionShopStock(self: PlayerSnapshot) {
   return self.inventory.some((item) => POTION_SHOP_ITEM_IDS.includes(item.id as PotionShopItemId) && item.count > 0);
+}
+
+function getStoreObservations(
+  self: PlayerSnapshot,
+  nearbyNpcs: Array<{ id: string; name: string; x: number; z: number; distance: number }>,
+  npcRefs: Map<string, string>,
+  capabilities: { mferGptPaymentConfigured: boolean; potionShopAlreadyStocked: boolean },
+): VisibleObservation["stores"] {
+  const nearbyById = new Map(nearbyNpcs.map((npc) => [npc.id, npc]));
+  return PUBLIC_STORES.map((store) => {
+    const nearby = nearbyById.get(store.npcId);
+    const position = nearby ? point(nearby) : store.position;
+    const distance = nearby ? nearby.distance : distanceToPoint(self, store.position);
+    const isPotionShop = store.npcId === POTION_SHOP_NPC_ID;
+    const status = isPotionShop
+      ? capabilities.potionShopAlreadyStocked
+        ? "already stocked; use existing items before buying more"
+        : capabilities.mferGptPaymentConfigured
+        ? "can buy now with local MFERGPT burn receipt"
+        : "visible/store-known, but no local MFERGPT payment signer is configured"
+      : store.status;
+    return {
+      npcId: store.npcId,
+      npcRef: npcRefs.get(store.npcId) ?? store.npcId,
+      name: nearby?.name ?? store.name,
+      kind: store.kind,
+      distance: round(distance),
+      position,
+      payment: store.payment,
+      status,
+      supportedActions: isPotionShop && capabilities.mferGptPaymentConfigured
+        ? ["move_near_npc", "interact_npc", "buy_potion_shop_item"]
+        : [...store.supportedActions],
+      items: isPotionShop
+        ? POTION_SHOP_ITEM_IDS.map((itemId) => ({
+          itemId,
+          name: ITEMS[itemId].name,
+          owned: getInventoryCount(self, itemId),
+          price: getPotionShopPrice(1, itemId).label,
+          bulkPrice: getPotionShopPrice(5, itemId).label,
+          effect: describeItemEffect(itemId),
+          recommendedUse: getPotionShopRecommendation(itemId),
+        }))
+        : [],
+    };
+  });
+}
+
+function getInventoryCount(self: PlayerSnapshot, itemId: string) {
+  return self.inventory
+    .filter((item) => item.id === itemId)
+    .reduce((total, item) => total + item.count, 0);
+}
+
+function describeItemEffect(itemId: PotionShopItemId) {
+  const definition = ITEMS[itemId] as typeof ITEMS[ItemId] & {
+    consumable?: {
+      kind: string;
+      health?: number;
+      mana?: number;
+      buffId?: string;
+    };
+  };
+  const consumable = definition.consumable;
+  if (!consumable) return definition.description;
+  const parts = [
+    consumable.health ? `+${consumable.health} health` : "",
+    consumable.mana ? `+${consumable.mana} mana` : "",
+    consumable.buffId ? `one-hour ${consumable.buffId} buff` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? `${consumable.kind}: ${parts.join(", ")}` : consumable.kind;
+}
+
+function getPotionShopRecommendation(itemId: PotionShopItemId) {
+  if (itemId === "red-juice") return "best first combat stock-up for questing because it restores health quickly";
+  if (itemId === "field-snack") return "good cheap road recovery between pulls when safe";
+  if (itemId === "blue-juice") return "buy when using mana-heavy caster actions or running out of mana";
+  if (itemId === "exit-liquidity-elixir") return "use before boss or dangerous pack attempts for extra survivability";
+  if (itemId === "mev-bot-elixir") return "use before long travel or kiting-heavy fights for speed";
+  if (itemId === "hopium-elixir") return "use before caster-heavy play for more mana and magic";
+  return "situational one-hour combat buff";
 }
 
 function getDangerNote(aggroCount: number, nearbyHostileCount: number, healthRatio: number) {
@@ -1104,6 +1217,45 @@ const PUBLIC_RALLY_POINTS = [
   },
 ] as const;
 
+const PUBLIC_STORES = [
+  {
+    npcId: POTION_SHOP_NPC_ID,
+    name: "potion mfer",
+    kind: "potion shop",
+    position: { x: 7.4, z: 25.4 },
+    payment: "burn local MFERGPT to the burn address, then submit the normal potion-shop purchase message",
+    status: "potion-shop status is computed from wallet payment config and current inventory",
+    supportedActions: ["move_near_npc", "interact_npc"],
+  },
+  {
+    npcId: "crypto-mfer",
+    name: "crypto mfer",
+    kind: "crypto store",
+    position: { x: 3.7, z: 25.4 },
+    payment: "human UI supports local testnet ETH, MFER, and MFERGPT purchase flows",
+    status: "known merchant; headless agent observes/interacts but does not have a gear/pass purchase action yet",
+    supportedActions: ["move_near_npc", "interact_npc"],
+  },
+  {
+    npcId: "traits-mfer",
+    name: "traits mfer",
+    kind: "traits mirror",
+    position: { x: -3.7, z: 25.4 },
+    payment: "first trait save is free; later paid changes burn MFERGPT through the normal trait flow",
+    status: "use update_traits for the normal free trait quest",
+    supportedActions: ["move_near_npc", "interact_npc", "update_traits"],
+  },
+  {
+    npcId: "swap-mfer",
+    name: "swap mfer",
+    kind: "swap",
+    position: { x: 0, z: 25.4 },
+    payment: "human-facing local swap affordance",
+    status: "known merchant/info NPC; not required for quest progression",
+    supportedActions: ["move_near_npc", "interact_npc"],
+  },
+] as const;
+
 function parseModelJson(payload: unknown) {
   if (typeof payload === "string") {
     const text = payload.trim();
@@ -1162,6 +1314,7 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "Use observation.self.aggroCount, observation.self.nearbyHostileCount, observation.self.dangerNote, and nearbyNpcs.targeting to avoid overpulls.",
     "Use observation.self.combatActions for ability readiness, cooldowns, range, cast times, and AoE radius. AoE abilities are valid when unlocked and intentionally handling grouped enemies.",
     "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates; loop-farm-road is the safer farm retreat point, plaza-safe is a full reset.",
+    "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the local MFERGPT burn flow can buy potion-shop stock.",
     "Use nearbyNpcs.nearbyHostileCount to choose isolated targets or intentionally group/AoE. Do not describe a target as isolated unless nearbyHostileCount is 0.",
     "If multiple NPCs are targeting you, or dangerNote is nonempty, pick a recovery action instead of starting another fight or moving deeper into the pack.",
     "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause. Use an item, heal, move toward a safer road coordinate, or respawn if defeated.",
@@ -1169,7 +1322,7 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "If observation.runMemory.canceledQuestIds contains a repeatable quest, do not accept it again during this run unless visible players are grouping for it.",
     "Prefer the non-repeatable main quest chain before optional repeatable/daily quests unless a group is ready for the daily.",
     "Avoid overpulls: do not run through hostile packs; if several hostile NPCs are close or health is low, move back along a public route, heal/use items, wait only when safe, or fight one visible isolated hostile.",
-    "Prefer concrete progress: if observation.wallet.mferGptPaymentConfigured is true, buy a useful potion-shop item by burning MFERGPT; otherwise progress quests, cooperate with visible players, fight enemies, loot, and turn quests in.",
+    "Prefer concrete progress: if observation.wallet.mferGptPaymentConfigured is true and you have no potion-shop stock, buy a useful potion-shop item by burning MFERGPT; otherwise progress quests, cooperate with visible players, fight enemies, loot, and turn quests in.",
     "",
     JSON.stringify({
       objective,

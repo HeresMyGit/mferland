@@ -7,6 +7,7 @@ This path is local-only. Do not point it at `game.mfergpt.lol`, the Mac mini ser
 - `MFERLAND_LOCAL_ONLY=1` makes the server and migration script refuse non-local `DATABASE_URL` hosts.
 - In development, `MFERLAND_LOCAL_ONLY=1` also lets the local server accept wallet joins without a wallet signature so browser wallet quirks do not block local playtesting.
 - `MFERLAND_AGENT_LOCAL_ONLY=1` makes the agent refuse non-local `AGENT_SERVER_URL` and non-local `DATABASE_URL`.
+- Local-only MFERGPT payment runs also refuse non-local payment RPC hosts and refuse the production MFERGPT token address. If the payment env is missing, potion-shop purchases fail locally instead of falling back to Base mainnet.
 - `npm run agent:guard:local` prints the sanitized server URL and database host it will use.
 - Disposable wallet keys are read from `.tmp/agent-wallets.json`, `AGENT_WALLET_PRIVATE_KEYS`, or generated in memory. `.tmp/` is gitignored.
 
@@ -121,7 +122,7 @@ npm run agent:llm:local
 
 Use `AGENT_LLM_PROVIDER=openai` plus `OPENAI_API_KEY` if you want direct OpenAI Responses API calls instead of the local Codex CLI. The Codex CLI provider runs in a temporary read-only directory and is only used as the model decision provider; it does not get repo access and does not run gameplay scripts.
 
-The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
+The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, a public store/catalog section, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
 
 Harness behavior to expect:
 
@@ -129,10 +130,14 @@ Harness behavior to expect:
 - Stationary casts hold the agent still so movement does not cancel the cast.
 - AoE abilities remain available in the action context and are exposed with cooldown, mana, range, cast time, and radius information.
 - Social quests use the same room messages as the web HUD; for example `tweet-town-link` uses `shareQuestLink`, not chat.
+- Store knowledge is explicit in `observation.stores`: potion-mfer item ids, prices, effects, owned counts, supported actions, and whether the local MFERGPT burn flow can buy stock.
 - Optional repeatable quests are marked as optional and canceled repeatables are remembered for the current run so agents do not immediately re-accept them.
 
 Latest local LLM playthrough notes:
 
+- A fresh disposable wallet `0xe9b57fa58e84c09ef3e2502a6da2439491a9ef67` was funded with fake local Anvil MFERGPT and run through `AGENT_LLM_PROVIDER=codex-cli` against a separate local server on `ws://localhost:2568`.
+- The LLM selected `buy_potion_shop_item` on step 1, bought `red-juice` quantity `5` through the normal local MFERGPT burn receipt flow, then completed `mfer-beginnings` and `set-your-traits` from normal room observations. No game DB reads, deterministic playtest path, debug messages, or privileged server messages were used for this gameplay verification.
+- The local burn address `0x000000000000000000000000000000000000dEaD` had local MFERGPT balance after the run on Anvil chain id `31337`, confirming the purchase path used the configured burn destination.
 - Three disposable local wallets authenticated through the local wallet flow and joined the local server against `postgresql://localhost:55432/mferland_agent_test`.
 - The agents completed the intro, farm handoff, `boar-bristle-cull`, `feral-farmers`, and `hog-livers` sequence locally.
 - Two agents also completed `field-camp-delivery`; two completed `ask-mfergpt` and `tweet-town-link`.
