@@ -367,6 +367,10 @@ export class MferlandAgentClient {
     this.room?.send("combatAction", { actionId, target });
   }
 
+  respawn() {
+    this.room?.send("respawn", {});
+  }
+
   lootNpc(npcId: string, itemId?: ItemId) {
     this.room?.send("lootCorpse", { npcId, itemId });
   }
@@ -671,7 +675,7 @@ export class MferlandAgentClient {
   private respawnIfDefeated(self: PlayerSnapshot, now = Date.now()) {
     if (self.health > 0 || now - this.lastRespawnAt < 750) return;
     this.lastRespawnAt = now;
-    this.room?.send("respawn", {});
+    this.respawn();
   }
 }
 

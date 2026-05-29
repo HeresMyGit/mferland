@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { stableHash } from "@mferland/shared";
 import { MferlandAgentClient, delay } from "./client.js";
 import { assertLocalAgentSafety, summarizeDatabaseUrl } from "./localSafety.js";
-import { runLlmGameAgent } from "./llmPolicy.js";
+import { runLlmGameAgent, type LlmProvider } from "./llmPolicy.js";
 import { MferGptBurner } from "./mferGptPayment.js";
 import { runLocalAgentPlaytest } from "./playtest.js";
 import { loadAgentWallets, summarizeWallets, type AgentWallet } from "./wallets.js";
@@ -20,10 +20,12 @@ type AgentConfig = {
   walletFile?: string;
   privateKeys: string[];
   localOnly: boolean;
+  llmProvider: LlmProvider;
   llmModel: string;
   llmObjective: string;
   llmSteps: number;
   llmDecisionIntervalMs: number;
+  llmDecisionTimeoutMs: number;
 };
 
 const agents: MferlandAgentClient[] = [];
@@ -39,6 +41,7 @@ assertLocalAgentSafety({
 console.log(`Agent mode: ${config.mode}`);
 console.log(`Agent server: ${config.serverUrl}`);
 console.log(`Agent database guard: ${summarizeDatabaseUrl(process.env.DATABASE_URL)}`);
+if (config.mode === "llm") console.log(`Agent LLM provider: ${config.llmProvider} (${config.llmModel})`);
 
 const wallets = await loadAgentWallets({
   count: config.count,
@@ -89,8 +92,10 @@ try {
     const results = await Promise.allSettled(agentWallets.map(({ agent, wallet }) => runLlmGameAgent(agent, {
       model: config.llmModel,
       objective: config.llmObjective,
+      provider: config.llmProvider,
       maxSteps: config.llmSteps,
       decisionIntervalMs: config.llmDecisionIntervalMs,
+      decisionTimeoutMs: config.llmDecisionTimeoutMs,
       payment: MferGptBurner.fromEnv(wallet.account),
     })));
     const failed = results.filter((result) => result.status === "rejected");
@@ -106,6 +111,8 @@ try {
           walletAddress: `${agent.walletAddress.slice(0, 6)}...${agent.walletAddress.slice(-4)}`,
           level: self?.level ?? 0,
           xp: self?.xp ?? 0,
+          health: self ? `${Math.ceil(self.health)}/${Math.ceil(self.maxHealth)}` : "0/0",
+          position: self ? { x: round(self.x), z: round(self.z) } : null,
           quests: self?.quests ?? [],
           inventory: self?.inventory ?? [],
         };
@@ -152,16 +159,19 @@ function readConfig(): AgentConfig {
       "wallet-file": { type: "string", default: process.env.AGENT_WALLET_FILE },
       "private-key": { type: "string", multiple: true },
       "local-only": { type: "boolean", default: process.env.MFERLAND_AGENT_LOCAL_ONLY === "1" },
-      "llm-model": { type: "string", default: process.env.AGENT_LLM_MODEL ?? "gpt-4.1-mini" },
+      "llm-provider": { type: "string", default: process.env.AGENT_LLM_PROVIDER },
+      "llm-model": { type: "string", default: process.env.AGENT_LLM_MODEL },
       "llm-objective": {
         type: "string",
-        default: process.env.AGENT_LLM_OBJECTIVE ?? "Register or continue a wallet character, progress quests like a normal human player, cooperate with visible players, and buy useful potion-shop items with MFERGPT when funded.",
+        default: process.env.AGENT_LLM_OBJECTIVE ?? "Register or continue a wallet character. If local MFERGPT payment is configured, first buy one useful potion-shop item from potion-mfer by burning MFERGPT, then progress quests like a normal human player and cooperate with visible players.",
       },
       "llm-steps": { type: "string", default: process.env.AGENT_LLM_STEPS ?? "80" },
       "llm-interval-ms": { type: "string", default: process.env.AGENT_LLM_DECISION_INTERVAL_MS ?? "1200" },
+      "llm-timeout-ms": { type: "string", default: process.env.AGENT_LLM_DECISION_TIMEOUT_MS ?? "60000" },
     },
     allowPositionals: false,
   });
+  const llmProvider = normalizeLlmProvider(values["llm-provider"]);
 
   return {
     mode: normalizeMode(values.mode),
@@ -174,10 +184,12 @@ function readConfig(): AgentConfig {
     walletFile: values["wallet-file"],
     privateKeys: Array.isArray(values["private-key"]) ? values["private-key"] : [],
     localOnly: values["local-only"] === true || process.env.MFERLAND_AGENT_LOCAL_ONLY === "1",
-    llmModel: cleanModel(values["llm-model"] ?? "gpt-4.1-mini"),
+    llmProvider,
+    llmModel: cleanModel(values["llm-model"] ?? defaultLlmModel(llmProvider)),
     llmObjective: cleanObjective(values["llm-objective"] ?? ""),
     llmSteps: readPositiveInt(values["llm-steps"], 80),
     llmDecisionIntervalMs: readPositiveInt(values["llm-interval-ms"], 1200),
+    llmDecisionTimeoutMs: readPositiveInt(values["llm-timeout-ms"], 60_000),
   };
 }
 
@@ -191,6 +203,18 @@ function readPositiveInt(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
+function normalizeLlmProvider(value: string | undefined): LlmProvider {
+  const provider = (value || (process.env.OPENAI_API_KEY ? "openai" : "codex-cli")).trim().toLowerCase();
+  if (provider === "openai" || provider === "codex-cli") return provider;
+  throw new Error("AGENT_LLM_PROVIDER/--llm-provider must be openai or codex-cli.");
+}
+
+function defaultLlmModel(provider: LlmProvider) {
+  return provider === "codex-cli"
+    ? process.env.CODEX_LLM_MODEL ?? "gpt-5.4-mini"
+    : "gpt-4.1-mini";
+}
+
 function cleanName(value: string) {
   return value.replace(/[^\w .$-]/g, "").trim().slice(0, 18) || "mfer-agent";
 }
@@ -201,4 +225,8 @@ function cleanModel(value: string) {
 
 function cleanObjective(value: string) {
   return value.trim().slice(0, 800) || "Play mferland as a normal wallet player.";
+}
+
+function round(value: number) {
+  return Math.round(value * 10) / 10;
 }

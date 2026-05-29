@@ -30,6 +30,32 @@ export function getGameAgentHandbook() {
       { place: "swap mfer", x: 24, z: 16, npcId: "swap-mfer", note: "merchant for swap affordances" },
       { place: "daily signal camp", x: -69.4, z: -55.6, npcId: "mfergpt-daily-boss", note: "mferGPT daily boss area southwest of town" },
     ],
+    routes: [
+      {
+        routeId: "plaza-to-daily-signal-camp",
+        name: "plaza to daily signal camp",
+        note: "public road route to the mferGPT daily boss camp; move through these as normal map waypoints until the camp NPCs are visible",
+        waypoints: [
+          { x: -18, z: 0 },
+          { x: -52, z: 0 },
+          { x: -52, z: -36 },
+          { x: -58, z: -48 },
+          { x: -69.4, z: -55.6 },
+        ],
+      },
+      {
+        routeId: "daily-signal-camp-to-mfergpt",
+        name: "daily signal camp to plaza mferGPT",
+        note: "return route after the daily boss is defeated",
+        waypoints: [
+          { x: -58, z: -48 },
+          { x: -52, z: -36 },
+          { x: -52, z: 0 },
+          { x: -18, z: 0 },
+          { x: 6.8, z: -5.2 },
+        ],
+      },
+    ],
     questHints: Object.entries(QUESTS).map(([questId, quest]) => ({
       questId,
       title: quest.title,

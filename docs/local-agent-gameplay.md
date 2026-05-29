@@ -53,6 +53,30 @@ NODE_ENV=development \
 npm run dev -w @mferland/server
 ```
 
+For local MFERGPT purchases, start Anvil, deploy/export the local contracts, fund the disposable agent wallets, then restart the server with the local payment verifier pointed at Anvil:
+
+```sh
+npm run chain:node
+npm run chain:deploy:local
+npm run wallets:create:test -- --count 3 --out .tmp/agent-wallets-llm.json --prefix llm-agent --force
+npm run agent:fund-mfergpt:local -- --wallet-file .tmp/agent-wallets-llm.json
+```
+
+```sh
+DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
+MFERLAND_LOCAL_ONLY=1 \
+MFERLAND_ENABLE_INVITE_GATE=0 \
+MFERLAND_MFERGPT_PAYMENT_RPC_URL="http://127.0.0.1:8545" \
+MFERLAND_MFERGPT_TOKEN_ADDRESS="$(node -e 'console.log(require("./apps/web/public/crypto/local-contracts.json").addresses.mfergpt)')" \
+MFERLAND_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD" \
+HOST=127.0.0.1 \
+PORT=2567 \
+NODE_ENV=development \
+npm run dev -w @mferland/server
+```
+
+`agent:fund-mfergpt:local` only talks to local Anvil chain id `31337`, transfers fake local ETH plus fake local MFERGPT from Anvil's unlocked deployer account, and refuses non-local RPC hosts.
+
 ## Run Multi-Agent Playtest
 
 In another terminal:
@@ -76,13 +100,16 @@ DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
 AGENT_SERVER_URL="ws://localhost:2567" \
 AGENT_WALLET_FILE=".tmp/agent-wallets-llm.json" \
 AGENT_COUNT=3 \
+AGENT_LLM_PROVIDER="codex-cli" \
+AGENT_LLM_MODEL="gpt-5.4-mini" \
 AGENT_LLM_STEPS=80 \
 AGENT_LLM_DECISION_INTERVAL_MS=1200 \
-OPENAI_API_KEY="$OPENAI_API_KEY" \
 npm run agent:llm:local
 ```
 
-The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, and a public handbook with map/quest/merchant hints. It can move, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
+Use `AGENT_LLM_PROVIDER=openai` plus `OPENAI_API_KEY` if you want direct OpenAI Responses API calls instead of the local Codex CLI. The Codex CLI provider runs in a temporary read-only directory and is only used as the model decision provider; it does not get repo access and does not run gameplay scripts.
+
+The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
 
 For potion-shop purchases, fund the disposable local wallet on a local token first and point the agent at the local chain:
 
