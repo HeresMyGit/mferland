@@ -213,11 +213,6 @@ export function isCryptoSmokeWalletAuthBypassEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS === "1";
 }
 
-function isCryptoSmokeWalletAuthBypassAllowed(walletAddress: string) {
-  return isCryptoSmokeWalletAuthBypassEnabled()
-    && walletAddress === "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
-}
-
 function getRequiredInviteCode() {
   return (process.env.MFERLAND_INVITE_CODE ?? "").trim();
 }
@@ -496,7 +491,6 @@ export class TownRoom extends Room<TownState> {
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
     if (
       (options?.identityType === "wallet" || walletAddress)
-      && !isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
       && !await verifyWalletAuthProof(walletAddress, options?.walletAuth)
     ) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");

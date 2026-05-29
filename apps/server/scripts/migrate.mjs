@@ -10,6 +10,9 @@ if (!databaseUrl) {
   console.error("DATABASE_URL is required to run migrations.");
   process.exit(1);
 }
+if (process.env.MFERLAND_LOCAL_ONLY === "1" || process.env.MFERLAND_AGENT_LOCAL_ONLY === "1") {
+  assertLocalDatabaseUrl(databaseUrl);
+}
 
 const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
 
@@ -56,4 +59,26 @@ try {
   }
 } finally {
   await sql.end({ timeout: 5 });
+}
+
+function assertLocalDatabaseUrl(value) {
+  const productionPattern = /game\.mfergpt\.lol|neon\.tech/i;
+  if (productionPattern.test(value)) {
+    console.error("DATABASE_URL appears to target production; refusing local-only migration.");
+    process.exit(1);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    console.error("DATABASE_URL must be a valid postgres URL for local-only migration.");
+    process.exit(1);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (!["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].includes(hostname)) {
+    console.error(`DATABASE_URL host ${parsed.hostname} is not local; refusing local-only migration.`);
+    process.exit(1);
+  }
 }

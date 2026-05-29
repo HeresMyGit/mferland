@@ -12,6 +12,7 @@ import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./cr
 import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
 import { closeDatabase } from "./db/client.js";
 import { getSeason0Leaderboard, getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
+import { assertLocalOnlyRuntimeSafety } from "./localSafety.js";
 import {
   areDebugMessagesEnabled,
   isCryptoSmokeWalletAuthBypassEnabled,
@@ -76,6 +77,7 @@ const PUBLIC_ANALYTICS_EVENTS = new Set([
 ]);
 
 Encoder.BUFFER_SIZE = ROOM_STATE_ENCODER_BUFFER_BYTES;
+assertLocalOnlyRuntimeSafety();
 
 const port = Number(process.env.PORT ?? 2567);
 const host = process.env.HOST ?? "0.0.0.0";

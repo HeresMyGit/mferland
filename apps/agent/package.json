@@ -6,13 +6,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "playtest:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode playtest",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@mferland/shared": "file:../../packages/shared",
-    "colyseus.js": "^0.16.22"
+    "colyseus.js": "^0.16.22",
+    "viem": "^2.40.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
