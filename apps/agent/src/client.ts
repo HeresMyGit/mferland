@@ -21,6 +21,7 @@ import {
   type InventoryItemSnapshot,
   type ItemId,
   type LootWindow,
+  type MferGptPaymentProof,
   type MferAppearanceTraits,
   type NpcModel,
   type NpcRole,
@@ -28,6 +29,7 @@ import {
   type PlayerSnapshot,
   type PotionShopItemId,
   type PotionShopPurchaseQuantity,
+  type PotionShopPurchaseResult,
   type QuestId,
   type QuestSnapshot,
   type TalentRankSnapshot,
@@ -150,6 +152,7 @@ export class MferlandAgentClient {
   private players = new Map<string, PlayerSnapshot>();
   private npcs = new Map<string, NpcSnapshot>();
   private recentChat: ChatMessage[] = [];
+  private potionShopResults: PotionShopPurchaseResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
   private sprint = false;
@@ -160,6 +163,7 @@ export class MferlandAgentClient {
   private nextChatAt = 0;
   private jumpUntil = 0;
   private connected = false;
+  private lastRespawnAt = 0;
 
   constructor(options: MferlandAgentOptions) {
     const wsServerUrl = toWsServerUrl(options.serverUrl);
@@ -286,6 +290,7 @@ export class MferlandAgentClient {
     try {
       await this.waitFor(() => {
         const self = this.getSelf();
+        if (self) this.respawnIfDefeated(self);
         return Boolean(self && distanceToPoint(self, point) <= range);
       }, { timeoutMs, intervalMs: options.intervalMs }, `move to ${formatPoint(point)}`);
     } catch (error) {
@@ -311,6 +316,7 @@ export class MferlandAgentClient {
     while (Date.now() - startedAt < timeoutMs) {
       const self = this.getSelf();
       const npc = this.getNpc(npcId);
+      if (self) this.respawnIfDefeated(self);
       if (self && npc && distance2d(self, npc) <= range) {
         this.targetPoint = null;
         this.sprint = false;
@@ -377,8 +383,25 @@ export class MferlandAgentClient {
     this.room?.send("useItem", { itemId, chainTokenId });
   }
 
-  usePotionShopItem(itemId: PotionShopItemId, quantity?: PotionShopPurchaseQuantity) {
-    this.room?.send("purchasePotionShopItem", { itemId, quantity });
+  usePotionShopItem(itemId: PotionShopItemId, quantity?: PotionShopPurchaseQuantity, payment?: MferGptPaymentProof) {
+    this.room?.send("purchasePotionShopItem", { itemId, quantity, payment });
+  }
+
+  async purchasePotionShopItem(itemId: PotionShopItemId, quantity: PotionShopPurchaseQuantity, payment: MferGptPaymentProof) {
+    this.usePotionShopItem(itemId, quantity, payment);
+    await this.waitFor(() => this.potionShopResults.some((result) => (
+      result.itemId === itemId
+      && result.quantity === quantity
+      && (!payment.txHash || result.txHash === payment.txHash)
+    )), { timeoutMs: 95_000, intervalMs: 250 }, `potion shop purchase ${itemId}`);
+    const result = [...this.potionShopResults]
+      .reverse()
+      .find((entry) => (
+        entry.itemId === itemId
+        && entry.quantity === quantity
+        && (!payment.txHash || entry.txHash === payment.txHash)
+      ));
+    if (!result?.ok) throw new Error(result?.error || `potion shop purchase ${itemId} failed`);
   }
 
   updateTraits(traits: MferAppearanceTraits = DEFAULT_MFER_APPEARANCE_TRAITS) {
@@ -428,7 +451,7 @@ export class MferlandAgentClient {
       }
       if (!self) throw new Error(`${this.name} has no self snapshot during fight`);
       if (self.health <= 0) {
-        this.room?.send("respawn", {});
+        this.respawnIfDefeated(self);
         await delay(500);
         continue;
       }
@@ -502,7 +525,9 @@ export class MferlandAgentClient {
     room.onMessage("combatEvent", () => undefined);
     room.onMessage("experienceEvent", () => undefined);
     room.onMessage("persistenceStatus", () => undefined);
-    room.onMessage("potionShopPurchaseResult", () => undefined);
+    room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
+      this.potionShopResults = [...this.potionShopResults.slice(-8), message];
+    });
     room.onMessage("questOffer", () => undefined);
     room.onMessage("questStatus", () => undefined);
     room.onMessage("questTurnIn", () => undefined);
@@ -641,6 +666,12 @@ export class MferlandAgentClient {
   private stop() {
     if (this.inputTimer) clearInterval(this.inputTimer);
     this.inputTimer = null;
+  }
+
+  private respawnIfDefeated(self: PlayerSnapshot, now = Date.now()) {
+    if (self.health > 0 || now - this.lastRespawnAt < 750) return;
+    this.lastRespawnAt = now;
+    this.room?.send("respawn", {});
   }
 }
 

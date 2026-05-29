@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "playtest:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode playtest",
+    "llm:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode llm",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"

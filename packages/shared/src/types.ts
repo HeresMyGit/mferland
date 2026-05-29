@@ -299,7 +299,7 @@ export type AgentVisiblePlayer = Pick<
 
 export type AgentVisibleNpc = Pick<
   NpcSnapshot,
-  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId" | "defeatedAt" | "despawnAt"
+  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId" | "defeatedAt" | "despawnAt" | "aggroTargetId" | "hasLoot"
 > & {
   distance: number;
 };

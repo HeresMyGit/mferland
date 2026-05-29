@@ -2,10 +2,12 @@ import { parseArgs } from "node:util";
 import { stableHash } from "@mferland/shared";
 import { MferlandAgentClient, delay } from "./client.js";
 import { assertLocalAgentSafety, summarizeDatabaseUrl } from "./localSafety.js";
+import { runLlmGameAgent } from "./llmPolicy.js";
+import { MferGptBurner } from "./mferGptPayment.js";
 import { runLocalAgentPlaytest } from "./playtest.js";
-import { loadAgentWallets, summarizeWallets } from "./wallets.js";
+import { loadAgentWallets, summarizeWallets, type AgentWallet } from "./wallets.js";
 
-type AgentMode = "ambient" | "playtest";
+type AgentMode = "ambient" | "playtest" | "llm";
 
 type AgentConfig = {
   mode: AgentMode;
@@ -18,9 +20,14 @@ type AgentConfig = {
   walletFile?: string;
   privateKeys: string[];
   localOnly: boolean;
+  llmModel: string;
+  llmObjective: string;
+  llmSteps: number;
+  llmDecisionIntervalMs: number;
 };
 
 const agents: MferlandAgentClient[] = [];
+const agentWallets: Array<{ agent: MferlandAgentClient; wallet: AgentWallet }> = [];
 const config = readConfig();
 
 assertLocalAgentSafety({
@@ -58,6 +65,7 @@ try {
       chatEnabled: config.chatEnabled,
     });
     agents.push(agent);
+    agentWallets.push({ agent, wallet });
     await agent.connect();
     await delay(350);
   }
@@ -77,6 +85,33 @@ try {
       })),
     }, null, 2));
     await shutdown(0);
+  } else if (config.mode === "llm") {
+    const results = await Promise.allSettled(agentWallets.map(({ agent, wallet }) => runLlmGameAgent(agent, {
+      model: config.llmModel,
+      objective: config.llmObjective,
+      maxSteps: config.llmSteps,
+      decisionIntervalMs: config.llmDecisionIntervalMs,
+      payment: MferGptBurner.fromEnv(wallet.account),
+    })));
+    const failed = results.filter((result) => result.status === "rejected");
+    console.log(JSON.stringify({
+      ok: failed.length === 0,
+      mode: config.mode,
+      steps: config.llmSteps,
+      failures: failed.map((result) => result.status === "rejected" ? String(result.reason) : ""),
+      agents: agents.map((agent) => {
+        const self = agent.getSelf();
+        return {
+          name: self?.name ?? "",
+          walletAddress: `${agent.walletAddress.slice(0, 6)}...${agent.walletAddress.slice(-4)}`,
+          level: self?.level ?? 0,
+          xp: self?.xp ?? 0,
+          quests: self?.quests ?? [],
+          inventory: self?.inventory ?? [],
+        };
+      }),
+    }, null, 2));
+    await shutdown(failed.length > 0 ? 1 : 0);
   } else {
     console.log("Ambient wallet agents are running. Press Ctrl-C to stop.");
   }
@@ -117,6 +152,13 @@ function readConfig(): AgentConfig {
       "wallet-file": { type: "string", default: process.env.AGENT_WALLET_FILE },
       "private-key": { type: "string", multiple: true },
       "local-only": { type: "boolean", default: process.env.MFERLAND_AGENT_LOCAL_ONLY === "1" },
+      "llm-model": { type: "string", default: process.env.AGENT_LLM_MODEL ?? "gpt-4.1-mini" },
+      "llm-objective": {
+        type: "string",
+        default: process.env.AGENT_LLM_OBJECTIVE ?? "Register or continue a wallet character, progress quests like a normal human player, cooperate with visible players, and buy useful potion-shop items with MFERGPT when funded.",
+      },
+      "llm-steps": { type: "string", default: process.env.AGENT_LLM_STEPS ?? "80" },
+      "llm-interval-ms": { type: "string", default: process.env.AGENT_LLM_DECISION_INTERVAL_MS ?? "1200" },
     },
     allowPositionals: false,
   });
@@ -132,12 +174,16 @@ function readConfig(): AgentConfig {
     walletFile: values["wallet-file"],
     privateKeys: Array.isArray(values["private-key"]) ? values["private-key"] : [],
     localOnly: values["local-only"] === true || process.env.MFERLAND_AGENT_LOCAL_ONLY === "1",
+    llmModel: cleanModel(values["llm-model"] ?? "gpt-4.1-mini"),
+    llmObjective: cleanObjective(values["llm-objective"] ?? ""),
+    llmSteps: readPositiveInt(values["llm-steps"], 80),
+    llmDecisionIntervalMs: readPositiveInt(values["llm-interval-ms"], 1200),
   };
 }
 
 function normalizeMode(value: string | undefined): AgentMode {
-  if (value === "playtest" || value === "ambient") return value;
-  throw new Error("AGENT_MODE/--mode must be ambient or playtest.");
+  if (value === "playtest" || value === "ambient" || value === "llm") return value;
+  throw new Error("AGENT_MODE/--mode must be ambient, playtest, or llm.");
 }
 
 function readPositiveInt(value: string | undefined, fallback: number) {
@@ -147,4 +193,12 @@ function readPositiveInt(value: string | undefined, fallback: number) {
 
 function cleanName(value: string) {
   return value.replace(/[^\w .$-]/g, "").trim().slice(0, 18) || "mfer-agent";
+}
+
+function cleanModel(value: string) {
+  return value.replace(/[^\w:.-]/g, "").trim().slice(0, 80) || "gpt-4.1-mini";
+}
+
+function cleanObjective(value: string) {
+  return value.trim().slice(0, 800) || "Play mferland as a normal wallet player.";
 }

@@ -16,6 +16,7 @@ import { assertLocalOnlyRuntimeSafety } from "./localSafety.js";
 import {
   areDebugMessagesEnabled,
   isCryptoSmokeWalletAuthBypassEnabled,
+  isLocalOnlyWalletAuthBypassEnabled,
   readDebugPlacementMap,
   TownRoom,
 } from "./rooms/TownRoom.js";
@@ -99,6 +100,7 @@ const server = createServer((req, res) => {
       maxPlayers: MAX_PLAYERS,
       debugMessagesEnabled: areDebugMessagesEnabled(),
       cryptoSmokeWalletAuthBypassEnabled: isCryptoSmokeWalletAuthBypassEnabled(),
+      localOnlyWalletAuthBypassEnabled: isLocalOnlyWalletAuthBypassEnabled(),
       localRpcProxyEnabled: isLocalRpcProxyEnabled(),
     }));
     return;

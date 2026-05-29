@@ -16,6 +16,8 @@ const DAILY_BOSS_RETURN_ROUTE: Point[] = [
   { x: -18, z: 0 },
   { x: 6.8, z: -5.2 },
 ];
+const DAILY_BOSS_ROUTE_RANGE = 12;
+const DAILY_BOSS_RETURN_RANGE = 8;
 
 export type PlaytestResult = {
   agents: Array<{
@@ -29,11 +31,13 @@ export type PlaytestResult = {
 };
 
 export async function runLocalAgentPlaytest(agents: MferlandAgentClient[]): Promise<PlaytestResult> {
+  logStage("starting intro questline");
   for (const agent of agents) {
     await runIntroQuestline(agent);
     await runMferGptQuestSetup(agent);
   }
 
+  logStage("accepting daily boss quest");
   await Promise.all(agents.map(async (agent) => {
     await agent.acceptQuest("mfergpt-daily-signal", "mfergpt");
   }));
@@ -44,10 +48,12 @@ export async function runLocalAgentPlaytest(agents: MferlandAgentClient[]): Prom
   });
 
   if (needsBossFight) {
+    logStage("moving team to daily boss camp");
     await Promise.all(agents.map(async (agent) => {
-      await agent.moveAlong(DAILY_BOSS_ROUTE, { range: 5.5, timeoutMs: 45_000 });
+      await agent.moveAlong(DAILY_BOSS_ROUTE, { range: DAILY_BOSS_ROUTE_RANGE, timeoutMs: 60_000 });
     }));
 
+    logStage("fighting daily boss");
     await Promise.all(agents.map((agent) => agent.fightNpc(DAILY_BOSS_NPC_ID, {
       timeoutMs: 120_000,
       preferredActions: ["shoot", "attack"],
@@ -62,7 +68,8 @@ export async function runLocalAgentPlaytest(agents: MferlandAgentClient[]): Prom
 
   for (const agent of agents) {
     if (!agent.hasCompletedQuest("mfergpt-daily-signal")) {
-      await agent.moveAlong(DAILY_BOSS_RETURN_ROUTE, { range: 5.5, timeoutMs: 45_000 });
+      logStage(`${agent.walletAddress.slice(0, 6)} returning daily quest`);
+      await agent.moveAlong(DAILY_BOSS_RETURN_ROUTE, { range: DAILY_BOSS_RETURN_RANGE, timeoutMs: 60_000 });
       await agent.completeQuest("mfergpt-daily-signal", "mfergpt");
     }
   }
@@ -85,6 +92,7 @@ export async function runLocalAgentPlaytest(agents: MferlandAgentClient[]): Prom
 }
 
 async function runIntroQuestline(agent: MferlandAgentClient) {
+  logStage(`${agent.walletAddress.slice(0, 6)} intro questline`);
   await completeAutoQuest(agent, "mfer-beginnings", "og-mfer", "dao-mfer");
   await agent.completeTraitQuest();
   await completeAutoQuest(agent, "dao-tour", "dao-mfer", "fountain-mfer");
@@ -94,6 +102,7 @@ async function runIntroQuestline(agent: MferlandAgentClient) {
 }
 
 async function runMferGptQuestSetup(agent: MferlandAgentClient) {
+  logStage(`${agent.walletAddress.slice(0, 6)} mferGPT setup`);
   await agent.completeChatQuest("mfergpt-checkin", "@mfergpt gm from local agent", "mfergpt");
 }
 
@@ -106,4 +115,8 @@ async function completeAutoQuest(
   if (agent.hasCompletedQuest(questId)) return;
   await agent.acceptQuest(questId, giverNpcId);
   await agent.completeQuest(questId, turnInNpcId);
+}
+
+function logStage(message: string) {
+  console.log(`[playtest] ${message}`);
 }

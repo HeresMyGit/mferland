@@ -5,6 +5,7 @@ This path is local-only. Do not point it at `game.mfergpt.lol`, the Mac mini ser
 ## Safety Gates
 
 - `MFERLAND_LOCAL_ONLY=1` makes the server and migration script refuse non-local `DATABASE_URL` hosts.
+- In development, `MFERLAND_LOCAL_ONLY=1` also lets the local server accept wallet joins without a wallet signature so browser wallet quirks do not block local playtesting.
 - `MFERLAND_AGENT_LOCAL_ONLY=1` makes the agent refuse non-local `AGENT_SERVER_URL` and non-local `DATABASE_URL`.
 - `npm run agent:guard:local` prints the sanitized server URL and database host it will use.
 - Disposable wallet keys are read from `.tmp/agent-wallets.json`, `AGENT_WALLET_PRIVATE_KEYS`, or generated in memory. `.tmp/` is gitignored.
@@ -45,10 +46,11 @@ Use an inline local `DATABASE_URL` if the repo `.env` points anywhere remote.
 ```sh
 DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
 MFERLAND_LOCAL_ONLY=1 \
+MFERLAND_ENABLE_INVITE_GATE=0 \
 HOST=127.0.0.1 \
 PORT=2567 \
 NODE_ENV=development \
-npx tsx apps/server/src/index.ts
+npm run dev -w @mferland/server
 ```
 
 ## Run Multi-Agent Playtest
@@ -64,6 +66,35 @@ npm run agent:playtest:local
 ```
 
 The playtest signs `/wallet-auth-challenge`, joins `town` as wallet characters, creates or continues local DB characters, completes the intro/mferGPT quest sequence, coordinates against `mfergpt-daily-boss`, loots windows when offered, then turns in the daily quest. It does not send paid/onchain fulfillment messages.
+
+## Run LLM Agents
+
+LLM mode is for local game-playing agents. Each agent signs the wallet challenge, joins the Colyseus room, observes only normal room state, and chooses one allowlisted player action at a time. The agent code does not read the database, run repo scripts, send debug messages, teleport, or use hidden server state.
+
+```sh
+DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
+AGENT_SERVER_URL="ws://localhost:2567" \
+AGENT_WALLET_FILE=".tmp/agent-wallets-llm.json" \
+AGENT_COUNT=3 \
+AGENT_LLM_STEPS=80 \
+AGENT_LLM_DECISION_INTERVAL_MS=1200 \
+OPENAI_API_KEY="$OPENAI_API_KEY" \
+npm run agent:llm:local
+```
+
+The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, and a public handbook with map/quest/merchant hints. It can move, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
+
+For potion-shop purchases, fund the disposable local wallet on a local token first and point the agent at the local chain:
+
+```sh
+AGENT_MFERGPT_RPC_URL="http://127.0.0.1:8545" \
+AGENT_MFERGPT_RPC_CHAIN_ID=31337 \
+AGENT_MFERGPT_PROOF_CHAIN_ID=8453 \
+AGENT_MFERGPT_TOKEN_ADDRESS="0x..." \
+AGENT_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
+```
+
+If `apps/web/public/crypto/local-contracts.json` exists, the agent can also read the local RPC URL and MFERGPT token address from that file. Do not use a funded main wallet or production contract config for local agents.
 
 Stop the local database when done:
 

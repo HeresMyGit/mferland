@@ -40,9 +40,11 @@ test("TownRoom.onAuth requires wallet proof for wallet joins", async () => {
   const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
   const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;
   const previousInviteCode = process.env.MFERLAND_INVITE_CODE;
+  const previousLocalOnly = process.env.MFERLAND_LOCAL_ONLY;
   delete process.env.MFERLAND_ENABLE_INVITE_GATE;
   delete process.env.MFERLAND_REQUIRE_INVITE;
   delete process.env.MFERLAND_INVITE_CODE;
+  delete process.env.MFERLAND_LOCAL_ONLY;
 
   try {
     const account = privateKeyToAccount(generatePrivateKey());
@@ -72,6 +74,35 @@ test("TownRoom.onAuth requires wallet proof for wallet joins", async () => {
     restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);
     restoreEnv("MFERLAND_REQUIRE_INVITE", previousRequireInvite);
     restoreEnv("MFERLAND_INVITE_CODE", previousInviteCode);
+    restoreEnv("MFERLAND_LOCAL_ONLY", previousLocalOnly);
+  }
+});
+
+test("TownRoom.onAuth allows unsigned wallet joins for local-only development", async () => {
+  const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
+  const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;
+  const previousInviteCode = process.env.MFERLAND_INVITE_CODE;
+  const previousLocalOnly = process.env.MFERLAND_LOCAL_ONLY;
+  const previousNodeEnv = process.env.NODE_ENV;
+  delete process.env.MFERLAND_ENABLE_INVITE_GATE;
+  delete process.env.MFERLAND_REQUIRE_INVITE;
+  delete process.env.MFERLAND_INVITE_CODE;
+  process.env.MFERLAND_LOCAL_ONLY = "1";
+  process.env.NODE_ENV = "development";
+
+  try {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const room = new TownRoom();
+    assert.equal(await room.onAuth({} as never, {
+      identityType: "wallet",
+      walletAddress: account.address,
+    }), true);
+  } finally {
+    restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);
+    restoreEnv("MFERLAND_REQUIRE_INVITE", previousRequireInvite);
+    restoreEnv("MFERLAND_INVITE_CODE", previousInviteCode);
+    restoreEnv("MFERLAND_LOCAL_ONLY", previousLocalOnly);
+    restoreEnv("NODE_ENV", previousNodeEnv);
   }
 });
 
