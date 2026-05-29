@@ -29,18 +29,21 @@ export function getGameAgentHandbook() {
       { place: "crypto store", x: 12, z: 16, npcId: "crypto-mfer", note: "merchant for launch pass and chain gear purchases" },
       { place: "swap mfer", x: 24, z: 16, npcId: "swap-mfer", note: "merchant for swap affordances" },
       { place: "daily signal camp", x: -69.4, z: -55.6, npcId: "mfergpt-daily-boss", note: "mferGPT daily boss area southwest of town" },
+      { place: "loop farm", x: -64.5, z: 64.5, npcId: "hogwatch-mfer", note: "farm quest hub north west of town; stay on roads to avoid extra hog pulls" },
+      { place: "route post", x: -119.2, z: 132.4, npcId: "field-guide-mfer", note: "field camp quest hub past loop farm" },
+      { place: "signal ridge", x: 108.8, z: -92.8, npcId: "ridge-guide-mfer", note: "ridge quest hub east and south of town" },
+      { place: "static lot", x: 145.5, z: -84.2, npcId: "beacon-keeper-mfer", note: "dangerous ridge fight area; avoid dragging multiple raiders" },
     ],
     routes: [
       {
         routeId: "plaza-to-daily-signal-camp",
         name: "plaza to daily signal camp",
-        note: "public road route to the mferGPT daily boss camp; move through these as normal map waypoints until the camp NPCs are visible",
+        note: "public road route to the edge of the mferGPT daily boss camp; stage here, observe the pack, and do not run into all camp NPCs alone",
         waypoints: [
           { x: -18, z: 0 },
           { x: -52, z: 0 },
           { x: -52, z: -36 },
-          { x: -58, z: -48 },
-          { x: -69.4, z: -55.6 },
+          { x: -49, z: -42 },
         ],
       },
       {
@@ -54,6 +57,117 @@ export function getGameAgentHandbook() {
           { x: -18, z: 0 },
           { x: 6.8, z: -5.2 },
         ],
+      },
+      {
+        routeId: "plaza-to-loop-farm",
+        name: "plaza to loop farm",
+        note: "public road route to claimwatch mfer; use this before farm hog or farmer quests instead of cutting through buildings or hog packs",
+        waypoints: [
+          { x: 0, z: 29 },
+          { x: -31, z: 60 },
+          { x: -64.5, z: 64.5 },
+        ],
+      },
+      {
+        routeId: "loop-farm-to-claim-pile",
+        name: "claimwatch to claim pile edge",
+        note: "farm-edge route to a safer hog pull point; observe before entering because hostile farmers stand inside the hog yard",
+        waypoints: [
+          { x: -60, z: 84 },
+          { x: -60, z: 113 },
+          { x: -70, z: 113 },
+        ],
+      },
+      {
+        routeId: "loop-farm-to-route-post",
+        name: "loop farm to route post",
+        note: "west-side road bypass from claimwatch toward field camp; use this instead of cutting through the hostile farmyard or claim-pile pack",
+        waypoints: [
+          { x: -64.5, z: 64.5 },
+          { x: -82, z: 60 },
+          { x: -108, z: 92 },
+          { x: -108, z: 116 },
+          { x: -119.2, z: 132.4 },
+        ],
+      },
+      {
+        routeId: "route-post-to-signal-ridge",
+        name: "route post to signal ridge",
+        note: "long public road from field camp back through town to signal ridge",
+        waypoints: [
+          { x: -101, z: 116 },
+          { x: -76, z: 78 },
+          { x: -31, z: 60 },
+          { x: 0, z: 29 },
+          { x: 0, z: -34 },
+          { x: 53, z: -11.5 },
+          { x: 75, z: -22 },
+          { x: 120, z: -62 },
+          { x: 108.8, z: -92.8 },
+        ],
+      },
+      {
+        routeId: "plaza-to-signal-ridge",
+        name: "plaza to signal ridge",
+        note: "public road from town to signal ridge after respawn",
+        waypoints: [
+          { x: 0, z: -34 },
+          { x: 53, z: -11.5 },
+          { x: 75, z: -22 },
+          { x: 120, z: -62 },
+          { x: 108.8, z: -92.8 },
+        ],
+      },
+      {
+        routeId: "signal-ridge-to-static-lot",
+        name: "signal ridge to static lot",
+        note: "short public ridge route toward the bad signal fight area; use it for signal scraps, cut-the-static, and Centralizer prep, then pull one visible enemy at a time",
+        waypoints: [
+          { x: 124, z: -104 },
+          { x: 145.5, z: -84.2 },
+        ],
+      },
+    ],
+    questStrategy: [
+      {
+        questId: "boar-bristle-cull",
+        plan: "From claimwatch, travel_route loop-farm-to-claim-pile to stage on the farm edge. Hogs and hostile farmers overlap inside the yard, so observe targeting first, pull one visible hog when safe, and back out or group if farmers join.",
+      },
+      {
+        questId: "feral-farmers",
+        plan: "At the farmyard, fight visible named farmer mfers one at a time: bran, mae, and sol. Regroup on the farm road if multiple farmers aggro.",
+      },
+      {
+        questId: "hog-livers",
+        plan: "Use the same farm-edge claim pile route, fight visible hogs one at a time when safe, and loot defeated hogs because this is an item collection quest.",
+      },
+      {
+        questId: "route-patrol-daily",
+        plan: "Near route post, fight visible hogs or claim-burnt farmer mfers one at a time. Avoid charging into clustered enemies.",
+      },
+      {
+        questId: "hog-loop",
+        plan: "Near claim booth, fight visible hogs one at a time, then return to pen-keeper-mfer when the quest is ready.",
+      },
+      {
+        questId: "signal-scraps",
+        plan: "Travel_route signal-ridge-to-static-lot, fight visible ridge raiders or static mages one at a time, and loot defeated enemies for scraps.",
+      },
+      {
+        questId: "cut-the-static",
+        plan: "Fight the visible named ridge enemies one at a time: operator vex, repeater pax, and echo-shell ori. Pull back to signal ridge if extra enemies join.",
+      },
+      {
+        questId: "baron-of-static",
+        plan: "Bring nearby players, use heals/taunts/items, and fight The Centralizer from the edge of the static lot. Do not run through the whole pack.",
+      },
+      {
+        questId: "mfergpt-daily-signal",
+        plan: "This is an optional repeatable camp boss. Stage at the road edge, group with visible players, and do not solo-run into the boss plus adds at low level. If it blocks main progression while you are alone, cancel it and continue the main quest chain.",
+      },
+      {
+        questId: "ogre-raid-daily",
+        plan: "Interact with beacon-keeper-mfer to call bear market mfer, then fight the visible raid boss as a group with heals, taunts, and items.",
       },
     ],
     questHints: Object.entries(QUESTS).map(([questId, quest]) => ({

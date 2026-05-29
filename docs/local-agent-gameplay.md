@@ -91,6 +91,18 @@ npm run agent:playtest:local
 
 The playtest signs `/wallet-auth-challenge`, joins `town` as wallet characters, creates or continues local DB characters, completes the intro/mferGPT quest sequence, coordinates against `mfergpt-daily-boss`, loots windows when offered, then turns in the daily quest. It does not send paid/onchain fulfillment messages.
 
+For a longer local-only questline and boss pass, use the full playthrough scope:
+
+```sh
+DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
+AGENT_SERVER_URL="ws://localhost:2567" \
+AGENT_WALLET_FILE=".tmp/agent-wallets.json" \
+AGENT_COUNT=3 \
+npm run agent:playthrough:local
+```
+
+The full playthrough keeps the same room-message-only rule, then has a lead wallet continue through farm, route, ridge, Centralizer, and bear-market-mfer quest content while the other local wallet agents fight alongside it. It uses normal `input`, quest, loot, talent, item, social quest, and combat messages.
+
 ## Run LLM Agents
 
 LLM mode is for local game-playing agents. Each agent signs the wallet challenge, joins the Colyseus room, observes only normal room state, and chooses one allowlisted player action at a time. The agent code does not read the database, run repo scripts, send debug messages, teleport, or use hidden server state.
@@ -110,6 +122,21 @@ npm run agent:llm:local
 Use `AGENT_LLM_PROVIDER=openai` plus `OPENAI_API_KEY` if you want direct OpenAI Responses API calls instead of the local Codex CLI. The Codex CLI provider runs in a temporary read-only directory and is only used as the model decision provider; it does not get repo access and does not run gameplay scripts.
 
 The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
+
+Harness behavior to expect:
+
+- `fight_npc` and route travel yield back to the LLM when public state shows overpulls, critical health, or multiple NPCs targeting the agent.
+- Stationary casts hold the agent still so movement does not cancel the cast.
+- AoE abilities remain available in the action context and are exposed with cooldown, mana, range, cast time, and radius information.
+- Social quests use the same room messages as the web HUD; for example `tweet-town-link` uses `shareQuestLink`, not chat.
+- Optional repeatable quests are marked as optional and canceled repeatables are remembered for the current run so agents do not immediately re-accept them.
+
+Latest local LLM playthrough notes:
+
+- Three disposable local wallets authenticated through the local wallet flow and joined the local server against `postgresql://localhost:55432/mferland_agent_test`.
+- The agents completed the intro, farm handoff, `boar-bristle-cull`, `feral-farmers`, and `hog-livers` sequence locally.
+- Two agents also completed `field-camp-delivery`; two completed `ask-mfergpt` and `tweet-town-link`.
+- Boss/team-target completion is still blocked by later route-post and ridge progression. The exact current blocker is route-post pressure: `snapshot jo` stands close enough to `field-guide-mfer` that wounded agents trying to continue repeatable route-post content can be killed before accepting or recovering. This is game content/pathing pressure rather than a wallet-auth or room-message bypass issue.
 
 For potion-shop purchases, fund the disposable local wallet on a local token first and point the agent at the local chain:
 

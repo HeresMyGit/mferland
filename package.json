@@ -32,6 +32,7 @@
     "agent:fund-mfergpt:local": "node scripts/fund-agent-mfergpt.mjs",
     "agent:guard:local": "node scripts/assert-local-agent-env.mjs",
     "agent:playtest:local": "npm run playtest:local -w @mferland/agent",
+    "agent:playthrough:local": "npm run playthrough:local -w @mferland/agent",
     "agent:llm:local": "npm run llm:local -w @mferland/agent",
     "stream:obs": "node scripts/setup-stream-obs.cjs",
     "pricing:quote:mfer-pass": "node scripts/quote-mfer-pass-price.mjs",

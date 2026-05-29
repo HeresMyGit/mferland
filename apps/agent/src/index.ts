@@ -4,7 +4,7 @@ import { MferlandAgentClient, delay } from "./client.js";
 import { assertLocalAgentSafety, summarizeDatabaseUrl } from "./localSafety.js";
 import { runLlmGameAgent, type LlmProvider } from "./llmPolicy.js";
 import { MferGptBurner } from "./mferGptPayment.js";
-import { runLocalAgentPlaytest } from "./playtest.js";
+import { runLocalAgentPlaytest, type PlaytestScope } from "./playtest.js";
 import { loadAgentWallets, summarizeWallets, type AgentWallet } from "./wallets.js";
 
 type AgentMode = "ambient" | "playtest" | "llm";
@@ -20,6 +20,7 @@ type AgentConfig = {
   walletFile?: string;
   privateKeys: string[];
   localOnly: boolean;
+  playtestScope: PlaytestScope;
   llmProvider: LlmProvider;
   llmModel: string;
   llmObjective: string;
@@ -41,6 +42,7 @@ assertLocalAgentSafety({
 console.log(`Agent mode: ${config.mode}`);
 console.log(`Agent server: ${config.serverUrl}`);
 console.log(`Agent database guard: ${summarizeDatabaseUrl(process.env.DATABASE_URL)}`);
+if (config.mode === "playtest") console.log(`Agent playtest scope: ${config.playtestScope}`);
 if (config.mode === "llm") console.log(`Agent LLM provider: ${config.llmProvider} (${config.llmModel})`);
 
 const wallets = await loadAgentWallets({
@@ -74,11 +76,15 @@ try {
   }
 
   if (config.mode === "playtest") {
-    const result = await runLocalAgentPlaytest(agents);
+    const result = await runLocalAgentPlaytest(agents, { scope: config.playtestScope });
     console.log(JSON.stringify({
       ok: true,
       mode: config.mode,
+      scope: config.playtestScope,
       defeatedDailyBoss: result.defeatedDailyBoss,
+      defeatedCentralizer: result.defeatedCentralizer,
+      defeatedRaidOgre: result.defeatedRaidOgre,
+      completedAllQuestIds: result.completedAllQuestIds,
       agents: result.agents.map((agent) => ({
         name: agent.name,
         walletAddress: `${agent.walletAddress.slice(0, 6)}...${agent.walletAddress.slice(-4)}`,
@@ -159,6 +165,7 @@ function readConfig(): AgentConfig {
       "wallet-file": { type: "string", default: process.env.AGENT_WALLET_FILE },
       "private-key": { type: "string", multiple: true },
       "local-only": { type: "boolean", default: process.env.MFERLAND_AGENT_LOCAL_ONLY === "1" },
+      "playtest-scope": { type: "string", default: process.env.AGENT_PLAYTEST_SCOPE ?? "core" },
       "llm-provider": { type: "string", default: process.env.AGENT_LLM_PROVIDER },
       "llm-model": { type: "string", default: process.env.AGENT_LLM_MODEL },
       "llm-objective": {
@@ -184,6 +191,7 @@ function readConfig(): AgentConfig {
     walletFile: values["wallet-file"],
     privateKeys: Array.isArray(values["private-key"]) ? values["private-key"] : [],
     localOnly: values["local-only"] === true || process.env.MFERLAND_AGENT_LOCAL_ONLY === "1",
+    playtestScope: normalizePlaytestScope(values["playtest-scope"]),
     llmProvider,
     llmModel: cleanModel(values["llm-model"] ?? defaultLlmModel(llmProvider)),
     llmObjective: cleanObjective(values["llm-objective"] ?? ""),
@@ -196,6 +204,11 @@ function readConfig(): AgentConfig {
 function normalizeMode(value: string | undefined): AgentMode {
   if (value === "playtest" || value === "ambient" || value === "llm") return value;
   throw new Error("AGENT_MODE/--mode must be ambient, playtest, or llm.");
+}
+
+function normalizePlaytestScope(value: string | undefined): PlaytestScope {
+  if (value === "core" || value === "all") return value;
+  throw new Error("AGENT_PLAYTEST_SCOPE/--playtest-scope must be core or all.");
 }
 
 function readPositiveInt(value: string | undefined, fallback: number) {
