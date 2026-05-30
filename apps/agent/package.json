@@ -9,6 +9,7 @@
     "playtest:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode playtest",
     "playthrough:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode playtest --playtest-scope all",
     "llm:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode llm",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"

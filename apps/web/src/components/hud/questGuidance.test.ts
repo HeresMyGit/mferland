@@ -84,6 +84,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     sessionId: "local",
     name: "tester",
     identityType: "guest",
+    isAgent: false,
     walletAddress: "",
     avatarSeed: 1,
     appearanceTraits,

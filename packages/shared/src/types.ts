@@ -117,6 +117,7 @@ export type JoinOptions = {
   identityType?: IdentityType;
   walletAddress?: string;
   walletAuth?: WalletAuthProof;
+  agentClient?: boolean;
   avatarSeed?: number;
   createCharacter?: boolean;
   inviteCode?: string;
@@ -171,6 +172,7 @@ export type PlayerSnapshot = {
   sessionId: string;
   name: string;
   identityType: IdentityType;
+  isAgent: boolean;
   walletAddress: string;
   avatarSeed: number;
   appearanceTraits: MferAppearanceTraits;
@@ -292,7 +294,7 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "isAgent" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
 > & {
   distance: number;
 };

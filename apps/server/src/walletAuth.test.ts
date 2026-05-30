@@ -78,6 +78,49 @@ test("TownRoom.onAuth requires wallet proof for wallet joins", async () => {
   }
 });
 
+test("TownRoom.onAuth requires declared agents to use wallet auth", async () => {
+  const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
+  const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;
+  const previousInviteCode = process.env.MFERLAND_INVITE_CODE;
+  const previousLocalOnly = process.env.MFERLAND_LOCAL_ONLY;
+  delete process.env.MFERLAND_ENABLE_INVITE_GATE;
+  delete process.env.MFERLAND_REQUIRE_INVITE;
+  delete process.env.MFERLAND_INVITE_CODE;
+  delete process.env.MFERLAND_LOCAL_ONLY;
+
+  try {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const room = new TownRoom();
+    await assert.rejects(
+      () => room.onAuth({} as never, {
+        identityType: "agent",
+        agentClient: true,
+      }),
+      (error: unknown) => error instanceof ServerError
+        && error.code === ErrorCode.AUTH_FAILED
+        && error.message === "agent wallet required",
+    );
+
+    const challenge = createWalletAuthChallenge(account.address, "localhost:2567");
+    const signature = await account.signMessage({ message: challenge.message });
+    assert.equal(await room.onAuth({} as never, {
+      identityType: "wallet",
+      walletAddress: account.address,
+      agentClient: true,
+      walletAuth: {
+        nonce: challenge.nonce,
+        message: challenge.message,
+        signature,
+      },
+    }), true);
+  } finally {
+    restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);
+    restoreEnv("MFERLAND_REQUIRE_INVITE", previousRequireInvite);
+    restoreEnv("MFERLAND_INVITE_CODE", previousInviteCode);
+    restoreEnv("MFERLAND_LOCAL_ONLY", previousLocalOnly);
+  }
+});
+
 test("TownRoom.onAuth allows unsigned wallet joins for local-only development", async () => {
   const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
   const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;

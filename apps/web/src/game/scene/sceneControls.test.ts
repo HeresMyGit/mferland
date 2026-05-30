@@ -54,6 +54,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     sessionId: "session",
     name: "mfer",
     identityType: "wallet",
+    isAgent: false,
     walletAddress: "0x0000000000000000000000000000000000000001",
     avatarSeed: 1,
     appearanceTraits: {},

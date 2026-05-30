@@ -17,9 +17,11 @@ type AgentConfig = {
   baseName: string;
   chatEnabled: boolean;
   createCharacter: boolean;
+  agentClient: boolean;
   walletFile?: string;
   privateKeys: string[];
   localOnly: boolean;
+  allowProduction: boolean;
   playtestScope: PlaytestScope;
   llmProvider: LlmProvider;
   llmModel: string;
@@ -37,11 +39,13 @@ assertLocalAgentSafety({
   serverUrl: config.serverUrl,
   databaseUrl: process.env.DATABASE_URL,
   localOnly: config.localOnly,
+  allowProduction: config.allowProduction,
 });
 
 console.log(`Agent mode: ${config.mode}`);
 console.log(`Agent server: ${config.serverUrl}`);
 console.log(`Agent database guard: ${summarizeDatabaseUrl(process.env.DATABASE_URL)}`);
+console.log(`Agent declaration: ${config.agentClient ? "agent wallet client" : "wallet client"}`);
 if (config.mode === "playtest") console.log(`Agent playtest scope: ${config.playtestScope}`);
 if (config.mode === "llm") console.log(`Agent LLM provider: ${config.llmProvider} (${config.llmModel})`);
 
@@ -67,6 +71,7 @@ try {
       account: wallet.account,
       avatarSeed: stableHash(`wallet-agent:${wallet.account.address}:${wallet.label}`),
       createCharacter: config.createCharacter,
+      agentClient: config.agentClient,
       chatEnabled: config.chatEnabled,
     });
     agents.push(agent);
@@ -178,9 +183,11 @@ function readConfig(): AgentConfig {
       name: { type: "string", default: process.env.AGENT_NAME ?? "mfer-agent" },
       chat: { type: "string", default: process.env.AGENT_CHAT ?? "1" },
       "create-character": { type: "boolean", default: process.env.AGENT_CREATE_CHARACTER !== "0" },
+      "agent-client": { type: "boolean", default: process.env.AGENT_CLIENT !== "0" },
       "wallet-file": { type: "string", default: process.env.AGENT_WALLET_FILE },
       "private-key": { type: "string", multiple: true },
       "local-only": { type: "boolean", default: process.env.MFERLAND_AGENT_LOCAL_ONLY === "1" },
+      "allow-production": { type: "boolean", default: process.env.AGENT_ALLOW_PRODUCTION === "1" },
       "playtest-scope": { type: "string", default: process.env.AGENT_PLAYTEST_SCOPE ?? "core" },
       "llm-provider": { type: "string", default: process.env.AGENT_LLM_PROVIDER },
       "llm-model": { type: "string", default: process.env.AGENT_LLM_MODEL },
@@ -204,9 +211,11 @@ function readConfig(): AgentConfig {
     baseName: cleanName(values.name ?? "mfer-agent"),
     chatEnabled: values.chat !== "0",
     createCharacter: values["create-character"] !== false,
+    agentClient: values["agent-client"] !== false,
     walletFile: values["wallet-file"],
     privateKeys: Array.isArray(values["private-key"]) ? values["private-key"] : [],
     localOnly: values["local-only"] === true || process.env.MFERLAND_AGENT_LOCAL_ONLY === "1",
+    allowProduction: values["allow-production"] === true || process.env.AGENT_ALLOW_PRODUCTION === "1",
     playtestScope: normalizePlaytestScope(values["playtest-scope"]),
     llmProvider,
     llmModel: cleanModel(values["llm-model"] ?? defaultLlmModel(llmProvider)),

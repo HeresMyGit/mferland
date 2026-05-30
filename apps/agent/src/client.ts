@@ -52,6 +52,7 @@ export type MferlandAgentOptions = {
   account: PrivateKeyAccount;
   avatarSeed?: number;
   createCharacter?: boolean;
+  agentClient?: boolean;
   chatEnabled?: boolean;
   log?: (message: string) => void;
 };
@@ -162,6 +163,7 @@ export class MferlandAgentClient {
   private readonly name: string;
   private readonly avatarSeed: number;
   private readonly createCharacter: boolean;
+  private readonly agentClient: boolean;
   private readonly chatEnabled: boolean;
   private readonly log: (message: string) => void;
   private readonly style: AmbientStyle;
@@ -191,6 +193,7 @@ export class MferlandAgentClient {
     this.name = cleanName(options.name);
     this.avatarSeed = normalizeAvatarSeed(options.avatarSeed ?? stableHash(`wallet-agent:${this.account.address}:${this.name}`));
     this.createCharacter = options.createCharacter ?? true;
+    this.agentClient = options.agentClient ?? true;
     this.chatEnabled = options.chatEnabled ?? true;
     this.log = options.log ?? ((message) => console.log(message));
     this.style = getAgentStyle(this.avatarSeed);
@@ -271,6 +274,7 @@ export class MferlandAgentClient {
       name: this.name,
       identityType: "wallet",
       walletAddress: this.account.address,
+      agentClient: this.agentClient,
       avatarSeed: this.avatarSeed,
       createCharacter: this.createCharacter,
       inviteCode: this.inviteCode,
@@ -982,6 +986,7 @@ function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapsho
     sessionId,
     name: player.name,
     identityType: player.identityType,
+    isAgent: Boolean(player.isAgent),
     walletAddress: player.walletAddress,
     avatarSeed: player.avatarSeed,
     appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),

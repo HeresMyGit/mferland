@@ -47,6 +47,11 @@ import {
   inviteCodes,
   seasonRewardEvents,
 } from "./db/schema.js";
+import {
+  adjustSeason0QuestPointsForAgent,
+  getAgentSeason0RewardNote,
+  readAgentSeason0PointMultiplier,
+} from "./agentRewards.js";
 
 type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
 
@@ -103,8 +108,10 @@ export type CharacterCryptoPurchaseRecord = CharacterTraitPaymentRecord & {
 };
 
 export type SeasonRewardAwardResult = {
-  status: "awarded" | "duplicate" | "capped" | "ineligible" | "no_database";
+  status: "awarded" | "duplicate" | "capped" | "ineligible" | "adjusted_zero" | "no_database";
   points: number;
+  basePoints: number;
+  agentMultiplier: number;
   dailyTotal: number;
   seasonTotal: number;
   label: string;
@@ -530,28 +537,34 @@ async function saveCharacterProgressRows(tx: DatabaseTransaction, state: Persist
 
 export async function awardSeason0QuestReward({
   characterId,
+  isAgent = false,
   walletAddress,
   questId,
   now = new Date(),
 }: {
   characterId: string;
+  isAgent?: boolean;
   walletAddress: string;
   questId: QuestId;
   now?: Date;
 }): Promise<SeasonRewardAwardResult> {
   const reward = getSeason0QuestReward(questId);
+  const agentMultiplier = isAgent ? readAgentSeason0PointMultiplier() : 1;
+  const adjustedRewardPoints = reward
+    ? adjustSeason0QuestPointsForAgent(reward.points, isAgent, agentMultiplier)
+    : 0;
   if (!reward) {
-    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label: "" };
+    return { status: "ineligible", points: 0, basePoints: 0, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: "" };
   }
 
   const db = getDatabase();
   if (!db) {
-    return { status: "no_database", points: 0, dailyTotal: 0, seasonTotal: 0, label: reward.label };
+    return { status: "no_database", points: 0, basePoints: reward.points, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: reward.label };
   }
 
   const normalizedWallet = walletAddress.toLowerCase();
   if (!normalizedWallet) {
-    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label: reward.label };
+    return { status: "ineligible", points: 0, basePoints: reward.points, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: reward.label };
   }
 
   return db.transaction(async (tx) => {
@@ -571,6 +584,19 @@ export async function awardSeason0QuestReward({
       return {
         status: "duplicate",
         points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label: reward.label,
+      };
+    }
+    if (adjustedRewardPoints <= 0) {
+      return {
+        status: "adjusted_zero",
+        points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
@@ -579,11 +605,13 @@ export async function awardSeason0QuestReward({
 
     const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - totals.dailyTotal);
     const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - totals.seasonTotal);
-    const points = Math.min(reward.points, remainingDaily, remainingSeason);
+    const points = Math.min(adjustedRewardPoints, remainingDaily, remainingSeason);
     if (points <= 0) {
       return {
         status: "capped",
         points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
@@ -599,13 +627,15 @@ export async function awardSeason0QuestReward({
       sourceId,
       points,
       status: "pending",
-      note: reward.label,
+      note: getAgentSeason0RewardNote(reward.label, isAgent, agentMultiplier),
       createdAt: now,
     });
 
     return {
       status: "awarded",
       points,
+      basePoints: reward.points,
+      agentMultiplier,
       dailyTotal: totals.dailyTotal + points,
       seasonTotal: totals.seasonTotal + points,
       label: reward.label,

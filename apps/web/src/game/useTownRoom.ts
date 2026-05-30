@@ -928,6 +928,7 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     sessionId: id,
     name: player.name,
     identityType: player.identityType,
+    isAgent: Boolean(player.isAgent),
     walletAddress: player.walletAddress,
     avatarSeed: player.avatarSeed,
     appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
@@ -985,6 +986,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.sessionId !== id || changed;
   changed = target.name !== player.name || changed;
   changed = target.identityType !== player.identityType || changed;
+  changed = target.isAgent !== Boolean(player.isAgent) || changed;
   changed = target.walletAddress !== player.walletAddress || changed;
   changed = target.avatarSeed !== player.avatarSeed || changed;
   const nextAppearanceTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
@@ -1030,6 +1032,7 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.sessionId = id;
   target.name = player.name;
   target.identityType = player.identityType;
+  target.isAgent = Boolean(player.isAgent);
   target.walletAddress = player.walletAddress;
   target.avatarSeed = player.avatarSeed;
   if (appearanceTraitsChanged) target.appearanceTraits = nextAppearanceTraits;

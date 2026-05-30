@@ -2076,7 +2076,8 @@ function getQuestGuidanceTooltip(guidance: ActiveQuestGuidance | null, target: Q
 
 function getPlayerMapTooltip(player: PlayerSnapshot, isLocal: boolean) {
   const title = isLocal ? "You" : player.name;
-  return `${title}\nLevel ${player.level} ${player.identityType} mfer\nLocation: ${formatMapCoordinates(player.x, player.z)}`;
+  const identity = player.isAgent ? "agent wallet" : player.identityType;
+  return `${title}\nLevel ${player.level} ${identity} mfer\nLocation: ${formatMapCoordinates(player.x, player.z)}`;
 }
 
 function getNpcMapTooltip(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {

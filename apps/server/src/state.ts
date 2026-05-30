@@ -61,6 +61,7 @@ export class ActiveBuffState extends Schema {
 export class PlayerState extends Schema {
   @type("string") name = "";
   @type("string") identityType: IdentityType = "guest";
+  @type("boolean") isAgent = false;
   @type("string") walletAddress = "";
   @type("number") avatarSeed = 0;
   @type("string") appearanceTraitsJson = "";

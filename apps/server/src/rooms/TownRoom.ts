@@ -381,6 +381,7 @@ export type AdminPlayerSnapshot = {
   characterId: string;
   name: string;
   identityType: IdentityType;
+  isAgent: boolean;
   walletAddress: string;
   avatarSeed: number;
   status: "online" | "dead";
@@ -493,6 +494,9 @@ export class TownRoom extends Room<TownState> {
 
   async onAuth(_client: Client, options?: JoinOptions) {
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
+    if (isDeclaredAgentClient(options) && !walletAddress) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "agent wallet required");
+    }
     if (
       (options?.identityType === "wallet" || walletAddress)
       && !isLocalOnlyWalletAuthBypassEnabled()
@@ -799,6 +803,7 @@ export class TownRoom extends Room<TownState> {
 
     player.name = persistedCharacter?.name ?? name;
     player.identityType = identityType;
+    player.isAgent = identityType === "wallet" && isDeclaredAgentClient(options);
     player.walletAddress = walletAddress;
     player.avatarSeed = persistedCharacter?.avatarSeed ?? avatarSeed;
     player.appearanceTraitsJson = JSON.stringify(persistedCharacter?.appearanceTraits ?? {});
@@ -831,6 +836,7 @@ export class TownRoom extends Room<TownState> {
     this.sessionJoinedAt.set(client.sessionId, Date.now());
     this.recordPlayerAnalyticsEvent("session_joined", client.sessionId, player, {
       level: player.level,
+      isAgent: player.isAgent,
       persisted: Boolean(persistedCharacter),
       playerCount: this.state.players.size,
     });
@@ -2550,6 +2556,7 @@ export class TownRoom extends Room<TownState> {
     try {
       const result = await awardSeason0QuestReward({
         characterId,
+        isAgent: player.isAgent,
         walletAddress: player.walletAddress,
         questId,
       });
@@ -2559,6 +2566,9 @@ export class TownRoom extends Room<TownState> {
         questId,
         status: result.status,
         points: result.points,
+        basePoints: result.basePoints,
+        agentMultiplier: result.agentMultiplier,
+        isAgent: player.isAgent,
         dailyTotal: result.dailyTotal,
         seasonTotal: result.seasonTotal,
         label: result.label,
@@ -2569,7 +2579,7 @@ export class TownRoom extends Room<TownState> {
         sessionId: "season-0",
         name: "Season 0",
         identityType: "npc",
-        text: `Logged ${result.points} tester points for ${result.label}. Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+        text: `Logged ${result.points}${player.isAgent ? ` agent-adjusted from ${result.basePoints}` : ""} tester points for ${result.label}. Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
         sentAt: Date.now(),
       } satisfies ChatMessage);
     } catch (error) {
@@ -2879,7 +2889,10 @@ export class TownRoom extends Room<TownState> {
       characterId: this.persistentCharacterIds.get(sessionId) ?? null,
       identityType: player?.identityType ?? "",
       walletAddress: player?.walletAddress ?? "",
-      properties,
+      properties: {
+        ...properties,
+        isAgent: Boolean(player?.isAgent),
+      },
     });
   }
 
@@ -3072,6 +3085,10 @@ function normalizeSupportTxHash(value: unknown) {
 function normalizeSupportAddress(value: unknown) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
+}
+
+function isDeclaredAgentClient(options: JoinOptions | undefined) {
+  return options?.agentClient === true || options?.identityType === "agent";
 }
 
 function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
@@ -3400,6 +3417,7 @@ function snapshotPlayers({
       characterId: persistentCharacterIds.get(sessionId) ?? "",
       name: player.name,
       identityType: player.identityType,
+      isAgent: player.isAgent,
       walletAddress: player.walletAddress,
       avatarSeed: player.avatarSeed,
       status: player.health <= 0 || deadSessionIds.has(sessionId) ? "dead" : "online",

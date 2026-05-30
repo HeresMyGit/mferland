@@ -152,7 +152,7 @@ export function MferAvatar({
   const accent = useMemo(() => colorFromSeed(player.avatarSeed), [player.avatarSeed]);
   const npc = isNpc && "role" in player ? player : null;
   const disposition = npc ? getNpcDisposition(npc) : "friendly";
-  const isAgentPlayer = "identityType" in player && player.identityType === "agent";
+  const isAgentPlayer = "isAgent" in player ? Boolean(player.isAgent) : "identityType" in player && player.identityType === "agent";
   const isWalletPlayer = "identityType" in player && player.identityType === "wallet";
   const nameplate = npc
     ? getNpcNameplate(npc, disposition)

@@ -88,6 +88,7 @@ export function syncLocalVisualPlayerSnapshot(
   visual.sessionId = authoritative.sessionId;
   visual.name = authoritative.name;
   visual.identityType = authoritative.identityType;
+  visual.isAgent = authoritative.isAgent;
   visual.walletAddress = authoritative.walletAddress;
   visual.avatarSeed = authoritative.avatarSeed;
   visual.appearanceTraits = authoritative.appearanceTraits;

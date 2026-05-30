@@ -126,6 +126,7 @@ type VisibleObservation = {
   };
   self: {
     name: string;
+    isAgent: boolean;
     level: number;
     xp: number;
     health: string;
@@ -218,6 +219,7 @@ type VisibleObservation = {
     ref: string;
     name: string;
     identityType: string;
+    isAgent: boolean;
     health: string;
     mana: string;
     distance: number;
@@ -408,6 +410,7 @@ export function makeVisibleObservation(
       ref,
       name: player.name,
       identityType: player.identityType,
+      isAgent: player.isAgent,
       health: `${Math.ceil(player.health)}/${Math.ceil(player.maxHealth)}`,
       mana: `${Math.ceil(player.mana)}/${Math.ceil(player.maxMana)}`,
       distance: round(player.distance),
@@ -504,6 +507,7 @@ export function makeVisibleObservation(
       questProgress: getQuestProgress(self.quests, memory),
       self: {
         name: self.name,
+        isAgent: self.isAgent,
         level: self.level,
         xp: self.xp,
         health: `${Math.ceil(self.health)}/${Math.ceil(self.maxHealth)}`,
@@ -978,7 +982,7 @@ function summarizeVisibleState(observation: VisibleObservation) {
     .join("|");
   const players = observation.nearbyPlayers
     .slice(0, 3)
-    .map((player) => `${player.ref}:${player.name}:${player.health}:d${player.distance}`)
+    .map((player) => `${player.ref}:${player.name}${player.isAgent ? ":agent" : ""}:${player.health}:d${player.distance}`)
     .join("|");
   const lootable = observation.lootableCorpses
     .slice(0, 3)

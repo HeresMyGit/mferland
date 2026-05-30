@@ -1,19 +1,22 @@
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
 
 export function assertLocalAgentSafety({
+  allowProduction = false,
   serverUrl,
   databaseUrl,
   localOnly,
 }: {
+  allowProduction?: boolean;
   serverUrl: string;
   databaseUrl?: string;
   localOnly: boolean;
 }) {
-  assertNoProductionUrl("AGENT_SERVER_URL", serverUrl);
-  if (databaseUrl) assertNoProductionUrl("DATABASE_URL", databaseUrl);
+  if (!allowProduction) assertNoProductionGameUrl("AGENT_SERVER_URL", serverUrl);
 
   if (!localOnly) return;
 
+  assertNoProductionGameUrl("AGENT_SERVER_URL", serverUrl);
+  if (databaseUrl) assertNoProductionDatabaseUrl("DATABASE_URL", databaseUrl);
   assertLocalUrl("AGENT_SERVER_URL", serverUrl, ["ws:", "wss:", "http:", "https:"]);
   if (databaseUrl) assertLocalUrl("DATABASE_URL", databaseUrl, ["postgres:", "postgresql:"]);
 }
@@ -38,7 +41,13 @@ export function summarizeDatabaseUrl(databaseUrl: string | undefined) {
   return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}${parsed.pathname}`;
 }
 
-function assertNoProductionUrl(label: string, value: string) {
+function assertNoProductionGameUrl(label: string, value: string) {
+  if (/game\.mfergpt\.lol/i.test(value)) {
+    throw new Error(`${label} appears to target production; refusing to run the local agent.`);
+  }
+}
+
+function assertNoProductionDatabaseUrl(label: string, value: string) {
   if (/game\.mfergpt\.lol|neon\.tech/i.test(value)) {
     throw new Error(`${label} appears to target production; refusing to run the local agent.`);
   }

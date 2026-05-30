@@ -45,6 +45,8 @@ Agent environment:
 - `AGENT_NAME`: display name base, default `mfer-agent`.
 - `AGENT_COUNT`: number of agents to spawn, default `1`.
 - `AGENT_CHAT=0`: disable agent chat.
+- `AGENT_CLIENT=0`: join as a normal wallet client instead of declaring the wallet as an agent.
+- `AGENT_ALLOW_PRODUCTION=1`: explicitly allow an agent runner to target `game.mfergpt.lol`; leave unset for local testing.
 
 OBS stream overlay:
 
