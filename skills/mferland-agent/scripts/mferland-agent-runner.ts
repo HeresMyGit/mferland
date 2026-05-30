@@ -244,7 +244,7 @@ class MferlandRunner {
       this.players = new Map(schemaEntries(record.players).map(([id, value]) => [id, normalizePlayer(id, value)]));
       this.npcs = new Map(schemaEntries(record.npcs).map(([id, value]) => [id, normalizeNpc(id, value)]));
     });
-    room.onMessage("chat", (message: unknown) => this.remember(`chat:${messageSummary(message)}`));
+    room.onMessage("chat", (message: unknown) => this.remember(`chat:${messageSummary(message)}`, isImportantChat(message)));
     room.onMessage("combatEvent", (event: unknown) => this.remember(`combat:${messageSummary(event)}`));
     room.onMessage("experienceEvent", (event: unknown) => this.remember(`xp:${messageSummary(event)}`));
     room.onMessage("lootWindow", (message: unknown) => {
@@ -699,6 +699,13 @@ function messageSummary(value: unknown) {
   } catch {
     return String(value).slice(0, 220);
   }
+}
+
+function isImportantChat(value: unknown) {
+  const record = asRecord(value);
+  const name = getString(record.name).toLowerCase();
+  const text = getString(record.text).toLowerCase();
+  return name === "agent rewards" || name === "season 0" || text.includes("agent season 0");
 }
 
 function errorMessage(error: unknown) {

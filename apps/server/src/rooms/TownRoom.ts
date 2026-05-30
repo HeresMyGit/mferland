@@ -75,6 +75,11 @@ import {
 import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
+import {
+  getAgentSeason0MferGptGateStatus,
+  makeAgentSeason0MferGptGateMessage,
+  type AgentSeason0MferGptGateStatus,
+} from "../agentMferGptGate.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
@@ -485,6 +490,7 @@ export class TownRoom extends Room<TownState> {
   private readonly forcedNpcTargets = new Map<string, { sessionId: string; until: number }>();
   private readonly consumableCooldowns = new Map<string, number>();
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
+  private readonly agentSeason0GateStatuses = new Map<string, AgentSeason0MferGptGateStatus>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private dailyRaidBossInactiveDespawnAt = 0;
@@ -840,6 +846,11 @@ export class TownRoom extends Room<TownState> {
       persisted: Boolean(persistedCharacter),
       playerCount: this.state.players.size,
     });
+    if (player.isAgent) {
+      void this.notifyAgentSeason0GateStatus(client, player, "login").catch((error) => {
+        console.error(`Failed to read agent MFERGPT earning gate for ${player.walletAddress}`, error);
+      });
+    }
     if (persistedCharacter) {
       client.send("persistenceStatus", {
         state: "saved",
@@ -998,6 +1009,7 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(sessionId);
     this.lastInteractAt.delete(sessionId);
     this.persistentCharacterIds.delete(sessionId);
+    this.agentSeason0GateStatuses.delete(sessionId);
     if (characterId) this.cleanupCharacterSaveTracking(characterId);
     this.sessionJoinedAt.delete(sessionId);
     this.deadSessionIds.delete(sessionId);
@@ -2549,13 +2561,43 @@ export class TownRoom extends Room<TownState> {
     void this.queueCharacterSave(sessionId, characterId, state, fingerprint);
   }
 
+  private async notifyAgentSeason0GateStatus(
+    client: Client,
+    player: PlayerState,
+    phase: "login" | "quest_turn_in",
+  ): Promise<AgentSeason0MferGptGateStatus | undefined> {
+    if (!player.isAgent || player.identityType !== "wallet" || !player.walletAddress) return undefined;
+
+    const status = await getAgentSeason0MferGptGateStatus(player.walletAddress);
+    this.agentSeason0GateStatuses.set(client.sessionId, status);
+    this.recordPlayerAnalyticsEvent("agent_reward_gate_checked", client.sessionId, player, {
+      phase,
+      eligible: status.eligible,
+      reason: status.reason,
+      requiredWei: status.requiredWei,
+      balanceWei: status.balanceWei,
+      requiredLabel: status.requiredLabel,
+      balanceLabel: status.balanceLabel,
+    });
+
+    if (phase === "login" && this.state.players.get(client.sessionId) === player) {
+      client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(status)));
+    }
+
+    return status;
+  }
+
   private async awardSeason0QuestReward(client: Client, player: PlayerState, questId: QuestId) {
     const characterId = this.persistentCharacterIds.get(client.sessionId);
     if (!characterId || player.identityType !== "wallet" || !player.walletAddress) return;
 
     try {
+      const agentTokenGate = player.isAgent
+        ? await this.notifyAgentSeason0GateStatus(client, player, "quest_turn_in")
+        : undefined;
       const result = await awardSeason0QuestReward({
         characterId,
+        agentTokenGate,
         isAgent: player.isAgent,
         walletAddress: player.walletAddress,
         questId,
@@ -2569,17 +2611,28 @@ export class TownRoom extends Room<TownState> {
         basePoints: result.basePoints,
         agentMultiplier: result.agentMultiplier,
         isAgent: player.isAgent,
+        agentTokenGateEligible: result.agentTokenGate?.eligible,
+        agentTokenGateReason: result.agentTokenGate?.reason,
+        agentTokenGateRequiredWei: result.agentTokenGate?.requiredWei,
+        agentTokenGateBalanceWei: result.agentTokenGate?.balanceWei,
         dailyTotal: result.dailyTotal,
         seasonTotal: result.seasonTotal,
         label: result.label,
       });
+      if (result.status === "agent_token_gate" && result.agentTokenGate) {
+        client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(result.agentTokenGate)));
+        return;
+      }
       if (result.status !== "awarded") return;
 
+      const agentGateNote = player.isAgent && result.agentTokenGate?.eligible
+        ? ` ${result.agentTokenGate.requiredLabel} gate met (${result.agentTokenGate.balanceLabel}).`
+        : "";
       client.send("chat", {
         sessionId: "season-0",
         name: "Season 0",
         identityType: "npc",
-        text: `Logged ${result.points}${player.isAgent ? ` agent-adjusted from ${result.basePoints}` : ""} tester points for ${result.label}. Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+        text: `Logged ${result.points}${player.isAgent ? ` agent-adjusted from ${result.basePoints}` : ""} tester points for ${result.label}.${agentGateNote} Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
         sentAt: Date.now(),
       } satisfies ChatMessage);
     } catch (error) {

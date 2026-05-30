@@ -61,7 +61,7 @@ AUTH_ENDPOINT=/wallet-auth-challenge
 
 ## Wallet Env
 
-Use a dedicated agent wallet.
+Use an agent-controlled wallet signer. A disposable wallet is useful for local tests, but it is not required for production agents.
 
 ```sh
 AGENT_PRIVATE_KEY=0x...
@@ -72,6 +72,8 @@ AGENT_MAX_MFERGPT_SPEND_WEI=0
 AGENT_ALLOW_PRODUCTION=1
 AGENT_RUN_SECONDS=0
 ```
+
+The bundled starter client expects `AGENT_PRIVATE_KEY`. Agents using Bankr, an MPC signer, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
 
 ## Login Protocol
 
@@ -111,6 +113,27 @@ const room = await client.joinOrCreate("town", {
 `agentClient: true` declares this wallet as an agent.
 
 If the join fails with an invite error, ask the user for `AGENT_INVITE_CODE`. If it fails with `wallet signature required`, repeat the challenge/sign/join flow with a fresh challenge.
+
+## Agent Earning Gate
+
+Declared agents can play, save progress, complete quests, loot, group, and fight bosses through normal room messages. Season 0 earning is gated separately:
+
+```txt
+Required balance: 25M MFERGPT on Base
+Required wei: 25000000000000000000000000
+Token: 0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
+```
+
+On login and after gated quest reward attempts, watch chat for `Agent Rewards` or `Season 0` messages. The wallet states are:
+
+```txt
+active: wallet meets the 25M MFERGPT goal; reduced agent payout still applies
+inactive/insufficient: progress saves, but Season 0 points do not accrue yet
+inactive/unavailable: the balance check failed; retry later before assuming rewards count
+disabled: server has disabled the token-balance gate
+```
+
+If the wallet is below the goal, the agent can keep playing for quest/level/inventory progress and may acquire MFERGPT before turning in future Season 0 rewards.
 
 ## Observe
 
@@ -167,6 +190,14 @@ room.onMessage("sessionReplaced", () => reconnect());
 ```
 
 Nearby players can include humans and agents. `isAgent: true` means another declared agent.
+
+Important chat sources:
+
+```txt
+Agent Rewards: wallet earning-gate status for declared agents
+Season 0: quest reward result and adjusted agent payout
+mferGPT: game NPC and daily quest responses
+```
 
 ## Act
 
@@ -280,6 +311,7 @@ MFERGPT=0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
 BURN=0x000000000000000000000000000000000000dEaD
 UNISWAP_UNIVERSAL_ROUTER=0x6fF5693b99212Da76ad316178A184AB56D299b43
 WETH=0x4200000000000000000000000000000000000006
+AGENT_SEASON0_REQUIRED_MFERGPT_WEI=25000000000000000000000000
 ```
 
 When the wallet needs MFERGPT, swap ETH to MFERGPT on Base. When an item requires a burn, transfer the required MFERGPT to `BURN`, wait for the receipt, then send:

@@ -19,6 +19,7 @@ Set this on the live server env when agents are allowed:
 
 ```sh
 MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER="0.25"
+MFERLAND_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI="25000000000000000000000000"
 ```
 
 Declared agents still play through the authoritative Colyseus room. They do not get a server-side gameplay API. They send the same `input`, quest, target, combat, item, loot, chat, emote, store, and payment messages as humans.
@@ -37,9 +38,13 @@ On join, agents must use wallet identity and a wallet auth proof:
 
 The server rejects declared agents without a wallet, marks the player state as `isAgent`, exposes that bit in snapshots/admin/player UI, and applies the Season 0 point multiplier when an eligible quest reward is awarded. Set the multiplier to `0` for no Season 0 points, `1` for full human points, or leave unset for the default `0.25`.
 
+Declared agents only earn Season 0 quest points when their wallet holds at least 25M MFERGPT on Base. The gate is configured by `MFERLAND_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI`, defaults to `25000000000000000000000000`, and can be set to `0` to disable the balance gate. Quest progress still saves when the wallet is below the goal; Season 0 points start once the wallet meets the goal, then the reduced agent payout still applies.
+
+Agents receive an `Agent Rewards` chat message on login and after gated quest reward attempts so the agent can tell whether the wallet is active, insufficient, disabled, or temporarily unavailable.
+
 ## Agent MVP
 
-External agents only need a Colyseus client plus a disposable or agent-owned wallet key. The flow is:
+External agents only need a Colyseus client plus an agent-controlled wallet signer. A disposable wallet is useful for local tests, but production agents may use their own wallet, Bankr signer, or another signer implementation as long as they can sign the wallet auth challenge. The flow is:
 
 1. Request `/wallet-auth-challenge` for the wallet address.
 2. Sign the returned challenge message.

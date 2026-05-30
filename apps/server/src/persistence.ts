@@ -52,6 +52,10 @@ import {
   getAgentSeason0RewardNote,
   readAgentSeason0PointMultiplier,
 } from "./agentRewards.js";
+import {
+  makeUncheckedAgentSeason0MferGptGateStatus,
+  type AgentSeason0MferGptGateStatus,
+} from "./agentMferGptGate.js";
 
 type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
 
@@ -108,13 +112,14 @@ export type CharacterCryptoPurchaseRecord = CharacterTraitPaymentRecord & {
 };
 
 export type SeasonRewardAwardResult = {
-  status: "awarded" | "duplicate" | "capped" | "ineligible" | "adjusted_zero" | "no_database";
+  status: "awarded" | "duplicate" | "capped" | "ineligible" | "adjusted_zero" | "agent_token_gate" | "no_database";
   points: number;
   basePoints: number;
   agentMultiplier: number;
   dailyTotal: number;
   seasonTotal: number;
   label: string;
+  agentTokenGate?: AgentSeason0MferGptGateStatus;
 };
 
 export type SeasonLeaderboardEntry = {
@@ -537,12 +542,14 @@ async function saveCharacterProgressRows(tx: DatabaseTransaction, state: Persist
 
 export async function awardSeason0QuestReward({
   characterId,
+  agentTokenGate,
   isAgent = false,
   walletAddress,
   questId,
   now = new Date(),
 }: {
   characterId: string;
+  agentTokenGate?: AgentSeason0MferGptGateStatus;
   isAgent?: boolean;
   walletAddress: string;
   questId: QuestId;
@@ -550,6 +557,9 @@ export async function awardSeason0QuestReward({
 }): Promise<SeasonRewardAwardResult> {
   const reward = getSeason0QuestReward(questId);
   const agentMultiplier = isAgent ? readAgentSeason0PointMultiplier() : 1;
+  const effectiveAgentTokenGate = isAgent
+    ? agentTokenGate ?? makeUncheckedAgentSeason0MferGptGateStatus()
+    : undefined;
   const adjustedRewardPoints = reward
     ? adjustSeason0QuestPointsForAgent(reward.points, isAgent, agentMultiplier)
     : 0;
@@ -589,6 +599,19 @@ export async function awardSeason0QuestReward({
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
+      };
+    }
+    if (effectiveAgentTokenGate && !effectiveAgentTokenGate.eligible) {
+      return {
+        status: "agent_token_gate",
+        points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
       };
     }
     if (adjustedRewardPoints <= 0) {
@@ -600,6 +623,7 @@ export async function awardSeason0QuestReward({
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
       };
     }
 
@@ -615,6 +639,7 @@ export async function awardSeason0QuestReward({
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
       };
     }
 
@@ -639,6 +664,7 @@ export async function awardSeason0QuestReward({
       dailyTotal: totals.dailyTotal + points,
       seasonTotal: totals.seasonTotal + points,
       label: reward.label,
+      agentTokenGate: effectiveAgentTokenGate,
     };
   });
 }
