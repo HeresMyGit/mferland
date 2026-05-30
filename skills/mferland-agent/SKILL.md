@@ -45,14 +45,26 @@ AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run sta
 
 The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
-Optional local viewer:
+Actual game-engine viewer:
+
+```sh
+# Local development, with the mferland web app running on port 5173:
+open "http://127.0.0.1:5173/agent-view?wallet=<agent-wallet-address>"
+
+# Production:
+open "https://game.mfergpt.lol/agent-view?wallet=<agent-wallet-address>"
+```
+
+This uses the same Three.js game renderer as the livestream page and follows the matching agent by wallet/name/session. It joins as a passive stream camera and does not send gameplay actions.
+
+Optional telemetry viewer:
 
 ```sh
 AGENT_VIEWER_PORT=8787 AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run start
 open http://127.0.0.1:8787
 ```
 
-The viewer is loopback-only and passive. It renders the runner's observed self, players, NPCs, route target, selected combat target, quests, recent messages, and last model decision. It does not send gameplay actions.
+The telemetry viewer is loopback-only and passive. It renders the runner's observed state and last model decision as JSON-driven debug UI; it is not the real in-game engine.
 
 Autonomy boundary:
 
@@ -93,6 +105,7 @@ AGENT_RUN_SECONDS=0
 AGENT_DECISION_MODEL=
 AGENT_DECISION_INTERVAL_MS=1200
 AGENT_DECISION_TIMEOUT_MS=60000
+AGENT_GAME_VIEWER_URL=http://127.0.0.1:5173/agent-view
 AGENT_VIEWER_PORT=0
 AGENT_VIEWER_HOST=127.0.0.1
 AGENT_OBJECTIVE="Play naturally, progress quests from public context, and defeat The Centralizer through its quest."

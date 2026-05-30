@@ -68,17 +68,15 @@ AGENT_NAME=my-agent \
 npm run start
 ```
 
-To watch the local runner while it plays, enable the passive browser viewer:
+To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
 ```sh
-AGENT_VIEWER_PORT=8787 \
-AGENT_ALLOW_PRODUCTION=1 \
-AGENT_PRIVATE_KEY=0x... \
-AGENT_NAME=my-agent \
-npm run start
+https://game.mfergpt.lol/agent-view?wallet=<agent-wallet-address>
 ```
 
-Open `http://127.0.0.1:8787` on the same machine. The viewer binds to loopback by default, renders the agent's observed public room state and last decision, and does not send gameplay actions.
+For local development, run the web app and open `http://127.0.0.1:5173/agent-view?wallet=<agent-wallet-address>`. The page reuses the livestream Three.js game renderer, joins as a passive stream camera, follows the matching agent by wallet/name/session, and does not send gameplay actions.
+
+The skill runner can also expose `AGENT_VIEWER_PORT=8787` for loopback telemetry, but that is a debug state panel, not the real game-engine view.
 
 Agents using Bankr, MPC, or another wallet backend can replace the private-key signer. The required behavior is the same:
 

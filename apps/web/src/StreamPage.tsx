@@ -93,9 +93,18 @@ const STREAM_SETTINGS: GameSettings = {
 
 type StreamPageProps = {
   overlay?: boolean;
+  agentView?: boolean;
 };
 
-export function StreamPage({ overlay = false }: StreamPageProps) {
+type StreamFocus = {
+  agentOnly: boolean;
+  query: string;
+  wallet: string;
+  sessionId: string;
+  locked: boolean;
+};
+
+export function StreamPage({ overlay = false, agentView = false }: StreamPageProps) {
   if (!isLocalStreamHost()) {
     return (
       <main className="game-shell stream-shell">
@@ -107,12 +116,13 @@ export function StreamPage({ overlay = false }: StreamPageProps) {
     );
   }
 
-  return <LocalStreamPage overlay={overlay} />;
+  return <LocalStreamPage overlay={overlay} agentView={agentView} />;
 }
 
-function LocalStreamPage({ overlay }: { overlay: boolean }) {
+function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: boolean }) {
   const baseIdentityRef = useRef<ReturnType<typeof makeGuestIdentity> | null>(null);
   const [roomReconnectNonce, setRoomReconnectNonce] = useState(0);
+  const streamFocus = useMemo(() => getStreamFocus(agentView), [agentView]);
   const identity = useMemo(() => {
     if (!baseIdentityRef.current) {
       const inviteCode = getLinkedInviteCode();
@@ -139,8 +149,9 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
   const streamPlayers = useMemo(
     () => Array.from(room.players.values())
       .filter((player) => !isStreamCameraPlayer(player, room.sessionId))
-      .sort((a, b) => a.name.localeCompare(b.name) || a.sessionId.localeCompare(b.sessionId)),
-    [room.players, room.sessionId, room.snapshotRevision],
+      .filter((player) => matchesStreamFocus(player, streamFocus))
+      .sort((a, b) => getStreamFocusRank(a, streamFocus) - getStreamFocusRank(b, streamFocus) || a.name.localeCompare(b.name) || a.sessionId.localeCompare(b.sessionId)),
+    [room.players, room.sessionId, room.snapshotRevision, streamFocus],
   );
   const scenePlayers = useMemo(() => {
     const nextPlayers = new Map(room.players);
@@ -180,7 +191,7 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
   }, [streamSessionKey]);
 
   useEffect(() => {
-    if (streamSessionIds.length < 2) return;
+    if (streamFocus.locked || streamSessionIds.length < 2) return;
     const interval = window.setInterval(() => {
       setFocusedSessionId((current) => {
         const currentIndex = current ? streamSessionIds.indexOf(current) : -1;
@@ -189,7 +200,7 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
     }, cycleMs);
 
     return () => window.clearInterval(interval);
-  }, [cycleMs, streamSessionKey]);
+  }, [cycleMs, streamFocus.locked, streamSessionKey]);
 
   useEffect(() => {
     if (room.status === "connecting") setLoaderComplete(false);
@@ -395,11 +406,13 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
     return (
       <StreamOverlay
         focusedPlayer={focusedPlayer}
+        agentView={agentView}
         onlinePlayers={streamPlayers}
         selectedTargetUnit={selectedTargetUnit}
         connectionStatus={room.status}
         connectionError={room.error}
         cycleSeconds={cycleMs / 1000}
+        focusLocked={streamFocus.locked}
         chat={room.chat}
       >
         {streamStage}
@@ -417,22 +430,26 @@ function LocalStreamPage({ overlay }: { overlay: boolean }) {
 type StreamOverlayProps = {
   children: ReactNode;
   focusedPlayer: PlayerSnapshot | null;
+  agentView: boolean;
   onlinePlayers: PlayerSnapshot[];
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   connectionStatus: string;
   connectionError: string | null;
   cycleSeconds: number;
+  focusLocked: boolean;
   chat: ChatMessage[];
 };
 
 function StreamOverlay({
   children,
   focusedPlayer,
+  agentView,
   onlinePlayers,
   selectedTargetUnit,
   connectionStatus,
   connectionError,
   cycleSeconds,
+  focusLocked,
   chat,
 }: StreamOverlayProps) {
   const [now, setNow] = useState(() => Date.now());
@@ -452,7 +469,7 @@ function StreamOverlay({
       <header className="stream-overlay-titlebar">
         <div className="stream-overlay-titleblock">
           <span className="stream-overlay-live-dot" aria-hidden="true" />
-          <strong>mfergpt plays mferland</strong>
+          <strong>{agentView ? "mferland agent viewer" : "mfergpt plays mferland"}</strong>
           <span>{connectionError || connectionStatus}</span>
         </div>
         <StreamPriceTickerStrip />
@@ -477,7 +494,7 @@ function StreamOverlay({
             <StreamMeter label="MP" value={manaPercent} tone="mana" text={focusedPlayer ? `${Math.ceil(focusedPlayer.mana)} / ${focusedPlayer.maxMana}` : "--"} />
             <div className="stream-overlay-stat-grid">
               <StreamStat label="level" value={focusedPlayer ? String(focusedPlayer.level) : "--"} />
-              <StreamStat label="cycle" value={`${Math.round(cycleSeconds)}s`} />
+              <StreamStat label={focusLocked ? "focus" : "cycle"} value={focusLocked ? "locked" : `${Math.round(cycleSeconds)}s`} />
             </div>
             <StreamBuffStrip buffs={activeBuffs} now={now} />
           </section>
@@ -910,6 +927,59 @@ function getStreamCycleMs() {
   const rawSeconds = Number(params.get("cycle") ?? params.get("interval") ?? params.get("seconds") ?? "");
   const seconds = Number.isFinite(rawSeconds) && rawSeconds > 0 ? rawSeconds : STREAM_DEFAULT_SECONDS;
   return Math.round(Math.min(STREAM_MAX_SECONDS, Math.max(STREAM_MIN_SECONDS, seconds)) * 1000);
+}
+
+function getStreamFocus(agentView: boolean): StreamFocus {
+  const params = new URLSearchParams(window.location.search);
+  const rawQuery = params.get("agent") ?? params.get("player") ?? params.get("name") ?? "";
+  const query = normalizeStreamFocusValue(rawQuery);
+  const wallet = normalizeStreamFocusValue(params.get("wallet") ?? params.get("address") ?? "");
+  const sessionId = normalizeStreamFocusValue(params.get("session") ?? params.get("sessionId") ?? "");
+  const agentOnlyParam = params.get("agentOnly") ?? params.get("agents") ?? "";
+  const agentOnly = agentView || agentOnlyParam === "1" || agentOnlyParam.toLowerCase() === "true";
+  return {
+    agentOnly,
+    query,
+    wallet,
+    sessionId,
+    locked: Boolean(query || wallet || sessionId),
+  };
+}
+
+function matchesStreamFocus(player: PlayerSnapshot, focus: StreamFocus) {
+  if (focus.agentOnly && !player.isAgent) return false;
+  if (focus.wallet && normalizeStreamFocusValue(player.walletAddress) !== focus.wallet) return false;
+  if (focus.sessionId && normalizeStreamFocusValue(player.sessionId) !== focus.sessionId) return false;
+  if (!focus.query) return true;
+
+  const haystack = [
+    player.name,
+    player.walletAddress,
+    player.sessionId,
+  ].map(normalizeStreamFocusValue);
+  return haystack.some((value) => value === focus.query || value.startsWith(focus.query) || value.includes(focus.query));
+}
+
+function getStreamFocusRank(player: PlayerSnapshot, focus: StreamFocus) {
+  const values = [
+    normalizeStreamFocusValue(player.walletAddress),
+    normalizeStreamFocusValue(player.sessionId),
+    normalizeStreamFocusValue(player.name),
+  ];
+  if (focus.wallet && values[0] === focus.wallet) return 0;
+  if (focus.sessionId && values[1] === focus.sessionId) return 0;
+  if (focus.query) {
+    const exactIndex = values.findIndex((value) => value === focus.query);
+    if (exactIndex >= 0) return exactIndex;
+    if (values.some((value) => value.startsWith(focus.query))) return 3;
+    if (values.some((value) => value.includes(focus.query))) return 4;
+  }
+  return player.isAgent ? 5 : 6;
+}
+
+function normalizeStreamFocusValue(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  return trimmed === "1" || trimmed === "true" ? "" : trimmed;
 }
 
 function isStreamCameraPlayer(player: PlayerSnapshot, localSessionId: string | null) {

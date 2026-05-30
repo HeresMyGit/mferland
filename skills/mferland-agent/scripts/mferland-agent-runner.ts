@@ -29,6 +29,7 @@ type AgentConfig = {
   objective: string;
   viewerPort: number;
   viewerHost: string;
+  gameViewerUrl: string;
 };
 
 type RuntimePlayer = AnyRecord & {
@@ -194,7 +195,7 @@ const DECISION_ACTIONS = [
 
 const INPUT_INTERVAL_MS = 150;
 const INTERACT_SEND_RANGE = 2.7;
-const INTERACT_APPROACH_DISTANCE = 2.4;
+const INTERACT_APPROACH_DISTANCE = 1.6;
 
 class MferlandRunner {
   private readonly config: AgentConfig;
@@ -273,6 +274,9 @@ class MferlandRunner {
     this.room = room;
     this.installHandlers(room);
     this.log(`joined ${this.config.roomName} as ${this.config.agentName} ${shortAddress(this.account.address)}`);
+    if (this.config.gameViewerUrl) {
+      this.log(`game viewer ${makeAgentGameViewerUrl(this.config.gameViewerUrl, this.account.address)}`);
+    }
   }
 
   private async requestChallenge() {
@@ -1262,6 +1266,7 @@ function readConfig(): AgentConfig {
   if (viewerPort && !isLoopbackHost(viewerHost)) {
     throw new Error("AGENT_VIEWER_HOST must be loopback-only, such as 127.0.0.1 or localhost.");
   }
+  const gameViewerUrl = cleanEnv("AGENT_GAME_VIEWER_URL") || defaultAgentGameViewerUrl(roomServer);
   return {
     roomServer,
     httpServer,
@@ -1279,6 +1284,7 @@ function readConfig(): AgentConfig {
     objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, survive, and eventually defeat The Centralizer through its quest.",
     viewerPort,
     viewerHost,
+    gameViewerUrl,
   };
 }
 
@@ -1457,6 +1463,21 @@ function toHttpServer(roomServer: string) {
   if (roomServer.startsWith("wss://")) return `https://${roomServer.slice("wss://".length)}`;
   if (roomServer.startsWith("ws://")) return `http://${roomServer.slice("ws://".length)}`;
   return roomServer;
+}
+
+function defaultAgentGameViewerUrl(roomServer: string) {
+  if (/game\.mfergpt\.lol/i.test(roomServer)) return "https://game.mfergpt.lol/agent-view";
+  return "http://127.0.0.1:5173/agent-view";
+}
+
+function makeAgentGameViewerUrl(baseUrl: string, walletAddress: string) {
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("wallet", walletAddress);
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
 }
 
 function shortAddress(address: string) {

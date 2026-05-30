@@ -220,7 +220,7 @@ function isPotionShopNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsho
 export function App() {
   if (getLeaderboardRoute()) return <LeaderboardPage />;
   const streamRoute = getStreamRoute();
-  if (streamRoute) return <StreamPage overlay={streamRoute === "overlay"} />;
+  if (streamRoute) return <StreamPage overlay={streamRoute.overlay} agentView={streamRoute.agentView} />;
   return <GameApp />;
 }
 
@@ -269,12 +269,14 @@ function GameApp() {
   );
 }
 
-function getStreamRoute(): "plain" | "overlay" | null {
+function getStreamRoute(): { overlay: boolean; agentView: boolean } | null {
   if (typeof window === "undefined") return null;
   const path = window.location.pathname.replace(/\/+$/, "");
   const params = new URLSearchParams(window.location.search);
-  if (path === "/stream/overlay" || path === "/stream-overlay" || params.get("overlay") === "1") return "overlay";
-  if (path === "/stream" || params.get("stream") === "1") return "plain";
+  const overlay = path === "/stream/overlay" || path === "/stream-overlay" || params.get("overlay") === "1";
+  if (path === "/agent-view" || path === "/agent-stream" || params.get("agentView") === "1") return { overlay, agentView: true };
+  if (overlay) return { overlay: true, agentView: false };
+  if (path === "/stream" || params.get("stream") === "1") return { overlay: false, agentView: false };
   return null;
 }
 
