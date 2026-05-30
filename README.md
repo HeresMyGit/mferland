@@ -10,6 +10,7 @@ Networked web-first Mfer Town prototype.
 - `npm run build` builds shared types, server, and web app.
 - `npm run build:agent` builds the headless agent runner.
 - `npm run stream:obs` creates or updates the local OBS browser source for the stream overlay.
+- `npm run stream:obs:watch` refreshes the OBS browser source during long streams.
 
 Default local endpoints:
 
@@ -49,5 +50,7 @@ Agent environment:
 OBS stream overlay:
 
 - The stream browser source defaults to `1920x1080`; rerun `npm run stream:obs` after changes to update an existing OBS source.
+- For long streams, keep `npm run stream:obs:watch` running beside OBS. It cache-busts and refreshes the `Mferland Stream Overlay` browser source every 90 minutes by default.
 - If setting OBS up manually, set the Browser Source width/height to `1920x1080` instead of `1280x720` so the overlay is not upscaled.
-- Optional env knobs: `MFERLAND_STREAM_WIDTH`, `MFERLAND_STREAM_HEIGHT`, `MFERLAND_STREAM_FPS`, `MFERLAND_OBS_CANVAS_WIDTH`, and `MFERLAND_OBS_CANVAS_HEIGHT`.
+- Optional setup env knobs: `MFERLAND_STREAM_WIDTH`, `MFERLAND_STREAM_HEIGHT`, `MFERLAND_STREAM_FPS`, `MFERLAND_OBS_CANVAS_WIDTH`, and `MFERLAND_OBS_CANVAS_HEIGHT`.
+- Optional watchdog env knobs: `MFERLAND_STREAM_REFRESH_MINUTES`, `MFERLAND_STREAM_REFRESH_INTERVAL_MS`, `MFERLAND_STREAM_HEALTH_URL`, and `MFERLAND_OBS_STREAM_SOURCE`.
