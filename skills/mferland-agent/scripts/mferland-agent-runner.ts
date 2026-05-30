@@ -118,17 +118,17 @@ const COMBAT_ACTION_IDS = [
   "iceBlast",
 ] as const;
 
-const COMBAT: Record<CombatActionId, { maxRange: number; manaCost: number; castTimeMs: number; requiresStationary: boolean; minLevel: number }> = {
-  attack: { maxRange: 5, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
-  shoot: { maxRange: 40, manaCost: 0, castTimeMs: 0, requiresStationary: true, minLevel: 2 },
-  signalShot: { maxRange: 34, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 3 },
-  fireblast: { maxRange: 30, manaCost: 14, castTimeMs: 3500, requiresStationary: true, minLevel: 4 },
-  frostNova: { maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
-  heal: { maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
-  taunt: { maxRange: 12, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 7 },
-  whirlwind: { maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
-  multishot: { maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 1 },
-  iceBlast: { maxRange: 28, manaCost: 12, castTimeMs: 3500, requiresStationary: true, minLevel: 5 },
+const COMBAT: Record<CombatActionId, { minRange: number; maxRange: number; manaCost: number; castTimeMs: number; requiresStationary: boolean; minLevel: number }> = {
+  attack: { minRange: 0, maxRange: 5, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
+  shoot: { minRange: 4, maxRange: 40, manaCost: 0, castTimeMs: 0, requiresStationary: true, minLevel: 2 },
+  signalShot: { minRange: 4, maxRange: 34, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 3 },
+  fireblast: { minRange: 0, maxRange: 30, manaCost: 14, castTimeMs: 3500, requiresStationary: true, minLevel: 4 },
+  frostNova: { minRange: 0, maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
+  heal: { minRange: 0, maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
+  taunt: { minRange: 0, maxRange: 12, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 7 },
+  whirlwind: { minRange: 0, maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
+  multishot: { minRange: 4, maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 1 },
+  iceBlast: { minRange: 0, maxRange: 28, manaCost: 12, castTimeMs: 3500, requiresStationary: true, minLevel: 5 },
 };
 
 const PUBLIC_LANDMARKS: Record<string, Point> = {
@@ -146,9 +146,15 @@ const PUBLIC_LANDMARKS: Record<string, Point> = {
 
 const PUBLIC_ROUTES: Record<string, Point[]> = {
   "plaza-to-loop-farm": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
+  "loop-farm-to-claim-pile": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -99, z: 75 }, { x: -89, z: 92 }],
+  "claim-pile-to-loop-farm": [{ x: -89, z: 92 }, { x: -99, z: 75 }, { x: -82, z: 60 }, { x: -64.5, z: 64.5 }],
   "loop-farm-to-route-post": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
+  "claim-pile-to-route-post": [{ x: -89, z: 92 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
+  "route-post-to-claim-booth": [{ x: -119.2, z: 132.4 }, { x: -111.2, z: 136.7 }],
   "route-post-to-signal-post": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "signal-post-to-uplink-shack": [{ x: 108.8, z: -92.8 }, { x: 117.6, z: -91.2 }],
   "signal-post-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
+  "uplink-shack-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
   "field-to-plaza": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: -2.4, z: 4.2 }],
   "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
 };
@@ -200,9 +206,13 @@ class MferlandRunner {
   private questMemory = new Map<string, QuestMemory>();
   private targetPoint: Point | null = null;
   private routeQueue: Point[] = [];
+  private engagedNpcId = "";
+  private combatAnchor: Point | null = null;
   private seq = 0;
   private yaw = Math.PI;
   private stationaryUntil = 0;
+  private nextAutoCombatAt = 0;
+  private nextAutoConsumableAt = 0;
   private nextDecisionAt = 0;
   private deciding = false;
   private lastAction = "";
@@ -490,12 +500,16 @@ class MferlandRunner {
       availableActions: DECISION_ACTIONS,
       actionNotes: [
         "Use only one normal room action per decision.",
+        "The model policy owns high-level choices: quest order, exploration, target selection, grouping, looting, shopping, and when to disengage.",
+        "The harness only supplies wallet login, observation summaries, normal room-message actions, movement/cast safety, and short combat continuations after the policy selects a target.",
         "Use quest offer/status/turn-in messages, NPC dialogue, quest log state, visible NPCs, and public map landmarks as context clues.",
         "Do not assume a hidden quest script or hard-coded quest order. Explore by moving, interacting with nearby quest NPCs, reading offers/status, accepting available quests, doing objectives, and turning in ready quests.",
         "For accept_quest, use the offer npcRef. For complete_quest, use the turnInNpcId/turnInNpcName from quest messages when present.",
         "Prefer stable NPC ids or exact NPC names for npcRef. Numbered refs like npc1 also work, but only for the current observation.",
         "If a quest is completed or a questCompleted message was observed, move on to available next quest context instead of retrying that turn-in.",
         "For combat, prefer fight_npc with a visible hostile npcRef. Avoid pulling packs unless grouping or using AoE intentionally.",
+        "After fight_npc or use_ability against an NPC, the harness continues ordinary combat messages on that selected target until it dies or you choose another high-level action.",
+        "For travel_route, put a public route id or landmark id in text. Minor wording differences are accepted.",
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
         "If a corpse has loot and you are safe, use loot to clear it.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
@@ -504,6 +518,33 @@ class MferlandRunner {
       refs: {
         npcs: Object.fromEntries(refs),
         players: Object.fromEntries(playerRefs),
+      },
+      autonomyBoundary: {
+        policyOwns: [
+          "quest order",
+          "where to explore",
+          "which NPCs or players to interact with",
+          "which target to fight",
+          "when to loot",
+          "when to group, chat, or emote",
+          "when to use shops or wallet-backed payments",
+        ],
+        harnessAssists: [
+          "wallet challenge signing",
+          "Colyseus connection",
+          "public observation packet",
+          "normal room-message dispatch",
+          "holding still while casts resolve",
+          "continuing attacks on a policy-selected target",
+          "using owned consumables at low health or mana",
+        ],
+        notIncluded: [
+          "hard-coded quest path",
+          "database reads",
+          "debug server messages",
+          "teleports",
+          "production bypasses",
+        ],
       },
       now,
       lastAction: this.lastAction,
@@ -517,9 +558,12 @@ class MferlandRunner {
     switch (decision.action) {
       case "wait":
         this.targetPoint = null;
+        this.clearEngagement();
         this.lastAction = "wait";
         return;
       case "respawn":
+        this.clearEngagement();
+        this.routeQueue = [];
         this.send("respawn", {});
         this.lastAction = "respawn";
         return;
@@ -527,23 +571,27 @@ class MferlandRunner {
         const x = readFiniteNumber(decision.x);
         const z = readFiniteNumber(decision.z);
         if (x === undefined || z === undefined) throw new Error("move_to requires x and z");
+        this.clearEngagement();
+        this.routeQueue = [];
         this.moveTo({ x, z });
         this.lastAction = `move_to ${round(x)},${round(z)}`;
         return;
       }
       case "travel_route": {
-        const routeId = cleanText(decision.text, 80);
-        const route = PUBLIC_ROUTES[routeId];
-        if (!route) throw new Error(`unknown route ${routeId}`);
+        const routeText = cleanText(decision.text, 80);
+        const route = resolveRoute(routeText);
+        if (!route) throw new Error(`unknown route ${routeText}`);
+        this.clearEngagement();
         this.routeQueue = [...route];
         this.followRoute(self);
-        this.lastAction = `travel_route ${routeId}`;
+        this.lastAction = `travel_route ${routeText}`;
         return;
       }
       case "move_near_npc":
       case "interact_npc": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error(`${decision.action} requires npcRef`);
+        this.clearEngagement();
         if (decision.action === "move_near_npc" || distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_near_npc ${npc.id}`;
@@ -557,6 +605,7 @@ class MferlandRunner {
       case "move_near_player": {
         const player = this.resolvePlayer(decision.playerRef);
         if (!player) throw new Error("move_near_player requires playerRef");
+        this.clearEngagement();
         this.moveTo(player);
         this.lastAction = `move_near_player ${player.name}`;
         return;
@@ -565,6 +614,7 @@ class MferlandRunner {
         const questId = cleanText(decision.questId, 96);
         const npc = this.resolveNpc(decision.npcRef);
         if (!questId || !npc) throw new Error("accept_quest requires questId and npcRef");
+        this.clearEngagement();
         if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_accept ${questId}`;
@@ -579,6 +629,7 @@ class MferlandRunner {
         const questId = cleanText(decision.questId, 96);
         const npc = this.resolveNpc(decision.npcRef);
         if (!questId || !npc) throw new Error("complete_quest requires questId and npcRef");
+        this.clearEngagement();
         if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_complete ${questId}`;
@@ -599,6 +650,8 @@ class MferlandRunner {
       case "fight_npc": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error("fight_npc requires visible npcRef");
+        this.setEngagement(self, npc.id);
+        this.routeQueue = [];
         this.fight(self, npc);
         return;
       }
@@ -608,10 +661,22 @@ class MferlandRunner {
         if (decision.playerRef) {
           const player = this.resolvePlayer(decision.playerRef);
           if (!player) throw new Error("unknown playerRef");
+          this.clearEngagement();
+          this.routeQueue = [];
           this.cast(actionId, { kind: "player", id: player.sessionId });
         } else {
+          if (actionId === "frostNova" || actionId === "whirlwind") {
+            this.clearEngagement();
+            this.routeQueue = [];
+            this.cast(actionId, { kind: "npc", id: "" });
+            this.lastAction = `use_ability ${actionId}`;
+            return;
+          }
           const npc = this.resolveNpc(decision.npcRef);
           if (!npc) throw new Error("use_ability requires npcRef or playerRef");
+          if (actionId === "heal") this.clearEngagement();
+          else this.setEngagement(self, npc.id);
+          this.routeQueue = [];
           this.cast(actionId, { kind: "npc", id: npc.id });
         }
         this.lastAction = `use_ability ${actionId}`;
@@ -620,6 +685,7 @@ class MferlandRunner {
       case "loot": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error("loot requires npcRef");
+        this.clearEngagement();
         this.send("lootCorpse", { npcId: npc.id });
         this.lastAction = `loot ${npc.id}`;
         return;
@@ -627,6 +693,7 @@ class MferlandRunner {
       case "equip_item": {
         const itemId = cleanText(decision.itemId, 96);
         if (!itemId) throw new Error("equip_item requires itemId");
+        this.clearEngagement();
         this.send("equipItem", { itemId });
         this.lastAction = `equip_item ${itemId}`;
         return;
@@ -634,11 +701,13 @@ class MferlandRunner {
       case "use_item": {
         const itemId = cleanText(decision.itemId, 96);
         if (!itemId) throw new Error("use_item requires itemId");
+        this.clearEngagement();
         this.send("useItem", { itemId });
         this.lastAction = `use_item ${itemId}`;
         return;
       }
       case "update_traits":
+        this.clearEngagement();
         this.send("updateTraits", {
           traits: DEFAULT_TRAITS,
           name: this.config.agentName,
@@ -649,6 +718,7 @@ class MferlandRunner {
       case "share_quest_link": {
         const questId = cleanText(decision.questId, 96);
         if (!questId) throw new Error("share_quest_link requires questId");
+        this.clearEngagement();
         this.send("shareQuestLink", { questId, url: "https://game.mfergpt.lol" });
         this.lastAction = `share_quest_link ${questId}`;
         return;
@@ -656,12 +726,14 @@ class MferlandRunner {
       case "chat": {
         const text = cleanText(decision.text, 180);
         if (!text) throw new Error("chat requires text");
+        this.clearEngagement();
         this.send("chat", { text });
         this.lastAction = `chat ${text.slice(0, 24)}`;
         return;
       }
       case "emote": {
         const emoteId = cleanText(decision.emoteId, 40) || "wave";
+        this.clearEngagement();
         this.send("emote", { emoteId });
         this.lastAction = `emote ${emoteId}`;
         return;
@@ -671,12 +743,23 @@ class MferlandRunner {
     }
   }
 
+  private setEngagement(self: RuntimePlayer, npcId: string) {
+    this.engagedNpcId = npcId;
+    this.combatAnchor = point(self);
+  }
+
+  private clearEngagement() {
+    this.engagedNpcId = "";
+    this.combatAnchor = null;
+  }
+
   private fight(self: RuntimePlayer, npc: RuntimeNpc) {
+    this.routeQueue = [];
     const distance = distance2d(self, npc);
     const actionId = this.chooseCombatAction(self, npc, distance);
     const action = COMBAT[actionId];
     if (distance > action.maxRange * 0.9) {
-      this.moveTo(npc);
+      this.moveToCombatRange(self, npc, action);
       this.lastAction = `move_to_fight ${npc.id}`;
       return;
     }
@@ -686,10 +769,15 @@ class MferlandRunner {
   }
 
   private chooseCombatAction(self: RuntimePlayer, npc: RuntimeNpc, distance: number): CombatActionId {
-    const closeEnemies = [...this.npcs.values()].filter((entry) => entry.health > 0 && entry.defeatedAt <= 0 && distance2d(self, entry) <= 5.5).length;
+    const closeAttackers = [...this.npcs.values()].filter((entry) => (
+      entry.health > 0
+      && entry.defeatedAt <= 0
+      && entry.aggroTargetId === self.sessionId
+      && distance2d(self, entry) <= 5.5
+    )).length;
     if (self.health < self.maxHealth * 0.45 && this.canUse(self, "heal")) return "heal";
-    if (closeEnemies >= 2 && this.canUse(self, "frostNova")) return "frostNova";
-    if (closeEnemies >= 2 && this.canUse(self, "whirlwind")) return "whirlwind";
+    if (closeAttackers >= 2 && this.canUse(self, "frostNova")) return "frostNova";
+    if (closeAttackers >= 2 && this.canUse(self, "whirlwind")) return "whirlwind";
     if (distance >= 8 && this.canUse(self, "fireblast")) return "fireblast";
     if (distance >= 4 && this.canUse(self, "signalShot")) return "signalShot";
     if (distance >= 4 && this.canUse(self, "shoot")) return "shoot";
@@ -702,7 +790,7 @@ class MferlandRunner {
       this.stationaryUntil = Date.now() + action.castTimeMs + 350;
       this.targetPoint = null;
     }
-    this.send("combatAction", { actionId, target });
+    this.send("combatAction", target.id ? { actionId, target } : { actionId });
   }
 
   private canUse(self: RuntimePlayer, actionId: CombatActionId) {
@@ -735,10 +823,25 @@ class MferlandRunner {
     });
   }
 
+  private moveToCombatRange(self: RuntimePlayer, npc: RuntimeNpc, action: { maxRange: number; minRange: number }) {
+    const desiredRange = action.maxRange >= 20
+      ? Math.max(action.minRange + 1.5, Math.min(action.maxRange - 2, action.maxRange * 0.86))
+      : Math.max(2.4, Math.min(action.maxRange * 0.7, action.maxRange - 0.5));
+    const dx = self.x - npc.x;
+    const dz = self.z - npc.z;
+    const length = Math.hypot(dx, dz) || 1;
+    this.moveTo({
+      x: npc.x + (dx / length) * desiredRange,
+      z: npc.z + (dz / length) * desiredRange,
+    });
+  }
+
   private sendInput() {
     const self = this.self();
     if (!this.room || !self) return;
-    if (this.routeQueue.length > 0) this.followRoute(self);
+    this.maintainSurvival(self);
+    this.continueEngagement(self);
+    if (!this.engagedNpcId && this.routeQueue.length > 0) this.followRoute(self);
     let x = 0;
     let z = 0;
     if (Date.now() >= this.stationaryUntil && this.targetPoint) {
@@ -754,6 +857,51 @@ class MferlandRunner {
       }
     }
     this.send("input", { x, z, yaw: this.yaw, sprint: Boolean(this.targetPoint), jump: false, seq: ++this.seq });
+  }
+
+  private continueEngagement(self: RuntimePlayer) {
+    if (!this.engagedNpcId || Date.now() < this.nextAutoCombatAt || self.health <= 0 || self.castingAction) return;
+    const attackers = [...this.npcs.values()].filter((npc) => (
+      npc.aggroTargetId === self.sessionId
+      && npc.health > 0
+      && npc.defeatedAt <= 0
+    )).length;
+    if (attackers >= 3 || self.health < self.maxHealth * 0.35) {
+      if (this.combatAnchor) this.moveTo(this.combatAnchor);
+      this.clearEngagement();
+      this.lastAction = attackers >= 3 ? "retreat_overpull" : "retreat_low_health";
+      return;
+    }
+    const npc = this.npcs.get(this.engagedNpcId);
+    if (!npc || npc.health <= 0 || npc.defeatedAt > 0) {
+      this.clearEngagement();
+      return;
+    }
+    this.nextAutoCombatAt = Date.now() + 650;
+    this.fight(self, npc);
+  }
+
+  private maintainSurvival(self: RuntimePlayer) {
+    if (Date.now() < this.nextAutoConsumableAt || self.health <= 0) return;
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    const manaRatio = self.maxMana > 0 ? self.mana / self.maxMana : 1;
+    if (healthRatio <= 0.48 && inventoryCount(self, "red-juice") > 0) {
+      this.nextAutoConsumableAt = Date.now() + 3500;
+      this.send("useItem", { itemId: "red-juice" });
+      this.lastAction = "auto_use red-juice";
+      return;
+    }
+    if (healthRatio <= 0.62 && inventoryCount(self, "field-snack") > 0) {
+      this.nextAutoConsumableAt = Date.now() + 3500;
+      this.send("useItem", { itemId: "field-snack" });
+      this.lastAction = "auto_use field-snack";
+      return;
+    }
+    if (manaRatio <= 0.25 && inventoryCount(self, "blue-juice") > 0) {
+      this.nextAutoConsumableAt = Date.now() + 3500;
+      this.send("useItem", { itemId: "blue-juice" });
+      this.lastAction = "auto_use blue-juice";
+    }
   }
 
   private send(type: string, message: AnyRecord = {}) {
@@ -1071,6 +1219,27 @@ function normalizeDecision(value: unknown): Decision {
 function normalizeCombatAction(value: unknown): CombatActionId | null {
   const text = cleanText(value, 40);
   return COMBAT_ACTION_IDS.includes(text as CombatActionId) ? text as CombatActionId : null;
+}
+
+function inventoryCount(self: RuntimePlayer, itemId: string) {
+  return self.inventory.reduce((count, item) => (
+    getString(item.id) === itemId ? count + getNumber(item.count) : count
+  ), 0);
+}
+
+function resolveRoute(value: string) {
+  const routeId = normalizeRouteId(value);
+  if (PUBLIC_ROUTES[routeId]) return PUBLIC_ROUTES[routeId];
+  const routeEntry = Object.entries(PUBLIC_ROUTES).find(([id]) => normalizeRouteId(id) === routeId || routeId.includes(normalizeRouteId(id)));
+  if (routeEntry) return routeEntry[1];
+  const landmark = PUBLIC_LANDMARKS[routeId];
+  if (landmark) return [landmark];
+  const landmarkEntry = Object.entries(PUBLIC_LANDMARKS).find(([id]) => routeId.includes(normalizeRouteId(id)));
+  return landmarkEntry ? [landmarkEntry[1]] : null;
+}
+
+function normalizeRouteId(value: string) {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function isHostile(npc: RuntimeNpc) {

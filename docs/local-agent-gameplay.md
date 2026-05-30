@@ -80,7 +80,9 @@ npm run dev -w @mferland/server
 
 `agent:fund-mfergpt:local` only talks to local Anvil chain id `31337`, transfers fake local ETH plus fake local MFERGPT from Anvil's unlocked deployer account, and refuses non-local RPC hosts.
 
-## Run Multi-Agent Playtest
+## Run Internal Regression Agents
+
+These `apps/agent` playtest commands are internal regression tools for proving local server mechanics. They are not the public agent package and should not be used as the external path for player-owned agents.
 
 In another terminal:
 
@@ -94,7 +96,7 @@ npm run agent:playtest:local
 
 The playtest signs `/wallet-auth-challenge`, joins `town` as wallet characters, creates or continues local DB characters, completes the intro/mferGPT quest sequence, coordinates against `mfergpt-daily-boss`, loots windows when offered, then turns in the daily quest. It does not send paid/onchain fulfillment messages.
 
-For a longer local-only questline and boss pass, use the full playthrough scope:
+For a longer local-only questline and boss regression pass, use the full playthrough scope:
 
 ```sh
 DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
@@ -104,7 +106,7 @@ AGENT_COUNT=3 \
 npm run agent:playthrough:local
 ```
 
-The full playthrough keeps the same room-message-only rule, then has a lead wallet continue through farm, route, ridge, Centralizer, and bear-market-mfer quest content while the other local wallet agents fight alongside it. It uses normal `input`, quest, loot, talent, item, social quest, and combat messages.
+The full playthrough keeps the same room-message-only rule, then has a lead wallet continue through farm, route, ridge, Centralizer, and bear-market-mfer quest content while the other local wallet agents fight alongside it. It uses normal `input`, quest, loot, talent, item, social quest, and combat messages. Keep this deterministic playthrough internal; do not package it as the default third-party agent route.
 
 ## Run LLM Agents
 
@@ -124,7 +126,7 @@ npm run agent:llm:local
 
 Use `AGENT_LLM_PROVIDER=openai` plus `OPENAI_API_KEY` if you want direct OpenAI Responses API calls instead of the local Codex CLI. The Codex CLI provider runs in a temporary read-only directory and is only used as the model decision provider; it does not get repo access and does not run gameplay scripts.
 
-The LLM observation includes the agent's own character, nearby visible players and NPCs, visible lootable corpses, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, local wallet balances, a public store/catalog section, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, swap local ETH to local MFERGPT when the local router is configured, and use the potion shop when local MFERGPT payment is configured.
+The LLM observation includes the agent's own character, nearby visible players and NPCs, visible lootable corpses, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, public map context, local wallet balances, and public store/catalog context. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, swap local ETH to local MFERGPT when the local router is configured, and use the potion shop when local MFERGPT payment is configured.
 
 Harness behavior to expect:
 
@@ -138,7 +140,7 @@ Harness behavior to expect:
 - Social quests use the same room messages as the web HUD; for example `tweet-town-link` uses `shareQuestLink`, not chat.
 - Store knowledge is explicit in `observation.stores`: potion-mfer item ids, prices, effects, owned counts, supported actions, and whether the local MFERGPT burn flow can buy stock.
 - Swap knowledge is explicit in `observation.wallet` and `observation.stores`: ETH/MFERGPT balances, whether a local router is configured, a recommended first swap amount, and a `swap_eth_for_mfergpt` action that sends a normal local wallet transaction.
-- Full-run quest knowledge is explicit in `observation.questProgress`: a public all-quests checklist with completed/active/ready/available/locked status, remaining quest ids, next recommended quest ids, turn-in NPCs, and human-style plans for each known quest. The LLM runner stops when every public quest has been completed once.
+- Some local regression modes may expose a full public quest checklist to measure completion coverage. Do not copy that into the public skill or external default harness; third-party agents should infer progression from observed quest offers, quest status, turn-ins, completed messages, visible NPCs, dialogue, inventory, chat, and map context.
 - LLM run results include `llmRun.stepsTaken`, `llmRun.actionFailureCount`, `questProgress.completedQuestCount`, `totalQuestCount`, `allQuestsCompletedOnce`, and `remainingQuestIds` from the final room snapshot.
 - Optional repeatable quests are marked as optional and canceled repeatables are remembered for the current run so agents do not immediately re-accept them.
 

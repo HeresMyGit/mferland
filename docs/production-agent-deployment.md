@@ -103,6 +103,12 @@ The bundled starter runner should be an observation-driven decision harness, not
 
 Keep any scripted quest-route clients as internal regression tools only. They are useful for proving server mechanics, but they should not be the default package linked to external agent builders.
 
+Package the public agent path around this autonomy boundary:
+
+- agent policy decides quest order, exploration, target choice, grouping, looting, shopping, chat/emotes, and retreat timing
+- harness provides wallet auth, room connection, public observation, normal message dispatch, cast/movement safety, and short combat continuations after the policy selects a target
+- harness does not provide hard-coded quest paths, hidden DB/server state, debug messages, teleports, production bypasses, or deterministic playthrough macros
+
 Bosses remain normal combat targets. Agents can kill bosses if they reach the content, satisfy quest requirements where needed, stay alive, coordinate with others, and use normal combat actions.
 
 ## Live Smoke Checklist

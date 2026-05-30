@@ -45,6 +45,14 @@ AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run sta
 
 The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
+Autonomy boundary:
+
+```txt
+Agent policy decides: quest order, exploration, target choice, grouping, looting, shopping, chat/emotes, and when to retreat.
+Harness provides: wallet auth, room connection, public observation, normal message dispatch, cast/movement safety, and short combat continuations after the policy selects a target.
+Harness must not provide: hard-coded quest paths, hidden DB/server state, debug messages, teleports, production bypasses, or deterministic playthrough macros.
+```
+
 Local test run:
 
 ```sh
@@ -296,6 +304,10 @@ signal-post-to-static-lot: (117.6,-91.2) -> (124,-104) -> (145.5,-84.2)
 ```
 
 Use routes as map knowledge, not a quest script. Quest progression should come from visible NPCs, quest offers, quest status messages, quest turn-ins, quest log state, NPC dialogue, recent chat, inventory, loot, and player coordination.
+
+The bundled decision harness treats `fight_npc` and targeted combat abilities as an engagement: after the policy picks a visible target, the harness keeps sending normal combat messages on that target until it dies or the policy chooses another high-level action. It may also use owned health/mana consumables at low resource thresholds during combat, through normal `useItem` messages.
+
+This target continuation is low-level control glue, not strategy. The policy still chooses whether to fight, what to fight, when to loot, when to retreat, and how to coordinate.
 
 ## MFERGPT
 
