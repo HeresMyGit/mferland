@@ -5,18 +5,20 @@ export function extractLocalContractAddresses(document, sourceLabel = "broadcast
   const creates = document.transactions?.filter((transaction) => transaction.transactionType === "CREATE") ?? [];
   const mfer = creates.find((transaction) => transaction.contractName === "MferCoin");
   const mfergpt = creates.find((transaction) => transaction.contractName === "MferGptToken");
+  const swapRouter = creates.find((transaction) => transaction.contractName === "LocalMferGptSwapRouter");
   const gear = creates.find((transaction) => transaction.contractName === "MferGearNFT");
   const pricing = creates.find((transaction) => transaction.contractName === "MferPricing");
   const launchPass = creates.find((transaction) => transaction.contractName === "MferLaunchPass");
   const store = creates.find((transaction) => transaction.contractName === "MferGearStore");
 
-  if (!mfer || !mfergpt || !gear || !pricing || !launchPass || !store) {
+  if (!mfer || !mfergpt || !swapRouter || !gear || !pricing || !launchPass || !store) {
     throw new Error(`Could not find all local contracts in ${sourceLabel}`);
   }
 
   return {
     mfer: mfer.contractAddress,
     mfergpt: mfergpt.contractAddress,
+    swapRouter: swapRouter.contractAddress,
     gear: gear.contractAddress,
     pricing: pricing.contractAddress,
     launchPass: launchPass.contractAddress,

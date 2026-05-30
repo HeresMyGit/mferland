@@ -6,6 +6,7 @@ import {IERC20Payment, IGearProductPricing, MferGearStore} from "../src/MferGear
 import {MferCoin} from "../src/MferCoin.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
 import {IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
+import {ILocalSwapToken, LocalMferGptSwapRouter} from "../src/LocalMferGptSwapRouter.sol";
 import {MferPricing} from "../src/MferPricing.sol";
 
 interface Vm {
@@ -37,6 +38,8 @@ contract DeployLocalSuite {
     uint256 internal constant LAUNCH_PASS_MFERGPT_PRICE = 517.5 ether;
     uint256 internal constant LAUNCH_PASS_MAX_SUPPLY = 500;
     uint256 internal constant LOCAL_MOCK_TOKEN_SUPPLY = 1_000_000_000_000 ether;
+    uint256 internal constant LOCAL_SWAP_MFERGPT_PER_ETH = 1_000_000_000 ether;
+    uint256 internal constant LOCAL_SWAP_MFERGPT_LIQUIDITY = 250_000_000_000 ether;
 
     function run() external {
         address deployer = msg.sender;
@@ -45,6 +48,8 @@ contract DeployLocalSuite {
         vm.startBroadcast();
         MferCoin mfer = new MferCoin(deployer, LOCAL_MOCK_TOKEN_SUPPLY);
         MferGptToken mfergpt = new MferGptToken(deployer, LOCAL_MOCK_TOKEN_SUPPLY);
+        LocalMferGptSwapRouter swapRouter =
+            new LocalMferGptSwapRouter(ILocalSwapToken(address(mfergpt)), treasury, LOCAL_SWAP_MFERGPT_PER_ETH);
         MferGearNFT gear = new MferGearNFT("mferland gear", "MGEAR", deployer);
         MferPricing pricing = new MferPricing(deployer);
         pricing.setSeason0PassPrice(LAUNCH_PASS_ETH_PRICE, LAUNCH_PASS_MFER_PRICE, LAUNCH_PASS_MFERGPT_PRICE);
@@ -80,6 +85,7 @@ contract DeployLocalSuite {
         store.listGear(BEATER_DECK);
         store.listGear(ROAD_LID);
         store.listGear(LUCKY_LIGHTER);
+        mfergpt.transfer(address(swapRouter), LOCAL_SWAP_MFERGPT_LIQUIDITY);
         vm.stopBroadcast();
     }
 }

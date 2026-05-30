@@ -16,6 +16,8 @@ export function getGameAgentHandbook() {
       "Use only the listed actions. You cannot inspect the database, call scripts, teleport, boost, or use debug messages.",
       "The server is authoritative. If an action fails, observe again and try a normal in-game recovery.",
       "You can see nearby players and NPCs, your own quest log, inventory, equipment, health, mana, and recent chat.",
+      "Loot visible corpses with loot available when it is safe; this can pick up non-quest drops and helps bodies clear for normal respawns.",
+      "When visible players are nearby, chat, emote, move near them, or select them when it helps greet, coordinate, or group up.",
       "You do not know hidden NPC state outside your observation unless it is listed here as ordinary player map knowledge.",
     ],
     worldMap: [
@@ -27,7 +29,7 @@ export function getGameAgentHandbook() {
       { place: "traits mirror", x: -3.7, z: 25.4, npcId: "traits-mfer", note: "free first trait set and paid MFERGPT trait changes" },
       { place: "potion shop", x: 7.4, z: 25.4, npcId: POTION_SHOP_NPC_ID, note: "merchant selling potions and elixirs for burned MFERGPT" },
       { place: "crypto store", x: 3.7, z: 25.4, npcId: "crypto-mfer", note: "merchant for launch pass and chain gear purchases" },
-      { place: "swap mfer", x: 0, z: 25.4, npcId: "swap-mfer", note: "merchant for swap affordances" },
+      { place: "swap mfer", x: 0, z: 25.4, npcId: "swap-mfer", note: "merchant for swapping local ETH to MFERGPT when the local router is configured" },
       { place: "daily signal camp", x: -69.4, z: -55.6, npcId: "mfergpt-daily-boss", note: "mferGPT daily boss area southwest of town" },
       { place: "loop farm", x: -64.5, z: 64.5, npcId: "hogwatch-mfer", note: "farm quest hub north west of town; stay on roads to avoid extra hog pulls" },
       { place: "route post", x: -119.2, z: 132.4, npcId: "field-guide-mfer", note: "field camp quest hub past loop farm" },
@@ -70,23 +72,23 @@ export function getGameAgentHandbook() {
       },
       {
         routeId: "loop-farm-to-claim-pile",
-        name: "claimwatch to claim pile edge",
-        note: "farm-edge route to a safer hog pull point; observe before entering because hostile farmers stand inside the hog yard",
+        name: "claimwatch to west hog pull",
+        note: "west-side farm route to a safer hog pull point; prefer isolated visible hogs, use pullRisk/pullAdvice before taking a low-risk add pull, and do not cut through the hostile farmer yard",
         waypoints: [
-          { x: -60, z: 84 },
-          { x: -60, z: 113 },
-          { x: -70, z: 113 },
+          { x: -82, z: 60 },
+          { x: -99, z: 75 },
         ],
       },
       {
         routeId: "loop-farm-to-route-post",
         name: "loop farm to route post",
-        note: "west-side road bypass from claimwatch toward field camp; use this instead of cutting through the hostile farmyard or claim-pile pack",
+        note: "wide west-side road bypass from claimwatch toward field camp; use this instead of cutting through the hostile farmyard or claim-pile pack",
         waypoints: [
           { x: -64.5, z: 64.5 },
           { x: -82, z: 60 },
-          { x: -108, z: 92 },
-          { x: -108, z: 116 },
+          { x: -112, z: 70 },
+          { x: -128, z: 102 },
+          { x: -124, z: 124 },
           { x: -119.2, z: 132.4 },
         ],
       },
@@ -95,8 +97,10 @@ export function getGameAgentHandbook() {
         name: "route post to signal ridge",
         note: "long public road from field camp back through town to signal ridge",
         waypoints: [
-          { x: -101, z: 116 },
-          { x: -76, z: 78 },
+          { x: -124, z: 124 },
+          { x: -128, z: 102 },
+          { x: -112, z: 70 },
+          { x: -82, z: 60 },
           { x: -31, z: 60 },
           { x: 0, z: 29 },
           { x: 0, z: -34 },
@@ -104,6 +108,20 @@ export function getGameAgentHandbook() {
           { x: 75, z: -22 },
           { x: 120, z: -62 },
           { x: 108.8, z: -92.8 },
+        ],
+      },
+      {
+        routeId: "route-post-to-plaza",
+        name: "route post to plaza",
+        note: "safe return road from route post back to town; use this instead of cutting through the farmyard",
+        waypoints: [
+          { x: -124, z: 124 },
+          { x: -128, z: 102 },
+          { x: -112, z: 70 },
+          { x: -82, z: 60 },
+          { x: -31, z: 60 },
+          { x: 0, z: 29 },
+          { x: -2.4, z: 4.2 },
         ],
       },
       {
@@ -131,7 +149,7 @@ export function getGameAgentHandbook() {
     questStrategy: [
       {
         questId: "boar-bristle-cull",
-        plan: "From claimwatch, travel_route loop-farm-to-claim-pile to stage on the farm edge. Hogs and hostile farmers overlap inside the yard, so observe targeting first, pull one visible hog when safe, and back out or group if farmers join.",
+        plan: "From claimwatch, travel_route loop-farm-to-claim-pile to stage at the west hog pull point. Hogs and hostile farmers overlap inside the yard, so prefer isolated visible hogs, use pullRisk/pullAdvice before taking a low-risk add pull, and back out or group if farmers join.",
       },
       {
         questId: "feral-farmers",
@@ -139,7 +157,7 @@ export function getGameAgentHandbook() {
       },
       {
         questId: "hog-livers",
-        plan: "Use the same farm-edge claim pile route, fight visible hogs one at a time when safe, and loot defeated hogs because this is an item collection quest.",
+        plan: "Use the west hog pull point, prefer isolated visible hogs, use pullRisk/pullAdvice before taking a low-risk add pull, and loot defeated hogs because this is an item collection quest.",
       },
       {
         questId: "route-patrol-daily",
@@ -147,7 +165,7 @@ export function getGameAgentHandbook() {
       },
       {
         questId: "hog-loop",
-        plan: "Near claim booth, fight visible hogs one at a time, then return to pen-keeper-mfer when the quest is ready.",
+        plan: "Stay near claim booth and fight visible hogs one at a time, then return to pen-keeper-mfer when the quest is ready. If no safe hog is visible there, wait for a nearby hog instead of running back through the west farmyard.",
       },
       {
         questId: "signal-scraps",
@@ -216,8 +234,8 @@ export function getGameAgentHandbook() {
       {
         npcId: "swap-mfer",
         kind: "swap",
-        payment: "local human-facing swap affordance",
-        note: "Useful for player discovery, not required for the intro quest path.",
+        payment: "local ETH to local MFERGPT through the configured local router",
+        note: "Use swap_eth_for_mfergpt when wallet observation says the local router is configured and MFERGPT is low before burning tokens for items.",
       },
     ],
     merchantNpcIds: [...MERCHANT_NPC_IDS],

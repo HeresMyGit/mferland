@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import {
   createPublicClient,
   createWalletClient,
+  formatEther,
+  formatUnits,
   http,
+  parseEther,
   parseAbi,
   type Address,
 } from "viem";
@@ -20,6 +23,8 @@ type ContractConfig = {
   rpcUrl?: string;
   addresses?: {
     mfergpt?: string;
+    swapRouter?: string;
+    weth?: string;
   };
 };
 
@@ -30,13 +35,23 @@ type MferGptBurnerOptions = {
   proofChainId: number;
   tokenAddress: Address;
   burnAddress: Address;
+  swapRouterAddress?: Address;
+  swapInputAddress?: Address;
 };
 
 const ERC20_ABI = parseAbi([
   "function balanceOf(address owner) view returns (uint256)",
   "function transfer(address to, uint256 amount) returns (bool)",
 ]);
+const LOCAL_SWAP_ROUTER_ABI = parseAbi([
+  "function quoteExactETHForTokens(uint256 amountInWei) view returns (uint256)",
+  "function swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline) payable returns (uint256[] amounts)",
+]);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
+const DEFAULT_SWAP_ETH_AMOUNT = "0.01";
+const DEFAULT_SWAP_SLIPPAGE_BPS = 500n;
+const BPS_DENOMINATOR = 10_000n;
 
 export class MferGptBurner {
   private readonly account: PrivateKeyAccount;
@@ -45,6 +60,8 @@ export class MferGptBurner {
   private readonly proofChainId: number;
   private readonly tokenAddress: Address;
   private readonly burnAddress: Address;
+  private readonly swapRouterAddress?: Address;
+  private readonly swapInputAddress: Address;
 
   constructor(options: MferGptBurnerOptions) {
     this.account = options.account;
@@ -53,6 +70,8 @@ export class MferGptBurner {
     this.proofChainId = options.proofChainId;
     this.tokenAddress = options.tokenAddress;
     this.burnAddress = options.burnAddress;
+    this.swapRouterAddress = options.swapRouterAddress;
+    this.swapInputAddress = options.swapInputAddress ?? ZERO_ADDRESS;
   }
 
   static fromEnv(account: PrivateKeyAccount) {
@@ -83,6 +102,16 @@ export class MferGptBurner {
       || TRAIT_CHANGE_BURN_ADDRESS,
     );
     if (!burnAddress) throw new Error("MFERGPT burn address is invalid.");
+    const swapRouterAddress = normalizeAddress(
+      process.env.AGENT_MFERGPT_SWAP_ROUTER_ADDRESS
+      || process.env.MFERLAND_MFERGPT_SWAP_ROUTER_ADDRESS
+      || localConfig?.addresses?.swapRouter,
+    ) || undefined;
+    const swapInputAddress = normalizeAddress(
+      process.env.AGENT_MFERGPT_SWAP_INPUT_ADDRESS
+      || process.env.MFERLAND_MFERGPT_SWAP_INPUT_ADDRESS
+      || localConfig?.addresses?.weth,
+    ) || ZERO_ADDRESS;
 
     return new MferGptBurner({
       account,
@@ -91,6 +120,8 @@ export class MferGptBurner {
       proofChainId,
       tokenAddress,
       burnAddress,
+      swapRouterAddress,
+      swapInputAddress,
     });
   }
 
@@ -101,20 +132,37 @@ export class MferGptBurner {
       proofChainId: this.proofChainId,
       tokenAddress: this.tokenAddress,
       burnAddress: this.burnAddress,
+      swapRouterAddress: this.swapRouterAddress ?? "",
+      swapInputAddress: this.swapInputAddress,
+    };
+  }
+
+  async observe() {
+    const publicClient = this.publicClient();
+    const [nativeBalance, tokenBalance] = await Promise.all([
+      publicClient.getBalance({ address: this.account.address }),
+      publicClient.readContract({
+        address: this.tokenAddress,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [this.account.address],
+      }),
+    ]);
+    return {
+      nativeBalanceWei: nativeBalance.toString(),
+      nativeBalanceEth: formatBalance(formatEther(nativeBalance), 4),
+      mferGptBalanceWei: tokenBalance.toString(),
+      mferGptBalance: formatBalance(formatUnits(tokenBalance, 18), 2),
+      swapConfigured: Boolean(this.swapRouterAddress),
+      swapRouterAddress: this.swapRouterAddress ?? "",
+      recommendedSwapEthAmount: DEFAULT_SWAP_ETH_AMOUNT,
     };
   }
 
   async burn(amountWei: string, amountLabel: string): Promise<MferGptPaymentProof> {
     const amount = BigInt(amountWei);
-    const publicClient = createPublicClient({
-      chain: this.chain,
-      transport: http(this.rpcUrl),
-    });
-    const walletClient = createWalletClient({
-      account: this.account,
-      chain: this.chain,
-      transport: http(this.rpcUrl),
-    });
+    const publicClient = this.publicClient();
+    const walletClient = this.walletClient();
 
     const balance = await publicClient.readContract({
       address: this.tokenAddress,
@@ -146,6 +194,77 @@ export class MferGptBurner {
       chainId: this.proofChainId,
       contractAddress: this.tokenAddress,
     };
+  }
+
+  async swapEthForMferGpt(amountEth = DEFAULT_SWAP_ETH_AMOUNT) {
+    if (!this.swapRouterAddress) throw new Error("local MFERGPT swap router is not configured for this agent.");
+    const amountIn = parseEtherAmount(amountEth);
+    const publicClient = this.publicClient();
+    const walletClient = this.walletClient();
+    const [nativeBalance, beforeBalance, quotedOut] = await Promise.all([
+      publicClient.getBalance({ address: this.account.address }),
+      publicClient.readContract({
+        address: this.tokenAddress,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [this.account.address],
+      }),
+      publicClient.readContract({
+        address: this.swapRouterAddress,
+        abi: LOCAL_SWAP_ROUTER_ABI,
+        functionName: "quoteExactETHForTokens",
+        args: [amountIn],
+      }),
+    ]);
+    if (nativeBalance <= amountIn) {
+      throw new Error(`not enough local ETH to swap ${amountEth} ETH for MFERGPT`);
+    }
+    if (quotedOut <= 0n) throw new Error("local MFERGPT swap quote returned 0");
+    const minOut = quotedOut * (BPS_DENOMINATOR - DEFAULT_SWAP_SLIPPAGE_BPS) / BPS_DENOMINATOR;
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+    const txHash = await walletClient.writeContract({
+      address: this.swapRouterAddress,
+      abi: LOCAL_SWAP_ROUTER_ABI,
+      functionName: "swapExactETHForTokens",
+      args: [minOut, [this.swapInputAddress, this.tokenAddress], this.account.address, deadline],
+      value: amountIn,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      confirmations: 1,
+      timeout: 90_000,
+    });
+    if (receipt.status !== "success") throw new Error(`${amountEth} ETH to MFERGPT swap failed`);
+    const afterBalance = await publicClient.readContract({
+      address: this.tokenAddress,
+      abi: ERC20_ABI,
+      functionName: "balanceOf",
+      args: [this.account.address],
+    });
+    const received = afterBalance > beforeBalance ? afterBalance - beforeBalance : 0n;
+    if (received < minOut) throw new Error("local MFERGPT swap output was below minimum");
+    return {
+      txHash,
+      amountInWei: amountIn.toString(),
+      minAmountOutWei: minOut.toString(),
+      receivedWei: received.toString(),
+      received: formatBalance(formatUnits(received, 18), 2),
+    };
+  }
+
+  private publicClient() {
+    return createPublicClient({
+      chain: this.chain,
+      transport: http(this.rpcUrl),
+    });
+  }
+
+  private walletClient() {
+    return createWalletClient({
+      account: this.account,
+      chain: this.chain,
+      transport: http(this.rpcUrl),
+    });
   }
 
   private get chain() {
@@ -196,6 +315,19 @@ function readPositiveInt(value: string | undefined) {
 function normalizeAddress(value: unknown): Address | "" {
   const normalized = cleanString(value).toLowerCase();
   return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized as Address : "";
+}
+
+function parseEtherAmount(value: string) {
+  const normalized = cleanString(value);
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(normalized)) throw new Error("swap amount must be a decimal ETH string");
+  if (Number(normalized) <= 0 || Number(normalized) > 1) throw new Error("local agent swap amount must be between 0 and 1 ETH");
+  return parseEther(normalized);
+}
+
+function formatBalance(value: string, maxFractionDigits: number) {
+  const [whole = "0", fraction = ""] = value.split(".");
+  const trimmedFraction = fraction.replace(/0+$/, "").slice(0, maxFractionDigits);
+  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
 }
 
 function assertLocalPaymentConfig({ rpcUrl, tokenAddress }: { rpcUrl: string; tokenAddress: Address }) {

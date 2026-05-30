@@ -7,7 +7,7 @@ This path is local-only. Do not point it at `game.mfergpt.lol`, the Mac mini ser
 - `MFERLAND_LOCAL_ONLY=1` makes the server and migration script refuse non-local `DATABASE_URL` hosts.
 - In development, `MFERLAND_LOCAL_ONLY=1` also lets the local server accept wallet joins without a wallet signature so browser wallet quirks do not block local playtesting.
 - `MFERLAND_AGENT_LOCAL_ONLY=1` makes the agent refuse non-local `AGENT_SERVER_URL` and non-local `DATABASE_URL`.
-- Local-only MFERGPT payment runs also refuse non-local payment RPC hosts and refuse the production MFERGPT token address. If the payment env is missing, potion-shop purchases fail locally instead of falling back to Base mainnet.
+- Local-only MFERGPT payment and swap runs also refuse non-local payment RPC hosts and refuse the production MFERGPT token address. If the payment env is missing, potion-shop purchases and swaps fail locally instead of falling back to Base mainnet.
 - `npm run agent:guard:local` prints the sanitized server URL and database host it will use.
 - Disposable wallet keys are read from `.tmp/agent-wallets.json`, `AGENT_WALLET_PRIVATE_KEYS`, or generated in memory. `.tmp/` is gitignored.
 
@@ -60,8 +60,10 @@ For local MFERGPT purchases, start Anvil, deploy/export the local contracts, fun
 npm run chain:node
 npm run chain:deploy:local
 npm run wallets:create:test -- --count 3 --out .tmp/agent-wallets-llm.json --prefix llm-agent --force
-npm run agent:fund-mfergpt:local -- --wallet-file .tmp/agent-wallets-llm.json
+npm run agent:fund-mfergpt:local -- --wallet-file .tmp/agent-wallets-llm.json --token-wei 0
 ```
+
+The local contract deployment includes a local swap router address in `apps/web/public/crypto/local-contracts.json`. Funding with `--token-wei 0` gives agents fake local ETH but no MFERGPT, so LLM agents can choose the `swap_eth_for_mfergpt` wallet tool before burning MFERGPT for potion-shop items. Use a positive `--token-wei` only when you want to pre-fund MFERGPT directly.
 
 ```sh
 DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
@@ -122,7 +124,7 @@ npm run agent:llm:local
 
 Use `AGENT_LLM_PROVIDER=openai` plus `OPENAI_API_KEY` if you want direct OpenAI Responses API calls instead of the local Codex CLI. The Codex CLI provider runs in a temporary read-only directory and is only used as the model decision provider; it does not get repo access and does not run gameplay scripts.
 
-The LLM observation includes the agent's own character, nearby visible players and NPCs, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, a public store/catalog section, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, and use the potion shop when local MFERGPT payment is configured.
+The LLM observation includes the agent's own character, nearby visible players and NPCs, visible lootable corpses, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, quest tracker hints, local wallet balances, a public store/catalog section, and a public handbook with map/quest/merchant hints. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, swap local ETH to local MFERGPT when the local router is configured, and use the potion shop when local MFERGPT payment is configured.
 
 Harness behavior to expect:
 
@@ -131,8 +133,11 @@ Harness behavior to expect:
 - Quest completion retries the same normal `completeQuest` room message for a short window when the room state has not yet reflected completion.
 - Stationary casts hold the agent still so movement does not cancel the cast.
 - AoE abilities remain available in the action context and are exposed with cooldown, mana, range, cast time, and radius information.
+- Lootable corpses are surfaced as `observation.lootableCorpses`, and the prompt tells agents to loot safe bodies before leaving so non-quest drops are collected and normal corpse despawn/respawn can continue.
+- Visible players and recent chat are surfaced as social context, and the prompt tells agents they can occasionally chat, emote, move near, or select players when safe to greet, coordinate, or group up.
 - Social quests use the same room messages as the web HUD; for example `tweet-town-link` uses `shareQuestLink`, not chat.
 - Store knowledge is explicit in `observation.stores`: potion-mfer item ids, prices, effects, owned counts, supported actions, and whether the local MFERGPT burn flow can buy stock.
+- Swap knowledge is explicit in `observation.wallet` and `observation.stores`: ETH/MFERGPT balances, whether a local router is configured, a recommended first swap amount, and a `swap_eth_for_mfergpt` action that sends a normal local wallet transaction.
 - Full-run quest knowledge is explicit in `observation.questProgress`: a public all-quests checklist with completed/active/ready/available/locked status, remaining quest ids, next recommended quest ids, turn-in NPCs, and human-style plans for each known quest. The LLM runner stops when every public quest has been completed once.
 - LLM run results include `llmRun.stepsTaken`, `llmRun.actionFailureCount`, `questProgress.completedQuestCount`, `totalQuestCount`, `allQuestsCompletedOnce`, and `remainingQuestIds` from the final room snapshot.
 - Optional repeatable quests are marked as optional and canceled repeatables are remembered for the current run so agents do not immediately re-accept them.
@@ -149,17 +154,18 @@ Latest local LLM playthrough notes:
 - Two agents also completed `field-camp-delivery`; two completed `ask-mfergpt` and `tweet-town-link`.
 - Boss/team-target completion is still blocked by later route-post and ridge progression. The exact current blocker is route-post pressure: `snapshot jo` stands close enough to `field-guide-mfer` that wounded agents trying to continue repeatable route-post content can be killed before accepting or recovering. This is game content/pathing pressure rather than a wallet-auth or room-message bypass issue.
 
-For potion-shop purchases, fund the disposable local wallet on a local token first and point the agent at the local chain:
+For potion-shop purchases and local swaps, fund the disposable local wallet on local Anvil first and point the agent at the local chain:
 
 ```sh
 AGENT_MFERGPT_RPC_URL="http://127.0.0.1:8545" \
 AGENT_MFERGPT_RPC_CHAIN_ID=31337 \
 AGENT_MFERGPT_PROOF_CHAIN_ID=8453 \
 AGENT_MFERGPT_TOKEN_ADDRESS="0x..." \
+AGENT_MFERGPT_SWAP_ROUTER_ADDRESS="0x..." \
 AGENT_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
 ```
 
-If `apps/web/public/crypto/local-contracts.json` exists, the agent can also read the local RPC URL and MFERGPT token address from that file. Do not use a funded main wallet or production contract config for local agents.
+If `apps/web/public/crypto/local-contracts.json` exists, the agent can also read the local RPC URL, MFERGPT token address, and local swap router address from that file. Do not use a funded main wallet or production contract config for local agents.
 
 Stop the local database when done:
 

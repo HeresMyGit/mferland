@@ -9,6 +9,7 @@ const sampleBroadcast = {
   transactions: [
     create("MferCoin", "0x2222222222222222222222222222222222222222"),
     create("MferGptToken", "0x3333333333333333333333333333333333333333"),
+    create("LocalMferGptSwapRouter", "0x8888888888888888888888888888888888888888"),
     create("MferGearNFT", "0x4444444444444444444444444444444444444444"),
     create("MferPricing", "0x5555555555555555555555555555555555555555"),
     create("MferLaunchPass", "0x6666666666666666666666666666666666666666"),
@@ -20,6 +21,7 @@ test("extracts local token, NFT, pricing, and store addresses in deploy order", 
   assert.deepEqual(extractLocalContractAddresses(sampleBroadcast), {
     mfer: "0x2222222222222222222222222222222222222222",
     mfergpt: "0x3333333333333333333333333333333333333333",
+    swapRouter: "0x8888888888888888888888888888888888888888",
     gear: "0x4444444444444444444444444444444444444444",
     pricing: "0x5555555555555555555555555555555555555555",
     launchPass: "0x6666666666666666666666666666666666666666",
@@ -47,6 +49,7 @@ test("writes app-facing local contract JSON", async () => {
   assert.deepEqual(written.nativeCurrency, { name: "Anvil ETH", symbol: "ETH", decimals: 18 });
   assert.equal(written.generatedAt, "2026-05-02T00:00:00.000Z");
   assert.equal(written.addresses.pricing, "0x5555555555555555555555555555555555555555");
+  assert.equal(written.addresses.swapRouter, "0x8888888888888888888888888888888888888888");
   assert.equal(written.addresses.launchPass, "0x6666666666666666666666666666666666666666");
   assert.equal(written.addresses.store, "0x7777777777777777777777777777777777777777");
 });

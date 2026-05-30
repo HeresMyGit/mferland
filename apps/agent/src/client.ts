@@ -346,7 +346,7 @@ export class MferlandAgentClient {
   }
 
   async moveAlong(points: Point[], options: MoveOptions = {}) {
-    for (const point of points) {
+    for (const point of this.getRoutePointsFromCurrentPosition(points, options.range ?? 1.5)) {
       await this.moveToPoint(point, options);
     }
   }
@@ -357,6 +357,9 @@ export class MferlandAgentClient {
     const startedAt = Date.now();
     await this.moveThroughNpcApproach(npcId, range, startedAt, timeoutMs, options);
     this.sprint = options.sprint ?? true;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestAt = startedAt;
+    let orbitIndex = 0;
     while (Date.now() - startedAt < timeoutMs) {
       const self = this.getSelf();
       const npc = this.getNpc(npcId);
@@ -376,7 +379,25 @@ export class MferlandAgentClient {
         this.sendIdleInput();
         return;
       }
-      if (npc) this.targetPoint = { x: npc.x, z: npc.z };
+      if (self && npc) {
+        const distance = distance2d(self, npc);
+        if (distance + 0.25 < bestDistance) {
+          bestDistance = distance;
+          bestAt = Date.now();
+        }
+        if (distance > range + 0.5 && Date.now() - bestAt > 2200) {
+          this.targetPoint = makeNpcOrbitPoint(npc, self, orbitIndex, Math.max(range * 0.72, 1.8));
+          this.jumpUntil = Date.now() + 260;
+          orbitIndex += 1;
+          await delay(650);
+          bestDistance = distance2d(self, npc);
+          bestAt = Date.now();
+        } else {
+          this.targetPoint = { x: npc.x, z: npc.z };
+        }
+      } else if (npc) {
+        this.targetPoint = { x: npc.x, z: npc.z };
+      }
       await delay(options.intervalMs ?? 100);
     }
     const self = this.getSelf();
@@ -582,6 +603,10 @@ export class MferlandAgentClient {
           this.sendIdleInput();
         }
         this.useCombatAbility(actionId, { kind: "npc", id: npcId });
+        if (COMBAT.actions[actionId].requiresStationary) {
+          await delay(Math.min(COMBAT.actions[actionId].castTimeMs + 160, 4200));
+          continue;
+        }
       }
       await delay(220);
     }
@@ -881,10 +906,18 @@ export class MferlandAgentClient {
   ) {
     const points = getNpcApproachPoints(npcId);
     if (points.length === 0) return;
+    const initialSelf = this.getSelf();
+    const initialNpc = this.getNpc(npcId);
+    if (initialSelf && initialNpc) {
+      const npcDistance = distance2d(initialSelf, initialNpc);
+      const nearestApproachDistance = Math.min(...points.map((point) => distanceToPoint(initialSelf, point)));
+      if (npcDistance <= finalRange + 1 || npcDistance + 4 < nearestApproachDistance) return;
+    }
     for (const point of points) {
       const self = this.getSelf();
       const npc = this.getNpc(npcId);
       if (self && npc && distance2d(self, npc) <= finalRange + 1) return;
+      if (self && npc && distance2d(self, npc) + 4 < distanceToPoint(self, point)) return;
       if (self && distanceToPoint(self, point) <= 6) continue;
       const remainingMs = timeoutMs - (Date.now() - startedAt);
       if (remainingMs <= 5000) return;
@@ -894,6 +927,22 @@ export class MferlandAgentClient {
         timeoutMs: Math.min(remainingMs, 35_000),
       });
     }
+  }
+
+  private getRoutePointsFromCurrentPosition(points: Point[], range: number) {
+    const self = this.getSelf();
+    if (!self || points.length < 2) return points;
+
+    const distances = points.map((point) => distanceToPoint(self, point));
+    const nearestIndex = distances.reduce((bestIndex, distance, index) => (
+      distance < distances[bestIndex] ? index : bestIndex
+    ), 0);
+    const nearestDistance = distances[nearestIndex] ?? Infinity;
+    const firstDistance = distances[0] ?? Infinity;
+    if (nearestIndex <= 0 || nearestDistance > 35 || nearestDistance + 8 >= firstDistance) return points;
+
+    const startIndex = nearestDistance <= range + 2 ? nearestIndex + 1 : nearestIndex;
+    return points.slice(Math.min(startIndex, points.length - 1));
   }
 
   private async waitFor(predicate: () => boolean, options: WaitOptions, label: string) {
@@ -1206,6 +1255,16 @@ function makeSidestepPoint(self: Pick<PlayerSnapshot, "x" | "z">, target: Point,
   };
 }
 
+function makeNpcOrbitPoint(npc: Pick<NpcSnapshot, "x" | "z">, self: Pick<PlayerSnapshot, "x" | "z">, index: number, radius: number): Point {
+  const baseAngle = Math.atan2(self.z - npc.z, self.x - npc.x);
+  const offsets = [0.9, -0.9, 1.8, -1.8, Math.PI];
+  const angle = baseAngle + (offsets[index % offsets.length] ?? 0);
+  return {
+    x: npc.x + Math.cos(angle) * radius,
+    z: npc.z + Math.sin(angle) * radius,
+  };
+}
+
 function getNpcApproachPoints(npcId: string): Point[] {
   return ({
     "og-mfer": [{ x: -4.2, z: 3.9 }],
@@ -1218,8 +1277,8 @@ function getNpcApproachPoints(npcId: string): Point[] {
     "potion-mfer": [{ x: 0, z: 20 }, { x: 7.4, z: 25.4 }],
     mfergpt: [{ x: -2.4, z: 4.2 }, { x: 6.8, z: -5.2 }],
     "hogwatch-mfer": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
-    "field-guide-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -108, z: 92 }, { x: -108, z: 116 }, { x: -119.2, z: 132.4 }],
-    "pen-keeper-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -108, z: 92 }, { x: -108, z: 116 }, { x: -111.2, z: 136.7 }],
+    "field-guide-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
+    "pen-keeper-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -111.2, z: 136.7 }],
     "ridge-guide-mfer": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
     "beacon-keeper-mfer": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }, { x: 117.6, z: -91.2 }],
   } satisfies Partial<Record<string, Point[]>>)[npcId] ?? [];
