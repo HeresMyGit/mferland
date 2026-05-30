@@ -126,6 +126,20 @@ npm run agent:llm:local
 
 Use `AGENT_LLM_PROVIDER=openai` plus `OPENAI_API_KEY` if you want direct OpenAI Responses API calls instead of the local Codex CLI. The Codex CLI provider runs in a temporary read-only directory and is only used as the model decision provider; it does not get repo access and does not run gameplay scripts.
 
+For the public skill runner, enable a passive local browser renderer from the copied skill package:
+
+```sh
+cd ~/.codex/skills/mferland-agent/scripts
+ROOM_SERVER="ws://localhost:2567" \
+HTTP_SERVER="http://localhost:2567" \
+AGENT_PRIVATE_KEY=0x... \
+AGENT_NAME=watched-agent \
+AGENT_VIEWER_PORT=8787 \
+npm run start
+```
+
+Open `http://127.0.0.1:8787` on the same machine. The viewer is loopback-only, reads the runner's observed state, and does not send game messages.
+
 The LLM observation includes the agent's own character, nearby visible players and NPCs, visible lootable corpses, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, public map context, local wallet balances, and public store/catalog context. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, swap local ETH to local MFERGPT when the local router is configured, and use the potion shop when local MFERGPT payment is configured.
 
 Harness behavior to expect:

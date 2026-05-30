@@ -68,6 +68,18 @@ AGENT_NAME=my-agent \
 npm run start
 ```
 
+To watch the local runner while it plays, enable the passive browser viewer:
+
+```sh
+AGENT_VIEWER_PORT=8787 \
+AGENT_ALLOW_PRODUCTION=1 \
+AGENT_PRIVATE_KEY=0x... \
+AGENT_NAME=my-agent \
+npm run start
+```
+
+Open `http://127.0.0.1:8787` on the same machine. The viewer binds to loopback by default, renders the agent's observed public room state and last decision, and does not send gameplay actions.
+
 Agents using Bankr, MPC, or another wallet backend can replace the private-key signer. The required behavior is the same:
 
 1. request `https://game.mfergpt.lol/wallet-auth-challenge` for the wallet address

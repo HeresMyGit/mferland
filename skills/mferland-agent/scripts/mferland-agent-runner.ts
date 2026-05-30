@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client, type Room } from "colyseus.js";
@@ -26,6 +27,8 @@ type AgentConfig = {
   decisionTimeoutMs: number;
   decisionIntervalMs: number;
   objective: string;
+  viewerPort: number;
+  viewerHost: string;
 };
 
 type RuntimePlayer = AnyRecord & {
@@ -220,6 +223,8 @@ class MferlandRunner {
   private stopping = false;
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private decisionTimer: ReturnType<typeof setInterval> | null = null;
+  private viewerServer: Server | null = null;
+  private lastDecision: Decision | null = null;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -228,6 +233,7 @@ class MferlandRunner {
   }
 
   async start() {
+    this.startViewer();
     await this.connect();
     this.inputTimer = setInterval(() => this.sendInput(), INPUT_INTERVAL_MS);
     this.decisionTimer = setInterval(() => void this.decide(), 250);
@@ -244,6 +250,7 @@ class MferlandRunner {
     this.stopping = true;
     if (this.inputTimer) clearInterval(this.inputTimer);
     if (this.decisionTimer) clearInterval(this.decisionTimer);
+    this.viewerServer?.close();
     void this.room?.leave();
   }
 
@@ -364,6 +371,7 @@ class MferlandRunner {
     try {
       const observation = this.buildObservation(self);
       const decision = await decideWithCodex(this.config, observation);
+      this.lastDecision = decision;
       this.log(`decision ${decision.action}: ${decision.reason}`);
       this.executeDecision(decision);
     } catch (error) {
@@ -548,6 +556,138 @@ class MferlandRunner {
       },
       now,
       lastAction: this.lastAction,
+    };
+  }
+
+  private startViewer() {
+    if (!this.config.viewerPort) return;
+    this.viewerServer = createServer((request, response) => this.handleViewerRequest(request, response));
+    this.viewerServer.on("error", (error) => this.log(`viewer error: ${errorMessage(error)}`));
+    this.viewerServer.listen(this.config.viewerPort, this.config.viewerHost, () => {
+      this.log(`viewer listening at http://${this.config.viewerHost}:${this.config.viewerPort}`);
+    });
+  }
+
+  private handleViewerRequest(request: IncomingMessage, response: ServerResponse) {
+    const url = new URL(request.url || "/", `http://${request.headers.host || `${this.config.viewerHost}:${this.config.viewerPort}`}`);
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8",
+      });
+      response.end(VIEWER_HTML);
+      return;
+    }
+    if (url.pathname === "/state") {
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(JSON.stringify(this.buildViewerState()));
+      return;
+    }
+    if (url.pathname === "/health") {
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    response.end("not found");
+  }
+
+  private buildViewerState() {
+    const self = this.self();
+    const now = Date.now();
+    const npcs = [...this.npcs.values()]
+      .map((npc) => ({
+        id: npc.id,
+        name: npc.name,
+        role: npc.role,
+        model: npc.model,
+        position: point(npc),
+        health: Math.ceil(npc.health),
+        maxHealth: Math.ceil(npc.maxHealth),
+        alive: npc.health > 0 && npc.defeatedAt <= 0,
+        defeatedAt: npc.defeatedAt,
+        hasLoot: npc.hasLoot,
+        questId: npc.questId,
+        shopId: npc.shopId,
+        aggroTarget: self && npc.aggroTargetId === self.sessionId ? "you" : npc.aggroTargetId ? "other" : "",
+        distance: self ? round(distance2d(self, npc)) : 0,
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 80);
+    const players = [...this.players.values()]
+      .map((player) => ({
+        sessionId: player.sessionId,
+        name: player.name,
+        isSelf: self ? player.sessionId === self.sessionId : false,
+        isAgent: player.isAgent,
+        identityType: player.identityType,
+        position: point(player),
+        health: Math.ceil(player.health),
+        maxHealth: Math.ceil(player.maxHealth),
+        mana: Math.ceil(player.mana),
+        maxMana: Math.ceil(player.maxMana),
+        level: player.level,
+        animation: player.animation,
+        castingAction: player.castingAction,
+        distance: self ? round(distance2d(self, player)) : 0,
+      }))
+      .sort((a, b) => (a.isSelf ? -1 : b.isSelf ? 1 : a.distance - b.distance))
+      .slice(0, 24);
+    return {
+      connected: Boolean(this.room),
+      roomName: this.config.roomName,
+      objective: this.config.objective,
+      wallet: {
+        address: this.account.address,
+        agentClient: true,
+      },
+      self: self
+        ? {
+          sessionId: self.sessionId,
+          name: self.name,
+          position: point(self),
+          yaw: round(self.yaw),
+          level: self.level,
+          xp: self.xp,
+          health: Math.ceil(self.health),
+          maxHealth: Math.ceil(self.maxHealth),
+          mana: Math.ceil(self.mana),
+          maxMana: Math.ceil(self.maxMana),
+          animation: self.animation,
+          castingAction: self.castingAction,
+          aggroCount: [...this.npcs.values()].filter((npc) => npc.aggroTargetId === self.sessionId && npc.health > 0 && npc.defeatedAt <= 0).length,
+          quests: self.quests.map((quest) => ({
+            id: getString(quest.id),
+            status: getString(quest.status),
+            progress: getNumber(quest.progress),
+            required: getNumber(quest.required),
+            title: this.questMemory.get(getString(quest.id))?.title ?? "",
+            objective: this.questMemory.get(getString(quest.id))?.objectiveLabel ?? "",
+          })),
+          inventory: self.inventory.slice(0, 32),
+        }
+        : null,
+      players,
+      npcs,
+      targetPoint: this.targetPoint,
+      routeQueue: this.routeQueue,
+      engagedNpcId: this.engagedNpcId,
+      combatAnchor: this.combatAnchor,
+      lastAction: this.lastAction,
+      lastDecision: this.lastDecision,
+      recentMessages: this.recentMessages.slice(-18),
+      questMemory: [...this.questMemory.values()].sort((a, b) => b.observedAt - a.observedAt).slice(0, 12),
+      publicMap: {
+        landmarks: PUBLIC_LANDMARKS,
+        routes: PUBLIC_ROUTES,
+      },
+      now,
     };
   }
 
@@ -1117,6 +1257,11 @@ function readConfig(): AgentConfig {
   if (/game\.mfergpt\.lol/i.test(roomServer) && !allowProduction) {
     throw new Error("Set AGENT_ALLOW_PRODUCTION=1 to connect this runner to game.mfergpt.lol.");
   }
+  const viewerPort = readPortEnv("AGENT_VIEWER_PORT");
+  const viewerHost = cleanEnv("AGENT_VIEWER_HOST") || "127.0.0.1";
+  if (viewerPort && !isLoopbackHost(viewerHost)) {
+    throw new Error("AGENT_VIEWER_HOST must be loopback-only, such as 127.0.0.1 or localhost.");
+  }
   return {
     roomServer,
     httpServer,
@@ -1132,6 +1277,8 @@ function readConfig(): AgentConfig {
     decisionTimeoutMs: readNumberEnv("AGENT_DECISION_TIMEOUT_MS") || 60_000,
     decisionIntervalMs: readNumberEnv("AGENT_DECISION_INTERVAL_MS") || 1200,
     objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, survive, and eventually defeat The Centralizer through its quest.",
+    viewerPort,
+    viewerHost,
   };
 }
 
@@ -1276,6 +1423,17 @@ function readNumberEnv(name: string) {
   return parsed;
 }
 
+function readPortEnv(name: string) {
+  const port = readNumberEnv(name);
+  if (!port) return 0;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${name} must be a TCP port from 1 to 65535.`);
+  return port;
+}
+
+function isLoopbackHost(host: string) {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
 function cleanEnv(name: string) {
   return (process.env[name] ?? "").trim();
 }
@@ -1362,6 +1520,417 @@ function appendLimited(current: string, next: string) {
     ? combined.slice(combined.length - 4000)
     : combined;
 }
+
+const VIEWER_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>mferland Agent Viewer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f4ef;
+      --ink: #1f2523;
+      --muted: #69716c;
+      --line: #d9d4c7;
+      --panel: #fffdf8;
+      --green: #2f8f55;
+      --red: #c7473d;
+      --orange: #d9872d;
+      --blue: #3478b8;
+      --purple: #7d5bb3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fffaf0;
+    }
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 740;
+    }
+    .subline {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 0 3px rgba(199, 71, 61, 0.12);
+    }
+    .dot.ok {
+      background: var(--green);
+      box-shadow: 0 0 0 3px rgba(47, 143, 85, 0.14);
+    }
+    main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(420px, 1fr) 360px;
+      gap: 0;
+    }
+    .stage {
+      min-width: 0;
+      min-height: 0;
+      padding: 16px;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      min-height: 520px;
+      display: block;
+      background: #fbfaf5;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    aside {
+      min-height: 0;
+      overflow: auto;
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      padding: 14px;
+    }
+    section {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    section:first-child { padding-top: 0; }
+    section:last-child { border-bottom: 0; }
+    h2 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 760;
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fff;
+      min-width: 0;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .value {
+      margin-top: 3px;
+      font-size: 13px;
+      font-weight: 680;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 0;
+      font-size: 12px;
+      border-top: 1px solid #ece7da;
+    }
+    .row:first-child { border-top: 0; }
+    .row span:last-child {
+      text-align: right;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+    .log {
+      display: grid;
+      gap: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #353b38;
+    }
+    .log div {
+      padding: 6px;
+      border-radius: 5px;
+      background: #f4f1e9;
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      aside { border-left: 0; border-top: 1px solid var(--line); }
+      canvas { min-height: 420px; }
+      header { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>mferland Agent Viewer</h1>
+        <div class="subline" id="subtitle">waiting for runner state</div>
+      </div>
+      <div class="status"><span class="dot" id="dot"></span><span id="status">disconnected</span></div>
+    </header>
+    <main>
+      <div class="stage"><canvas id="map" width="1200" height="800"></canvas></div>
+      <aside>
+        <section>
+          <h2>Agent</h2>
+          <div class="metric-grid" id="metrics"></div>
+        </section>
+        <section>
+          <h2>Decision</h2>
+          <div id="decision"></div>
+        </section>
+        <section>
+          <h2>Quests</h2>
+          <div id="quests"></div>
+        </section>
+        <section>
+          <h2>Nearby</h2>
+          <div id="nearby"></div>
+        </section>
+        <section>
+          <h2>Messages</h2>
+          <div class="log" id="messages"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <script>
+    const canvas = document.getElementById("map");
+    const ctx = canvas.getContext("2d");
+    let state = null;
+
+    function text(value) {
+      return value === undefined || value === null || value === "" ? "-" : String(value);
+    }
+
+    function ratio(current, max) {
+      return text(current) + "/" + text(max);
+    }
+
+    function rows(items) {
+      return items.length ? items.map(function(item) {
+        return '<div class="row"><span>' + escapeHtml(item[0]) + '</span><span>' + escapeHtml(item[1]) + '</span></div>';
+      }).join("") : '<div class="row"><span>-</span><span>-</span></div>';
+    }
+
+    function escapeHtml(value) {
+      return text(value).replace(/[&<>"']/g, function(char) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char];
+      });
+    }
+
+    function metric(label, value) {
+      return '<div class="metric"><div class="label">' + escapeHtml(label) + '</div><div class="value">' + escapeHtml(value) + '</div></div>';
+    }
+
+    function setState(next) {
+      state = next;
+      const self = state.self;
+      document.getElementById("dot").className = state.connected && self ? "dot ok" : "dot";
+      document.getElementById("status").textContent = state.connected && self ? "connected" : "waiting";
+      document.getElementById("subtitle").textContent = self ? self.name + " " + state.wallet.address : state.roomName;
+
+      document.getElementById("metrics").innerHTML = self ? [
+        metric("Level", self.level),
+        metric("XP", self.xp),
+        metric("Health", ratio(self.health, self.maxHealth)),
+        metric("Mana", ratio(self.mana, self.maxMana)),
+        metric("Position", self.position.x + ", " + self.position.z),
+        metric("Aggro", self.aggroCount),
+        metric("Action", state.lastAction || "-"),
+        metric("Casting", self.castingAction || "-")
+      ].join("") : metric("State", "waiting for room join");
+
+      const decision = state.lastDecision;
+      document.getElementById("decision").innerHTML = decision ? rows([
+        ["Action", decision.action],
+        ["Reason", decision.reason],
+        ["NPC", decision.npcRef || "-"],
+        ["Player", decision.playerRef || "-"],
+        ["Quest", decision.questId || "-"],
+        ["Ability", decision.actionId || "-"]
+      ]) : rows([["Action", state.lastAction || "-"]]);
+
+      document.getElementById("quests").innerHTML = self ? rows((self.quests || []).slice(0, 8).map(function(quest) {
+        const label = quest.title || quest.id;
+        const progress = quest.status + " " + quest.progress + "/" + quest.required;
+        return [label, progress];
+      })) : rows([]);
+
+      const nearby = (state.npcs || []).slice(0, 10).map(function(npc) {
+        const flags = [npc.alive ? ratio(npc.health, npc.maxHealth) : "down", npc.aggroTarget, npc.hasLoot ? "loot" : ""].filter(Boolean).join(" ");
+        return [npc.name || npc.id, Math.round(npc.distance) + "m " + flags];
+      });
+      document.getElementById("nearby").innerHTML = rows(nearby);
+
+      document.getElementById("messages").innerHTML = (state.recentMessages || []).slice(-10).reverse().map(function(message) {
+        return "<div>" + escapeHtml(message) + "</div>";
+      }).join("");
+      draw();
+    }
+
+    function fetchState() {
+      fetch("/state", { cache: "no-store" })
+        .then(function(response) { return response.json(); })
+        .then(setState)
+        .catch(function() {
+          document.getElementById("dot").className = "dot";
+          document.getElementById("status").textContent = "offline";
+        });
+    }
+
+    function getPoints() {
+      if (!state) return [];
+      const points = [];
+      if (state.self) points.push(state.self.position);
+      (state.players || []).forEach(function(player) { points.push(player.position); });
+      (state.npcs || []).slice(0, 40).forEach(function(npc) { points.push(npc.position); });
+      if (state.targetPoint) points.push(state.targetPoint);
+      (state.routeQueue || []).forEach(function(point) { points.push(point); });
+      Object.keys((state.publicMap && state.publicMap.landmarks) || {}).forEach(function(key) {
+        points.push(state.publicMap.landmarks[key]);
+      });
+      return points.filter(Boolean);
+    }
+
+    function projector() {
+      const points = getPoints();
+      const width = canvas.width;
+      const height = canvas.height;
+      if (!points.length) return function(point) { return { x: width / 2, y: height / 2 }; };
+      let minX = Math.min.apply(null, points.map(function(point) { return point.x; }));
+      let maxX = Math.max.apply(null, points.map(function(point) { return point.x; }));
+      let minZ = Math.min.apply(null, points.map(function(point) { return point.z; }));
+      let maxZ = Math.max.apply(null, points.map(function(point) { return point.z; }));
+      const pad = 34;
+      minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
+      const spanX = Math.max(20, maxX - minX);
+      const spanZ = Math.max(20, maxZ - minZ);
+      const scale = Math.min((width - 60) / spanX, (height - 60) / spanZ);
+      const offsetX = (width - spanX * scale) / 2;
+      const offsetY = (height - spanZ * scale) / 2;
+      return function(point) {
+        return {
+          x: offsetX + (point.x - minX) * scale,
+          y: offsetY + (point.z - minZ) * scale
+        };
+      };
+    }
+
+    function drawCircle(point, radius, fill, stroke) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (stroke) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = stroke;
+        ctx.stroke();
+      }
+    }
+
+    function drawLabel(point, label, fill) {
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.fillStyle = fill || "#1f2523";
+      ctx.fillText(label, point.x + 8, point.y - 8);
+    }
+
+    function drawLine(points, color, width) {
+      if (points.length < 2) return;
+      ctx.beginPath();
+      points.forEach(function(point, index) {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#fbfaf5";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#ebe5d8";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 50) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 50) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+      if (!state) return;
+      const project = projector();
+      const landmarks = (state.publicMap && state.publicMap.landmarks) || {};
+      Object.keys(landmarks).forEach(function(name) {
+        const p = project(landmarks[name]);
+        drawCircle(p, 4, "#7d5bb3");
+        drawLabel(p, name, "#6f6082");
+      });
+      drawLine((state.routeQueue || []).map(project), "#d9872d", 3);
+      if (state.targetPoint) {
+        const target = project(state.targetPoint);
+        drawCircle(target, 8, "rgba(217,135,45,0.24)", "#d9872d");
+      }
+      (state.npcs || []).slice(0, 60).forEach(function(npc) {
+        const p = project(npc.position);
+        const hostile = npc.role === "enemy" || npc.model === "hog" || npc.role === "farmer";
+        const fill = npc.alive ? (hostile ? "#c7473d" : "#3478b8") : "#8d908a";
+        const stroke = npc.aggroTarget === "you" ? "#1f2523" : "";
+        drawCircle(p, npc.hasLoot ? 7 : 5, fill, stroke);
+        if (npc.distance < 18 || npc.id === state.engagedNpcId) drawLabel(p, npc.name || npc.id, "#343a36");
+      });
+      (state.players || []).forEach(function(player) {
+        const p = project(player.position);
+        drawCircle(p, player.isSelf ? 10 : 7, player.isSelf ? "#2f8f55" : "#d9872d", "#1f2523");
+        drawLabel(p, player.name + (player.isAgent ? " agent" : ""), "#1f2523");
+      });
+    }
+
+    fetchState();
+    setInterval(fetchState, 500);
+    window.addEventListener("resize", draw);
+  </script>
+</body>
+</html>`;
 
 const DECISION_SCHEMA = {
   type: "object",
