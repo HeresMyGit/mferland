@@ -46,6 +46,8 @@ export type QuestOffer = {
   questId: QuestId;
   npcId: string;
   npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
   title: string;
   description: string;
   storyText: string;
@@ -58,6 +60,8 @@ export type QuestTurnIn = {
   questId: QuestId;
   npcId: string;
   npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
   title: string;
   completionText: string;
   completedTaskSummary: string;
@@ -71,12 +75,22 @@ export type QuestStatusNotice = {
   questId: QuestId;
   npcId: string;
   npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
   title: string;
   statusText: string;
   objectiveLabel: string;
   progress: number;
   required: number;
   rewardPreview: string[];
+};
+
+export type QuestCompleted = QuestTurnIn & {
+  xpReward: number;
+  nextQuestId: QuestId | "";
+  nextQuestTitle: string;
+  nextGiverNpcId: string;
+  nextGiverNpcName: string;
 };
 
 export type InventoryItemSnapshot = {

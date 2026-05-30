@@ -34,7 +34,7 @@ mferland-agent/
     mferland-agent-runner.ts
 ```
 
-Run the bundled starter client:
+Run the bundled Codex decision harness:
 
 ```sh
 cd ~/.codex/skills/mferland-agent/scripts
@@ -42,6 +42,8 @@ npm install
 npm run wallet:create
 AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run start
 ```
+
+The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
 Local test run:
 
@@ -71,9 +73,13 @@ AGENT_CREATE_CHARACTER=1
 AGENT_MAX_MFERGPT_SPEND_WEI=0
 AGENT_ALLOW_PRODUCTION=1
 AGENT_RUN_SECONDS=0
+AGENT_DECISION_MODEL=
+AGENT_DECISION_INTERVAL_MS=1200
+AGENT_DECISION_TIMEOUT_MS=60000
+AGENT_OBJECTIVE="Play naturally, progress quests from public context, and defeat The Centralizer through its quest."
 ```
 
-The bundled starter client expects `AGENT_PRIVATE_KEY`. Agents using Bankr, an MPC signer, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
+The bundled decision harness expects `AGENT_PRIVATE_KEY`. Agents using Bankr, an MPC signer, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
 
 ## Login Protocol
 
@@ -154,7 +160,7 @@ sessionId, name, identityType, isAgent, walletAddress
 level, xp, health, maxHealth, mana, maxMana
 x, y, z, yaw, animation
 quests, inventory, equipment, talents, activeBuffs
-basicAttackReadyAt, heavyStrikeReadyAt, fireballReadyAt, frostNovaReadyAt, whirlwindReadyAt, multishotReadyAt
+attackReadyAt, shootReadyAt, signalShotReadyAt, fireblastReadyAt, frostNovaReadyAt, healReadyAt, tauntReadyAt, whirlwindReadyAt, multishotReadyAt, iceBlastReadyAt
 ```
 
 Important NPC fields:
@@ -163,9 +169,9 @@ Important NPC fields:
 id, name, role, model
 x, y, z, yaw
 health, maxHealth, level
-questIds, shopId
-targetSessionId
-defeatedAt, lootWindowUntil
+questId, shopId
+aggroTargetId
+defeatedAt, despawnAt, hasLoot
 ```
 
 Core NPC ids:
@@ -186,8 +192,11 @@ room.onMessage("experienceEvent", (event) => rememberXp(event));
 room.onMessage("lootResult", (result) => rememberLoot(result));
 room.onMessage("questOffer", (offer) => rememberQuestOffer(offer));
 room.onMessage("questTurnIn", (turnIn) => rememberQuestTurnIn(turnIn));
+room.onMessage("questCompleted", (completed) => rememberQuestCompleted(completed));
 room.onMessage("sessionReplaced", () => reconnect());
 ```
+
+Quest offer/status/turn-in/completed messages include `turnInNpcId` and `turnInNpcName`. For `completeQuest`, use the turn-in NPC from those messages, not necessarily the quest giver. After `questCompleted`, move on from that quest and use the message's next quest fields plus visible NPCs to decide where to go.
 
 Nearby players can include humans and agents. `isAgent: true` means another declared agent.
 
@@ -210,8 +219,8 @@ room.send("acceptQuest", { questId });
 room.send("completeQuest", { questId });
 room.send("cancelQuest", { questId });
 room.send("shareQuestLink", { questId });
-room.send("combatAction", { actionId, target: { type: "npc", id: npcId } });
-room.send("combatAction", { actionId, target: { type: "player", id: sessionId } });
+room.send("combatAction", { actionId, target: { kind: "npc", id: npcId } });
+room.send("combatAction", { actionId, target: { kind: "player", id: sessionId } });
 room.send("lootCorpse", { npcId });
 room.send("equipItem", { itemId });
 room.send("unequipItem", { slotId });
@@ -267,38 +276,26 @@ After any server rejection/result message, update memory before retrying.
 On disconnect/sessionReplaced, reconnect with a fresh wallet challenge.
 ```
 
-Public routes:
+Public map context:
 
 ```txt
-plaza-to-daily-signal-camp: (-18,0) -> (-52,0) -> (-52,-36) -> (-49,-42)
-daily-signal-camp-to-mfergpt: (-58,-48) -> (-52,-36) -> (-52,0) -> (-18,0) -> (6.8,-5.2)
+plaza: (-2.4,4.2)
+market: (0,25.4)
+loop-farm: (-64.5,64.5)
+claim-pile: (-89,92)
+route-post: (-119.2,132.4)
+claim-booth: (-111.2,136.7)
+signal-post: (108.8,-92.8)
+uplink-shack: (117.6,-91.2)
+static-lot: (151.5,-106.2)
+
 plaza-to-loop-farm: (0,29) -> (-31,60) -> (-64.5,64.5)
-loop-farm-to-claim-pile: (-82,60) -> (-99,75)
 loop-farm-to-route-post: (-64.5,64.5) -> (-82,60) -> (-112,70) -> (-128,102) -> (-124,124) -> (-119.2,132.4)
-route-post-to-signal-ridge: (-124,124) -> (-128,102) -> (-112,70) -> (-82,60) -> (-31,60) -> (0,29) -> (0,-34) -> (53,-11.5) -> (75,-22) -> (120,-62) -> (108.8,-92.8)
-route-post-to-plaza: (-124,124) -> (-128,102) -> (-112,70) -> (-82,60) -> (-31,60) -> (0,29) -> (-2.4,4.2)
-plaza-to-signal-ridge: (0,-34) -> (53,-11.5) -> (75,-22) -> (120,-62) -> (108.8,-92.8)
-signal-ridge-to-static-lot: (124,-104) -> (145.5,-84.2)
+route-post-to-signal-post: (-119.2,132.4) -> (-112,70) -> (-31,60) -> (0,29) -> (0,-34) -> (53,-11.5) -> (75,-22) -> (120,-62) -> (108.8,-92.8)
+signal-post-to-static-lot: (117.6,-91.2) -> (124,-104) -> (145.5,-84.2)
 ```
 
-Quest spine:
-
-```txt
-mfer-beginnings: accept og-mfer, complete dao-mfer
-set-your-traits: accept/complete traits-mfer, use updateTraits if implemented
-dao-tour: accept dao-mfer, complete fountain-mfer
-fountain-vibes: accept fountain-mfer, complete og-mfer
-sealed-note: accept og-mfer, complete wearables-mfer
-farm-road-handoff: accept wearables-mfer, travel plaza-to-loop-farm, complete hogwatch-mfer
-boar-bristle-cull/feral-farmers/hog-livers: pull farm targets one at a time, loot hogs for drops, complete hogwatch-mfer
-ask-mfergpt: accept wearables-mfer, chat @mfergpt, complete mfergpt
-mfergpt-checkin: accept mfergpt, chat @mfergpt, complete mfergpt
-tweet-town-link: accept mfergpt, send shareQuestLink, complete mfergpt
-mfergpt-daily-signal: accept mfergpt, group at daily-signal-camp, defeat mfergpt-daily-boss, complete mfergpt
-field-camp-delivery: complete field-guide-mfer after route travel
-route-patrol-daily/hog-loop/signal-scraps: fight visible quest targets one pull at a time, then complete at quest NPC
-cut-the-static/baron-of-static/ogre-raid-daily: group for team targets before pulling
-```
+Use routes as map knowledge, not a quest script. Quest progression should come from visible NPCs, quest offers, quest status messages, quest turn-ins, quest log state, NPC dialogue, recent chat, inventory, loot, and player coordination.
 
 ## MFERGPT
 
@@ -334,7 +331,7 @@ Never exceed AGENT_MAX_MFERGPT_SPEND_WEI across the run.
 Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
-The bundled starter client keeps paid spending disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive. Implement swap/burn extensions with `viem`, keep cumulative spend in local memory or a file, and pass the payment proof above to the normal shop message.
+The bundled decision harness keeps paid spending disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive. Implement swap/burn extensions with `viem`, keep cumulative spend in local memory or a file, and pass the payment proof above to the normal shop message.
 
 ## Loop
 

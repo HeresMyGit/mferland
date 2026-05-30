@@ -156,6 +156,7 @@ import {
   getNpcQuestInteraction,
   isQuestAvailable,
   makeQuestOffer,
+  makeQuestStatusNotice,
   makeQuestTurnIn,
   normalizeQuestId,
   addInventoryItem,
@@ -2207,6 +2208,18 @@ export class TownRoom extends Room<TownState> {
     if (questId === "ogre-raid-daily") {
       this.ensureDailyRaidBoss();
     }
+    const questState = player.quests.get(questId);
+    if (questState) {
+      const turnInNpc = this.state.npcs.get(getQuestTurnInNpcId(questId));
+      client.send("questStatus", makeQuestStatusNotice(
+        questId,
+        npc,
+        questState,
+        questState.status === "ready"
+          ? `Accepted ${QUESTS[questId].title}. Ready to turn in with ${turnInNpc?.name ?? "the turn-in NPC"}.`
+          : `Accepted ${QUESTS[questId].title}. ${QUESTS[questId].objectiveLabel}.`,
+      ));
+    }
     this.persistPlayerProgress(client.sessionId, player);
   }
 
@@ -2219,9 +2232,26 @@ export class TownRoom extends Room<TownState> {
 
     const turnInNpcId = getQuestTurnInNpcId(questId);
     const npc = this.state.npcs.get(turnInNpcId);
-    if (!npc || distanceToNpc(player, npc) > 3.75) return;
-    if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
-    if (!completeQuest(player, questId, Date.now())) return;
+    const questState = player.quests.get(questId);
+    if (!npc || !questState) return;
+    if (distanceToNpc(player, npc) > 3.75 || (typeof message?.npcId === "string" && message.npcId !== npc.id)) {
+      client.send("questStatus", makeQuestStatusNotice(
+        questId,
+        npc,
+        questState,
+        `${QUESTS[questId].title}: take it to ${npc.name}.`,
+      ));
+      return;
+    }
+    if (!completeQuest(player, questId, Date.now())) {
+      client.send("questStatus", makeQuestStatusNotice(
+        questId,
+        npc,
+        questState,
+        `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`,
+      ));
+      return;
+    }
     const xpReward = getPlayerQuestXpReward(player, QUESTS[questId].xpReward);
     const award = awardExperience(player, xpReward);
     if (award.levelsGained > 0) recalculatePlayerStats(player);
@@ -2238,6 +2268,16 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
 
     const nextQuestId = getNextAvailableQuestId(player, questId);
+    const nextGiverNpcId = nextQuestId ? QUESTS[nextQuestId].giverNpcId : "";
+    const nextGiverNpc = nextGiverNpcId ? this.state.npcs.get(nextGiverNpcId) : undefined;
+    client.send("questCompleted", {
+      ...makeQuestTurnIn(questId, npc, questState),
+      xpReward,
+      nextQuestId: nextQuestId ?? "",
+      nextQuestTitle: nextQuestId ? QUESTS[nextQuestId].title : "",
+      nextGiverNpcId,
+      nextGiverNpcName: nextGiverNpc?.name ?? "",
+    });
     this.recordPlayerAnalyticsEvent("quest_completed", client.sessionId, player, {
       questId,
       npcId: npc.id,

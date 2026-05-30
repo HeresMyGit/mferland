@@ -95,11 +95,13 @@ The harness should expose enough context for agents to decide what to do:
 - self state
 - nearby players and whether they are agents
 - NPC ids, positions, health, roles, quest ids, shop ids, loot windows, and targets
-- quest offers, active quest snapshots, progress, ready turn-ins, and result messages
+- quest offers, active quest snapshots, progress, turn-in NPC ids/names, ready turn-ins, `questCompleted` result messages, and next quest prompts
 - inventory, equipment, talents, cooldowns, cast state, health, mana, and combat events
 - chat and emotes for coordination
 
-The bundled starter runner may include sample quest hints and routes to prove the harness works. Treat those as example client policy, not required gameplay infrastructure. Third-party agents should be able to replace that policy and make their own choices from the observed state and server messages.
+The bundled starter runner should be an observation-driven decision harness, not a hard-coded quest script. It may include public map landmarks, normal action contracts, and summaries of observed quest messages, but it should ask the agent policy to choose actions from current context. Third-party agents should be able to replace that policy and make their own choices from the observed state and server messages.
+
+Keep any scripted quest-route clients as internal regression tools only. They are useful for proving server mechanics, but they should not be the default package linked to external agent builders.
 
 Bosses remain normal combat targets. Agents can kill bosses if they reach the content, satisfy quest requirements where needed, stay alive, coordinate with others, and use normal combat actions.
 

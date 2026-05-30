@@ -1,9 +1,14 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client, type Room } from "colyseus.js";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 type AnyRecord = Record<string, unknown>;
 type Point = { x: number; z: number };
-type TargetSelection = { type: "npc"; id: string } | { type: "player"; id: string };
+type TargetSelection = { kind: "npc"; id: string } | { kind: "player"; id: string };
 type CombatActionId = typeof COMBAT_ACTION_IDS[number];
 
 type AgentConfig = {
@@ -16,24 +21,34 @@ type AgentConfig = {
   inviteCode: string;
   createCharacter: boolean;
   allowProduction: boolean;
-  maxMferGptSpendWei: bigint;
   runSeconds: number;
+  decisionModel: string;
+  decisionTimeoutMs: number;
+  decisionIntervalMs: number;
+  objective: string;
 };
 
-type RuntimePlayer = {
+type RuntimePlayer = AnyRecord & {
   sessionId: string;
   name: string;
+  identityType: string;
   isAgent: boolean;
+  walletAddress: string;
   health: number;
   maxHealth: number;
   mana: number;
   maxMana: number;
   level: number;
+  xp: number;
   x: number;
   z: number;
   yaw: number;
+  animation: string;
+  castingAction: string;
   quests: AnyRecord[];
   inventory: AnyRecord[];
+  equipment: AnyRecord[];
+  activeBuffs: AnyRecord[];
 };
 
 type RuntimeNpc = {
@@ -43,13 +58,51 @@ type RuntimeNpc = {
   model: string;
   health: number;
   maxHealth: number;
+  isImmortal: boolean;
   x: number;
   z: number;
   defeatedAt: number;
-  lootWindowUntil: number;
-  targetSessionId: string;
-  questIds: string[];
+  despawnAt: number;
+  aggroTargetId: string;
+  hasLoot: boolean;
+  questId: string;
   shopId: string;
+  dialogue: string;
+};
+
+type QuestMemory = {
+  kind: "offer" | "status" | "turnIn" | "completed";
+  questId: string;
+  npcId: string;
+  npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
+  title: string;
+  text: string;
+  objectiveLabel: string;
+  progress: number;
+  required: number;
+  rewardPreview: string[];
+  nextQuestId: string;
+  nextQuestTitle: string;
+  nextGiverNpcId: string;
+  nextGiverNpcName: string;
+  observedAt: number;
+};
+
+type Decision = {
+  action: string;
+  reason: string;
+  x?: number | null;
+  z?: number | null;
+  npcRef?: string | null;
+  playerRef?: string | null;
+  questId?: string | null;
+  itemId?: string | null;
+  actionId?: string | null;
+  text?: string | null;
+  emoteId?: string | null;
+  sprint?: boolean | null;
 };
 
 const COMBAT_ACTION_IDS = [
@@ -78,43 +131,28 @@ const COMBAT: Record<CombatActionId, { maxRange: number; manaCost: number; castT
   iceBlast: { maxRange: 28, manaCost: 12, castTimeMs: 3500, requiresStationary: true, minLevel: 5 },
 };
 
-const KNOWN_NPCS: Record<string, Point> = {
-  "og-mfer": { x: -4.2, z: 3.9 },
-  "dao-mfer": { x: 14.8, z: -8.8 },
-  "fountain-mfer": { x: -7.5, z: -2.8 },
-  "wearables-mfer": { x: -14.8, z: 12.5 },
-  "traits-mfer": { x: -3.7, z: 25.4 },
-  "swap-mfer": { x: 0, z: 25.4 },
-  "crypto-mfer": { x: 3.7, z: 25.4 },
-  "potion-mfer": { x: 7.4, z: 25.4 },
-  mfergpt: { x: 6.8, z: -5.2 },
-  "hogwatch-mfer": { x: -64.5, z: 64.5 },
-  "field-guide-mfer": { x: -119.2, z: 132.4 },
-  "pen-keeper-mfer": { x: -111.2, z: 136.7 },
-  "ridge-guide-mfer": { x: 108.8, z: -92.8 },
-  "beacon-keeper-mfer": { x: 117.6, z: -91.2 },
+const PUBLIC_LANDMARKS: Record<string, Point> = {
+  plaza: { x: -2.4, z: 4.2 },
+  "north-gate": { x: 5.5, z: -18.5 },
+  market: { x: 0, z: 25.4 },
+  "loop-farm": { x: -64.5, z: 64.5 },
+  "claim-pile": { x: -89, z: 92 },
+  "route-post": { x: -119.2, z: 132.4 },
+  "claim-booth": { x: -111.2, z: 136.7 },
+  "signal-post": { x: 108.8, z: -92.8 },
+  "uplink-shack": { x: 117.6, z: -91.2 },
+  "static-lot": { x: 151.5, z: -106.2 },
 };
 
-const QUEST_HINTS: Record<string, { giver: string; turnIn: string; chat?: string; share?: boolean }> = {
-  "mfer-beginnings": { giver: "og-mfer", turnIn: "dao-mfer" },
-  "set-your-traits": { giver: "traits-mfer", turnIn: "traits-mfer" },
-  "dao-tour": { giver: "dao-mfer", turnIn: "fountain-mfer" },
-  "fountain-vibes": { giver: "fountain-mfer", turnIn: "og-mfer" },
-  "sealed-note": { giver: "og-mfer", turnIn: "wearables-mfer" },
-  "farm-road-handoff": { giver: "wearables-mfer", turnIn: "hogwatch-mfer" },
-  "ask-mfergpt": { giver: "wearables-mfer", turnIn: "mfergpt", chat: "@mfergpt gm, tell me one town fragment" },
-  "mfergpt-checkin": { giver: "mfergpt", turnIn: "mfergpt", chat: "@mfergpt gm" },
-  "tweet-town-link": { giver: "mfergpt", turnIn: "mfergpt", share: true },
-  "mfergpt-daily-signal": { giver: "mfergpt", turnIn: "mfergpt" },
-  "field-camp-delivery": { giver: "hogwatch-mfer", turnIn: "field-guide-mfer" },
-  "route-patrol-daily": { giver: "field-guide-mfer", turnIn: "field-guide-mfer" },
-  "hog-loop": { giver: "pen-keeper-mfer", turnIn: "pen-keeper-mfer" },
-  "ridge-dispatch": { giver: "field-guide-mfer", turnIn: "ridge-guide-mfer" },
-  "signal-scraps": { giver: "ridge-guide-mfer", turnIn: "ridge-guide-mfer" },
-  "cut-the-static": { giver: "beacon-keeper-mfer", turnIn: "beacon-keeper-mfer" },
-  "baron-of-static": { giver: "ridge-guide-mfer", turnIn: "ridge-guide-mfer" },
-  "ogre-raid-daily": { giver: "beacon-keeper-mfer", turnIn: "beacon-keeper-mfer" },
+const PUBLIC_ROUTES: Record<string, Point[]> = {
+  "plaza-to-loop-farm": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
+  "loop-farm-to-route-post": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
+  "route-post-to-signal-post": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "signal-post-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
+  "field-to-plaza": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: -2.4, z: 4.2 }],
+  "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
 };
+
 const DEFAULT_TRAITS = {
   background: "orange",
   type: "plain",
@@ -123,38 +161,31 @@ const DEFAULT_TRAITS = {
   headphones: "black",
 } as const;
 
-const PUBLIC_ROUTES: Record<string, Point[]> = {
-  "plaza-to-daily-signal-camp": [{ x: -18, z: 0 }, { x: -52, z: 0 }, { x: -52, z: -36 }, { x: -49, z: -42 }],
-  "daily-signal-camp-to-mfergpt": [{ x: -58, z: -48 }, { x: -52, z: -36 }, { x: -52, z: 0 }, { x: -18, z: 0 }, { x: 6.8, z: -5.2 }],
-  "plaza-to-loop-farm": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
-  "loop-farm-to-claim-pile": [{ x: -82, z: 60 }, { x: -99, z: 75 }],
-  "loop-farm-to-route-post": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
-  "route-post-to-signal-ridge": [{ x: -124, z: 124 }, { x: -128, z: 102 }, { x: -112, z: 70 }, { x: -82, z: 60 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
-  "route-post-to-plaza": [{ x: -124, z: 124 }, { x: -128, z: 102 }, { x: -112, z: 70 }, { x: -82, z: 60 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: -2.4, z: 4.2 }],
-  "plaza-to-signal-ridge": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
-  "signal-ridge-to-static-lot": [{ x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
-};
+const DECISION_ACTIONS = [
+  "wait",
+  "move_to",
+  "travel_route",
+  "move_near_npc",
+  "move_near_player",
+  "respawn",
+  "interact_npc",
+  "accept_quest",
+  "complete_quest",
+  "cancel_quest",
+  "use_ability",
+  "fight_npc",
+  "loot",
+  "equip_item",
+  "use_item",
+  "update_traits",
+  "emote",
+  "chat",
+  "share_quest_link",
+] as const;
 
-const POTION_SHOP_ITEMS = new Set(["red-juice", "blue-juice", "field-snack", "mev-bot-elixir", "gasless-focus-elixir"]);
-const BOSS_NPC_IDS = new Set(["mfergpt-daily-boss", "static-baron-nox", "raid-ogre-mfer"]);
-const STARTER_QUEST_ORDER = [
-  "mfer-beginnings",
-  "set-your-traits",
-  "dao-tour",
-  "fountain-vibes",
-  "sealed-note",
-  "farm-road-handoff",
-  "boar-bristle-cull",
-  "feral-farmers",
-  "hog-livers",
-  "field-camp-delivery",
-  "mfergpt-checkin",
-  "ask-mfergpt",
-  "tweet-town-link",
-];
-const HIGH_LEVEL_DECISION_MS = 1000;
 const INPUT_INTERVAL_MS = 150;
-const INTERACT_RANGE = 3.75;
+const INTERACT_SEND_RANGE = 2.7;
+const INTERACT_APPROACH_DISTANCE = 2.4;
 
 class MferlandRunner {
   private readonly config: AgentConfig;
@@ -163,14 +194,17 @@ class MferlandRunner {
   private room: Room | null = null;
   private players = new Map<string, RuntimePlayer>();
   private npcs = new Map<string, RuntimeNpc>();
+  private lastNpcRefs = new Map<string, string>();
+  private lastPlayerRefs = new Map<string, string>();
   private recentMessages: string[] = [];
+  private questMemory = new Map<string, QuestMemory>();
   private targetPoint: Point | null = null;
   private routeQueue: Point[] = [];
   private seq = 0;
   private yaw = Math.PI;
   private stationaryUntil = 0;
   private nextDecisionAt = 0;
-  private nextSocialAt = Date.now() + 45_000;
+  private deciding = false;
   private lastAction = "";
   private reconnecting = false;
   private stopping = false;
@@ -246,18 +280,15 @@ class MferlandRunner {
     });
     room.onMessage("chat", (message: unknown) => this.remember(`chat:${messageSummary(message)}`, isImportantChat(message)));
     room.onMessage("combatEvent", (event: unknown) => this.remember(`combat:${messageSummary(event)}`));
-    room.onMessage("experienceEvent", (event: unknown) => this.remember(`xp:${messageSummary(event)}`));
-    room.onMessage("lootWindow", (message: unknown) => {
-      const record = asRecord(message);
-      const npcId = getString(record.npcId);
-      if (npcId) this.send("lootCorpse", { npcId });
-      this.remember(`lootWindow:${npcId}`, true);
-    });
+    room.onMessage("experienceEvent", (event: unknown) => this.remember(`xp:${messageSummary(event)}`, true));
+    room.onMessage("lootWindow", (message: unknown) => this.remember(`lootWindow:${messageSummary(message)}`, true));
+    room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
     room.onMessage("closeLootWindow", (message: unknown) => this.remember(`closeLoot:${messageSummary(message)}`));
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
-    room.onMessage("questOffer", (message: unknown) => this.remember(`questOffer:${messageSummary(message)}`, true));
-    room.onMessage("questStatus", (message: unknown) => this.remember(`questStatus:${messageSummary(message)}`, true));
-    room.onMessage("questTurnIn", (message: unknown) => this.remember(`questTurnIn:${messageSummary(message)}`, true));
+    room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
+    room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
+    room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
+    room.onMessage("questCompleted", (message: unknown) => this.rememberQuestMessage("completed", message));
     room.onMessage("persistenceStatus", (message: unknown) => this.remember(`persistence:${messageSummary(message)}`, true));
     room.onMessage("traitUpdateResult", (message: unknown) => this.remember(`traitUpdate:${messageSummary(message)}`, true));
     room.onMessage("sessionReplaced", () => {
@@ -267,6 +298,34 @@ class MferlandRunner {
     room.onLeave(() => {
       if (!this.stopping) void this.reconnect();
     });
+  }
+
+  private rememberQuestMessage(kind: QuestMemory["kind"], message: unknown) {
+    const record = asRecord(message);
+    const questId = getString(record.questId);
+    if (questId) {
+      const entry: QuestMemory = {
+        kind,
+        questId,
+        npcId: getString(record.npcId),
+        npcName: getString(record.npcName),
+        turnInNpcId: getString(record.turnInNpcId) || (kind === "turnIn" ? getString(record.npcId) : ""),
+        turnInNpcName: getString(record.turnInNpcName) || (kind === "turnIn" ? getString(record.npcName) : ""),
+        title: getString(record.title),
+        text: getString(record.statusText) || getString(record.description) || getString(record.completionText) || getString(record.completedTaskSummary),
+        objectiveLabel: getString(record.objectiveLabel),
+        progress: getNumber(record.progress),
+        required: getNumber(record.required),
+        rewardPreview: Array.isArray(record.rewardPreview) ? record.rewardPreview.map(String).slice(0, 8) : [],
+        nextQuestId: getString(record.nextQuestId),
+        nextQuestTitle: getString(record.nextQuestTitle),
+        nextGiverNpcId: getString(record.nextGiverNpcId),
+        nextGiverNpcName: getString(record.nextGiverNpcName),
+        observedAt: Date.now(),
+      };
+      this.questMemory.set(questId, entry);
+    }
+    this.remember(`${kind}:${messageSummary(message)}`, true);
   }
 
   private async reconnect() {
@@ -285,134 +344,331 @@ class MferlandRunner {
   }
 
   private async decide() {
-    if (Date.now() < this.nextDecisionAt || !this.room) return;
-    this.nextDecisionAt = Date.now() + HIGH_LEVEL_DECISION_MS;
+    if (this.deciding || Date.now() < this.nextDecisionAt || !this.room) return;
     const self = this.self();
     if (!self) return;
 
+    this.deciding = true;
+    this.nextDecisionAt = Date.now() + this.config.decisionIntervalMs;
     this.logStatus(self);
-    if (self.health <= 0) {
-      this.send("respawn", {});
-      this.lastAction = "respawn";
-      return;
+    try {
+      const observation = this.buildObservation(self);
+      const decision = await decideWithCodex(this.config, observation);
+      this.log(`decision ${decision.action}: ${decision.reason}`);
+      this.executeDecision(decision);
+    } catch (error) {
+      this.log(`decision failed: ${errorMessage(error)}`);
+    } finally {
+      this.deciding = false;
     }
-
-    const loot = this.nearbyLoot(self);
-    if (loot) {
-      this.send("lootCorpse", { npcId: loot.id });
-      this.lastAction = `loot ${loot.id}`;
-      return;
-    }
-
-    const attacker = this.currentAttacker(self);
-    if (attacker) {
-      this.fight(self, attacker);
-      return;
-    }
-
-    if (self.health < self.maxHealth * 0.55 && this.canUse(self, "heal")) {
-      this.cast("heal", { type: "player", id: self.sessionId });
-      this.lastAction = "heal self";
-      return;
-    }
-
-    if (await this.progressQuest(self)) return;
-
-    const nearbyHostile = this.nearbyHostile(self);
-    if (nearbyHostile && self.health > self.maxHealth * 0.75) {
-      this.fight(self, nearbyHostile);
-      return;
-    }
-
-    if (Date.now() >= this.nextSocialAt) {
-      this.send("emote", { emoteId: "wave" });
-      this.send("chat", { text: "gm" });
-      this.nextSocialAt = Date.now() + 90_000;
-      this.lastAction = "social gm";
-      return;
-    }
-
-    this.followIdleRoute(self);
   }
 
-  private async progressQuest(self: RuntimePlayer) {
-    const readyQuest = self.quests.find((quest) => getString(quest.status) === "ready");
-    if (readyQuest) {
-      const questId = getString(readyQuest.id);
-      const npcId = QUEST_HINTS[questId]?.turnIn;
-      if (questId && npcId) {
-        if (await this.moveOrInteract(self, npcId)) {
-          this.send("completeQuest", { questId, npcId });
-          this.lastAction = `complete ${questId}`;
-        }
-        return true;
-      }
-    }
+  private buildObservation(self: RuntimePlayer) {
+    const now = Date.now();
+    const refs = new Map<string, string>();
+    const visibleNpcs = [...this.npcs.values()]
+      .map((npc) => ({ npc, distance: distance2d(self, npc) }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 32)
+      .map(({ npc, distance }, index) => {
+        const ref = `npc${index + 1}`;
+        refs.set(ref, npc.id);
+        refs.set(npc.id.toLowerCase(), npc.id);
+        refs.set(npc.name.toLowerCase(), npc.id);
+        const alive = npc.health > 0 && npc.defeatedAt <= 0;
+        return {
+          ref,
+          id: npc.id,
+          name: npc.name,
+          role: npc.role,
+          model: npc.model,
+          alive,
+          health: `${Math.ceil(npc.health)}/${Math.ceil(npc.maxHealth)}`,
+          distance: round(distance),
+          position: point(npc),
+          dialogue: npc.dialogue,
+          questIdHint: npc.questId,
+          shopId: npc.shopId,
+          hasLoot: npc.hasLoot,
+          aggroTarget: npc.aggroTargetId === self.sessionId ? "you" : npc.aggroTargetId ? "someone" : "",
+          nearbyHostileCount: this.nearbyHostileCount(npc, 8),
+        };
+      });
 
-    const activeQuest = self.quests.find((quest) => getString(quest.status) === "active");
-    if (activeQuest) {
-      const questId = getString(activeQuest.id);
-      const hint = QUEST_HINTS[questId];
-      if (questId === "set-your-traits") {
-        if (await this.moveOrInteract(self, "traits-mfer")) {
-          this.send("updateTraits", {
-            traits: DEFAULT_TRAITS,
-            name: this.config.agentName,
-            attemptId: `skill-runner-${Date.now()}`,
-          });
-          this.lastAction = "update traits";
+    const playerRefs = new Map<string, string>();
+    const visiblePlayers = [...this.players.values()]
+      .filter((player) => player.sessionId !== self.sessionId)
+      .map((player) => ({ player, distance: distance2d(self, player) }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 12)
+      .map(({ player, distance }, index) => {
+        const ref = `player${index + 1}`;
+        playerRefs.set(ref, player.sessionId);
+        playerRefs.set(player.sessionId.toLowerCase(), player.sessionId);
+        playerRefs.set(player.name.toLowerCase(), player.sessionId);
+        return {
+          ref,
+          name: player.name,
+          identityType: player.identityType,
+          isAgent: player.isAgent,
+          health: `${Math.ceil(player.health)}/${Math.ceil(player.maxHealth)}`,
+          mana: `${Math.ceil(player.mana)}/${Math.ceil(player.maxMana)}`,
+          distance: round(distance),
+          position: point(player),
+          animation: player.animation,
+        };
+      });
+
+    this.lastNpcRefs = refs;
+    this.lastPlayerRefs = playerRefs;
+
+    const quests = self.quests.map((quest) => {
+      const questId = getString(quest.id);
+      const memory = this.questMemory.get(questId);
+      return {
+        id: questId,
+        status: getString(quest.status),
+        progress: `${getNumber(quest.progress)}/${getNumber(quest.required)}`,
+        flags: getString(quest.flags),
+        lastKnownTitle: memory?.title ?? "",
+        lastKnownObjective: memory?.objectiveLabel ?? "",
+        lastKnownNpcId: memory?.npcId ?? "",
+        lastKnownNpcName: memory?.npcName ?? "",
+        lastKnownTurnInNpcId: memory?.turnInNpcId ?? "",
+        lastKnownTurnInNpcName: memory?.turnInNpcName ?? "",
+        lastKnownText: memory?.text ?? "",
+        lastKnownRewardPreview: memory?.rewardPreview ?? [],
+      };
+    });
+
+    return {
+      objective: this.config.objective,
+      wallet: {
+        address: this.account.address,
+        agentClient: true,
+      },
+      self: {
+        name: self.name,
+        level: self.level,
+        xp: self.xp,
+        health: `${Math.ceil(self.health)}/${Math.ceil(self.maxHealth)}`,
+        mana: `${Math.ceil(self.mana)}/${Math.ceil(self.maxMana)}`,
+        position: point(self),
+        animation: self.animation,
+        castingAction: self.castingAction,
+        aggroCount: [...this.npcs.values()].filter((npc) => npc.aggroTargetId === self.sessionId && npc.health > 0 && npc.defeatedAt <= 0).length,
+        nearbyHostileCount: this.nearbyHostileCount(self, 10),
+        quests,
+        inventory: self.inventory,
+        equipment: self.equipment,
+        activeBuffs: self.activeBuffs,
+        combatActions: COMBAT_ACTION_IDS.map((actionId) => {
+          const action = COMBAT[actionId];
+          return {
+            actionId,
+            unlocked: self.level >= action.minLevel,
+            ready: this.canUse(self, actionId),
+            manaCost: action.manaCost,
+            maxRange: action.maxRange,
+            castTimeMs: action.castTimeMs,
+            requiresStationary: action.requiresStationary,
+          };
+        }),
+      },
+      publicMap: {
+        landmarks: PUBLIC_LANDMARKS,
+        routes: Object.keys(PUBLIC_ROUTES),
+        routeDetails: PUBLIC_ROUTES,
+      },
+      nearbyNpcs: visibleNpcs,
+      nearbyPlayers: visiblePlayers,
+      questMemory: [...this.questMemory.values()]
+        .sort((a, b) => b.observedAt - a.observedAt)
+        .slice(0, 20),
+      lootableCorpses: visibleNpcs.filter((npc) => !npc.alive && npc.hasLoot),
+      recentMessages: this.recentMessages.slice(-20),
+      availableActions: DECISION_ACTIONS,
+      actionNotes: [
+        "Use only one normal room action per decision.",
+        "Use quest offer/status/turn-in messages, NPC dialogue, quest log state, visible NPCs, and public map landmarks as context clues.",
+        "Do not assume a hidden quest script or hard-coded quest order. Explore by moving, interacting with nearby quest NPCs, reading offers/status, accepting available quests, doing objectives, and turning in ready quests.",
+        "For accept_quest, use the offer npcRef. For complete_quest, use the turnInNpcId/turnInNpcName from quest messages when present.",
+        "Prefer stable NPC ids or exact NPC names for npcRef. Numbered refs like npc1 also work, but only for the current observation.",
+        "If a quest is completed or a questCompleted message was observed, move on to available next quest context instead of retrying that turn-in.",
+        "For combat, prefer fight_npc with a visible hostile npcRef. Avoid pulling packs unless grouping or using AoE intentionally.",
+        "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
+        "If a corpse has loot and you are safe, use loot to clear it.",
+        "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
+        "For update_traits, no item or quest id is required; the runner sends a basic trait set.",
+      ],
+      refs: {
+        npcs: Object.fromEntries(refs),
+        players: Object.fromEntries(playerRefs),
+      },
+      now,
+      lastAction: this.lastAction,
+    };
+  }
+
+  private executeDecision(decision: Decision) {
+    const self = this.self();
+    if (!self) return;
+
+    switch (decision.action) {
+      case "wait":
+        this.targetPoint = null;
+        this.lastAction = "wait";
+        return;
+      case "respawn":
+        this.send("respawn", {});
+        this.lastAction = "respawn";
+        return;
+      case "move_to": {
+        const x = readFiniteNumber(decision.x);
+        const z = readFiniteNumber(decision.z);
+        if (x === undefined || z === undefined) throw new Error("move_to requires x and z");
+        this.moveTo({ x, z });
+        this.lastAction = `move_to ${round(x)},${round(z)}`;
+        return;
+      }
+      case "travel_route": {
+        const routeId = cleanText(decision.text, 80);
+        const route = PUBLIC_ROUTES[routeId];
+        if (!route) throw new Error(`unknown route ${routeId}`);
+        this.routeQueue = [...route];
+        this.followRoute(self);
+        this.lastAction = `travel_route ${routeId}`;
+        return;
+      }
+      case "move_near_npc":
+      case "interact_npc": {
+        const npc = this.resolveNpc(decision.npcRef);
+        if (!npc) throw new Error(`${decision.action} requires npcRef`);
+        if (decision.action === "move_near_npc" || distance2d(self, npc) > INTERACT_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_near_npc ${npc.id}`;
+          return;
         }
-        return true;
+        this.targetPoint = null;
+        this.send("interact", { npcId: npc.id });
+        this.lastAction = `interact_npc ${npc.id}`;
+        return;
       }
-      if (hint?.chat) {
-        this.send("chat", { text: hint.chat });
-        this.lastAction = `chat for ${questId}`;
-        return true;
+      case "move_near_player": {
+        const player = this.resolvePlayer(decision.playerRef);
+        if (!player) throw new Error("move_near_player requires playerRef");
+        this.moveTo(player);
+        this.lastAction = `move_near_player ${player.name}`;
+        return;
       }
-      if (hint?.share) {
+      case "accept_quest": {
+        const questId = cleanText(decision.questId, 96);
+        const npc = this.resolveNpc(decision.npcRef);
+        if (!questId || !npc) throw new Error("accept_quest requires questId and npcRef");
+        if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_accept ${questId}`;
+          return;
+        }
+        this.targetPoint = null;
+        this.send("acceptQuest", { questId, npcId: npc.id });
+        this.lastAction = `accept_quest ${questId}`;
+        return;
+      }
+      case "complete_quest": {
+        const questId = cleanText(decision.questId, 96);
+        const npc = this.resolveNpc(decision.npcRef);
+        if (!questId || !npc) throw new Error("complete_quest requires questId and npcRef");
+        if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_complete ${questId}`;
+          return;
+        }
+        this.targetPoint = null;
+        this.send("completeQuest", { questId, npcId: npc.id });
+        this.lastAction = `complete_quest ${questId}`;
+        return;
+      }
+      case "cancel_quest": {
+        const questId = cleanText(decision.questId, 96);
+        if (!questId) throw new Error("cancel_quest requires questId");
+        this.send("cancelQuest", { questId });
+        this.lastAction = `cancel_quest ${questId}`;
+        return;
+      }
+      case "fight_npc": {
+        const npc = this.resolveNpc(decision.npcRef);
+        if (!npc) throw new Error("fight_npc requires visible npcRef");
+        this.fight(self, npc);
+        return;
+      }
+      case "use_ability": {
+        const actionId = normalizeCombatAction(decision.actionId);
+        if (!actionId) throw new Error("use_ability requires actionId");
+        if (decision.playerRef) {
+          const player = this.resolvePlayer(decision.playerRef);
+          if (!player) throw new Error("unknown playerRef");
+          this.cast(actionId, { kind: "player", id: player.sessionId });
+        } else {
+          const npc = this.resolveNpc(decision.npcRef);
+          if (!npc) throw new Error("use_ability requires npcRef or playerRef");
+          this.cast(actionId, { kind: "npc", id: npc.id });
+        }
+        this.lastAction = `use_ability ${actionId}`;
+        return;
+      }
+      case "loot": {
+        const npc = this.resolveNpc(decision.npcRef);
+        if (!npc) throw new Error("loot requires npcRef");
+        this.send("lootCorpse", { npcId: npc.id });
+        this.lastAction = `loot ${npc.id}`;
+        return;
+      }
+      case "equip_item": {
+        const itemId = cleanText(decision.itemId, 96);
+        if (!itemId) throw new Error("equip_item requires itemId");
+        this.send("equipItem", { itemId });
+        this.lastAction = `equip_item ${itemId}`;
+        return;
+      }
+      case "use_item": {
+        const itemId = cleanText(decision.itemId, 96);
+        if (!itemId) throw new Error("use_item requires itemId");
+        this.send("useItem", { itemId });
+        this.lastAction = `use_item ${itemId}`;
+        return;
+      }
+      case "update_traits":
+        this.send("updateTraits", {
+          traits: DEFAULT_TRAITS,
+          name: this.config.agentName,
+          attemptId: `llm-skill-runner-${Date.now()}`,
+        });
+        this.lastAction = "update_traits";
+        return;
+      case "share_quest_link": {
+        const questId = cleanText(decision.questId, 96);
+        if (!questId) throw new Error("share_quest_link requires questId");
         this.send("shareQuestLink", { questId, url: "https://game.mfergpt.lol" });
-        this.lastAction = `share ${questId}`;
-        return true;
+        this.lastAction = `share_quest_link ${questId}`;
+        return;
       }
-      const target = this.questTarget(self, questId);
-      if (target) {
-        this.fight(self, target);
-        return true;
+      case "chat": {
+        const text = cleanText(decision.text, 180);
+        if (!text) throw new Error("chat requires text");
+        this.send("chat", { text });
+        this.lastAction = `chat ${text.slice(0, 24)}`;
+        return;
       }
-    }
-
-    const nextQuestId = STARTER_QUEST_ORDER.find((questId) => !self.quests.some((quest) => getString(quest.id) === questId));
-    if (nextQuestId) {
-      const npcId = QUEST_HINTS[nextQuestId]?.giver;
-      if (npcId) {
-        if (await this.moveOrInteract(self, npcId)) {
-          this.send("acceptQuest", { questId: nextQuestId, npcId });
-          this.lastAction = `accept ${nextQuestId}`;
-        }
-        return true;
+      case "emote": {
+        const emoteId = cleanText(decision.emoteId, 40) || "wave";
+        this.send("emote", { emoteId });
+        this.lastAction = `emote ${emoteId}`;
+        return;
       }
+      default:
+        throw new Error(`unknown action ${decision.action}`);
     }
-    return false;
-  }
-
-  private questTarget(self: RuntimePlayer, questId: string) {
-    const alive = [...this.npcs.values()].filter((npc) => npc.health > 0 && npc.defeatedAt <= 0);
-    if (questId === "mfergpt-daily-signal") return alive.find((npc) => npc.id === "mfergpt-daily-boss") ?? null;
-    if (questId === "boar-bristle-cull" || questId === "hog-livers" || questId === "hog-loop") {
-      return nearest(self, alive.filter((npc) => npc.model === "hog"));
-    }
-    if (questId === "feral-farmers") {
-      return nearest(self, alive.filter((npc) => npc.id === "farmhand-bran" || npc.id === "farmhand-mae" || npc.id === "field-mage-sol"));
-    }
-    if (questId === "route-patrol-daily") {
-      return nearest(self, alive.filter((npc) => npc.model === "hog" || npc.role === "farmer"));
-    }
-    if (questId === "signal-scraps") {
-      return nearest(self, alive.filter((npc) => npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-")));
-    }
-    if (questId === "cut-the-static") return alive.find((npc) => npc.id === "static-baron-nox") ?? null;
-    if (questId === "ogre-raid-daily") return alive.find((npc) => npc.id === "raid-ogre-mfer") ?? null;
-    return null;
   }
 
   private fight(self: RuntimePlayer, npc: RuntimeNpc) {
@@ -421,11 +677,11 @@ class MferlandRunner {
     const action = COMBAT[actionId];
     if (distance > action.maxRange * 0.9) {
       this.moveTo(npc);
-      this.lastAction = `move to fight ${npc.id}`;
+      this.lastAction = `move_to_fight ${npc.id}`;
       return;
     }
     this.targetPoint = null;
-    this.cast(actionId, { type: "npc", id: npc.id });
+    this.cast(actionId, { kind: "npc", id: npc.id });
     this.lastAction = `combat ${actionId} ${npc.id}`;
   }
 
@@ -434,7 +690,7 @@ class MferlandRunner {
     if (self.health < self.maxHealth * 0.45 && this.canUse(self, "heal")) return "heal";
     if (closeEnemies >= 2 && this.canUse(self, "frostNova")) return "frostNova";
     if (closeEnemies >= 2 && this.canUse(self, "whirlwind")) return "whirlwind";
-    if ((BOSS_NPC_IDS.has(npc.id) || distance >= 8) && this.canUse(self, "fireblast")) return "fireblast";
+    if (distance >= 8 && this.canUse(self, "fireblast")) return "fireblast";
     if (distance >= 4 && this.canUse(self, "signalShot")) return "signalShot";
     if (distance >= 4 && this.canUse(self, "shoot")) return "shoot";
     return "attack";
@@ -453,41 +709,36 @@ class MferlandRunner {
     const action = COMBAT[actionId];
     if (self.level < action.minLevel) return false;
     if (self.mana < action.manaCost) return false;
-    const readyAt = getNumber(asRecord(self)[`${actionId}ReadyAt`]);
+    const readyAt = getNumber(self[`${actionId}ReadyAt`]);
     return !readyAt || readyAt <= Date.now();
   }
 
-  private async moveOrInteract(self: RuntimePlayer, npcId: string) {
-    const npc = this.npcs.get(npcId);
-    const target = npc ?? KNOWN_NPCS[npcId];
-    if (!target) return false;
-    if (distance2d(self, target) > INTERACT_RANGE) {
-      this.moveTo(target);
-      this.lastAction = `move ${npcId}`;
-      return false;
-    }
-    this.targetPoint = null;
-    this.send("interact", { npcId });
-    await delay(150);
-    return true;
-  }
-
-  private followIdleRoute(self: RuntimePlayer) {
-    if (this.routeQueue.length === 0) this.routeQueue = [...PUBLIC_ROUTES["plaza-to-daily-signal-camp"], ...PUBLIC_ROUTES["daily-signal-camp-to-mfergpt"]];
+  private followRoute(self: RuntimePlayer) {
     const target = this.routeQueue[0];
     if (!target) return;
     if (distance2d(self, target) < 2) this.routeQueue.shift();
-    else this.moveTo(target);
-    this.lastAction = "idle route";
+    const nextTarget = this.routeQueue[0];
+    if (nextTarget) this.moveTo(nextTarget);
   }
 
   private moveTo(point: Point) {
     this.targetPoint = { x: point.x, z: point.z };
   }
 
+  private moveNearNpc(self: RuntimePlayer, npc: RuntimeNpc) {
+    const dx = self.x - npc.x;
+    const dz = self.z - npc.z;
+    const length = Math.hypot(dx, dz) || 1;
+    this.moveTo({
+      x: npc.x + (dx / length) * INTERACT_APPROACH_DISTANCE,
+      z: npc.z + (dz / length) * INTERACT_APPROACH_DISTANCE,
+    });
+  }
+
   private sendInput() {
     const self = this.self();
     if (!this.room || !self) return;
+    if (this.routeQueue.length > 0) this.followRoute(self);
     let x = 0;
     let z = 0;
     if (Date.now() >= this.stationaryUntil && this.targetPoint) {
@@ -513,21 +764,56 @@ class MferlandRunner {
     return this.room ? this.players.get(this.room.sessionId) ?? null : null;
   }
 
-  private currentAttacker(self: RuntimePlayer) {
-    return nearest(self, [...this.npcs.values()].filter((npc) => npc.health > 0 && npc.defeatedAt <= 0 && npc.targetSessionId === self.sessionId));
+  private resolveNpc(ref: unknown) {
+    const key = cleanText(ref, 96).toLowerCase();
+    if (!key) return null;
+    const direct = this.npcs.get(key);
+    if (direct) return direct;
+    const mapped = this.lastNpcRefs.get(key);
+    if (mapped) return this.npcs.get(mapped) ?? null;
+    const refMatch = /^npc(\d+)$/.exec(key);
+    if (refMatch) {
+      const self = this.self();
+      if (!self) return null;
+      const index = Number(refMatch[1]) - 1;
+      return [...this.npcs.values()]
+        .map((npc) => ({ npc, distance: distance2d(self, npc) }))
+        .sort((a, b) => a.distance - b.distance)[index]?.npc ?? null;
+    }
+    return [...this.npcs.values()].find((npc) => npc.name.toLowerCase() === key || npc.id.toLowerCase() === key) ?? null;
   }
 
-  private nearbyHostile(self: RuntimePlayer) {
-    return nearest(self, [...this.npcs.values()].filter((npc) => npc.health > 0 && npc.defeatedAt <= 0 && isHostile(npc) && distance2d(self, npc) <= 10));
+  private resolvePlayer(ref: unknown) {
+    const key = cleanText(ref, 96).toLowerCase();
+    if (!key) return null;
+    const direct = this.players.get(key);
+    if (direct) return direct;
+    const mapped = this.lastPlayerRefs.get(key);
+    if (mapped) return this.players.get(mapped) ?? null;
+    const refMatch = /^player(\d+)$/.exec(key);
+    if (refMatch) {
+      const self = this.self();
+      if (!self) return null;
+      const index = Number(refMatch[1]) - 1;
+      return [...this.players.values()]
+        .filter((player) => player.sessionId !== self.sessionId)
+        .map((player) => ({ player, distance: distance2d(self, player) }))
+        .sort((a, b) => a.distance - b.distance)[index]?.player ?? null;
+    }
+    return [...this.players.values()].find((player) => player.name.toLowerCase() === key || player.sessionId.toLowerCase() === key) ?? null;
   }
 
-  private nearbyLoot(self: RuntimePlayer) {
-    const now = Date.now();
-    return nearest(self, [...this.npcs.values()].filter((npc) => npc.defeatedAt > 0 && npc.lootWindowUntil > now && distance2d(self, npc) <= 5.5));
+  private nearbyHostileCount(pointLike: Point, radius: number) {
+    return [...this.npcs.values()].filter((npc) => (
+      npc.health > 0
+      && npc.defeatedAt <= 0
+      && isHostile(npc)
+      && distance2d(pointLike, npc) <= radius
+    )).length;
   }
 
   private remember(message: string, print = false) {
-    this.recentMessages = [...this.recentMessages.slice(-20), message];
+    this.recentMessages = [...this.recentMessages.slice(-30), message];
     if (print) this.log(message);
   }
 
@@ -564,6 +850,116 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
+async function decideWithCodex(config: AgentConfig, observation: unknown): Promise<Decision> {
+  const tempDir = await mkdtemp(join(tmpdir(), "mferland-agent-decision-"));
+  const schemaPath = join(tempDir, "decision.schema.json");
+  const outputPath = join(tempDir, "decision.json");
+  await writeFile(schemaPath, JSON.stringify(DECISION_SCHEMA, null, 2));
+  const prompt = buildDecisionPrompt(config.objective, observation);
+  const result = await runCodexExec({
+    model: config.decisionModel,
+    outputPath,
+    prompt,
+    schemaPath,
+    tempDir,
+    timeoutMs: config.decisionTimeoutMs,
+  });
+  if (!result.ok) throw new Error(`codex decision failed${result.reason === "timeout" ? " (timeout)" : ""}: ${result.stderr || result.stdout}`);
+  const raw = await readFile(outputPath, "utf8").catch(() => result.stdout);
+  return normalizeDecision(JSON.parse(raw));
+}
+
+function buildDecisionPrompt(objective: string, observation: unknown) {
+  return [
+    "You are controlling one mferland wallet character as a normal player agent.",
+    "Return exactly one JSON object matching the supplied schema. Use null for fields that do not apply.",
+    "Do not run commands, inspect files, browse, ask for hidden server state, use debug messages, teleport, boost, or request database access.",
+    "Make your own gameplay decision from public in-game context: current room state, quest offers/status/turn-ins, NPC dialogue, visible players, public map landmarks, inventory, cooldowns, combat state, and recent chat.",
+    "There is no quest script. Discover the game by exploring, interacting, accepting quests, reading objective text, completing objectives, looting, grouping, and turning in ready quests.",
+    "Work toward the objective, but preserve normal gameplay: stay alive, avoid overpulls, loot when safe, and coordinate with visible players.",
+    "",
+    JSON.stringify({ objective, observation }),
+  ].join("\n");
+}
+
+function runCodexExec({
+  model,
+  outputPath,
+  prompt,
+  schemaPath,
+  tempDir,
+  timeoutMs,
+}: {
+  model: string;
+  outputPath: string;
+  prompt: string;
+  schemaPath: string;
+  tempDir: string;
+  timeoutMs: number;
+}) {
+  return new Promise<{
+    ok: boolean;
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    reason?: "timeout";
+    stderr: string;
+    stdout: string;
+  }>((resolve) => {
+    const args = [
+      "--ask-for-approval",
+      "never",
+      "exec",
+      "--ignore-user-config",
+      "--ephemeral",
+      "--sandbox",
+      "read-only",
+      "--ignore-rules",
+      "--skip-git-repo-check",
+      "--color",
+      "never",
+      "-C",
+      tempDir,
+      "--output-schema",
+      schemaPath,
+      "--output-last-message",
+      outputPath,
+    ];
+    if (model) args.push("-m", model);
+    args.push("-");
+
+    const child = spawn(getCodexCliPath(), args, {
+      cwd: tempDir,
+      env: getSanitizedCodexEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    child.stdin?.end(prompt);
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = appendLimited(stdout, chunk.toString("utf8"));
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = appendLimited(stderr, chunk.toString("utf8"));
+    });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      resolve({ ok: false, code: null, signal: null, stderr: appendLimited(stderr, error.message), stdout });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timeout);
+      resolve({ ok: !timedOut && code === 0, code, signal, reason: timedOut ? "timeout" : undefined, stderr, stdout });
+    });
+  });
+}
+
 function readConfig(): AgentConfig {
   const roomServer = cleanEnv("ROOM_SERVER") || "wss://game.mfergpt.lol";
   const httpServer = cleanEnv("HTTP_SERVER") || toHttpServer(roomServer);
@@ -583,8 +979,11 @@ function readConfig(): AgentConfig {
     inviteCode: cleanEnv("AGENT_INVITE_CODE"),
     createCharacter: cleanEnv("AGENT_CREATE_CHARACTER") !== "0",
     allowProduction,
-    maxMferGptSpendWei: readBigIntEnv("AGENT_MAX_MFERGPT_SPEND_WEI"),
     runSeconds: readNumberEnv("AGENT_RUN_SECONDS"),
+    decisionModel: cleanEnv("AGENT_DECISION_MODEL") || cleanEnv("CODEX_LLM_MODEL"),
+    decisionTimeoutMs: readNumberEnv("AGENT_DECISION_TIMEOUT_MS") || 60_000,
+    decisionIntervalMs: readNumberEnv("AGENT_DECISION_INTERVAL_MS") || 1200,
+    objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, survive, and eventually defeat The Centralizer through its quest.",
   };
 }
 
@@ -604,19 +1003,27 @@ function schemaEntries(value: unknown): Array<[string, AnyRecord]> {
 
 function normalizePlayer(sessionId: string, value: AnyRecord): RuntimePlayer {
   return {
+    ...value,
     sessionId,
     name: getString(value.name) || shortAddress(getString(value.walletAddress)) || sessionId,
+    identityType: getString(value.identityType),
     isAgent: Boolean(value.isAgent),
+    walletAddress: getString(value.walletAddress),
     health: getNumber(value.health),
     maxHealth: getNumber(value.maxHealth, 1),
     mana: getNumber(value.mana),
     maxMana: getNumber(value.maxMana, 1),
     level: Math.max(1, getNumber(value.level, 1)),
+    xp: getNumber(value.xp),
     x: getNumber(value.x),
     z: getNumber(value.z),
     yaw: getNumber(value.yaw),
+    animation: getString(value.animation),
+    castingAction: getString(value.castingAction),
     quests: schemaEntries(value.quests).map(([, quest]) => quest),
     inventory: schemaEntries(value.inventory).map(([, item]) => item),
+    equipment: schemaEntries(value.equipment).map(([, slot]) => slot),
+    activeBuffs: schemaEntries(value.activeBuffs).map(([, buff]) => buff),
   };
 }
 
@@ -628,27 +1035,55 @@ function normalizeNpc(id: string, value: AnyRecord): RuntimeNpc {
     model: getString(value.model),
     health: getNumber(value.health),
     maxHealth: getNumber(value.maxHealth, 1),
+    isImmortal: Boolean(value.isImmortal),
     x: getNumber(value.x),
     z: getNumber(value.z),
     defeatedAt: getNumber(value.defeatedAt),
-    lootWindowUntil: getNumber(value.lootWindowUntil),
-    targetSessionId: getString(value.targetSessionId),
-    questIds: schemaEntries(value.questIds).map(([, quest]) => getString(quest.id)).filter(Boolean),
+    despawnAt: getNumber(value.despawnAt),
+    aggroTargetId: getString(value.aggroTargetId),
+    hasLoot: Boolean(value.hasLoot),
+    questId: getString(value.questId),
     shopId: getString(value.shopId),
+    dialogue: getString(value.dialogue),
   };
 }
 
-function nearest<T extends Point>(self: Point, entries: T[]) {
-  return entries.sort((a, b) => distance2d(self, a) - distance2d(self, b))[0] ?? null;
+function normalizeDecision(value: unknown): Decision {
+  const record = asRecord(value);
+  const action = cleanText(record.action, 40);
+  if (!DECISION_ACTIONS.includes(action as typeof DECISION_ACTIONS[number])) throw new Error(`invalid action ${action}`);
+  return {
+    action,
+    reason: cleanText(record.reason, 240) || action,
+    x: readFiniteNumber(record.x) ?? null,
+    z: readFiniteNumber(record.z) ?? null,
+    npcRef: nullableText(record.npcRef),
+    playerRef: nullableText(record.playerRef),
+    questId: nullableText(record.questId),
+    itemId: nullableText(record.itemId),
+    actionId: nullableText(record.actionId),
+    text: nullableText(record.text),
+    emoteId: nullableText(record.emoteId),
+    sprint: typeof record.sprint === "boolean" ? record.sprint : null,
+  };
+}
+
+function normalizeCombatAction(value: unknown): CombatActionId | null {
+  const text = cleanText(value, 40);
+  return COMBAT_ACTION_IDS.includes(text as CombatActionId) ? text as CombatActionId : null;
 }
 
 function isHostile(npc: RuntimeNpc) {
   if (npc.role === "enemy" || npc.role === "farmer") return true;
-  return npc.model === "hog" || npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-") || BOSS_NPC_IDS.has(npc.id);
+  return npc.model === "hog" || npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-");
 }
 
 function distance2d(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function point(value: Point): Point {
+  return { x: round(value.x), z: round(value.z) };
 }
 
 function asRecord(value: unknown): AnyRecord {
@@ -664,13 +1099,6 @@ function getNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function readBigIntEnv(name: string) {
-  const value = cleanEnv(name);
-  if (!value) return 0n;
-  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer wei string.`);
-  return BigInt(value);
-}
-
 function readNumberEnv(name: string) {
   const value = cleanEnv(name);
   if (!value) return 0;
@@ -681,6 +1109,21 @@ function readNumberEnv(name: string) {
 
 function cleanEnv(name: string) {
   return (process.env[name] ?? "").trim();
+}
+
+function cleanText(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function nullableText(value: unknown) {
+  const text = cleanText(value, 160);
+  return text || null;
+}
+
+function readFiniteNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function toHttpServer(roomServer: string) {
@@ -695,9 +1138,9 @@ function shortAddress(address: string) {
 
 function messageSummary(value: unknown) {
   try {
-    return JSON.stringify(value).slice(0, 220);
+    return JSON.stringify(value).slice(0, 260);
   } catch {
-    return String(value).slice(0, 220);
+    return String(value).slice(0, 260);
   }
 }
 
@@ -720,5 +1163,53 @@ function round(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-void config.maxMferGptSpendWei;
-void POTION_SHOP_ITEMS;
+function getCodexCliPath() {
+  const configuredPath = process.env.AGENT_CODEX_CLI_PATH?.trim() || process.env.CODEX_CLI_PATH?.trim();
+  if (configuredPath) return configuredPath;
+  const macosAppPath = "/Applications/Codex.app/Contents/Resources/codex";
+  if (existsSync(macosAppPath)) return macosAppPath;
+  return "codex";
+}
+
+function getSanitizedCodexEnv(): NodeJS.ProcessEnv {
+  const home = process.env.HOME || homedir();
+  const env: NodeJS.ProcessEnv = {
+    HOME: home,
+    LOGNAME: process.env.LOGNAME || process.env.USER,
+    NO_COLOR: "1",
+    PATH: process.env.PATH || "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+    SHELL: process.env.SHELL || "/bin/zsh",
+    TERM: "dumb",
+    TMPDIR: process.env.TMPDIR || tmpdir(),
+    USER: process.env.USER || process.env.LOGNAME,
+  };
+  if (process.env.CODEX_HOME) env.CODEX_HOME = process.env.CODEX_HOME;
+  return env;
+}
+
+function appendLimited(current: string, next: string) {
+  const combined = current + next;
+  return combined.length > 4000
+    ? combined.slice(combined.length - 4000)
+    : combined;
+}
+
+const DECISION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: { type: "string", enum: DECISION_ACTIONS },
+    reason: { type: "string" },
+    x: { type: ["number", "null"] },
+    z: { type: ["number", "null"] },
+    npcRef: { type: ["string", "null"] },
+    playerRef: { type: ["string", "null"] },
+    questId: { type: ["string", "null"] },
+    itemId: { type: ["string", "null"] },
+    actionId: { type: ["string", "null"] },
+    text: { type: ["string", "null"] },
+    emoteId: { type: ["string", "null"] },
+    sprint: { type: ["boolean", "null"] },
+  },
+  required: ["action", "reason", "x", "z", "npcRef", "playerRef", "questId", "itemId", "actionId", "text", "emoteId", "sprint"],
+} as const;
