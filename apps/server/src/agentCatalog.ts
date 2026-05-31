@@ -1,0 +1,268 @@
+import {
+  COMBAT,
+  EMOTES,
+  EQUIPMENT_SLOTS,
+  ITEMS,
+  POTION_SHOP_ITEM_IDS,
+  POTION_SHOP_NPC_ID,
+  POTION_SHOP_PRODUCT_ID,
+  POTION_SHOP_PURCHASE_QUANTITIES,
+  PROGRESSION,
+  QUESTS,
+  TRAIT_CHANGE_BASE_CHAIN_ID,
+  TRAIT_CHANGE_BASE_RPC_URL,
+  TRAIT_CHANGE_BURN_ADDRESS,
+  TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
+  TALENTS,
+  TALENT_TREES,
+  WORLD_HUBS,
+  WORLD_LANDMARKS,
+  WORLD_ROADS,
+  getPotionShopPrice,
+  type PotionShopItemId,
+  type PotionShopPurchaseQuantity,
+} from "@mferland/shared";
+import {
+  AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
+  DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
+} from "./agentMferGptGate.js";
+
+const BASE_WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
+const BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS = "0x6fF5693b99212Da76ad316178A184AB56D299b43";
+const BASE_MFERGPT_UNISWAP_V4_HOOKS_ADDRESS = "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC";
+
+export function buildAgentCatalog() {
+  return {
+    ok: true,
+    version: 2,
+    generatedAt: new Date().toISOString(),
+    controls: {
+      session: ["leave"],
+      movement: ["input", "respawn"],
+      social: ["chat", "emote", "shareQuestLink"],
+      npc: ["interact"],
+      quests: ["acceptQuest", "completeQuest", "cancelQuest"],
+      selection: ["selectTarget", "selectSelfTarget"],
+      combat: ["combatAction"],
+      lootAndItems: ["lootCorpse", "equipItem", "unequipItem", "useItem"],
+      character: ["selectTalent", "updateTraits"],
+      walletStores: ["purchasePotionShopItem", "registerChainGear"],
+      walletActions: [
+        "connectWallet",
+        "refreshWalletBalances",
+        "quoteMferGptSwap",
+        "swapEthForMferGpt",
+        "buyGearWithEth",
+        "buyGearWithMfer",
+        "buyGearWithMferGpt",
+        "mintSeasonPassWithEth",
+        "mintSeasonPassWithMfer",
+        "mintSeasonPassWithMferGpt",
+        "burnMferGptForPaymentProof",
+      ],
+      localClientPreferences: [
+        "setHotbarSlot",
+        "setQuestFocus",
+        "toggleCompletedQuestVisibility",
+        "setGraphicsQuality",
+        "setAudio",
+        "setNameplates",
+        "configureLocalCryptoContracts",
+      ],
+    },
+    menus: {
+      character: {
+        observes: ["walletAddress", "season0Points", "season0DailyPoints", "seasonPassOwnership", "level", "xp", "stats", "equipment"],
+        controls: ["selectSelfTarget", "unequipItem", "refreshSeasonPassOwnership"],
+      },
+      stash: {
+        observes: ["inventory", "itemDefinitions", "equipmentComparisons", "consumableDefinitions"],
+        controls: ["equipItem", "useItem", "setHotbarSlot"],
+      },
+      moves: {
+        observes: ["combatActions", "talents", "talentTrees", "talentPoints"],
+        controls: ["combatAction", "selectTalent", "setHotbarSlot"],
+      },
+      hotbar: {
+        observes: ["combatActions", "inventory.consumables", "selected target"],
+        controls: ["setHotbarSlot", "interact", "combatAction", "useItem"],
+        note: "Human hotbar slot arrangement is local client preference; agents call the same resulting room actions directly.",
+      },
+      errands: {
+        observes: ["quests", "questOffers", "questTurnIns", "questStatus"],
+        controls: ["setQuestFocus", "toggleCompletedQuestVisibility", "acceptQuest", "completeQuest", "cancelQuest", "shareQuestLink"],
+      },
+      loot: {
+        observes: ["lootWindow", "nearbyNpcs.hasLoot"],
+        controls: ["lootCorpse"],
+        note: "Pass itemId to loot one item, or omit itemId to grab all available loot from the corpse.",
+      },
+      social: {
+        observes: ["chat", "nearbyPlayers", "nearbyPlayers.agentStatus"],
+        controls: ["chat", "emote"],
+      },
+      targets: {
+        observes: ["nearbyPlayers", "nearbyNpcs"],
+        controls: ["selectTarget", "selectSelfTarget", "combatAction.target", "interact", "moveNearPlayer", "moveNearNpc"],
+      },
+      traits: {
+        npcId: "traits-mfer",
+        observes: ["appearanceTraits", "traitUpdateResult"],
+        controls: ["selectTraitCategory", "setTrait", "clearTrait", "randomizeTraits", "updateTraits"],
+        paidControlRequiresPaymentProof: true,
+      },
+      potionShop: {
+        npcId: POTION_SHOP_NPC_ID,
+        observes: ["potionShop", "potionShopPurchaseResult"],
+        controls: ["selectPotionShopItem", "selectPotionShopQuantity", "purchasePotionShopItem"],
+        paidControlRequiresPaymentProof: true,
+      },
+      cryptoStore: {
+        npcId: "crypto-mfer",
+        observes: ["walletBalances", "contractPrices", "marketQuotes", "chainGearOwnership", "inventory"],
+        controls: [
+          "connectWallet",
+          "refreshWalletBalances",
+          "selectGearType",
+          "buyGearWithEth",
+          "buyGearWithMfer",
+          "buyGearWithMferGpt",
+          "mintSeasonPassWithEth",
+          "mintSeasonPassWithMfer",
+          "mintSeasonPassWithMferGpt",
+          "configureLocalCryptoContracts",
+          "registerChainGear",
+        ],
+        note: "Gear/pass purchases are wallet transactions. After gear mints, call registerChainGear through the room to add owned gear to inventory.",
+      },
+      swap: {
+        npcId: "swap-mfer",
+        observes: ["walletBalances"],
+        controls: ["setSwapAmount", "setSwapSlippage", "quoteMferGptSwap", "swapEthForMferGpt", "copyMferGptContract", "openUniswapFallback"],
+        note: "Swap is a wallet/onchain action, then game use is through normal payment-proof messages.",
+      },
+      map: {
+        observes: ["world.hubs", "world.roads", "world.landmarks", "players", "npcs"],
+        controls: ["setQuestFocus", "inspectMapPoint", "move", "travelRoute"],
+      },
+      settings: {
+        observes: ["graphicsQuality", "audio", "nameplates"],
+        controls: ["setGraphicsQuality", "setAudio", "setNameplates", "toggleDebugLocalOnly"],
+        note: "Settings do not grant gameplay powers or require room messages.",
+      },
+      system: {
+        observes: ["connectionStatus", "deathState"],
+        controls: ["respawn", "leave"],
+      },
+    },
+    payments: {
+      mferGpt: {
+        chainId: TRAIT_CHANGE_BASE_CHAIN_ID,
+        rpcUrl: TRAIT_CHANGE_BASE_RPC_URL,
+        tokenAddress: TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
+        burnAddress: TRAIT_CHANGE_BURN_ADDRESS,
+        wethAddress: BASE_WETH_ADDRESS,
+        uniswapUniversalRouterAddress: BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS,
+        uniswapV4Pool: {
+          currency0: TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
+          currency1: BASE_WETH_ADDRESS,
+          fee: 0x800000,
+          tickSpacing: 200,
+          hooks: BASE_MFERGPT_UNISWAP_V4_HOOKS_ADDRESS,
+        },
+        season0AgentRequiredBalanceWei: DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
+        season0AgentRequiredBalanceLabel: AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
+      },
+    },
+    combatActions: COMBAT.actions,
+    emotes: EMOTES,
+    progression: PROGRESSION,
+    equipmentSlots: EQUIPMENT_SLOTS,
+    items: Object.fromEntries(Object.entries(ITEMS).map(([id, item]) => {
+      const optional = item as {
+        value?: number;
+        equipment?: unknown;
+        consumable?: unknown;
+        revealsAllNpcsOnMinimap?: boolean;
+      };
+      return [id, {
+        id,
+        name: item.name,
+        description: item.description,
+        quality: item.quality,
+        iconColor: item.iconColor,
+        stackable: item.stackable,
+        value: optional.value ?? 0,
+        equipment: optional.equipment ?? null,
+        consumable: optional.consumable ?? null,
+        revealsAllNpcsOnMinimap: Boolean(optional.revealsAllNpcsOnMinimap),
+      }];
+    })),
+    talentTrees: TALENT_TREES,
+    talents: Object.fromEntries(Object.entries(TALENTS).map(([id, talent]) => {
+      const optional = talent as {
+        minLevel?: number;
+        requires?: unknown;
+        unlockAction?: string;
+      };
+      return [id, {
+        id,
+        tree: talent.tree,
+        nodeId: talent.nodeId,
+        name: talent.name,
+        description: talent.description,
+        maxRank: talent.maxRank,
+        minLevel: optional.minLevel ?? 1,
+        requires: optional.requires ?? [],
+        effectText: talent.effectText,
+        effectPerRank: talent.effectPerRank,
+        unlockAction: optional.unlockAction ?? "",
+      }];
+    })),
+    potionShop: {
+      npcId: POTION_SHOP_NPC_ID,
+      productId: POTION_SHOP_PRODUCT_ID,
+      items: POTION_SHOP_ITEM_IDS.map((itemId) => ({
+        itemId,
+        prices: Object.fromEntries(POTION_SHOP_PURCHASE_QUANTITIES.map((quantity) => [
+          quantity,
+          getPotionShopPrice(quantity as PotionShopPurchaseQuantity, itemId as PotionShopItemId),
+        ])),
+      })),
+      quantities: POTION_SHOP_PURCHASE_QUANTITIES,
+    },
+    quests: Object.fromEntries(Object.entries(QUESTS).map(([id, quest]) => {
+      const optional = quest as {
+        turnInNpcId?: string;
+        requiredQuestId?: string;
+        requiredItemId?: string;
+        objectives?: unknown;
+        defeatNpcModels?: unknown;
+        dropNpcModels?: unknown;
+        nextQuestId?: string;
+      };
+      return [id, {
+        id,
+        title: quest.title,
+        giverNpcId: quest.giverNpcId,
+        turnInNpcId: optional.turnInNpcId ?? quest.giverNpcId,
+        description: quest.description,
+        objectiveLabel: quest.objectiveLabel,
+        turnInLabel: quest.turnInLabel,
+        required: quest.required,
+        requiredQuestId: optional.requiredQuestId ?? "",
+        requiredItemId: optional.requiredItemId ?? "",
+        defeatNpcModels: optional.defeatNpcModels ?? [],
+        dropNpcModels: optional.dropNpcModels ?? [],
+        objectives: optional.objectives ?? [],
+        xpReward: quest.xpReward,
+        nextQuestId: optional.nextQuestId ?? "",
+      }];
+    })),
+    world: {
+      hubs: WORLD_HUBS,
+      roads: WORLD_ROADS,
+      landmarks: WORLD_LANDMARKS,
+    },
+  };
+}

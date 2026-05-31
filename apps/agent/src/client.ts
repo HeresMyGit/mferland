@@ -17,8 +17,10 @@ import {
   type ActiveBuffSnapshot,
   type AgentObservation,
   type ChatMessage,
+  type ClientAgentStatus,
   type ClientInput,
   type CombatActionId,
+  type EquipmentSlotId,
   type EquipmentSlotSnapshot,
   type InventoryItemSnapshot,
   type ItemId,
@@ -148,6 +150,11 @@ type FightOptions = WaitOptions & {
 };
 
 type AmbientStyle = "lurker" | "builder" | "drifter";
+type TraitUpdateOptions = {
+  name?: string;
+  attemptId?: string;
+  payment?: MferGptPaymentProof;
+};
 
 const DEFAULT_WAIT_TIMEOUT_MS = 15_000;
 const DEFAULT_MOVE_TIMEOUT_MS = 45_000;
@@ -263,8 +270,35 @@ export class MferlandAgentClient {
       nearbyNpcs,
       recentChat: this.recentChat.slice(-8),
       bounds: PLAZA_BOUNDS,
-      availableActions: ["move", "look", "jump", "sprint", "chat", "interact", ...(Object.keys(COMBAT.actions) as CombatActionId[])],
+      availableActions: [
+        "move",
+        "look",
+        "jump",
+        "sprint",
+        "chat",
+        "emote",
+        "interact",
+        "acceptQuest",
+        "completeQuest",
+        "cancelQuest",
+        "shareQuestLink",
+        "combatAction",
+        "respawn",
+        "lootCorpse",
+        "equipItem",
+        "unequipItem",
+        "useItem",
+        "selectTalent",
+        "updateTraits",
+        "registerChainGear",
+        "purchasePotionShopItem",
+        ...(Object.keys(COMBAT.actions) as CombatActionId[]),
+      ],
     };
+  }
+
+  sendAgentStatus(status: ClientAgentStatus) {
+    this.room?.send("agentStatus", status);
   }
 
   async connect() {
@@ -473,12 +507,20 @@ export class MferlandAgentClient {
     this.room?.send("equipItem", { itemId, chainTokenId });
   }
 
+  unequipItem(slot: EquipmentSlotId) {
+    this.room?.send("unequipItem", { slot });
+  }
+
   useItem(itemId: ItemId, chainTokenId?: string) {
     this.room?.send("useItem", { itemId, chainTokenId });
   }
 
   selectTalent(talentId: TalentId) {
     this.room?.send("selectTalent", { talentId });
+  }
+
+  registerChainGear(tokenId: string, gearType?: number) {
+    this.room?.send("registerChainGear", { tokenId, gearType });
   }
 
   usePotionShopItem(itemId: PotionShopItemId, quantity?: PotionShopPurchaseQuantity, payment?: MferGptPaymentProof) {
@@ -502,11 +544,12 @@ export class MferlandAgentClient {
     if (!result?.ok) throw new Error(result?.error || `potion shop purchase ${itemId} failed`);
   }
 
-  updateTraits(traits: MferAppearanceTraits = DEFAULT_MFER_APPEARANCE_TRAITS) {
+  updateTraits(traits: MferAppearanceTraits = DEFAULT_MFER_APPEARANCE_TRAITS, options: TraitUpdateOptions = {}) {
     this.room?.send("updateTraits", {
       traits,
-      name: this.name,
-      attemptId: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: options.name ?? this.name,
+      attemptId: options.attemptId ?? `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      payment: options.payment,
     });
   }
 
@@ -988,6 +1031,11 @@ function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapsho
     identityType: player.identityType,
     isAgent: Boolean(player.isAgent),
     walletAddress: player.walletAddress,
+    agentStatusAction: player.agentStatusAction || "",
+    agentStatusThought: player.agentStatusThought || "",
+    agentStatusObjective: player.agentStatusObjective || "",
+    agentStatusQuest: player.agentStatusQuest || "",
+    agentStatusUpdatedAt: Number(player.agentStatusUpdatedAt) || 0,
     avatarSeed: player.avatarSeed,
     appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,

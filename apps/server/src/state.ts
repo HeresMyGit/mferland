@@ -63,6 +63,11 @@ export class PlayerState extends Schema {
   @type("string") identityType: IdentityType = "guest";
   @type("boolean") isAgent = false;
   @type("string") walletAddress = "";
+  @type("string") agentStatusAction = "";
+  @type("string") agentStatusThought = "";
+  @type("string") agentStatusObjective = "";
+  @type("string") agentStatusQuest = "";
+  @type("number") agentStatusUpdatedAt = 0;
   @type("number") avatarSeed = 0;
   @type("string") appearanceTraitsJson = "";
   @type("number") level = 1;

@@ -1,10 +1,23 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Client, type Room } from "colyseus.js";
+import {
+  createPublicClient,
+  createWalletClient,
+  encodeAbiParameters,
+  encodeFunctionData,
+  formatEther,
+  formatUnits,
+  http,
+  parseAbi,
+  parseEther,
+  parseUnits,
+  type Address,
+} from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 type AnyRecord = Record<string, unknown>;
@@ -17,6 +30,7 @@ type AgentConfig = {
   httpServer: string;
   roomName: string;
   authEndpoint: string;
+  catalogEndpoint: string;
   privateKey: `0x${string}`;
   agentName: string;
   inviteCode: string;
@@ -27,6 +41,8 @@ type AgentConfig = {
   decisionTimeoutMs: number;
   decisionIntervalMs: number;
   objective: string;
+  maxMferGptSpendWei: string;
+  maxSwapEthSpendWei: string;
   viewerPort: number;
   viewerHost: string;
   gameViewerUrl: string;
@@ -38,12 +54,25 @@ type RuntimePlayer = AnyRecord & {
   identityType: string;
   isAgent: boolean;
   walletAddress: string;
+  agentStatusAction: string;
+  agentStatusThought: string;
+  agentStatusObjective: string;
+  agentStatusQuest: string;
+  agentStatusUpdatedAt: number;
   health: number;
   maxHealth: number;
+  healthRegenPer5: number;
   mana: number;
   maxMana: number;
+  manaRegenPer5: number;
+  walkSpeed: number;
+  runSpeed: number;
+  strength: number;
+  dexterity: number;
+  magic: number;
   level: number;
   xp: number;
+  talentPoints: number;
   x: number;
   z: number;
   yaw: number;
@@ -52,6 +81,7 @@ type RuntimePlayer = AnyRecord & {
   quests: AnyRecord[];
   inventory: AnyRecord[];
   equipment: AnyRecord[];
+  talents: AnyRecord[];
   activeBuffs: AnyRecord[];
 };
 
@@ -94,6 +124,14 @@ type QuestMemory = {
   observedAt: number;
 };
 
+type CombatTroubleMemory = {
+  targetId: string;
+  targetName: string;
+  reason: string;
+  count: number;
+  lastAt: number;
+};
+
 type Decision = {
   action: string;
   reason: string;
@@ -103,9 +141,18 @@ type Decision = {
   playerRef?: string | null;
   questId?: string | null;
   itemId?: string | null;
+  chainTokenId?: string | null;
+  slotId?: string | null;
+  talentId?: string | null;
   actionId?: string | null;
   text?: string | null;
   emoteId?: string | null;
+  quantity?: number | null;
+  amountEth?: string | null;
+  paymentTxHash?: string | null;
+  paymentAmountWei?: string | null;
+  paymentChainId?: number | null;
+  paymentContractAddress?: string | null;
   sprint?: boolean | null;
 };
 
@@ -127,12 +174,18 @@ const COMBAT: Record<CombatActionId, { minRange: number; maxRange: number; manaC
   shoot: { minRange: 4, maxRange: 40, manaCost: 0, castTimeMs: 0, requiresStationary: true, minLevel: 2 },
   signalShot: { minRange: 4, maxRange: 34, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 3 },
   fireblast: { minRange: 0, maxRange: 30, manaCost: 14, castTimeMs: 3500, requiresStationary: true, minLevel: 4 },
-  frostNova: { minRange: 0, maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
+  frostNova: { minRange: 0, maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
   heal: { minRange: 0, maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
   taunt: { minRange: 0, maxRange: 12, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 7 },
-  whirlwind: { minRange: 0, maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
-  multishot: { minRange: 4, maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 1 },
+  whirlwind: { minRange: 0, maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
+  multishot: { minRange: 4, maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 6 },
   iceBlast: { minRange: 0, maxRange: 28, manaCost: 12, castTimeMs: 3500, requiresStationary: true, minLevel: 5 },
+};
+
+const COMBAT_UNLOCK_TALENTS: Partial<Record<CombatActionId, string>> = {
+  frostNova: "caster:frost-nova",
+  whirlwind: "brawler:whirlwind",
+  multishot: "utility:multishot",
 };
 
 const PUBLIC_LANDMARKS: Record<string, Point> = {
@@ -186,7 +239,12 @@ const DECISION_ACTIONS = [
   "fight_npc",
   "loot",
   "equip_item",
+  "unequip_item",
   "use_item",
+  "select_talent",
+  "swap_eth_for_mfergpt",
+  "register_chain_gear",
+  "purchase_potion_shop_item",
   "update_traits",
   "emote",
   "chat",
@@ -194,8 +252,411 @@ const DECISION_ACTIONS = [
 ] as const;
 
 const INPUT_INTERVAL_MS = 150;
-const INTERACT_SEND_RANGE = 2.7;
+const INTERACT_SEND_RANGE = 12.5;
+const QUEST_SEND_RANGE = 3.2;
 const INTERACT_APPROACH_DISTANCE = 1.6;
+const LOOT_SEND_RANGE = 3.2;
+const RECOVER_HEALTH_RATIO = 0.72;
+const CRITICAL_HEALTH_RATIO = 0.35;
+const DANGEROUS_NEIGHBOR_RADIUS = 11;
+const CROWDED_PULL_RADIUS = 12;
+const DECISION_PROVIDER_BACKOFF_MS = 5 * 60_000;
+const BASE_CHAIN_ID = 8453;
+const BASE_RPC_URL = "https://mainnet.base.org";
+const BASE_BLOCK_EXPLORER_URL = "https://basescan.org";
+const BASE_MFERGPT_TOKEN_ADDRESS = "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07";
+const BASE_BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+const BASE_WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
+const BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS = "0x6fF5693b99212Da76ad316178A184AB56D299b43";
+const BASE_MFERGPT_UNISWAP_V4_HOOKS_ADDRESS = "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC";
+const MFERGPT_DECIMALS = 18;
+const PRICE_DECIMALS = 18;
+const DEFAULT_SWAP_ETH_AMOUNT = "0.01";
+const DEFAULT_SWAP_SLIPPAGE_BPS = 500n;
+const BPS_DENOMINATOR = 10_000n;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as Address;
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+const ACTION_CONSTANT_ADDRESS_THIS = "0x0000000000000000000000000000000000000002";
+const UNISWAP_COMMAND_WRAP_ETH = "0b";
+const UNISWAP_COMMAND_V4_SWAP = "10";
+const V4_ACTION_SWAP_EXACT_IN_SINGLE = "06";
+const V4_ACTION_SETTLE = "0b";
+const V4_ACTION_TAKE_ALL = "0f";
+const MFERGPT_SWAP_GAS_LIMIT = 900_000n;
+const ERC20_ABI = parseAbi([
+  "function balanceOf(address owner) view returns (uint256)",
+  "function transfer(address to, uint256 amount) returns (bool)",
+]);
+const LOCAL_SWAP_ROUTER_ABI = parseAbi([
+  "function quoteExactETHForTokens(uint256 amountInWei) view returns (uint256)",
+  "function swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline) payable returns (uint256[] amounts)",
+]);
+const UNIVERSAL_ROUTER_ABI = [{
+  type: "function",
+  name: "execute",
+  stateMutability: "payable",
+  inputs: [
+    { name: "commands", type: "bytes" },
+    { name: "inputs", type: "bytes[]" },
+    { name: "deadline", type: "uint256" },
+  ],
+  outputs: [],
+}] as const;
+const BASE_MFERGPT_POOL_KEY = {
+  currency0: BASE_MFERGPT_TOKEN_ADDRESS,
+  currency1: BASE_WETH_ADDRESS,
+  fee: 0x800000,
+  tickSpacing: 200,
+  hooks: BASE_MFERGPT_UNISWAP_V4_HOOKS_ADDRESS,
+} as const;
+
+type MferGptPaymentProof = {
+  token: "MFERGPT";
+  txHash: `0x${string}`;
+  amountWei: string;
+  chainId: number;
+  contractAddress?: string;
+};
+
+type WalletToolSnapshot = {
+  configured: boolean;
+  rpcUrl: string;
+  rpcChainId: number;
+  proofChainId: number;
+  tokenAddress: string;
+  burnAddress: string;
+  nativeBalanceWei: string;
+  nativeBalanceEth: string;
+  mferGptBalanceWei: string;
+  mferGptBalance: string;
+  swapConfigured: boolean;
+  swapMode: "local-router" | "uniswap-v4" | "";
+  swapRouterAddress: string;
+  recommendedSwapEthAmount: string;
+  error: string;
+};
+
+type CryptoContractsConfig = {
+  chainId?: number;
+  rpcUrl?: string;
+  addresses?: {
+    mfergpt?: string;
+    swapRouter?: string;
+    weth?: string;
+  };
+};
+
+type DexScreenerTokenResponse = {
+  pairs?: Array<{
+    chainId?: string;
+    dexId?: string;
+    labels?: string[];
+    url?: string;
+    priceNative?: string;
+    liquidity?: {
+      usd?: number;
+    };
+    baseToken?: {
+      address?: string;
+      symbol?: string;
+    };
+    quoteToken?: {
+      address?: string;
+      symbol?: string;
+    };
+  }>;
+};
+
+class MferGptWalletTools {
+  private readonly account: PrivateKeyAccount;
+  private readonly rpcUrl: string;
+  private readonly rpcChainId: number;
+  private readonly proofChainId: number;
+  private readonly tokenAddress: Address;
+  private readonly burnAddress: Address;
+  private readonly localSwapRouterAddress?: Address;
+  private readonly swapInputAddress: Address;
+  private readonly universalRouterAddress: Address;
+  private readonly useUniversalRouter: boolean;
+
+  constructor(options: {
+    account: PrivateKeyAccount;
+    rpcUrl: string;
+    rpcChainId: number;
+    proofChainId: number;
+    tokenAddress: Address;
+    burnAddress: Address;
+    localSwapRouterAddress?: Address;
+    swapInputAddress?: Address;
+    universalRouterAddress?: Address;
+    useUniversalRouter: boolean;
+  }) {
+    this.account = options.account;
+    this.rpcUrl = options.rpcUrl;
+    this.rpcChainId = options.rpcChainId;
+    this.proofChainId = options.proofChainId;
+    this.tokenAddress = options.tokenAddress;
+    this.burnAddress = options.burnAddress;
+    this.localSwapRouterAddress = options.localSwapRouterAddress;
+    this.swapInputAddress = options.swapInputAddress ?? ZERO_ADDRESS;
+    this.universalRouterAddress = options.universalRouterAddress ?? BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS as Address;
+    this.useUniversalRouter = options.useUniversalRouter;
+  }
+
+  static fromEnv(account: PrivateKeyAccount, config: AgentConfig) {
+    const localConfig = readCryptoContractsConfig();
+    const localOnly = isLocalAgentRun(config);
+    const rpcUrl = cleanEnv("AGENT_MFERGPT_RPC_URL")
+      || cleanEnv("MFERLAND_MFERGPT_PAYMENT_RPC_URL")
+      || cleanEnv("MFERLAND_TRAIT_PAYMENT_RPC_URL")
+      || cleanText(localConfig?.rpcUrl, 300)
+      || (localOnly ? "" : BASE_RPC_URL);
+    const tokenAddress = asAddress(
+      cleanEnv("AGENT_MFERGPT_TOKEN_ADDRESS")
+      || cleanEnv("MFERLAND_MFERGPT_TOKEN_ADDRESS")
+      || cleanEnv("MFERLAND_TRAIT_MFERGPT_TOKEN_ADDRESS")
+      || cleanText(localConfig?.addresses?.mfergpt, 80)
+      || (localOnly ? "" : BASE_MFERGPT_TOKEN_ADDRESS),
+    );
+
+    if (!rpcUrl || !tokenAddress) return null;
+    const rpcIsLocal = isLoopbackUrl(rpcUrl);
+    if (localOnly || rpcIsLocal) {
+      assertLocalPaymentConfig(rpcUrl, tokenAddress);
+    } else if (!config.allowProduction) {
+      throw new Error("Set AGENT_ALLOW_PRODUCTION=1 before enabling non-local MFERGPT wallet tools.");
+    }
+
+    const rpcChainId = readPositiveIntegerEnv("AGENT_MFERGPT_RPC_CHAIN_ID")
+      || readPositiveIntegerEnv("AGENT_CHAIN_ID")
+      || readPositiveIntegerText(localConfig?.chainId)
+      || (rpcIsLocal ? 31337 : BASE_CHAIN_ID);
+    const proofChainId = readPositiveIntegerEnv("AGENT_MFERGPT_PROOF_CHAIN_ID")
+      || readPositiveIntegerEnv("MFERLAND_MFERGPT_PAYMENT_CHAIN_ID")
+      || BASE_CHAIN_ID;
+    const burnAddress = asAddress(
+      cleanEnv("AGENT_MFERGPT_BURN_ADDRESS")
+      || cleanEnv("MFERLAND_MFERGPT_BURN_ADDRESS")
+      || cleanEnv("MFERLAND_TRAIT_BURN_ADDRESS")
+      || BASE_BURN_ADDRESS,
+    );
+    if (!burnAddress) throw new Error("MFERGPT burn address is invalid.");
+    const localSwapRouterAddress = asAddress(
+      cleanEnv("AGENT_MFERGPT_SWAP_ROUTER_ADDRESS")
+      || cleanEnv("MFERLAND_MFERGPT_SWAP_ROUTER_ADDRESS")
+      || cleanText(localConfig?.addresses?.swapRouter, 80),
+    ) || undefined;
+    const swapInputAddress = asAddress(
+      cleanEnv("AGENT_MFERGPT_SWAP_INPUT_ADDRESS")
+      || cleanEnv("MFERLAND_MFERGPT_SWAP_INPUT_ADDRESS")
+      || cleanText(localConfig?.addresses?.weth, 80),
+    ) || (rpcIsLocal ? ZERO_ADDRESS : BASE_WETH_ADDRESS as Address);
+    const universalRouterAddress = asAddress(
+      cleanEnv("AGENT_UNISWAP_UNIVERSAL_ROUTER_ADDRESS")
+      || BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS,
+    ) || BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS as Address;
+    const useUniversalRouter = !rpcIsLocal && !localSwapRouterAddress;
+
+    return new MferGptWalletTools({
+      account,
+      rpcUrl,
+      rpcChainId,
+      proofChainId,
+      tokenAddress,
+      burnAddress,
+      localSwapRouterAddress,
+      swapInputAddress,
+      universalRouterAddress,
+      useUniversalRouter,
+    });
+  }
+
+  async observe(): Promise<WalletToolSnapshot> {
+    const publicClient = this.publicClient();
+    const [nativeBalance, tokenBalance] = await Promise.all([
+      publicClient.getBalance({ address: this.account.address }),
+      publicClient.readContract({
+        address: this.tokenAddress,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [this.account.address],
+      }),
+    ]);
+    const swapRouterAddress = this.localSwapRouterAddress ?? (this.useUniversalRouter ? this.universalRouterAddress : undefined);
+    return {
+      configured: true,
+      rpcUrl: this.rpcUrl,
+      rpcChainId: this.rpcChainId,
+      proofChainId: this.proofChainId,
+      tokenAddress: this.tokenAddress,
+      burnAddress: this.burnAddress,
+      nativeBalanceWei: nativeBalance.toString(),
+      nativeBalanceEth: formatBalance(formatEther(nativeBalance), 4),
+      mferGptBalanceWei: tokenBalance.toString(),
+      mferGptBalance: formatBalance(formatUnits(tokenBalance, MFERGPT_DECIMALS), 2),
+      swapConfigured: Boolean(swapRouterAddress),
+      swapMode: this.localSwapRouterAddress ? "local-router" : this.useUniversalRouter ? "uniswap-v4" : "",
+      swapRouterAddress: swapRouterAddress ?? "",
+      recommendedSwapEthAmount: DEFAULT_SWAP_ETH_AMOUNT,
+      error: "",
+    };
+  }
+
+  async burn(amountWei: string, amountLabel: string): Promise<MferGptPaymentProof> {
+    const amount = BigInt(amountWei);
+    const publicClient = this.publicClient();
+    const walletClient = this.walletClient();
+    const balance = await publicClient.readContract({
+      address: this.tokenAddress,
+      abi: ERC20_ABI,
+      functionName: "balanceOf",
+      args: [this.account.address],
+    });
+    if (balance < amount) throw new Error(`not enough ${amountLabel}`);
+
+    const txHash = await walletClient.writeContract({
+      address: this.tokenAddress,
+      abi: ERC20_ABI,
+      functionName: "transfer",
+      args: [this.burnAddress, amount],
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      confirmations: 1,
+      timeout: 90_000,
+    });
+    if (receipt.status !== "success") throw new Error(`${amountLabel} burn transaction failed`);
+
+    return {
+      token: "MFERGPT",
+      txHash,
+      amountWei,
+      chainId: this.proofChainId,
+      contractAddress: this.tokenAddress,
+    };
+  }
+
+  async swapEthForMferGpt(amountEth = DEFAULT_SWAP_ETH_AMOUNT) {
+    if (this.localSwapRouterAddress) return this.swapViaLocalRouter(amountEth);
+    if (this.useUniversalRouter) return this.swapViaUniversalRouter(amountEth);
+    throw new Error("MFERGPT swap router is not configured for this agent.");
+  }
+
+  private async swapViaLocalRouter(amountEth: string) {
+    if (!this.localSwapRouterAddress) throw new Error("local MFERGPT swap router is not configured.");
+    const amountIn = parseEthAmount(amountEth);
+    const publicClient = this.publicClient();
+    const walletClient = this.walletClient();
+    const [nativeBalance, beforeBalance, quotedOut] = await Promise.all([
+      publicClient.getBalance({ address: this.account.address }),
+      publicClient.readContract({
+        address: this.tokenAddress,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [this.account.address],
+      }),
+      publicClient.readContract({
+        address: this.localSwapRouterAddress,
+        abi: LOCAL_SWAP_ROUTER_ABI,
+        functionName: "quoteExactETHForTokens",
+        args: [amountIn],
+      }),
+    ]);
+    if (nativeBalance <= amountIn) throw new Error(`not enough ETH to swap ${amountEth}`);
+    if (quotedOut <= 0n) throw new Error("MFERGPT swap quote returned 0");
+    const minOut = quotedOut * (BPS_DENOMINATOR - DEFAULT_SWAP_SLIPPAGE_BPS) / BPS_DENOMINATOR;
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+    const txHash = await walletClient.writeContract({
+      address: this.localSwapRouterAddress,
+      abi: LOCAL_SWAP_ROUTER_ABI,
+      functionName: "swapExactETHForTokens",
+      args: [minOut, [this.swapInputAddress, this.tokenAddress], this.account.address, deadline],
+      value: amountIn,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1, timeout: 90_000 });
+    if (receipt.status !== "success") throw new Error(`${amountEth} ETH to MFERGPT swap failed`);
+    const received = await this.readReceivedMferGpt(publicClient, beforeBalance);
+    if (received < minOut) throw new Error("MFERGPT swap output was below minimum");
+    return {
+      txHash,
+      amountInWei: amountIn.toString(),
+      minAmountOutWei: minOut.toString(),
+      receivedWei: received.toString(),
+      received: formatBalance(formatUnits(received, MFERGPT_DECIMALS), 2),
+    };
+  }
+
+  private async swapViaUniversalRouter(amountEth: string) {
+    const amountIn = parseEthAmount(amountEth);
+    const quote = await getMferGptSwapQuote(amountIn);
+    const publicClient = this.publicClient();
+    const walletClient = this.walletClient();
+    const [nativeBalance, beforeBalance] = await Promise.all([
+      publicClient.getBalance({ address: this.account.address }),
+      publicClient.readContract({
+        address: this.tokenAddress,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [this.account.address],
+      }),
+    ]);
+    if (nativeBalance <= amountIn) throw new Error(`not enough Base ETH to swap ${amountEth}`);
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
+    const txHash = await walletClient.sendTransaction({
+      to: this.universalRouterAddress,
+      data: buildMferGptUniversalRouterCallData(quote.minAmountOutWei, amountIn, deadline),
+      value: amountIn,
+      gas: MFERGPT_SWAP_GAS_LIMIT,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1, timeout: 90_000 });
+    if (receipt.status !== "success") throw new Error(`${amountEth} ETH to MFERGPT swap failed`);
+    const received = await this.readReceivedMferGpt(publicClient, beforeBalance);
+    if (received < quote.minAmountOutWei) throw new Error("MFERGPT swap output was below minimum");
+    return {
+      txHash,
+      amountInWei: amountIn.toString(),
+      minAmountOutWei: quote.minAmountOutWei.toString(),
+      receivedWei: received.toString(),
+      received: formatBalance(formatUnits(received, MFERGPT_DECIMALS), 2),
+    };
+  }
+
+  private async readReceivedMferGpt(publicClient: ReturnType<MferGptWalletTools["publicClient"]>, beforeBalance: bigint) {
+    const afterBalance = await publicClient.readContract({
+      address: this.tokenAddress,
+      abi: ERC20_ABI,
+      functionName: "balanceOf",
+      args: [this.account.address],
+    });
+    return afterBalance > beforeBalance ? afterBalance - beforeBalance : 0n;
+  }
+
+  private publicClient() {
+    return createPublicClient({
+      chain: this.chain,
+      transport: http(this.rpcUrl),
+    });
+  }
+
+  private walletClient() {
+    return createWalletClient({
+      account: this.account,
+      chain: this.chain,
+      transport: http(this.rpcUrl),
+    });
+  }
+
+  private get chain() {
+    return {
+      id: this.rpcChainId,
+      name: this.rpcChainId === 31337 ? "mferland local" : "Base",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: {
+        default: { http: [this.rpcUrl] },
+      },
+    } as const;
+  }
+}
 
 class MferlandRunner {
   private readonly config: AgentConfig;
@@ -204,19 +665,29 @@ class MferlandRunner {
   private room: Room | null = null;
   private players = new Map<string, RuntimePlayer>();
   private npcs = new Map<string, RuntimeNpc>();
+  private catalog: AnyRecord | null = null;
   private lastNpcRefs = new Map<string, string>();
   private lastPlayerRefs = new Map<string, string>();
   private recentMessages: string[] = [];
   private questMemory = new Map<string, QuestMemory>();
+  private combatTrouble = new Map<string, CombatTroubleMemory>();
   private targetPoint: Point | null = null;
+  private avoidancePoint: Point | null = null;
+  private avoidanceUntil = 0;
+  private movementProgressTarget: Point | null = null;
+  private movementProgressDistance = Number.POSITIVE_INFINITY;
+  private movementProgressAt = 0;
   private routeQueue: Point[] = [];
   private engagedNpcId = "";
   private combatAnchor: Point | null = null;
+  private lastSafePoint: Point | null = null;
+  private retreatUntil = 0;
   private seq = 0;
   private yaw = Math.PI;
   private stationaryUntil = 0;
   private nextAutoCombatAt = 0;
   private nextAutoConsumableAt = 0;
+  private nextAgentStatusAt = 0;
   private nextDecisionAt = 0;
   private deciding = false;
   private lastAction = "";
@@ -226,15 +697,22 @@ class MferlandRunner {
   private decisionTimer: ReturnType<typeof setInterval> | null = null;
   private viewerServer: Server | null = null;
   private lastDecision: Decision | null = null;
+  private readonly walletTools: MferGptWalletTools | null;
+  private walletSnapshot: WalletToolSnapshot | null = null;
+  private mferGptSpendSubmittedWei = 0n;
+  private swapEthSpendSubmittedWei = 0n;
 
   constructor(config: AgentConfig) {
     this.config = config;
     this.account = privateKeyToAccount(config.privateKey);
     this.client = new Client(config.roomServer);
+    this.walletTools = MferGptWalletTools.fromEnv(this.account, config);
   }
 
   async start() {
     this.startViewer();
+    await this.loadCatalog();
+    if (this.walletTools) this.log("MFERGPT wallet tools enabled");
     await this.connect();
     this.inputTimer = setInterval(() => this.sendInput(), INPUT_INTERVAL_MS);
     this.decisionTimer = setInterval(() => void this.decide(), 250);
@@ -244,6 +722,19 @@ class MferlandRunner {
         this.stop();
         process.exit(0);
       }, this.config.runSeconds * 1000).unref();
+    }
+  }
+
+  private async loadCatalog() {
+    try {
+      const response = await fetch(new URL(this.config.catalogEndpoint, this.config.httpServer));
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || typeof payload !== "object") throw new Error(`agent catalog failed with ${response.status}`);
+      this.catalog = payload as AnyRecord;
+      this.log("loaded agent catalog");
+    } catch (error) {
+      this.log(`agent catalog unavailable: ${errorMessage(error)}`);
+      this.catalog = null;
     }
   }
 
@@ -368,20 +859,87 @@ class MferlandRunner {
     if (this.deciding || Date.now() < this.nextDecisionAt || !this.room) return;
     const self = this.self();
     if (!self) return;
+    if (Date.now() < this.retreatUntil && self.health > 0) return;
+    const attackers = this.getAttackers(self);
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    if (self.health > 0 && attackers.length === 0 && healthRatio < RECOVER_HEALTH_RATIO && this.nearbyHostileCount(self, 18) === 0) {
+      this.targetPoint = null;
+      this.lastAction = "recover_health";
+      this.nextDecisionAt = Date.now() + 1500;
+      return;
+    }
+    if (self.health > 0 && attackers.length > 0 && healthRatio < CRITICAL_HEALTH_RATIO) {
+      this.startRetreat(self, "retreat_critical_health");
+      return;
+    }
+    if (self.health > 0 && (self.castingAction || Date.now() < this.stationaryUntil)) {
+      this.nextDecisionAt = Date.now() + 500;
+      return;
+    }
+    if (self.health > 0 && this.activeEngagementNpc()) {
+      this.nextDecisionAt = Date.now() + 500;
+      return;
+    }
 
     this.deciding = true;
     this.nextDecisionAt = Date.now() + this.config.decisionIntervalMs;
     this.logStatus(self);
     try {
+      await this.refreshWalletSnapshot();
       const observation = this.buildObservation(self);
       const decision = await decideWithCodex(this.config, observation);
       this.lastDecision = decision;
       this.log(`decision ${decision.action}: ${decision.reason}`);
-      this.executeDecision(decision);
+      await this.executeDecision(decision);
+      this.publishAgentStatus(self, true);
     } catch (error) {
-      this.log(`decision failed: ${errorMessage(error)}`);
+      const message = errorMessage(error);
+      if (isDecisionProviderBackoffError(message)) {
+        this.targetPoint = null;
+        this.clearEngagement();
+        this.routeQueue = [];
+        this.lastAction = "llm_provider_backoff";
+        this.lastDecision = {
+          action: "wait",
+          reason: "Decision provider reported a quota or rate-limit error. Holding still until the provider is available again.",
+        };
+        this.nextDecisionAt = Date.now() + DECISION_PROVIDER_BACKOFF_MS;
+        this.publishAgentStatus(self, true);
+        this.log(`decision provider backoff: ${message.slice(0, 240)}`);
+      } else {
+        this.nextDecisionAt = Date.now() + Math.max(this.config.decisionIntervalMs, 2500);
+        this.log(`decision failed: ${message}`);
+      }
     } finally {
       this.deciding = false;
+    }
+  }
+
+  private async refreshWalletSnapshot() {
+    if (!this.walletTools) {
+      this.walletSnapshot = null;
+      return;
+    }
+    try {
+      this.walletSnapshot = await this.walletTools.observe();
+    } catch (error) {
+      this.walletSnapshot = {
+        configured: true,
+        rpcUrl: "",
+        rpcChainId: 0,
+        proofChainId: BASE_CHAIN_ID,
+        tokenAddress: "",
+        burnAddress: "",
+        nativeBalanceWei: "",
+        nativeBalanceEth: "",
+        mferGptBalanceWei: "",
+        mferGptBalance: "",
+        swapConfigured: false,
+        swapMode: "",
+        swapRouterAddress: "",
+        recommendedSwapEthAmount: DEFAULT_SWAP_ETH_AMOUNT,
+        error: errorMessage(error),
+      };
     }
   }
 
@@ -405,6 +963,8 @@ class MferlandRunner {
           role: npc.role,
           model: npc.model,
           alive,
+          attackable: isAttackable(npc),
+          hostile: isHostile(npc),
           health: `${Math.ceil(npc.health)}/${Math.ceil(npc.maxHealth)}`,
           distance: round(distance),
           position: point(npc),
@@ -414,6 +974,10 @@ class MferlandRunner {
           hasLoot: npc.hasLoot,
           aggroTarget: npc.aggroTargetId === self.sessionId ? "you" : npc.aggroTargetId ? "someone" : "",
           nearbyHostileCount: this.nearbyHostileCount(npc, 8),
+          nearbyDangerousHostileCount: this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc),
+          nearestDangerousHostile: this.nearestDangerousHostile(npc, CROWDED_PULL_RADIUS, npc),
+          pullRisk: this.describePullRisk(npc),
+          approachRisk: this.describeApproachRisk(self, npc),
         };
       });
 
@@ -438,6 +1002,13 @@ class MferlandRunner {
           distance: round(distance),
           position: point(player),
           animation: player.animation,
+          agentStatus: player.isAgent ? {
+            action: player.agentStatusAction,
+            thought: player.agentStatusThought,
+            objective: player.agentStatusObjective,
+            quest: player.agentStatusQuest,
+            updatedAgoMs: player.agentStatusUpdatedAt ? Math.max(0, now - player.agentStatusUpdatedAt) : null,
+          } : null,
         };
       });
 
@@ -468,21 +1039,53 @@ class MferlandRunner {
       wallet: {
         address: this.account.address,
         agentClient: true,
+        maxMferGptSpendWei: this.config.maxMferGptSpendWei,
+        mferGptSpendSubmittedWei: this.mferGptSpendSubmittedWei.toString(),
+        maxSwapEthSpendWei: this.config.maxSwapEthSpendWei,
+        swapEthSpendSubmittedWei: this.swapEthSpendSubmittedWei.toString(),
+        mferGptWalletToolsConfigured: Boolean(this.walletTools),
+        nativeBalanceEth: this.walletSnapshot?.nativeBalanceEth ?? "",
+        nativeBalanceWei: this.walletSnapshot?.nativeBalanceWei ?? "",
+        mferGptBalance: this.walletSnapshot?.mferGptBalance ?? "",
+        mferGptBalanceWei: this.walletSnapshot?.mferGptBalanceWei ?? "",
+        mferGptTokenAddress: this.walletSnapshot?.tokenAddress ?? "",
+        mferGptBurnAddress: this.walletSnapshot?.burnAddress ?? "",
+        mferGptPaymentChainId: this.walletSnapshot?.proofChainId ?? BASE_CHAIN_ID,
+        mferGptSwapConfigured: Boolean(this.walletSnapshot?.swapConfigured),
+        mferGptSwapMode: this.walletSnapshot?.swapMode ?? "",
+        mferGptSwapRouterAddress: this.walletSnapshot?.swapRouterAddress ?? "",
+        recommendedSwapEthAmount: this.walletSnapshot?.recommendedSwapEthAmount ?? DEFAULT_SWAP_ETH_AMOUNT,
+        walletToolError: this.walletSnapshot?.error ?? "",
       },
       self: {
         name: self.name,
         level: self.level,
         xp: self.xp,
+        levelProgress: this.describeLevelProgress(self),
         health: `${Math.ceil(self.health)}/${Math.ceil(self.maxHealth)}`,
         mana: `${Math.ceil(self.mana)}/${Math.ceil(self.maxMana)}`,
         position: point(self),
         animation: self.animation,
         castingAction: self.castingAction,
+        talentPoints: self.talentPoints,
+        characterStats: {
+          maxHealth: round(self.maxHealth),
+          maxMana: round(self.maxMana),
+          healthRegenPer5: round(self.healthRegenPer5),
+          manaRegenPer5: round(self.manaRegenPer5),
+          walkSpeed: round(self.walkSpeed),
+          runSpeed: round(self.runSpeed),
+          strength: round(self.strength),
+          dexterity: round(self.dexterity),
+          magic: round(self.magic),
+        },
         aggroCount: [...this.npcs.values()].filter((npc) => npc.aggroTargetId === self.sessionId && npc.health > 0 && npc.defeatedAt <= 0).length,
         nearbyHostileCount: this.nearbyHostileCount(self, 10),
+        nearbyDangerousHostileCount: this.nearbyDangerousHostileCount(self, 14),
         quests,
-        inventory: self.inventory,
-        equipment: self.equipment,
+        inventory: this.describeInventory(self),
+        equipment: this.describeEquipment(self),
+        talents: this.describeTalents(self),
         activeBuffs: self.activeBuffs,
         combatActions: COMBAT_ACTION_IDS.map((actionId) => {
           const action = COMBAT[actionId];
@@ -502,11 +1105,14 @@ class MferlandRunner {
         routes: Object.keys(PUBLIC_ROUTES),
         routeDetails: PUBLIC_ROUTES,
       },
+      catalog: this.buildCatalogObservation(self),
       nearbyNpcs: visibleNpcs,
       nearbyPlayers: visiblePlayers,
+      safeTrainingTargets: this.describeSafeTrainingTargets(self),
       questMemory: [...this.questMemory.values()]
         .sort((a, b) => b.observedAt - a.observedAt)
         .slice(0, 20),
+      combatTrouble: this.describeCombatTrouble(now),
       lootableCorpses: visibleNpcs.filter((npc) => !npc.alive && npc.hasLoot),
       recentMessages: this.recentMessages.slice(-20),
       availableActions: DECISION_ACTIONS,
@@ -516,16 +1122,32 @@ class MferlandRunner {
         "The harness only supplies wallet login, observation summaries, normal room-message actions, movement/cast safety, and short combat continuations after the policy selects a target.",
         "Use quest offer/status/turn-in messages, NPC dialogue, quest log state, visible NPCs, and public map landmarks as context clues.",
         "Do not assume a hidden quest script or hard-coded quest order. Explore by moving, interacting with nearby quest NPCs, reading offers/status, accepting available quests, doing objectives, and turning in ready quests.",
+        "Only use accept_quest for a quest that appeared as a recent questOffer from that NPC. NPC questId hints and inferred future quests are not offers; interact/explore first.",
         "For accept_quest, use the offer npcRef. For complete_quest, use the turnInNpcId/turnInNpcName from quest messages when present.",
         "Prefer stable NPC ids or exact NPC names for npcRef. Numbered refs like npc1 also work, but only for the current observation.",
         "If a quest is completed or a questCompleted message was observed, move on to available next quest context instead of retrying that turn-in.",
         "For combat, prefer fight_npc with a visible hostile npcRef. Avoid pulling packs unless grouping or using AoE intentionally.",
+        "Only use fight_npc or damaging use_ability on attackable NPCs. Quest givers, merchants, guards, and wanderers are friendly menu/interact targets, not combat targets.",
+        "NPC observations include pullRisk, approachRisk, nearbyHostileCount, and nearbyDangerousHostileCount. Prefer low-risk pulls with low approachRisk unless you are intentionally grouping or fighting the stronger enemy.",
         "After fight_npc or use_ability against an NPC, the harness continues ordinary combat messages on that selected target until it dies or you choose another high-level action.",
+        "If adds pile up or health drops quickly, the harness may briefly kite toward the last safe point before asking for the next policy decision.",
+        "If the selected combat target would require running into a dense hostile cluster, the harness holds at a safe edge and asks for a better target or route.",
+        "If non-combat travel walks into a stronger hostile or crowded pack, the harness pauses movement and asks for a safer route or target.",
+        "If lastAction starts with hold_safe_pull, hold_unsafe_pull, or hold_unsafe_travel, choose a different target, wait for respawns, reposition around the hazard, or group up instead of repeating the same target.",
+        "Use combatTrouble as memory of recent bad pulls. If a named quest target repeatedly causes retreat_dangerous_add or retreat_overpull, stop brute-forcing it. Level on safer mobs, equip better gear, use consumables, chat/group with nearby players, or approach from another edge.",
+        "Use self.levelProgress and safeTrainingTargets to decide whether safer nearby combat is a worthwhile preparation step before retrying hard quest targets.",
+        "If health is low and no enemy is currently attacking, the harness may wait briefly at a safe point to recover before asking for another decision.",
         "For travel_route, put a public route id or landmark id in text. Minor wording differences are accepted.",
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
         "If a corpse has loot and you are safe, use loot to clear it.",
+        "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
+        "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
+        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, and purchase_potion_shop_item through normal room messages when the observation shows a useful reason.",
+        "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH.",
+        "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
-        "For update_traits, no item or quest id is required; the runner sends a basic trait set.",
+        "For a free update_traits, no item or quest id is required; the runner sends a basic trait set. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
       ],
       refs: {
         npcs: Object.fromEntries(refs),
@@ -561,6 +1183,251 @@ class MferlandRunner {
       now,
       lastAction: this.lastAction,
     };
+  }
+
+  private buildCatalogObservation(self: RuntimePlayer) {
+    if (!this.catalog) {
+      return {
+        source: "unavailable",
+        note: "agent-catalog endpoint was not available; rely on live room state and raw inventory/equipment fields.",
+      };
+    }
+
+    const items = asRecord(this.catalog.items);
+    const itemDefinitions = Object.values(items).map(asRecord);
+    return {
+      source: "agent-catalog",
+      controls: this.catalog.controls ?? {},
+      menus: this.catalog.menus ?? {},
+      payments: this.catalog.payments ?? {},
+      progression: this.catalog.progression ?? {},
+      equipmentSlots: this.catalog.equipmentSlots ?? {},
+      talentTrees: this.catalog.talentTrees ?? {},
+      talentChoices: this.buildTalentChoices(self),
+      equipmentCatalog: itemDefinitions
+        .filter((item) => Boolean(item.equipment))
+        .map((item) => this.summarizeItemDefinition(item))
+        .slice(0, 80),
+      consumableCatalog: itemDefinitions
+        .filter((item) => Boolean(item.consumable))
+        .map((item) => this.summarizeItemDefinition(item))
+        .slice(0, 40),
+      potionShop: this.catalog.potionShop ?? {},
+    };
+  }
+
+  private describeLevelProgress(self: RuntimePlayer) {
+    const progression = asRecord(this.catalog?.progression);
+    const thresholds = Array.isArray(progression.levelXpThresholds)
+      ? progression.levelXpThresholds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+      : [];
+    const levelCap = getNumber(progression.levelCap, thresholds.length || self.level);
+    const levelStartXp = thresholds[Math.max(0, self.level - 1)] ?? 0;
+    const nextLevelXp = self.level >= levelCap ? levelStartXp : thresholds[self.level] ?? 0;
+    const required = Math.max(0, nextLevelXp - levelStartXp);
+    const current = required > 0 ? Math.max(0, Math.min(required, self.xp - levelStartXp)) : required;
+    return {
+      level: self.level,
+      levelCap,
+      totalXp: self.xp,
+      current,
+      required,
+      remainingToNextLevel: required > 0 ? Math.max(0, required - current) : 0,
+      nextLevel: self.level >= levelCap ? null : self.level + 1,
+    };
+  }
+
+  private describeSafeTrainingTargets(self: RuntimePlayer) {
+    return [...this.npcs.values()]
+      .filter((npc) => npc.health > 0 && npc.defeatedAt <= 0 && !npc.isImmortal)
+      .map((npc) => ({
+        npc,
+        distance: distance2d(self, npc),
+        xpReward: this.getNpcXpReward(npc),
+      }))
+      .filter(({ npc, distance, xpReward }) => (
+        distance <= 45
+        && xpReward > 0
+        && this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc) === 0
+        && this.describeApproachRisk(self, npc) !== "high"
+      ))
+      .sort((a, b) => {
+        if (a.xpReward !== b.xpReward) return b.xpReward - a.xpReward;
+        return a.distance - b.distance;
+      })
+      .slice(0, 8)
+      .map(({ npc, distance, xpReward }) => ({
+        id: npc.id,
+        name: npc.name,
+        role: npc.role,
+        model: npc.model,
+        health: `${Math.ceil(npc.health)}/${Math.ceil(npc.maxHealth)}`,
+        distance: round(distance),
+        xpReward,
+        pullRisk: this.describePullRisk(npc),
+        approachRisk: this.describeApproachRisk(self, npc),
+      }));
+  }
+
+  private getNpcXpReward(npc: RuntimeNpc) {
+    const rewards = asRecord(asRecord(this.catalog?.progression).mobXpRewards);
+    return getNumber(rewards[npc.model]) || getNumber(rewards[npc.role]);
+  }
+
+  private describeInventory(self: RuntimePlayer) {
+    return self.inventory.map((item) => {
+      const itemId = getString(item.id);
+      return {
+        itemId,
+        name: getString(this.itemDefinition(itemId).name) || itemId,
+        quality: getString(this.itemDefinition(itemId).quality),
+        count: getNumber(item.count),
+        chainTokenId: getString(item.chainTokenId),
+        chainTier: getNumber(item.chainTier, 1),
+        equipment: this.itemDefinition(itemId).equipment ?? null,
+        consumable: this.itemDefinition(itemId).consumable ?? null,
+        description: getString(this.itemDefinition(itemId).description),
+      };
+    });
+  }
+
+  private describeEquipment(self: RuntimePlayer) {
+    return self.equipment.map((slot) => {
+      const itemId = getString(slot.itemId);
+      return {
+        slot: getString(slot.slot),
+        itemId,
+        name: itemId ? getString(this.itemDefinition(itemId).name) || itemId : "",
+        quality: itemId ? getString(this.itemDefinition(itemId).quality) : "",
+        chainTokenId: getString(slot.chainTokenId),
+        chainTier: getNumber(slot.chainTier, 1),
+        equipment: itemId ? this.itemDefinition(itemId).equipment ?? null : null,
+      };
+    });
+  }
+
+  private describeTalents(self: RuntimePlayer) {
+    return self.talents.map((talent) => {
+      const talentId = getString(talent.id);
+      const definition = this.talentDefinition(talentId);
+      return {
+        talentId,
+        tree: getString(talent.tree),
+        nodeId: getString(talent.nodeId),
+        rank: getNumber(talent.rank),
+        name: getString(definition.name) || talentId,
+        effectText: getString(definition.effectText),
+        unlockAction: getString(definition.unlockAction),
+      };
+    });
+  }
+
+  private buildTalentChoices(self: RuntimePlayer) {
+    const talents = asRecord(this.catalog?.talents);
+    return Object.entries(talents)
+      .map(([talentId, value]) => {
+        const talent = asRecord(value);
+        const currentRank = this.getTalentRank(self, talentId);
+        const maxRank = getNumber(talent.maxRank, 1);
+        const minLevel = getNumber(talent.minLevel, 1);
+        const missingRequirement = this.getMissingTalentRequirement(self, talent);
+        const status = currentRank >= maxRank
+          ? "maxed"
+          : self.level < minLevel
+            ? `locked: level ${minLevel}`
+            : missingRequirement
+              ? `locked: requires ${missingRequirement}`
+              : self.talentPoints <= 0
+                ? "no_points"
+                : "available";
+        return {
+          talentId,
+          tree: getString(talent.tree),
+          nodeId: getString(talent.nodeId),
+          name: getString(talent.name) || talentId,
+          description: getString(talent.description),
+          currentRank,
+          maxRank,
+          minLevel,
+          status,
+          effectText: getString(talent.effectText),
+          effectPerRank: talent.effectPerRank ?? {},
+          unlockAction: getString(talent.unlockAction),
+          requires: Array.isArray(talent.requires) ? talent.requires : [],
+        };
+      })
+      .sort((a, b) => {
+        const availableOrder = Number(b.status === "available") - Number(a.status === "available");
+        return availableOrder || a.tree.localeCompare(b.tree) || a.talentId.localeCompare(b.talentId);
+      });
+  }
+
+  private summarizeItemDefinition(item: AnyRecord) {
+    return {
+      itemId: getString(item.id),
+      name: getString(item.name),
+      quality: getString(item.quality),
+      value: getNumber(item.value),
+      equipment: item.equipment ?? null,
+      consumable: item.consumable ?? null,
+      description: getString(item.description),
+    };
+  }
+
+  private itemDefinition(itemId: string) {
+    return asRecord(asRecord(this.catalog?.items)[itemId]);
+  }
+
+  private talentDefinition(talentId: string) {
+    return asRecord(asRecord(this.catalog?.talents)[talentId]);
+  }
+
+  private getTalentRank(self: RuntimePlayer, talentId: string) {
+    const direct = self.talents.find((talent) => getString(talent.id) === talentId);
+    if (direct) return getNumber(direct.rank);
+    const [tree, nodeId] = talentId.split(":");
+    const legacy = self.talents.find((talent) => getString(talent.tree) === tree && getString(talent.nodeId) === nodeId);
+    return legacy ? getNumber(legacy.rank) : 0;
+  }
+
+  private getMissingTalentRequirement(self: RuntimePlayer, talent: AnyRecord) {
+    if (!Array.isArray(talent.requires)) return "";
+    for (const requirement of talent.requires.map(asRecord)) {
+      const talentId = getString(requirement.talentId);
+      const rank = getNumber(requirement.rank, 1);
+      if (!talentId) continue;
+      if (this.getTalentRank(self, talentId) < rank) return `${talentId} rank ${rank}`;
+    }
+    return "";
+  }
+
+  private isActiveQuestObjectiveNpc(self: RuntimePlayer, npc: RuntimeNpc) {
+    return this.isExactActiveQuestObjectiveNpc(self, npc) || this.isModelActiveQuestObjectiveNpc(self, npc);
+  }
+
+  private isExactActiveQuestObjectiveNpc(self: RuntimePlayer, npc: RuntimeNpc) {
+    const quests = asRecord(this.catalog?.quests);
+    return self.quests.some((quest) => {
+      const status = getString(quest.status);
+      if (status !== "active" && status !== "ready") return false;
+      const questId = getString(quest.id);
+      const definition = asRecord(quests[questId]);
+      const objectives = Array.isArray(definition.objectives) ? definition.objectives.map(asRecord) : [];
+      return objectives.some((objective) => getString(objective.id) === npc.id);
+    });
+  }
+
+  private isModelActiveQuestObjectiveNpc(self: RuntimePlayer, npc: RuntimeNpc) {
+    const quests = asRecord(this.catalog?.quests);
+    return self.quests.some((quest) => {
+      const status = getString(quest.status);
+      if (status !== "active" && status !== "ready") return false;
+      const questId = getString(quest.id);
+      const definition = asRecord(quests[questId]);
+      const defeatNpcModels = stringArray(definition.defeatNpcModels);
+      const dropNpcModels = stringArray(definition.dropNpcModels);
+      return defeatNpcModels.includes(npc.model) || dropNpcModels.includes(npc.model);
+    });
   }
 
   private startViewer() {
@@ -695,7 +1562,7 @@ class MferlandRunner {
     };
   }
 
-  private executeDecision(decision: Decision) {
+  private async executeDecision(decision: Decision) {
     const self = this.self();
     if (!self) return;
 
@@ -735,6 +1602,12 @@ class MferlandRunner {
       case "interact_npc": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error(`${decision.action} requires npcRef`);
+        if (isHostile(npc) && !npc.isImmortal && npc.health > 0 && npc.defeatedAt <= 0) {
+          this.setEngagement(self, npc.id);
+          this.routeQueue = [];
+          this.fight(self, npc);
+          return;
+        }
         this.clearEngagement();
         if (decision.action === "move_near_npc" || distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
@@ -759,7 +1632,18 @@ class MferlandRunner {
         const npc = this.resolveNpc(decision.npcRef);
         if (!questId || !npc) throw new Error("accept_quest requires questId and npcRef");
         this.clearEngagement();
-        if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
+        if (!this.hasRecentQuestOffer(questId, npc.id)) {
+          if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
+            this.moveNearNpc(self, npc);
+            this.lastAction = `move_to_offer ${questId}`;
+            return;
+          }
+          this.targetPoint = null;
+          this.send("interact", { npcId: npc.id });
+          this.lastAction = `need_offer_for_accept ${questId}`;
+          return;
+        }
+        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_accept ${questId}`;
           return;
@@ -774,7 +1658,7 @@ class MferlandRunner {
         const npc = this.resolveNpc(decision.npcRef);
         if (!questId || !npc) throw new Error("complete_quest requires questId and npcRef");
         this.clearEngagement();
-        if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
+        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_complete ${questId}`;
           return;
@@ -794,6 +1678,7 @@ class MferlandRunner {
       case "fight_npc": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error("fight_npc requires visible npcRef");
+        this.assertNpcCombatTarget(npc, "fight_npc");
         this.setEngagement(self, npc.id);
         this.routeQueue = [];
         this.fight(self, npc);
@@ -810,6 +1695,12 @@ class MferlandRunner {
           this.cast(actionId, { kind: "player", id: player.sessionId });
         } else {
           if (actionId === "frostNova" || actionId === "whirlwind") {
+            if (self.health > 0 && self.health < self.maxHealth * 0.28) {
+              this.routeQueue = [];
+              this.startRetreat(self, `retreat_skip_${actionId}`);
+              this.lastAction = `retreat_skip_${actionId}`;
+              return;
+            }
             this.clearEngagement();
             this.routeQueue = [];
             this.cast(actionId, { kind: "npc", id: "" });
@@ -818,6 +1709,7 @@ class MferlandRunner {
           }
           const npc = this.resolveNpc(decision.npcRef);
           if (!npc) throw new Error("use_ability requires npcRef or playerRef");
+          if (actionId !== "heal") this.assertNpcCombatTarget(npc, `use_ability ${actionId}`);
           if (actionId === "heal") this.clearEngagement();
           else this.setEngagement(self, npc.id);
           this.routeQueue = [];
@@ -830,6 +1722,12 @@ class MferlandRunner {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error("loot requires npcRef");
         this.clearEngagement();
+        if (distance2d(self, npc) > LOOT_SEND_RANGE) {
+          this.moveTo(point(npc));
+          this.lastAction = `move_to_loot ${npc.id}`;
+          return;
+        }
+        this.targetPoint = null;
         this.send("lootCorpse", { npcId: npc.id });
         this.lastAction = `loot ${npc.id}`;
         return;
@@ -838,27 +1736,76 @@ class MferlandRunner {
         const itemId = cleanText(decision.itemId, 96);
         if (!itemId) throw new Error("equip_item requires itemId");
         this.clearEngagement();
-        this.send("equipItem", { itemId });
+        this.send("equipItem", { itemId, chainTokenId: cleanText(decision.chainTokenId, 128) || undefined });
         this.lastAction = `equip_item ${itemId}`;
+        return;
+      }
+      case "unequip_item": {
+        const slot = cleanText(decision.slotId, 40) || cleanText(decision.text, 40);
+        if (!slot) throw new Error("unequip_item requires slotId or text");
+        this.clearEngagement();
+        this.send("unequipItem", { slot });
+        this.lastAction = `unequip_item ${slot}`;
         return;
       }
       case "use_item": {
         const itemId = cleanText(decision.itemId, 96);
         if (!itemId) throw new Error("use_item requires itemId");
         this.clearEngagement();
-        this.send("useItem", { itemId });
+        this.send("useItem", { itemId, chainTokenId: cleanText(decision.chainTokenId, 128) || undefined });
         this.lastAction = `use_item ${itemId}`;
         return;
       }
-      case "update_traits":
+      case "select_talent": {
+        const talentId = cleanText(decision.talentId, 96) || cleanText(decision.text, 96);
+        if (!talentId) throw new Error("select_talent requires talentId or text");
         this.clearEngagement();
+        this.send("selectTalent", { talentId });
+        this.lastAction = `select_talent ${talentId}`;
+        return;
+      }
+      case "swap_eth_for_mfergpt": {
+        const amountEth = cleanText(decision.amountEth, 32) || this.walletSnapshot?.recommendedSwapEthAmount || DEFAULT_SWAP_ETH_AMOUNT;
+        const amountWei = parseEthAmount(amountEth);
+        if (!this.walletTools) throw new Error("MFERGPT wallet tools are not configured for this agent.");
+        this.reserveSwapEthSpend(amountWei.toString());
+        this.clearEngagement();
+        const result = await this.walletTools.swapEthForMferGpt(amountEth);
+        this.remember(`swapMferGpt:${result.txHash}:${result.received} MFERGPT`, true);
+        this.lastAction = `swap_eth_for_mfergpt ${amountEth}`;
+        return;
+      }
+      case "register_chain_gear": {
+        const tokenId = cleanText(decision.text, 96);
+        if (!tokenId) throw new Error("register_chain_gear requires token id in text");
+        this.clearEngagement();
+        this.send("registerChainGear", { tokenId });
+        this.lastAction = `register_chain_gear ${tokenId}`;
+        return;
+      }
+      case "purchase_potion_shop_item": {
+        const itemId = cleanText(decision.itemId, 96);
+        if (!itemId) throw new Error("purchase_potion_shop_item requires itemId");
+        const quantity = normalizePurchaseQuantity(decision.quantity);
+        const payment = await this.resolvePotionShopPayment(decision, itemId, quantity);
+        this.clearEngagement();
+        this.send("purchasePotionShopItem", { itemId, quantity, payment });
+        this.lastAction = `purchase_potion_shop_item ${itemId} x${quantity}`;
+        return;
+      }
+      case "update_traits": {
+        this.clearEngagement();
+        const payment = this.buildPaymentProof(decision);
+        if (payment) this.reserveMferGptSpend(payment.amountWei);
         this.send("updateTraits", {
           traits: DEFAULT_TRAITS,
           name: this.config.agentName,
           attemptId: `llm-skill-runner-${Date.now()}`,
+          payment,
         });
         this.lastAction = "update_traits";
         return;
+      }
       case "share_quest_link": {
         const questId = cleanText(decision.questId, 96);
         if (!questId) throw new Error("share_quest_link requires questId");
@@ -897,19 +1844,192 @@ class MferlandRunner {
     this.combatAnchor = null;
   }
 
+  private hasRecentQuestOffer(questId: string, npcId: string) {
+    const offer = this.questMemory.get(questId);
+    if (!offer || offer.kind !== "offer") return false;
+    if (offer.npcId && npcId && offer.npcId !== npcId) return false;
+    return Date.now() - offer.observedAt <= 120_000;
+  }
+
+  private assertNpcCombatTarget(npc: RuntimeNpc, action: string) {
+    if (!isAttackable(npc)) {
+      this.recordCombatTrouble(npc.id, "non_attackable_target");
+      throw new Error(`${action} target ${npc.id} is not attackable; role=${npc.role}, model=${npc.model}`);
+    }
+    if (npc.isImmortal || npc.health <= 0 || npc.defeatedAt > 0) {
+      this.recordCombatTrouble(npc.id, "unavailable_target");
+      throw new Error(`${action} target ${npc.id} is not currently available for combat`);
+    }
+  }
+
+  private buildPaymentProof(decision: Decision) {
+    const txHash = normalizeTxHash(decision.paymentTxHash);
+    if (!txHash) return null;
+    const amountWei = normalizePositiveIntegerString(decision.paymentAmountWei);
+    if (!amountWei) throw new Error("paymentAmountWei must be a positive integer string");
+    const chainId = readInteger(decision.paymentChainId);
+    if (!chainId) throw new Error("paymentChainId is required for payment proof");
+    const contractAddress = normalizeAddress(decision.paymentContractAddress);
+    return {
+      token: "MFERGPT",
+      txHash,
+      amountWei,
+      chainId,
+      contractAddress: contractAddress || undefined,
+    };
+  }
+
+  private requirePaymentProof(decision: Decision, action: string) {
+    const payment = this.buildPaymentProof(decision);
+    if (!payment) throw new Error(`${action} requires paymentTxHash, paymentAmountWei, and paymentChainId`);
+    return payment;
+  }
+
+  private async resolvePotionShopPayment(decision: Decision, itemId: string, quantity: number) {
+    const explicitPayment = this.buildPaymentProof(decision);
+    if (explicitPayment) {
+      this.reserveMferGptSpend(explicitPayment.amountWei);
+      return explicitPayment;
+    }
+    if (!this.walletTools) {
+      throw new Error("purchase_potion_shop_item requires payment proof or configured MFERGPT wallet tools");
+    }
+    const price = this.getPotionShopPrice(itemId, quantity);
+    this.reserveMferGptSpend(price.amountWei);
+    return this.walletTools.burn(price.amountWei, price.label);
+  }
+
+  private getPotionShopPrice(itemId: string, quantity: number) {
+    const potionShop = asRecord(this.catalog?.potionShop);
+    const items = Array.isArray(potionShop.items) ? potionShop.items.map(asRecord) : [];
+    const entry = items.find((item) => getString(item.itemId) === itemId);
+    const prices = asRecord(entry?.prices);
+    const price = asRecord(prices[String(quantity)]);
+    const amountWei = normalizePositiveIntegerString(price.amountWei);
+    const label = cleanText(price.label, 80) || `${amountWei} wei MFERGPT`;
+    if (!amountWei) throw new Error(`catalog missing MFERGPT price for ${itemId} x${quantity}`);
+    return { amountWei, label };
+  }
+
+  private reserveMferGptSpend(amountWei: string) {
+    const amount = BigInt(amountWei);
+    const maxSpend = BigInt(this.config.maxMferGptSpendWei);
+    if (maxSpend <= 0n) {
+      throw new Error("paid MFERGPT actions are disabled; set AGENT_MAX_MFERGPT_SPEND_WEI to a positive integer to allow them");
+    }
+    if (this.mferGptSpendSubmittedWei + amount > maxSpend) {
+      throw new Error("paid MFERGPT action exceeds AGENT_MAX_MFERGPT_SPEND_WEI");
+    }
+    this.mferGptSpendSubmittedWei += amount;
+  }
+
+  private reserveSwapEthSpend(amountWei: string) {
+    const amount = BigInt(amountWei);
+    const maxSpend = BigInt(this.config.maxSwapEthSpendWei);
+    if (maxSpend <= 0n) {
+      throw new Error("MFERGPT swap actions are disabled; set AGENT_MAX_SWAP_ETH_SPEND_WEI to a positive integer to allow them");
+    }
+    if (this.swapEthSpendSubmittedWei + amount > maxSpend) {
+      throw new Error("swap_eth_for_mfergpt exceeds AGENT_MAX_SWAP_ETH_SPEND_WEI");
+    }
+    this.swapEthSpendSubmittedWei += amount;
+  }
+
+  private activeEngagementNpc() {
+    const npc = this.npcs.get(this.engagedNpcId);
+    if (!npc || npc.health <= 0 || npc.defeatedAt > 0) return null;
+    return npc;
+  }
+
   private fight(self: RuntimePlayer, npc: RuntimeNpc) {
     this.routeQueue = [];
     const distance = distance2d(self, npc);
+    const attackers = this.getAttackers(self);
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    if (healthRatio < 0.88 && this.hasDangerousAdd(attackers, npc)) {
+      this.startRetreat(self, "retreat_dangerous_add");
+      return;
+    }
+    if (
+      self.level >= COMBAT.shoot.minLevel
+      && distance < 12
+      && (attackers.length >= 2 || healthRatio < RECOVER_HEALTH_RATIO)
+      && (this.lastSafePoint || this.combatAnchor)
+    ) {
+      this.startRetreat(self, "kite_to_range");
+      return;
+    }
+    if (healthRatio < CRITICAL_HEALTH_RATIO && (this.lastSafePoint || this.combatAnchor)) {
+      this.startRetreat(self, "retreat_critical_health");
+      return;
+    }
     const actionId = this.chooseCombatAction(self, npc, distance);
     const action = COMBAT[actionId];
+    const canTakeQuestRisk = this.canTakeQuestObjectiveRisk(self, npc, attackers);
+    if (this.shouldHoldUnsafePull(self, npc, attackers)) {
+      this.clearEngagement();
+      this.targetPoint = null;
+      this.lastAction = `hold_unsafe_pull ${npc.id}`;
+      return;
+    }
     if (distance > action.maxRange * 0.9) {
-      this.moveToCombatRange(self, npc, action);
+      const destination = this.combatRangePoint(self, npc, action);
+      const pathThreat = this.dangerousHostileOnTravelPath(self, destination, 12);
+      if (pathThreat && npc.aggroTargetId !== self.sessionId && !canTakeQuestRisk) {
+        this.clearEngagement();
+        this.targetPoint = null;
+        this.recordCombatTrouble(npc.id, `unsafe_path:${pathThreat.id}`);
+        this.lastAction = `hold_unsafe_pull_path ${npc.id} via ${pathThreat.id}`;
+        return;
+      }
+      if (
+        isHostile(npc)
+        && this.nearbyHostileCount(npc, 12) >= 3
+        && this.nearbyHostileCount(destination, 14) > 0
+        && !canTakeQuestRisk
+      ) {
+        this.clearEngagement();
+        this.targetPoint = null;
+        this.recordCombatTrouble(npc.id, "unsafe_pull_edge");
+        this.lastAction = `hold_safe_pull ${npc.id}`;
+        return;
+      }
+      this.moveTo(destination);
       this.lastAction = `move_to_fight ${npc.id}`;
       return;
     }
     this.targetPoint = null;
     this.cast(actionId, { kind: "npc", id: npc.id });
     this.lastAction = `combat ${actionId} ${npc.id}`;
+  }
+
+  private shouldHoldUnsafePull(self: RuntimePlayer, npc: RuntimeNpc, attackers: RuntimeNpc[]) {
+    if (!isHostile(npc) || npc.isImmortal || npc.health <= 0 || npc.defeatedAt > 0) return false;
+    if (npc.aggroTargetId === self.sessionId || attackers.some((attacker) => attacker.id === npc.id)) return false;
+    if (attackers.length > 0) return false;
+    const dangerousNeighbors = this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc);
+    const crowdedNeighbors = this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS);
+    if (self.health >= self.maxHealth * 0.86) {
+      if (this.isExactActiveQuestObjectiveNpc(self, npc)) return false;
+      if (this.isModelActiveQuestObjectiveNpc(self, npc) && dangerousNeighbors === 0) return false;
+      if (
+        this.canTakeQuestObjectiveRisk(self, npc, attackers)
+        && dangerousNeighbors <= 1
+        && crowdedNeighbors < 5
+      ) return false;
+    }
+    const shouldHold = dangerousNeighbors > 0 || crowdedNeighbors >= 4;
+    if (shouldHold) this.recordCombatTrouble(npc.id, dangerousNeighbors > 0 ? "dangerous_neighbor" : "crowded_pull");
+    return shouldHold;
+  }
+
+  private canTakeQuestObjectiveRisk(self: RuntimePlayer, npc: RuntimeNpc, attackers: RuntimeNpc[]) {
+    if (!this.isModelActiveQuestObjectiveNpc(self, npc) && !this.isExactActiveQuestObjectiveNpc(self, npc)) return false;
+    if (attackers.length > 0 && !attackers.some((attacker) => attacker.id === npc.id)) return false;
+    if (self.health < self.maxHealth * 0.92) return false;
+    if (npc.maxHealth > self.maxHealth * 0.42) return false;
+    if (this.getCombatTroubleCount(npc.id, 90_000) >= 2) return false;
+    return true;
   }
 
   private chooseCombatAction(self: RuntimePlayer, npc: RuntimeNpc, distance: number): CombatActionId {
@@ -940,6 +2060,8 @@ class MferlandRunner {
   private canUse(self: RuntimePlayer, actionId: CombatActionId) {
     const action = COMBAT[actionId];
     if (self.level < action.minLevel) return false;
+    const unlockTalentId = COMBAT_UNLOCK_TALENTS[actionId];
+    if (unlockTalentId && this.getTalentRank(self, unlockTalentId) <= 0) return false;
     if (self.mana < action.manaCost) return false;
     const readyAt = getNumber(self[`${actionId}ReadyAt`]);
     return !readyAt || readyAt <= Date.now();
@@ -954,7 +2076,9 @@ class MferlandRunner {
   }
 
   private moveTo(point: Point) {
-    this.targetPoint = { x: point.x, z: point.z };
+    const nextPoint = { x: point.x, z: point.z };
+    if (!this.targetPoint || distance2d(this.targetPoint, nextPoint) > 1.2) this.resetMovementProgress(nextPoint);
+    this.targetPoint = nextPoint;
   }
 
   private moveNearNpc(self: RuntimePlayer, npc: RuntimeNpc) {
@@ -968,52 +2092,125 @@ class MferlandRunner {
   }
 
   private moveToCombatRange(self: RuntimePlayer, npc: RuntimeNpc, action: { maxRange: number; minRange: number }) {
+    this.moveTo(this.combatRangePoint(self, npc, action));
+  }
+
+  private combatRangePoint(self: RuntimePlayer, npc: RuntimeNpc, action: { maxRange: number; minRange: number }) {
     const desiredRange = action.maxRange >= 20
       ? Math.max(action.minRange + 1.5, Math.min(action.maxRange - 2, action.maxRange * 0.86))
       : Math.max(2.4, Math.min(action.maxRange * 0.7, action.maxRange - 0.5));
     const dx = self.x - npc.x;
     const dz = self.z - npc.z;
     const length = Math.hypot(dx, dz) || 1;
-    this.moveTo({
+    return {
       x: npc.x + (dx / length) * desiredRange,
       z: npc.z + (dz / length) * desiredRange,
-    });
+    };
   }
 
   private sendInput() {
     const self = this.self();
     if (!this.room || !self) return;
+    this.updateLastSafePoint(self);
     this.maintainSurvival(self);
     this.continueEngagement(self);
+    this.pauseUnsafeTravel(self);
     if (!this.engagedNpcId && this.routeQueue.length > 0) this.followRoute(self);
     let x = 0;
     let z = 0;
     if (Date.now() >= this.stationaryUntil && this.targetPoint) {
-      const dx = this.targetPoint.x - self.x;
-      const dz = this.targetPoint.z - self.z;
+      this.updateMovementRecovery(self);
+      const movementTarget = this.currentMovementTarget();
+      const dx = movementTarget.x - self.x;
+      const dz = movementTarget.z - self.z;
       const length = Math.hypot(dx, dz);
       if (length > 0.7) {
         x = dx / length;
         z = dz / length;
         this.yaw = Math.atan2(x, z);
       } else {
-        this.targetPoint = null;
+        if (this.avoidancePoint && Date.now() < this.avoidanceUntil) {
+          this.avoidancePoint = null;
+          this.avoidanceUntil = 0;
+        } else {
+          this.targetPoint = null;
+        }
       }
     }
     this.send("input", { x, z, yaw: this.yaw, sprint: Boolean(this.targetPoint), jump: false, seq: ++this.seq });
+    this.publishAgentStatus(self);
+  }
+
+  private currentMovementTarget() {
+    if (this.avoidancePoint && Date.now() < this.avoidanceUntil) return this.avoidancePoint;
+    this.avoidancePoint = null;
+    this.avoidanceUntil = 0;
+    return this.targetPoint as Point;
+  }
+
+  private resetMovementProgress(target: Point | null = this.targetPoint) {
+    this.avoidancePoint = null;
+    this.avoidanceUntil = 0;
+    this.movementProgressTarget = target ? { ...target } : null;
+    this.movementProgressDistance = Number.POSITIVE_INFINITY;
+    this.movementProgressAt = Date.now();
+  }
+
+  private updateMovementRecovery(self: RuntimePlayer) {
+    if (!this.targetPoint) {
+      this.resetMovementProgress(null);
+      return;
+    }
+    const now = Date.now();
+    if (!this.movementProgressTarget || distance2d(this.movementProgressTarget, this.targetPoint) > 1.2) {
+      this.resetMovementProgress(this.targetPoint);
+    }
+    if (this.avoidancePoint && now < this.avoidanceUntil) return;
+
+    const distance = distance2d(self, this.targetPoint);
+    if (distance < this.movementProgressDistance - 0.35) {
+      this.movementProgressDistance = distance;
+      this.movementProgressAt = now;
+      return;
+    }
+    if (distance < 3 || now - this.movementProgressAt < 2400) return;
+
+    const dx = this.targetPoint.x - self.x;
+    const dz = this.targetPoint.z - self.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const side = stableHash(`${Math.round(self.x)}:${Math.round(self.z)}:${Math.round(now / 2400)}`) % 2 === 0 ? 1 : -1;
+    this.avoidancePoint = {
+      x: round(self.x + (-dz / length) * 5.5 * side + (dx / length) * 1.2),
+      z: round(self.z + (dx / length) * 5.5 * side + (dz / length) * 1.2),
+    };
+    this.avoidanceUntil = now + 950;
+    this.movementProgressAt = now;
+    this.lastAction = this.lastAction.startsWith("unstick_move") ? this.lastAction : `unstick_move ${this.lastAction}`;
+  }
+
+  private pauseUnsafeTravel(self: RuntimePlayer) {
+    if (this.engagedNpcId || !this.targetPoint || this.getAttackers(self).length > 0) return;
+    if (distance2d(self, this.targetPoint) <= 4) return;
+    const dangerousOnPath = this.dangerousHostileOnTravelPath(self, this.targetPoint, 12);
+    const dangerousNearby = this.nearbyDangerousHostileCount(self, 10) > 0;
+    const crowdedNearby = this.nearbyHostileCount(self, 6) >= 2;
+    if (!dangerousOnPath && !dangerousNearby && !crowdedNearby) return;
+    this.targetPoint = null;
+    this.routeQueue = [];
+    this.lastAction = dangerousOnPath
+      ? `hold_unsafe_travel_path ${dangerousOnPath.id}`
+      : dangerousNearby
+        ? "hold_unsafe_travel_dangerous_hostile"
+        : "hold_unsafe_travel_crowded_hostiles";
+    this.nextDecisionAt = Math.min(this.nextDecisionAt, Date.now() + 350);
   }
 
   private continueEngagement(self: RuntimePlayer) {
     if (!this.engagedNpcId || Date.now() < this.nextAutoCombatAt || self.health <= 0 || self.castingAction) return;
-    const attackers = [...this.npcs.values()].filter((npc) => (
-      npc.aggroTargetId === self.sessionId
-      && npc.health > 0
-      && npc.defeatedAt <= 0
-    )).length;
-    if (attackers >= 3 || self.health < self.maxHealth * 0.35) {
-      if (this.combatAnchor) this.moveTo(this.combatAnchor);
-      this.clearEngagement();
-      this.lastAction = attackers >= 3 ? "retreat_overpull" : "retreat_low_health";
+    const attackers = this.getAttackers(self);
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    if (attackers.length >= 2 || healthRatio < 0.55) {
+      this.startRetreat(self, attackers.length >= 2 ? "retreat_overpull" : "retreat_low_health");
       return;
     }
     const npc = this.npcs.get(this.engagedNpcId);
@@ -1025,10 +2222,228 @@ class MferlandRunner {
     this.fight(self, npc);
   }
 
+  private updateLastSafePoint(self: RuntimePlayer) {
+    if (self.health <= 0) return;
+    if (this.getAttackers(self).length > 0) return;
+    if (this.nearbyHostileCount(self, 18) > 0) return;
+    this.lastSafePoint = point(self);
+  }
+
+  private startRetreat(self: RuntimePlayer, reason: string, durationMs = 5200) {
+    const troubleTargetId = this.engagedNpcId || this.getAttackers(self)[0]?.id || "";
+    if (troubleTargetId) this.recordCombatTrouble(troubleTargetId, reason);
+    const destination = reason.includes("dangerous_add")
+      ? this.threatAvoidancePoint(self, 34)
+      : this.retreatDestination(self);
+    this.clearEngagement();
+    this.routeQueue = [];
+    this.moveTo(destination);
+    const now = Date.now();
+    this.retreatUntil = now + durationMs;
+    this.nextDecisionAt = Math.max(this.nextDecisionAt, now + Math.min(durationMs, 2400));
+    this.lastAction = reason;
+  }
+
+  private retreatDestination(self: RuntimePlayer) {
+    const candidates = [this.lastSafePoint, this.combatAnchor]
+      .filter((candidate): candidate is Point => Boolean(candidate))
+      .filter((candidate) => distance2d(self, candidate) >= 6)
+      .sort((a, b) => this.nearbyHostileCount(a, 14) - this.nearbyHostileCount(b, 14));
+    const safeCandidate = candidates.find((candidate) => this.nearbyHostileCount(candidate, 14) === 0);
+    if (safeCandidate) return safeCandidate;
+    if (candidates[0]) return candidates[0];
+
+    return this.threatAvoidancePoint(self, 22);
+  }
+
+  private threatAvoidancePoint(self: RuntimePlayer, distance: number) {
+    const threats = this.getAttackers(self);
+    const nearbyThreats = threats.length
+      ? threats
+      : [...this.npcs.values()].filter((npc) => (
+        npc.health > 0
+        && npc.defeatedAt <= 0
+        && !npc.isImmortal
+        && isHostile(npc)
+        && distance2d(self, npc) <= 14
+      ));
+    let awayX = 0;
+    let awayZ = 0;
+    for (const threat of nearbyThreats) {
+      const dx = self.x - threat.x;
+      const dz = self.z - threat.z;
+      const length = Math.hypot(dx, dz) || 1;
+      awayX += dx / length;
+      awayZ += dz / length;
+    }
+    const length = Math.hypot(awayX, awayZ);
+    if (length <= 0.001) return point(self);
+    return {
+      x: round(self.x + (awayX / length) * distance),
+      z: round(self.z + (awayZ / length) * distance),
+    };
+  }
+
+  private getAttackers(self: RuntimePlayer) {
+    return [...this.npcs.values()].filter((npc) => (
+      npc.aggroTargetId === self.sessionId
+      && npc.health > 0
+      && npc.defeatedAt <= 0
+    ));
+  }
+
+  private isDangerousNeighbor(npc: RuntimeNpc, intendedTarget?: RuntimeNpc) {
+    if (!isHostile(npc) || npc.health <= 0 || npc.defeatedAt > 0 || npc.id === intendedTarget?.id) return false;
+    if (npc.isImmortal || npc.model === "training-dummy") return false;
+    return npc.role === "farmer" || npc.maxHealth >= Math.max(50, (intendedTarget?.maxHealth ?? 0) * 2);
+  }
+
+  private nearbyDangerousHostileCount(pointLike: Point, radius: number, intendedTarget?: RuntimeNpc) {
+    return [...this.npcs.values()].filter((npc) => (
+      this.isDangerousNeighbor(npc, intendedTarget)
+      && distance2d(pointLike, npc) <= radius
+    )).length;
+  }
+
+  private nearestDangerousHostile(pointLike: Point, radius: number, intendedTarget?: RuntimeNpc) {
+    const nearest = [...this.npcs.values()]
+      .filter((npc) => this.isDangerousNeighbor(npc, intendedTarget))
+      .map((npc) => ({ npc, distance: distance2d(pointLike, npc) }))
+      .filter(({ distance }) => distance <= radius)
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (!nearest) return null;
+    return {
+      id: nearest.npc.id,
+      name: nearest.npc.name,
+      role: nearest.npc.role,
+      health: `${Math.ceil(nearest.npc.health)}/${Math.ceil(nearest.npc.maxHealth)}`,
+      distance: round(nearest.distance),
+    };
+  }
+
+  private dangerousHostileOnTravelPath(from: Point, to: Point, radius: number) {
+    const pathLength = distance2d(from, to);
+    if (pathLength <= 0.001) return null;
+    return [...this.npcs.values()]
+      .filter((npc) => this.isDangerousNeighbor(npc))
+      .map((npc) => ({
+        npc,
+        corridorDistance: distanceToSegment(npc, from, to),
+        fromDistance: distance2d(from, npc),
+      }))
+      .filter(({ corridorDistance, fromDistance }) => corridorDistance <= radius && fromDistance <= pathLength + radius)
+      .sort((a, b) => a.fromDistance - b.fromDistance)[0]?.npc ?? null;
+  }
+
+  private describePullRisk(npc: RuntimeNpc) {
+    if (!isHostile(npc) || npc.health <= 0 || npc.defeatedAt > 0) return "none";
+    if (this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc) > 0) return "high: stronger hostile is close enough to join the pull";
+    if (this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS) >= 4) return "high: crowded hostile cluster";
+    if (this.nearbyHostileCount(npc, 8) >= 2) return "medium: another hostile is nearby";
+    return "low";
+  }
+
+  private describeApproachRisk(self: RuntimePlayer, npc: RuntimeNpc) {
+    if (!isHostile(npc) || npc.health <= 0 || npc.defeatedAt > 0) return "none";
+    const pathThreat = this.dangerousHostileOnTravelPath(self, npc, 12);
+    if (pathThreat) return `high: path from current position passes near ${pathThreat.name || pathThreat.id}`;
+    if (this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc) > 0) return "high: target is beside a stronger hostile";
+    if (distance2d(self, npc) > 34 && this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS) >= 3) return "high: target is beyond range inside a crowded cluster";
+    if (this.nearbyHostileCount(npc, 8) >= 2) return "medium: target has nearby hostiles";
+    return "low";
+  }
+
+  private hasDangerousAdd(attackers: RuntimeNpc[], intendedTarget?: RuntimeNpc) {
+    return attackers.some((npc) => (
+      (!intendedTarget || npc.id !== intendedTarget.id)
+      && (
+        npc.role === "farmer"
+        || npc.maxHealth >= Math.max(60, (intendedTarget?.maxHealth ?? 0) * 2)
+      )
+    ));
+  }
+
+  private publishAgentStatus(self: RuntimePlayer, force = false) {
+    const now = Date.now();
+    if (!force && now < this.nextAgentStatusAt) return;
+    this.nextAgentStatusAt = now + 1500;
+    this.send("agentStatus", {
+      action: this.lastAction,
+      thought: this.lastDecision?.reason ?? "",
+      objective: this.config.objective,
+      quest: this.describeCurrentQuest(self),
+    });
+  }
+
+  private describeCurrentQuest(self: RuntimePlayer) {
+    const quest = self.quests.find((entry) => getString(entry.status) !== "completed") ?? self.quests[0];
+    if (!quest) return "";
+    const questId = getString(quest.id);
+    const memory = this.questMemory.get(questId);
+    const status = getString(quest.status);
+    const progress = `${getNumber(quest.progress)}/${getNumber(quest.required)}`;
+    const label = memory?.objectiveLabel || memory?.title || questId;
+    return [status, progress, label].filter(Boolean).join(" ");
+  }
+
+  private recordCombatTrouble(targetId: string, reason: string) {
+    const target = this.npcs.get(targetId);
+    const key = targetId || "unknown";
+    const current = this.combatTrouble.get(key);
+    this.combatTrouble.set(key, {
+      targetId: key,
+      targetName: target?.name || current?.targetName || key,
+      reason,
+      count: (current?.count ?? 0) + 1,
+      lastAt: Date.now(),
+    });
+  }
+
+  private getCombatTroubleCount(targetId: string, windowMs: number) {
+    const entry = this.combatTrouble.get(targetId);
+    if (!entry || Date.now() - entry.lastAt > windowMs) return 0;
+    return entry.count;
+  }
+
+  private describeCombatTrouble(now: number) {
+    return [...this.combatTrouble.values()]
+      .filter((entry) => now - entry.lastAt < 180_000)
+      .sort((a, b) => b.lastAt - a.lastAt)
+      .slice(0, 8)
+      .map((entry) => ({
+        targetId: entry.targetId,
+        targetName: entry.targetName,
+        reason: entry.reason,
+        count: entry.count,
+        lastAgoMs: Math.max(0, now - entry.lastAt),
+        recommendation: entry.count >= 2
+          ? "Treat this as repeated trouble. Change approach: level safely, equip/use better items, pull a different target, wait/reposition, chat/group, or return later."
+          : "Use this as caution before repeating the same target or path.",
+      }));
+  }
+
   private maintainSurvival(self: RuntimePlayer) {
     if (Date.now() < this.nextAutoConsumableAt || self.health <= 0) return;
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
     const manaRatio = self.maxMana > 0 ? self.mana / self.maxMana : 1;
+    const attackers = this.getAttackers(self);
+    const closeAttackers = attackers.filter((npc) => distance2d(self, npc) <= 6.5);
+    if (attackers.length >= 2 && closeAttackers.length > 0 && this.canUse(self, "frostNova") && !self.castingAction) {
+      this.nextAutoConsumableAt = Date.now() + 1800;
+      this.cast("frostNova", { kind: "npc", id: "" });
+      this.startRetreat(self, "auto_control_frostNova", 5600);
+      return;
+    }
+    if (healthRatio < 0.9 && this.hasDangerousAdd(closeAttackers) && this.canUse(self, "frostNova") && !self.castingAction) {
+      this.nextAutoConsumableAt = Date.now() + 1800;
+      this.cast("frostNova", { kind: "npc", id: "" });
+      this.startRetreat(self, "auto_control_dangerous_add", 6200);
+      return;
+    }
+    if (healthRatio < 0.82 && this.hasDangerousAdd(attackers)) {
+      this.startRetreat(self, "retreat_dangerous_add");
+      return;
+    }
     if (healthRatio <= 0.48 && inventoryCount(self, "red-juice") > 0) {
       this.nextAutoConsumableAt = Date.now() + 3500;
       this.send("useItem", { itemId: "red-juice" });
@@ -1099,6 +2514,7 @@ class MferlandRunner {
     return [...this.npcs.values()].filter((npc) => (
       npc.health > 0
       && npc.defeatedAt <= 0
+      && !npc.isImmortal
       && isHostile(npc)
       && distance2d(pointLike, npc) <= radius
     )).length;
@@ -1272,6 +2688,7 @@ function readConfig(): AgentConfig {
     httpServer,
     roomName: cleanEnv("ROOM_NAME") || "town",
     authEndpoint: cleanEnv("AUTH_ENDPOINT") || "/wallet-auth-challenge",
+    catalogEndpoint: cleanEnv("AGENT_CATALOG_ENDPOINT") || "/agent-catalog",
     privateKey: privateKey as `0x${string}`,
     agentName: cleanEnv("AGENT_NAME") || "mfer-agent",
     inviteCode: cleanEnv("AGENT_INVITE_CODE"),
@@ -1282,6 +2699,8 @@ function readConfig(): AgentConfig {
     decisionTimeoutMs: readNumberEnv("AGENT_DECISION_TIMEOUT_MS") || 60_000,
     decisionIntervalMs: readNumberEnv("AGENT_DECISION_INTERVAL_MS") || 1200,
     objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, survive, and eventually defeat The Centralizer through its quest.",
+    maxMferGptSpendWei: readNonNegativeIntegerEnv("AGENT_MAX_MFERGPT_SPEND_WEI"),
+    maxSwapEthSpendWei: readNonNegativeIntegerEnv("AGENT_MAX_SWAP_ETH_SPEND_WEI"),
     viewerPort,
     viewerHost,
     gameViewerUrl,
@@ -1310,12 +2729,25 @@ function normalizePlayer(sessionId: string, value: AnyRecord): RuntimePlayer {
     identityType: getString(value.identityType),
     isAgent: Boolean(value.isAgent),
     walletAddress: getString(value.walletAddress),
+    agentStatusAction: getString(value.agentStatusAction),
+    agentStatusThought: getString(value.agentStatusThought),
+    agentStatusObjective: getString(value.agentStatusObjective),
+    agentStatusQuest: getString(value.agentStatusQuest),
+    agentStatusUpdatedAt: getNumber(value.agentStatusUpdatedAt),
     health: getNumber(value.health),
     maxHealth: getNumber(value.maxHealth, 1),
+    healthRegenPer5: getNumber(value.healthRegenPer5),
     mana: getNumber(value.mana),
     maxMana: getNumber(value.maxMana, 1),
+    manaRegenPer5: getNumber(value.manaRegenPer5),
+    walkSpeed: getNumber(value.walkSpeed),
+    runSpeed: getNumber(value.runSpeed),
+    strength: getNumber(value.strength),
+    dexterity: getNumber(value.dexterity),
+    magic: getNumber(value.magic),
     level: Math.max(1, getNumber(value.level, 1)),
     xp: getNumber(value.xp),
+    talentPoints: getNumber(value.talentPoints),
     x: getNumber(value.x),
     z: getNumber(value.z),
     yaw: getNumber(value.yaw),
@@ -1324,6 +2756,7 @@ function normalizePlayer(sessionId: string, value: AnyRecord): RuntimePlayer {
     quests: schemaEntries(value.quests).map(([, quest]) => quest),
     inventory: schemaEntries(value.inventory).map(([, item]) => item),
     equipment: schemaEntries(value.equipment).map(([, slot]) => slot),
+    talents: schemaEntries(value.talents).map(([, talent]) => talent),
     activeBuffs: schemaEntries(value.activeBuffs).map(([, buff]) => buff),
   };
 }
@@ -1362,9 +2795,18 @@ function normalizeDecision(value: unknown): Decision {
     playerRef: nullableText(record.playerRef),
     questId: nullableText(record.questId),
     itemId: nullableText(record.itemId),
+    chainTokenId: nullableText(record.chainTokenId),
+    slotId: nullableText(record.slotId),
+    talentId: nullableText(record.talentId),
     actionId: nullableText(record.actionId),
     text: nullableText(record.text),
     emoteId: nullableText(record.emoteId),
+    quantity: readFiniteNumber(record.quantity) ?? null,
+    amountEth: nullableText(record.amountEth),
+    paymentTxHash: nullableText(record.paymentTxHash),
+    paymentAmountWei: nullableText(record.paymentAmountWei),
+    paymentChainId: readFiniteNumber(record.paymentChainId) ?? null,
+    paymentContractAddress: nullableText(record.paymentContractAddress),
     sprint: typeof record.sprint === "boolean" ? record.sprint : null,
   };
 }
@@ -1395,6 +2837,11 @@ function normalizeRouteId(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+function isAttackable(npc: RuntimeNpc) {
+  if (npc.role === "enemy" || npc.role === "farmer" || npc.role === "beast" || npc.role === "critter") return true;
+  return npc.model === "hog" || npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-");
+}
+
 function isHostile(npc: RuntimeNpc) {
   if (npc.role === "enemy" || npc.role === "farmer") return true;
   return npc.model === "hog" || npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-");
@@ -1402,6 +2849,18 @@ function isHostile(npc: RuntimeNpc) {
 
 function distance2d(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+function distanceToSegment(pointLike: Point, start: Point, end: Point) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSq = dx * dx + dz * dz;
+  if (lengthSq <= 0.0001) return distance2d(pointLike, start);
+  const t = Math.max(0, Math.min(1, ((pointLike.x - start.x) * dx + (pointLike.z - start.z) * dz) / lengthSq));
+  return distance2d(pointLike, {
+    x: start.x + dx * t,
+    z: start.z + dz * t,
+  });
 }
 
 function point(value: Point): Point {
@@ -1429,6 +2888,26 @@ function readNumberEnv(name: string) {
   return parsed;
 }
 
+function readNonNegativeIntegerEnv(name: string) {
+  const value = cleanEnv(name);
+  if (!value) return "0";
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be a non-negative integer string.`);
+  return value;
+}
+
+function readPositiveIntegerEnv(name: string) {
+  return readPositiveIntegerText(cleanEnv(name));
+}
+
+function readPositiveIntegerText(value: unknown) {
+  const text = typeof value === "number" ? String(value) : cleanText(value, 40);
+  if (!text) return 0;
+  if (!/^[1-9]\d*$/.test(text)) throw new Error("expected a positive integer");
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error("expected a safe positive integer");
+  return parsed;
+}
+
 function readPortEnv(name: string) {
   const port = readNumberEnv(name);
   if (!port) return 0;
@@ -1453,10 +2932,197 @@ function nullableText(value: unknown) {
   return text || null;
 }
 
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((entry) => cleanText(entry, 96)).filter(Boolean)
+    : [];
+}
+
 function readFiniteNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function readInteger(value: unknown) {
+  const parsed = readFiniteNumber(value);
+  if (parsed === undefined || !Number.isInteger(parsed) || parsed <= 0) return 0;
+  return parsed;
+}
+
+function normalizePurchaseQuantity(value: unknown) {
+  return value === 5 ? 5 : 1;
+}
+
+function normalizePositiveIntegerString(value: unknown) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (!/^[1-9]\d*$/.test(text)) return "";
+  return text;
+}
+
+function normalizeTxHash(value: unknown) {
+  if (typeof value !== "string") return "";
+  const text = value.trim().toLowerCase();
+  return /^0x[a-f0-9]{64}$/.test(text) ? text : "";
+}
+
+function normalizeAddress(value: unknown) {
+  if (typeof value !== "string") return "";
+  const text = value.trim().toLowerCase();
+  return /^0x[a-f0-9]{40}$/.test(text) ? text : "";
+}
+
+function asAddress(value: unknown): Address | "" {
+  const normalized = normalizeAddress(value);
+  return normalized ? normalized as Address : "";
+}
+
+function readCryptoContractsConfig(): CryptoContractsConfig | null {
+  const configured = cleanEnv("AGENT_CRYPTO_CONTRACTS_FILE");
+  const candidates = [
+    configured,
+    resolve(process.env.INIT_CWD ?? process.cwd(), "apps/web/public/crypto/local-contracts.json"),
+    resolve(process.cwd(), "../../apps/web/public/crypto/local-contracts.json"),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (!existsSync(candidate)) continue;
+      return JSON.parse(readFileSync(candidate, "utf8")) as CryptoContractsConfig;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function isLocalAgentRun(config: AgentConfig) {
+  return cleanEnv("MFERLAND_AGENT_LOCAL_ONLY") === "1"
+    || cleanEnv("MFERLAND_LOCAL_ONLY") === "1"
+    || isLoopbackUrl(config.roomServer)
+    || isLoopbackUrl(config.httpServer);
+}
+
+function isLoopbackUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return LOCAL_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function assertLocalPaymentConfig(rpcUrl: string, tokenAddress: Address) {
+  if (!isLoopbackUrl(rpcUrl)) {
+    let host = rpcUrl;
+    try {
+      host = new URL(rpcUrl).hostname;
+    } catch {
+      // The caller will fail later with the original URL.
+    }
+    throw new Error(`Refusing non-local MFERGPT payment RPC host ${host}.`);
+  }
+  if (tokenAddress.toLowerCase() === BASE_MFERGPT_TOKEN_ADDRESS.toLowerCase()) {
+    throw new Error("Refusing production MFERGPT token address for a local agent run.");
+  }
+}
+
+function parseEthAmount(value: string) {
+  const normalized = cleanText(value, 40);
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(normalized)) throw new Error("swap amount must be a decimal ETH string");
+  const amount = parseEther(normalized);
+  if (amount <= 0n) throw new Error("swap amount must be positive");
+  return amount;
+}
+
+async function getMferGptSwapQuote(amountInWei: bigint) {
+  const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${BASE_MFERGPT_TOKEN_ADDRESS}`, { cache: "no-store" });
+  const document = await response.json().catch(() => null) as DexScreenerTokenResponse | null;
+  if (!response.ok || !document) throw new Error("MFERGPT market quote unavailable");
+  const pair = document.pairs?.find((entry) => {
+    const baseToken = entry.baseToken?.address ?? "";
+    const quoteToken = entry.quoteToken?.address ?? "";
+    return entry.chainId === "base"
+      && entry.dexId === "uniswap"
+      && (entry.labels ?? []).includes("v4")
+      && baseToken.toLowerCase() === BASE_MFERGPT_TOKEN_ADDRESS.toLowerCase()
+      && quoteToken.toLowerCase() === BASE_WETH_ADDRESS.toLowerCase()
+      && typeof entry.priceNative === "string"
+      && Number(entry.priceNative) > 0;
+  });
+  if (!pair?.priceNative) throw new Error("MFERGPT/WETH pool unavailable");
+  const priceNativeWei = parseUnits(pair.priceNative, PRICE_DECIMALS);
+  const estimatedAmountOutWei = amountInWei * 10n ** BigInt(MFERGPT_DECIMALS) / priceNativeWei;
+  const minAmountOutWei = estimatedAmountOutWei * (BPS_DENOMINATOR - DEFAULT_SWAP_SLIPPAGE_BPS) / BPS_DENOMINATOR;
+  if (minAmountOutWei <= 0n) throw new Error("swap amount too small");
+  return { minAmountOutWei };
+}
+
+function buildMferGptUniversalRouterCallData(minAmountOutWei: bigint, amountInWei: bigint, deadline: bigint) {
+  const wrapEthInput = encodeAbiParameters(
+    [{ type: "address" }, { type: "uint256" }],
+    [ACTION_CONSTANT_ADDRESS_THIS, amountInWei],
+  );
+  const swapActions = `0x${V4_ACTION_SWAP_EXACT_IN_SINGLE}${V4_ACTION_SETTLE}${V4_ACTION_TAKE_ALL}` as const;
+  const swapParams = [
+    encodeAbiParameters(
+      [{
+        type: "tuple",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            components: [
+              { name: "currency0", type: "address" },
+              { name: "currency1", type: "address" },
+              { name: "fee", type: "uint24" },
+              { name: "tickSpacing", type: "int24" },
+              { name: "hooks", type: "address" },
+            ],
+          },
+          { name: "zeroForOne", type: "bool" },
+          { name: "amountIn", type: "uint128" },
+          { name: "amountOutMinimum", type: "uint128" },
+          { name: "hookData", type: "bytes" },
+        ],
+      }],
+      [{
+        poolKey: BASE_MFERGPT_POOL_KEY,
+        zeroForOne: false,
+        amountIn: amountInWei,
+        amountOutMinimum: minAmountOutWei,
+        hookData: "0x",
+      }],
+    ),
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }, { type: "bool" }],
+      [BASE_WETH_ADDRESS, amountInWei, false],
+    ),
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "uint256" }],
+      [BASE_MFERGPT_TOKEN_ADDRESS, minAmountOutWei],
+    ),
+  ];
+  const v4SwapInput = encodeAbiParameters(
+    [{ type: "bytes" }, { type: "bytes[]" }],
+    [swapActions, swapParams],
+  );
+
+  return encodeFunctionData({
+    abi: UNIVERSAL_ROUTER_ABI,
+    functionName: "execute",
+    args: [
+      `0x${UNISWAP_COMMAND_WRAP_ETH}${UNISWAP_COMMAND_V4_SWAP}`,
+      [wrapEthInput, v4SwapInput],
+      deadline,
+    ],
+  });
+}
+
+function formatBalance(value: string, maxFractionDigits: number) {
+  const [whole = "0", fraction = ""] = value.split(".");
+  const trimmedFraction = fraction.replace(/0+$/, "").slice(0, maxFractionDigits);
+  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
 }
 
 function toHttpServer(roomServer: string) {
@@ -1503,12 +3169,24 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isDecisionProviderBackoffError(message: string) {
+  return /usage limit|rate.?limit|quota|too many requests|try again/i.test(message);
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function round(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function stableHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
 }
 
 function getCodexCliPath() {
@@ -1965,10 +3643,41 @@ const DECISION_SCHEMA = {
     playerRef: { type: ["string", "null"] },
     questId: { type: ["string", "null"] },
     itemId: { type: ["string", "null"] },
+    chainTokenId: { type: ["string", "null"] },
+    slotId: { type: ["string", "null"] },
+    talentId: { type: ["string", "null"] },
     actionId: { type: ["string", "null"] },
     text: { type: ["string", "null"] },
     emoteId: { type: ["string", "null"] },
+    quantity: { type: ["number", "null"] },
+    amountEth: { type: ["string", "null"] },
+    paymentTxHash: { type: ["string", "null"] },
+    paymentAmountWei: { type: ["string", "null"] },
+    paymentChainId: { type: ["number", "null"] },
+    paymentContractAddress: { type: ["string", "null"] },
     sprint: { type: ["boolean", "null"] },
   },
-  required: ["action", "reason", "x", "z", "npcRef", "playerRef", "questId", "itemId", "actionId", "text", "emoteId", "sprint"],
+  required: [
+    "action",
+    "reason",
+    "x",
+    "z",
+    "npcRef",
+    "playerRef",
+    "questId",
+    "itemId",
+    "chainTokenId",
+    "slotId",
+    "talentId",
+    "actionId",
+    "text",
+    "emoteId",
+    "quantity",
+    "amountEth",
+    "paymentTxHash",
+    "paymentAmountWei",
+    "paymentChainId",
+    "paymentContractAddress",
+    "sprint",
+  ],
 } as const;

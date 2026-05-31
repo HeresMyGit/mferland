@@ -182,12 +182,24 @@ export type ClientEmote = {
   emoteId: EmoteId;
 };
 
+export type ClientAgentStatus = {
+  action?: string;
+  thought?: string;
+  objective?: string;
+  quest?: string;
+};
+
 export type PlayerSnapshot = {
   sessionId: string;
   name: string;
   identityType: IdentityType;
   isAgent: boolean;
   walletAddress: string;
+  agentStatusAction: string;
+  agentStatusThought: string;
+  agentStatusObjective: string;
+  agentStatusQuest: string;
+  agentStatusUpdatedAt: number;
   avatarSeed: number;
   appearanceTraits: MferAppearanceTraits;
   level: number;
@@ -308,7 +320,7 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "isAgent" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
 > & {
   distance: number;
 };
@@ -442,5 +454,28 @@ export type AgentObservation = {
   nearbyNpcs: AgentVisibleNpc[];
   recentChat: ChatMessage[];
   bounds: typeof PLAZA_BOUNDS;
-  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat" | "interact" | CombatActionId>;
+  availableActions: Array<
+    | "move"
+    | "look"
+    | "jump"
+    | "sprint"
+    | "chat"
+    | "emote"
+    | "interact"
+    | "acceptQuest"
+    | "completeQuest"
+    | "cancelQuest"
+    | "shareQuestLink"
+    | "combatAction"
+    | "respawn"
+    | "lootCorpse"
+    | "equipItem"
+    | "unequipItem"
+    | "useItem"
+    | "selectTalent"
+    | "updateTraits"
+    | "registerChainGear"
+    | "purchasePotionShopItem"
+    | CombatActionId
+  >;
 };

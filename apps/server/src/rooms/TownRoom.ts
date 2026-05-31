@@ -46,6 +46,7 @@ import {
   sanitizePlayerName,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientAgentStatus,
   type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
@@ -551,6 +552,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("analyticsEvent", (client, message: ClientAnalyticsMessage = {}) => {
       this.handleClientAnalyticsEvent(client, message);
+    });
+
+    this.onMessage("agentStatus", (client, message: Partial<ClientAgentStatus> = {}) => {
+      this.handleAgentStatus(client, message);
     });
 
     this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
@@ -2187,6 +2192,17 @@ export class TownRoom extends Room<TownState> {
     );
   }
 
+  private handleAgentStatus(client: Client, message: Partial<ClientAgentStatus>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player?.isAgent) return;
+
+    player.agentStatusAction = sanitizeAgentStatusText(message?.action, 96);
+    player.agentStatusThought = sanitizeAgentStatusText(message?.thought, 260);
+    player.agentStatusObjective = sanitizeAgentStatusText(message?.objective, 180);
+    player.agentStatusQuest = sanitizeAgentStatusText(message?.quest, 140);
+    player.agentStatusUpdatedAt = Date.now();
+  }
+
   private handleAcceptQuest(client: Client, message: Partial<ClientAcceptQuest>) {
     const player = this.state.players.get(client.sessionId);
     if (!player || player.health <= 0) return;
@@ -3163,6 +3179,11 @@ function summarizeVerifiedMferGptPayment(payment: VerifiedMferGptBurnPayment): R
 
 function sanitizeSupportText(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 64) : "";
+}
+
+function sanitizeAgentStatusText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, maxLength);
 }
 
 function sanitizeSupportIntegerString(value: unknown) {

@@ -135,6 +135,10 @@ open "http://127.0.0.1:5173/agent-view?wallet=<agent-wallet-address>"
 
 The page reuses the livestream Three.js game renderer, joins as a passive stream camera, follows the matching agent by wallet/name/session, and does not send gameplay actions.
 
+The bundled runner sends a public `agentStatus` room message with its current action, decision reason, objective, and quest summary. The real game-engine viewer shows that text over the followed agent's camera, so you can watch both the movement and the policy's latest reasoning in one browser tab.
+
+The local server exposes a public read-only agent catalog at `http://127.0.0.1:2567/agent-catalog`. The skill runner fetches it at startup and includes current controls, menu parity, payment metadata, swap/router details, combat actions, item/equipment definitions, potion-shop prices, talent trees, progression values, quests, and public map data in the observation. This covers gameplay room messages plus local-only HUD choices like quest focus, hotbar layout, settings, trait drafts, potion quantity selection, crypto-store selection, swap slippage, and map inspection. Use this instead of hard-coding stale gear or talent metadata in external agents.
+
 The copied skill package can also expose a loopback telemetry panel:
 
 ```sh
@@ -149,19 +153,21 @@ npm run start
 
 Open `http://127.0.0.1:8787` on the same machine for the telemetry panel. It reads the runner's observed state and last decision, but it is not the real in-game renderer.
 
-The LLM observation includes the agent's own character, nearby visible players and NPCs, visible lootable corpses, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, public map context, local wallet balances, and public store/catalog context. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/use items, emote, chat, swap local ETH to local MFERGPT when the local router is configured, and use the potion shop when local MFERGPT payment is configured.
+The LLM observation includes the agent's own character, character stats, talent points, current talents, nearby visible players and NPCs, visible lootable corpses, visible quest/inventory/equipment/cooldown state, recent chat, short run memory, public map context, local wallet balances, and public store/catalog context. It can move, follow public route waypoints, interact, accept/complete/cancel quests, select NPC/player targets or self, use combat abilities, fight a visible NPC through normal combat messages, loot defeated NPCs, equip/unequip/use items, select talents, register owned chain gear, emote, chat, swap local ETH to local MFERGPT when the local router is configured, and use the potion shop when local MFERGPT payment is configured.
 
 Harness behavior to expect:
 
 - `fight_npc` and route travel yield back to the LLM when public state shows overpulls, critical health, or multiple NPCs targeting the agent.
+- Repeated unsafe pulls are summarized in `observation.combatTrouble`, with `self.levelProgress` and `safeTrainingTargets`, so policies can change strategy instead of brute-forcing: level safely, gear up, use consumables, wait/reposition, chat/group, or return later.
 - Movement uses public waypoint approaches for known NPCs and small sidestep/jump recovery when straight-line travel stops making progress.
 - Quest completion retries the same normal `completeQuest` room message for a short window when the room state has not yet reflected completion.
 - Stationary casts hold the agent still so movement does not cancel the cast.
 - AoE abilities remain available in the action context and are exposed with cooldown, mana, range, cast time, and radius information.
 - Lootable corpses are surfaced as `observation.lootableCorpses`, and the prompt tells agents to loot safe bodies before leaving so non-quest drops are collected and normal corpse despawn/respawn can continue.
+- Inventory is treated as the player's stash. Equipment and talent observations include enough catalog metadata for the policy to choose an archetype, spend `talentPoints`, and equip better gear through normal room messages.
 - Visible players and recent chat are surfaced as social context, and the prompt tells agents they can occasionally chat, emote, move near, or select players when safe to greet, coordinate, or group up.
 - Social quests use the same room messages as the web HUD; for example `tweet-town-link` uses `shareQuestLink`, not chat.
-- Store knowledge is explicit in `observation.stores`: potion-mfer item ids, prices, effects, owned counts, supported actions, and whether the local MFERGPT burn flow can buy stock.
+- Store knowledge is explicit in the catalog/observation: potion-mfer item ids, prices, effects, owned counts, supported actions, and whether the local MFERGPT burn flow can buy stock. The LLM runner exposes `purchase_potion_shop_item`; with wallet tools configured and `AGENT_MAX_MFERGPT_SPEND_WEI` positive, it burns the catalog price and sends the normal room purchase message.
 - Swap knowledge is explicit in `observation.wallet` and `observation.stores`: ETH/MFERGPT balances, whether a local router is configured, a recommended first swap amount, and a `swap_eth_for_mfergpt` action that sends a normal local wallet transaction.
 - Some local regression modes may expose a full public quest checklist to measure completion coverage. Do not copy that into the public skill or external default harness; third-party agents should infer progression from observed quest offers, quest status, turn-ins, completed messages, visible NPCs, dialogue, inventory, chat, and map context.
 - LLM run results include `llmRun.stepsTaken`, `llmRun.actionFailureCount`, `questProgress.completedQuestCount`, `totalQuestCount`, `allQuestsCompletedOnce`, and `remainingQuestIds` from the final room snapshot.

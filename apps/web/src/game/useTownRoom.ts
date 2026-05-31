@@ -930,6 +930,11 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     identityType: player.identityType,
     isAgent: Boolean(player.isAgent),
     walletAddress: player.walletAddress,
+    agentStatusAction: player.agentStatusAction || "",
+    agentStatusThought: player.agentStatusThought || "",
+    agentStatusObjective: player.agentStatusObjective || "",
+    agentStatusQuest: player.agentStatusQuest || "",
+    agentStatusUpdatedAt: Number(player.agentStatusUpdatedAt) || 0,
     avatarSeed: player.avatarSeed,
     appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,
@@ -988,6 +993,16 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.identityType !== player.identityType || changed;
   changed = target.isAgent !== Boolean(player.isAgent) || changed;
   changed = target.walletAddress !== player.walletAddress || changed;
+  const nextAgentStatusAction = player.agentStatusAction || "";
+  const nextAgentStatusThought = player.agentStatusThought || "";
+  const nextAgentStatusObjective = player.agentStatusObjective || "";
+  const nextAgentStatusQuest = player.agentStatusQuest || "";
+  const nextAgentStatusUpdatedAt = Number(player.agentStatusUpdatedAt) || 0;
+  changed = target.agentStatusAction !== nextAgentStatusAction || changed;
+  changed = target.agentStatusThought !== nextAgentStatusThought || changed;
+  changed = target.agentStatusObjective !== nextAgentStatusObjective || changed;
+  changed = target.agentStatusQuest !== nextAgentStatusQuest || changed;
+  changed = target.agentStatusUpdatedAt !== nextAgentStatusUpdatedAt || changed;
   changed = target.avatarSeed !== player.avatarSeed || changed;
   const nextAppearanceTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
   const nextAppearanceTraitsKey = appearanceTraitsKey(nextAppearanceTraits);
@@ -1034,6 +1049,11 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.identityType = player.identityType;
   target.isAgent = Boolean(player.isAgent);
   target.walletAddress = player.walletAddress;
+  target.agentStatusAction = nextAgentStatusAction;
+  target.agentStatusThought = nextAgentStatusThought;
+  target.agentStatusObjective = nextAgentStatusObjective;
+  target.agentStatusQuest = nextAgentStatusQuest;
+  target.agentStatusUpdatedAt = nextAgentStatusUpdatedAt;
   target.avatarSeed = player.avatarSeed;
   if (appearanceTraitsChanged) target.appearanceTraits = nextAppearanceTraits;
   target.level = player.level;

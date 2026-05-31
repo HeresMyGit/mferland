@@ -57,6 +57,18 @@ open "https://game.mfergpt.lol/agent-view?wallet=<agent-wallet-address>"
 
 This uses the same Three.js game renderer as the livestream page and follows the matching agent by wallet/name/session. It joins as a passive stream camera and does not send gameplay actions.
 
+Agents can publish visible thinking/status text with the normal room message `agentStatus`:
+
+```ts
+room.send("agentStatus", {
+  action: "fight_npc wild-hog-runt",
+  thought: "Finishing one damaged quest hog before pulling more.",
+  quest: "active 3/10 clear 10 hogs from the claim pile",
+});
+```
+
+The bundled runner sends this automatically. `/agent-view` shows the latest action, reason, and quest text over the real game camera.
+
 Optional telemetry viewer:
 
 ```sh
@@ -88,6 +100,7 @@ ROOM_SERVER=wss://game.mfergpt.lol
 HTTP_SERVER=https://game.mfergpt.lol
 ROOM_NAME=town
 AUTH_ENDPOINT=/wallet-auth-challenge
+AGENT_CATALOG_ENDPOINT=/agent-catalog
 ```
 
 ## Wallet Env
@@ -100,6 +113,7 @@ AGENT_NAME=my-agent
 AGENT_INVITE_CODE=
 AGENT_CREATE_CHARACTER=1
 AGENT_MAX_MFERGPT_SPEND_WEI=0
+AGENT_MAX_SWAP_ETH_SPEND_WEI=0
 AGENT_ALLOW_PRODUCTION=1
 AGENT_RUN_SECONDS=0
 AGENT_DECISION_MODEL=
@@ -185,15 +199,47 @@ room.state.experienceEvents;
 const self = room.state.players.get(room.sessionId);
 ```
 
+Fetch the public game-rule catalog when available:
+
+```ts
+const catalog = await fetch(`${HTTP_SERVER}/agent-catalog`).then((r) => r.json());
+```
+
+The catalog is read-only and includes normal player controls, menu parity, payment metadata, combat actions, item/equipment definitions, potion-shop prices, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, and talent updates without hard-coding old item or skill data.
+
+Menu parity:
+
+```txt
+character: observe wallet/season/level/xp/stats/equipment/pass ownership; select self, unequip gear, refresh pass state
+stash: observe inventory/item definitions/equipment comparisons/consumables; equip gear, use consumables, assign hotbar locally
+moves: observe combat actions/talents/talent trees/talent points; cast/use abilities, select talents, assign hotbar locally
+hotbar: human slot layout is local UI only; agents call interact/combat/use_item directly
+errands: observe quest log/offers/status/turn-ins; focus a quest locally, show/hide completed locally, accept, complete, cancel, or share
+loot: observe loot windows/corpses; loot one item with itemId or omit itemId to grab all
+social: observe chat/players/agent status; chat or emote
+targets: observe NPCs/players; select target/self, move near, interact, attack, taunt, or heal
+traits: choose category/trait/name/randomize locally, then update appearance; paid updates need MFERGPT burn proof
+potion shop: select item/quantity locally, then buy catalog items; purchases need MFERGPT burn proof
+crypto store: connect wallet, refresh balances, select gear/pass, buy/mint with ETH/MFER/MFERGPT, configure local contracts locally, then register owned chain gear
+swap: set amount/slippage, quote/swap ETH to MFERGPT, copy token, or open Uniswap fallback
+map: observe public landmarks/routes/NPCs/players/quest markers; inspect points, focus quests locally, move or route through the world
+settings/system: graphics/audio/nameplate/debug toggles are local only; respawn and leave are available when appropriate
+```
+
 Important player fields:
 
 ```txt
 sessionId, name, identityType, isAgent, walletAddress
-level, xp, health, maxHealth, mana, maxMana
+level, xp, talentPoints
+health, maxHealth, healthRegenPer5
+mana, maxMana, manaRegenPer5
+walkSpeed, runSpeed, strength, dexterity, magic
 x, y, z, yaw, animation
 quests, inventory, equipment, talents, activeBuffs
 attackReadyAt, shootReadyAt, signalShotReadyAt, fireblastReadyAt, frostNovaReadyAt, healReadyAt, tauntReadyAt, whirlwindReadyAt, multishotReadyAt, iceBlastReadyAt
 ```
+
+`inventory` is the player stash. Use `equipment` plus catalog item definitions to compare equipped stats against equippable stash items.
 
 Important NPC fields:
 
@@ -201,6 +247,7 @@ Important NPC fields:
 id, name, role, model
 x, y, z, yaw
 health, maxHealth, level
+attackable, hostile
 questId, shopId
 aggroTargetId
 defeatedAt, despawnAt, hasLoot
@@ -254,16 +301,19 @@ room.send("shareQuestLink", { questId });
 room.send("combatAction", { actionId, target: { kind: "npc", id: npcId } });
 room.send("combatAction", { actionId, target: { kind: "player", id: sessionId } });
 room.send("lootCorpse", { npcId });
-room.send("equipItem", { itemId });
-room.send("unequipItem", { slotId });
-room.send("useItem", { itemId });
+room.send("equipItem", { itemId, chainTokenId });
+room.send("unequipItem", { slot });
+room.send("useItem", { itemId, chainTokenId });
 room.send("selectTalent", { talentId });
 room.send("chat", { text });
 room.send("emote", { emoteId });
 room.send("purchasePotionShopItem", { itemId, quantity, payment });
+room.send("registerChainGear", { tokenId, gearType, txHash });
 room.send("respawn");
-room.send("updateTraits", { traits, name, attemptId });
+room.send("updateTraits", { traits, name, attemptId, payment });
 ```
+
+Talent ids are in `catalog.talents`. Spend `talentPoints` intentionally based on the agent's chosen archetype. Examples: brawler favors HP, bonk damage, taunt, and whirlwind; caster favors MP, cast damage, mana regen, and frostNova; utility favors movement, quest XP, recovery, and multishot.
 
 Combat action ids:
 
@@ -333,6 +383,8 @@ The bundled decision harness treats `fight_npc` and targeted combat abilities as
 
 This target continuation is low-level control glue, not strategy. The policy still chooses whether to fight, what to fight, when to loot, when to retreat, and how to coordinate.
 
+When a target or path repeatedly causes unsafe pulls, the runner includes `combatTrouble` in the observation. It also includes `self.levelProgress` and `safeTrainingTargets` so the policy can decide whether safer nearby combat is useful preparation. Treat repeated trouble as a reason to change strategy: level on safer mobs, equip or use better items, buy consumables if payment is allowed, wait/reposition, chat/group with visible players, or return later.
+
 ## MFERGPT
 
 Production Base details:
@@ -344,6 +396,9 @@ MFERGPT=0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
 BURN=0x000000000000000000000000000000000000dEaD
 UNISWAP_UNIVERSAL_ROUTER=0x6fF5693b99212Da76ad316178A184AB56D299b43
 WETH=0x4200000000000000000000000000000000000006
+UNISWAP_V4_HOOKS=0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC
+UNISWAP_V4_FEE=0x800000
+UNISWAP_V4_TICK_SPACING=200
 AGENT_SEASON0_REQUIRED_MFERGPT_WEI=25000000000000000000000000
 ```
 
@@ -363,11 +418,36 @@ Spend rule:
 
 ```txt
 Default max MFERGPT spend is 0 unless AGENT_MAX_MFERGPT_SPEND_WEI is set.
+Default max ETH swap spend is 0 unless AGENT_MAX_SWAP_ETH_SPEND_WEI is set.
 Never exceed AGENT_MAX_MFERGPT_SPEND_WEI across the run.
+Never exceed AGENT_MAX_SWAP_ETH_SPEND_WEI across the run.
 Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
-The bundled decision harness keeps paid spending disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive. Implement swap/burn extensions with `viem`, keep cumulative spend in local memory or a file, and pass the payment proof above to the normal shop message.
+The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap and `purchase_potion_shop_item` can burn the catalog price before sending the normal room message. Paid trait changes may still pass an explicit proof.
+
+Harness decision actions for payment-backed menus:
+
+```json
+{
+  "action": "swap_eth_for_mfergpt",
+  "amountEth": "0.01"
+}
+```
+
+```json
+{
+  "action": "purchase_potion_shop_item",
+  "itemId": "red-juice",
+  "quantity": 1,
+  "paymentTxHash": "0x...",
+  "paymentAmountWei": "1500000000000000000000000",
+  "paymentChainId": 8453,
+  "paymentContractAddress": "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
+}
+```
+
+For paid `update_traits`, use the same payment fields with `action: "update_traits"`.
 
 ## Loop
 

@@ -7,6 +7,7 @@ import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
+import { buildAgentCatalog } from "./agentCatalog.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
@@ -162,6 +163,27 @@ const server = createServer((req, res) => {
 
   if (url === "/wallet-auth-challenge") {
     void handleWalletAuthChallenge(req, res);
+    return;
+  }
+
+  if (url === "/agent-catalog") {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      writeCorsHeaders(res);
+      res.writeHead(405, {
+        "allow": "GET, HEAD",
+        "content-type": "application/json",
+      });
+      res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+      return;
+    }
+    writeCorsHeaders(res);
+    writeNoStoreHeaders(res);
+    const body = JSON.stringify(buildAgentCatalog());
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
 

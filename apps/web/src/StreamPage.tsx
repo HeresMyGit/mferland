@@ -399,6 +399,8 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           onSettingsChange={setSettings}
         />
       )}
+
+      {agentView && <AgentThoughtPanel player={focusedPlayer} />}
     </>
   );
 
@@ -710,6 +712,47 @@ function StreamBuffStrip({ buffs, now }: { buffs: ActiveBuffSnapshot[]; now: num
   );
 }
 
+function AgentThoughtPanel({ player }: { player: PlayerSnapshot | null }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  if (!player?.isAgent) return null;
+
+  const updatedAt = Number(player.agentStatusUpdatedAt) || 0;
+  const stale = !updatedAt || now - updatedAt > 12_000;
+  const action = player.agentStatusAction || player.castingAction || player.animation || "watching";
+  const thought = player.agentStatusThought || "waiting for next decision";
+  const quest = player.agentStatusQuest || getFocusedQuestText(player);
+
+  return (
+    <section className={`agent-thought-panel${stale ? " stale" : ""}`} aria-label="agent thinking">
+      <header>
+        <span>thinking</span>
+        <strong>{player.name}</strong>
+        <em>{updatedAt ? formatAgentStatusAge(now - updatedAt) : "pending"}</em>
+      </header>
+      <p>
+        <span>doing</span>
+        <b>{action}</b>
+      </p>
+      <p>
+        <span>why</span>
+        <b>{thought}</b>
+      </p>
+      {quest && (
+        <p>
+          <span>quest</span>
+          <b>{quest}</b>
+        </p>
+      )}
+    </section>
+  );
+}
+
 type StreamRecentTarget = {
   eventId: string;
   seenAt: number;
@@ -821,6 +864,19 @@ function getUnitHealthPercent(unit: Pick<PlayerSnapshot | NpcSnapshot, "health" 
 function getTargetHealthText(unit: PlayerSnapshot | NpcSnapshot) {
   if ("isImmortal" in unit && unit.isImmortal) return "immortal";
   return `${Math.max(0, Math.ceil(unit.health))} / ${unit.maxHealth}`;
+}
+
+function getFocusedQuestText(player: PlayerSnapshot) {
+  const quest = player.quests.find((entry) => entry.status !== "completed") ?? player.quests[0];
+  if (!quest) return "";
+  return `${quest.status} ${quest.progress}/${quest.required} ${quest.id}`;
+}
+
+function formatAgentStatusAge(ageMs: number) {
+  if (!Number.isFinite(ageMs) || ageMs < 0) return "now";
+  if (ageMs < 1500) return "now";
+  if (ageMs < 60_000) return `${Math.round(ageMs / 1000)}s`;
+  return `${Math.round(ageMs / 60_000)}m`;
 }
 
 function clampPercent(value: number) {

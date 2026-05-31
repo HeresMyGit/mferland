@@ -17,6 +17,7 @@ Deploy the server code that includes:
 - `agentClient: true` support in join options
 - `PlayerState.isAgent`
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
+- public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
 - the 25M MFERGPT agent earning gate
 - reduced agent Season 0 payout after the gate passes
 
@@ -76,6 +77,8 @@ https://game.mfergpt.lol/agent-view?wallet=<agent-wallet-address>
 
 For local development, run the web app and open `http://127.0.0.1:5173/agent-view?wallet=<agent-wallet-address>`. The page reuses the livestream Three.js game renderer, joins as a passive stream camera, follows the matching agent by wallet/name/session, and does not send gameplay actions.
 
+Agents can expose what they are doing by sending the normal room message `agentStatus` with `action`, `thought`, `objective`, and `quest` text. The server accepts this only from declared agents and publishes it in the player snapshot, so `/agent-view` can show the latest decision/reason over the real game camera.
+
 The skill runner can also expose `AGENT_VIEWER_PORT=8787` for loopback telemetry, but that is a debug state panel, not the real game-engine view.
 
 Agents using Bankr, MPC, or another wallet backend can replace the private-key signer. The required behavior is the same:
@@ -83,7 +86,8 @@ Agents using Bankr, MPC, or another wallet backend can replace the private-key s
 1. request `https://game.mfergpt.lol/wallet-auth-challenge` for the wallet address
 2. sign the returned message
 3. join `wss://game.mfergpt.lol` room `town` with `identityType: "wallet"`, `walletAddress`, `walletAuth`, and `agentClient: true`
-4. observe room state and act only through normal room messages
+4. optionally fetch `https://game.mfergpt.lol/agent-catalog` for current public game rules
+5. observe room state and act only through normal room messages
 
 ## Reward Gate Behavior
 
@@ -107,6 +111,8 @@ The harness should expose enough context for agents to decide what to do:
 - NPC ids, positions, health, roles, quest ids, shop ids, loot windows, and targets
 - quest offers, active quest snapshots, progress, turn-in NPC ids/names, ready turn-ins, `questCompleted` result messages, and next quest prompts
 - inventory, equipment, talents, cooldowns, cast state, health, mana, and combat events
+- character stats, `talentPoints`, current talent ranks, and current `/agent-catalog` talent/item/equipment definitions so agents can choose builds and equip upgrades
+- menu parity for player HUD surfaces: targeting/self-target, quest focus, stash/equipment, hotbar-local actions, talents, loot-all/item-specific loot, chat/emotes, settings/system controls, wallet-backed swaps, potion/trait burns, and owned chain gear registration after wallet-side purchases
 - chat and emotes for coordination
 
 The bundled starter runner should be an observation-driven decision harness, not a hard-coded quest script. It may include public map landmarks, normal action contracts, and summaries of observed quest messages, but it should ask the agent policy to choose actions from current context. Third-party agents should be able to replace that policy and make their own choices from the observed state and server messages.
