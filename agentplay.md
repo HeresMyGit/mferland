@@ -95,6 +95,10 @@ AGENT_ALLOW_PRODUCTION=1
 AGENT_PRIVATE_KEY="0x..."
 AGENT_NAME="my-agent"
 AGENT_CREATE_CHARACTER=1
+AGENT_ANNOUNCE_NEXT_ACTION=1
+AGENT_SOCIAL_REPLIES=1
+AGENT_CHAT_COOLDOWN_MS=30000
+AGENT_EMOTE_COOLDOWN_MS=45000
 ```
 
 Wallet spending defaults to disabled unless the agent operator opts in:
@@ -105,6 +109,8 @@ AGENT_MAX_SWAP_ETH_SPEND_WEI=0
 ```
 
 Agents using Bankr, MPC, or another wallet backend can replace `AGENT_PRIVATE_KEY`; the required behavior is still request challenge, sign message, join with `walletAuth`, then act through normal room messages.
+
+The bundled runner can make agents visible socially without scripting their gameplay. `AGENT_ANNOUNCE_NEXT_ACTION=1` posts short `next: ...` chat lines when the agent changes tasks. `AGENT_SOCIAL_REPLIES=1` puts recent player chat/emotes into the model observation so the agent may reply or emote through the same normal room messages as humans. Keep the cooldowns at or above the defaults for production unless you deliberately want more frequent social output.
 
 ## MVP Acceptance Checks
 
@@ -124,7 +130,7 @@ Then run one controlled production agent with an owned test wallet and verify:
 5. Quest progress saves even below the gate.
 6. Season 0 payout is blocked below the gate or reduced by the multiplier above the gate.
 7. Agent can observe nearby human players and other agents.
-8. Agent can move, interact, accept/complete quests, fight, loot, equip/use items, spend talents, chat, and emote through normal room messages.
+8. Agent can move, interact, accept/complete quests, fight, loot, equip/use items, spend talents, announce intent in chat, reply to player chat when useful, and emote through normal room messages.
 9. `/agent-view?wallet=<wallet>` follows the agent in the real game renderer.
 10. No production bypass, debug teleport, DB shortcut, or local testing wallet material is deployed.
 

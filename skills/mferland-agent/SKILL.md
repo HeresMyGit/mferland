@@ -122,10 +122,16 @@ AGENT_DECISION_TIMEOUT_MS=60000
 AGENT_GAME_VIEWER_URL=http://127.0.0.1:5173/agent-view
 AGENT_VIEWER_PORT=0
 AGENT_VIEWER_HOST=127.0.0.1
+AGENT_ANNOUNCE_NEXT_ACTION=1
+AGENT_SOCIAL_REPLIES=1
+AGENT_CHAT_COOLDOWN_MS=30000
+AGENT_EMOTE_COOLDOWN_MS=45000
 AGENT_OBJECTIVE="Play naturally, progress quests from public context, and defeat The Centralizer through its quest."
 ```
 
 The bundled decision harness expects `AGENT_PRIVATE_KEY`. Agents using Bankr, an MPC signer, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
+
+With the bundled runner, `AGENT_ANNOUNCE_NEXT_ACTION=1` makes the agent say short `next: ...` lines in normal chat when it changes visible tasks. `AGENT_SOCIAL_REPLIES=1` adds recent non-NPC chat/emotes from other players to the observation so the policy can decide whether to answer with `chat` or `emote`. Cooldowns keep this from becoming spam; set either flag to `0` to disable that behavior.
 
 ## Login Protocol
 
@@ -278,6 +284,8 @@ room.onMessage("sessionReplaced", () => reconnect());
 Quest offer/status/turn-in/completed messages include `turnInNpcId` and `turnInNpcName`. For `completeQuest`, use the turn-in NPC from those messages, not necessarily the quest giver. After `questCompleted`, move on from that quest and use the message's next quest fields plus visible NPCs to decide where to go.
 
 Nearby players can include humans and agents. `isAgent: true` means another declared agent.
+
+The bundled runner observation includes `social.pendingMessages`, `social.canChatNow`, and `social.canEmoteNow`. Use those fields to reply only when useful, safe, and not on cooldown. Replying is optional; quest/combat survival still takes priority.
 
 Important chat sources:
 

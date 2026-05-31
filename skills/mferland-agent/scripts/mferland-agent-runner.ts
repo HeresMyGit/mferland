@@ -43,6 +43,10 @@ type AgentConfig = {
   objective: string;
   maxMferGptSpendWei: string;
   maxSwapEthSpendWei: string;
+  announceNextAction: boolean;
+  socialReplies: boolean;
+  chatCooldownMs: number;
+  emoteCooldownMs: number;
   viewerPort: number;
   viewerHost: string;
   gameViewerUrl: string;
@@ -130,6 +134,15 @@ type CombatTroubleMemory = {
   reason: string;
   count: number;
   lastAt: number;
+};
+
+type SocialMessage = {
+  sessionId: string;
+  name: string;
+  identityType: string;
+  text: string;
+  kind: string;
+  observedAt: number;
 };
 
 type Decision = {
@@ -261,6 +274,9 @@ const CRITICAL_HEALTH_RATIO = 0.35;
 const DANGEROUS_NEIGHBOR_RADIUS = 11;
 const CROWDED_PULL_RADIUS = 12;
 const DECISION_PROVIDER_BACKOFF_MS = 5 * 60_000;
+const DEFAULT_CHAT_COOLDOWN_MS = 30_000;
+const DEFAULT_EMOTE_COOLDOWN_MS = 45_000;
+const SOCIAL_MESSAGE_TTL_MS = 2 * 60_000;
 const BASE_CHAIN_ID = 8453;
 const BASE_RPC_URL = "https://mainnet.base.org";
 const BASE_BLOCK_EXPLORER_URL = "https://basescan.org";
@@ -669,6 +685,7 @@ class MferlandRunner {
   private lastNpcRefs = new Map<string, string>();
   private lastPlayerRefs = new Map<string, string>();
   private recentMessages: string[] = [];
+  private pendingSocialMessages: SocialMessage[] = [];
   private questMemory = new Map<string, QuestMemory>();
   private combatTrouble = new Map<string, CombatTroubleMemory>();
   private targetPoint: Point | null = null;
@@ -689,6 +706,9 @@ class MferlandRunner {
   private nextAutoConsumableAt = 0;
   private nextAgentStatusAt = 0;
   private nextDecisionAt = 0;
+  private nextChatAt = 0;
+  private nextEmoteAt = 0;
+  private lastNextActionChat = "";
   private deciding = false;
   private lastAction = "";
   private reconnecting = false;
@@ -790,7 +810,7 @@ class MferlandRunner {
       this.players = new Map(schemaEntries(record.players).map(([id, value]) => [id, normalizePlayer(id, value)]));
       this.npcs = new Map(schemaEntries(record.npcs).map(([id, value]) => [id, normalizeNpc(id, value)]));
     });
-    room.onMessage("chat", (message: unknown) => this.remember(`chat:${messageSummary(message)}`, isImportantChat(message)));
+    room.onMessage("chat", (message: unknown) => this.handleChatMessage(message));
     room.onMessage("combatEvent", (event: unknown) => this.remember(`combat:${messageSummary(event)}`));
     room.onMessage("experienceEvent", (event: unknown) => this.remember(`xp:${messageSummary(event)}`, true));
     room.onMessage("lootWindow", (message: unknown) => this.remember(`lootWindow:${messageSummary(message)}`, true));
@@ -810,6 +830,29 @@ class MferlandRunner {
     room.onLeave(() => {
       if (!this.stopping) void this.reconnect();
     });
+  }
+
+  private handleChatMessage(message: unknown) {
+    this.remember(`chat:${messageSummary(message)}`, isImportantChat(message));
+    if (!this.config.socialReplies) return;
+    const record = asRecord(message);
+    const sessionId = getString(record.sessionId);
+    const identityType = getString(record.identityType);
+    const text = cleanText(record.text, 180);
+    const kind = cleanText(record.kind, 20) || "say";
+    if (!sessionId || sessionId === this.room?.sessionId || identityType === "npc" || !text) return;
+    const now = Date.now();
+    this.pendingSocialMessages = [
+      ...this.pendingSocialMessages.filter((entry) => now - entry.observedAt <= SOCIAL_MESSAGE_TTL_MS).slice(-7),
+      {
+        sessionId,
+        name: cleanText(record.name, 48) || "player",
+        identityType,
+        text,
+        kind,
+        observedAt: now,
+      },
+    ];
   }
 
   private rememberQuestMessage(kind: QuestMemory["kind"], message: unknown) {
@@ -891,6 +934,7 @@ class MferlandRunner {
       this.lastDecision = decision;
       this.log(`decision ${decision.action}: ${decision.reason}`);
       await this.executeDecision(decision);
+      this.maybeAnnounceNextAction(self, decision);
       this.publishAgentStatus(self, true);
     } catch (error) {
       const message = errorMessage(error);
@@ -1108,6 +1152,7 @@ class MferlandRunner {
       catalog: this.buildCatalogObservation(self),
       nearbyNpcs: visibleNpcs,
       nearbyPlayers: visiblePlayers,
+      social: this.buildSocialObservation(now),
       safeTrainingTargets: this.describeSafeTrainingTargets(self),
       questMemory: [...this.questMemory.values()]
         .sort((a, b) => b.observedAt - a.observedAt)
@@ -1140,6 +1185,7 @@ class MferlandRunner {
         "For travel_route, put a public route id or landmark id in text. Minor wording differences are accepted.",
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
         "If a corpse has loot and you are safe, use loot to clear it.",
+        "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
         "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, and purchase_potion_shop_item through normal room messages when the observation shows a useful reason.",
@@ -1213,6 +1259,22 @@ class MferlandRunner {
         .map((item) => this.summarizeItemDefinition(item))
         .slice(0, 40),
       potionShop: this.catalog.potionShop ?? {},
+    };
+  }
+
+  private buildSocialObservation(now: number) {
+    this.pendingSocialMessages = this.pendingSocialMessages.filter((entry) => now - entry.observedAt <= SOCIAL_MESSAGE_TTL_MS);
+    return {
+      pendingMessages: this.pendingSocialMessages.slice(-6).map((entry) => ({
+        name: entry.name,
+        identityType: entry.identityType,
+        text: entry.text,
+        kind: entry.kind,
+        secondsAgo: Math.max(0, Math.round((now - entry.observedAt) / 1000)),
+      })),
+      canChatNow: now >= this.nextChatAt,
+      canEmoteNow: now >= this.nextEmoteAt,
+      guidance: "If a player greets, asks a question, coordinates, or emotes nearby, you may choose chat or emote as your next action when it is useful and safe.",
     };
   }
 
@@ -1818,14 +1880,24 @@ class MferlandRunner {
         const text = cleanText(decision.text, 180);
         if (!text) throw new Error("chat requires text");
         this.clearEngagement();
-        this.send("chat", { text });
+        if (!this.canSendChat()) {
+          this.lastAction = "chat_cooldown";
+          return;
+        }
+        this.sendChat(text);
+        this.markSocialHandled();
         this.lastAction = `chat ${text.slice(0, 24)}`;
         return;
       }
       case "emote": {
         const emoteId = cleanText(decision.emoteId, 40) || "wave";
         this.clearEngagement();
-        this.send("emote", { emoteId });
+        if (!this.canSendEmote()) {
+          this.lastAction = "emote_cooldown";
+          return;
+        }
+        this.sendEmote(emoteId);
+        this.markSocialHandled();
         this.lastAction = `emote ${emoteId}`;
         return;
       }
@@ -1860,6 +1932,111 @@ class MferlandRunner {
       this.recordCombatTrouble(npc.id, "unavailable_target");
       throw new Error(`${action} target ${npc.id} is not currently available for combat`);
     }
+  }
+
+  private maybeAnnounceNextAction(self: RuntimePlayer, decision: Decision) {
+    if (!this.config.announceNextAction || self.health <= 0 || !this.canSendChat()) return;
+    if (decision.action === "wait" || decision.action === "chat" || decision.action === "emote") return;
+    const text = this.describeNextActionChat(decision);
+    if (!text || text === this.lastNextActionChat) return;
+    this.sendChat(text);
+    this.lastNextActionChat = text;
+  }
+
+  private describeNextActionChat(decision: Decision) {
+    const npc = this.resolveNpc(decision.npcRef);
+    const player = this.resolvePlayer(decision.playerRef);
+    const questLabel = this.getQuestLabel(cleanText(decision.questId, 96));
+    const itemId = cleanText(decision.itemId, 96);
+    const actionId = cleanText(decision.actionId, 40);
+    switch (decision.action) {
+      case "move_to": {
+        const x = readFiniteNumber(decision.x);
+        const z = readFiniteNumber(decision.z);
+        return x === undefined || z === undefined ? "" : `next: moving to ${round(x)}, ${round(z)}`;
+      }
+      case "travel_route":
+        return `next: taking ${cleanText(decision.text, 80) || "a route"}`;
+      case "move_near_npc":
+        return npc ? `next: heading to ${npc.name}` : "";
+      case "interact_npc":
+        return npc ? `next: talking to ${npc.name}` : "";
+      case "move_near_player":
+        return player ? `next: moving over to ${player.name}` : "";
+      case "accept_quest":
+        return questLabel ? `next: accepting ${questLabel}` : "";
+      case "complete_quest":
+        return questLabel ? `next: turning in ${questLabel}` : "";
+      case "cancel_quest":
+        return questLabel ? `next: dropping ${questLabel}` : "";
+      case "fight_npc":
+        return npc ? `next: fighting ${npc.name}` : "";
+      case "use_ability":
+        return player && actionId
+          ? `next: using ${actionId} with ${player.name}`
+          : npc && actionId
+            ? `next: using ${actionId} on ${npc.name}`
+            : "";
+      case "loot":
+        return npc ? `next: looting ${npc.name}` : "";
+      case "equip_item":
+        return itemId ? `next: equipping ${itemId}` : "";
+      case "unequip_item": {
+        const slot = cleanText(decision.slotId, 40) || cleanText(decision.text, 40);
+        return slot ? `next: unequipping ${slot}` : "";
+      }
+      case "use_item":
+        return itemId ? `next: using ${itemId}` : "";
+      case "select_talent": {
+        const talentId = cleanText(decision.talentId, 96) || cleanText(decision.text, 96);
+        return talentId ? `next: spending a point on ${talentId}` : "";
+      }
+      case "share_quest_link":
+        return questLabel ? `next: sharing ${questLabel}` : "";
+      case "swap_eth_for_mfergpt":
+        return "next: swapping ETH for MFERGPT";
+      case "register_chain_gear":
+        return "next: registering chain gear";
+      case "purchase_potion_shop_item":
+        return itemId ? `next: buying ${itemId}` : "";
+      case "update_traits":
+        return "next: updating traits";
+      case "respawn":
+        return "next: respawning";
+      default:
+        return "";
+    }
+  }
+
+  private getQuestLabel(questId: string) {
+    if (!questId) return "";
+    const memory = this.questMemory.get(questId);
+    return memory?.title || questId;
+  }
+
+  private canSendChat() {
+    return Date.now() >= this.nextChatAt;
+  }
+
+  private sendChat(text: string) {
+    const cleaned = makeChatLine(text);
+    if (!cleaned) return;
+    this.send("chat", { text: cleaned });
+    this.nextChatAt = Date.now() + this.config.chatCooldownMs;
+  }
+
+  private canSendEmote() {
+    return Date.now() >= this.nextEmoteAt;
+  }
+
+  private sendEmote(emoteId: string) {
+    const cleaned = cleanText(emoteId, 40) || "wave";
+    this.send("emote", { emoteId: cleaned });
+    this.nextEmoteAt = Date.now() + this.config.emoteCooldownMs;
+  }
+
+  private markSocialHandled() {
+    this.pendingSocialMessages = [];
   }
 
   private buildPaymentProof(decision: Decision) {
@@ -2701,6 +2878,10 @@ function readConfig(): AgentConfig {
     objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, survive, and eventually defeat The Centralizer through its quest.",
     maxMferGptSpendWei: readNonNegativeIntegerEnv("AGENT_MAX_MFERGPT_SPEND_WEI"),
     maxSwapEthSpendWei: readNonNegativeIntegerEnv("AGENT_MAX_SWAP_ETH_SPEND_WEI"),
+    announceNextAction: cleanEnv("AGENT_ANNOUNCE_NEXT_ACTION") !== "0",
+    socialReplies: cleanEnv("AGENT_SOCIAL_REPLIES") !== "0",
+    chatCooldownMs: readNumberEnv("AGENT_CHAT_COOLDOWN_MS") || DEFAULT_CHAT_COOLDOWN_MS,
+    emoteCooldownMs: readNumberEnv("AGENT_EMOTE_COOLDOWN_MS") || DEFAULT_EMOTE_COOLDOWN_MS,
     viewerPort,
     viewerHost,
     gameViewerUrl,
@@ -2925,6 +3106,10 @@ function cleanEnv(name: string) {
 
 function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function makeChatLine(value: unknown) {
+  return cleanText(value, 180).replace(/\s+/g, " ");
 }
 
 function nullableText(value: unknown) {
