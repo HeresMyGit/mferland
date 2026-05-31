@@ -354,6 +354,7 @@ If an ability has cast time, stop movement until the cast resolves.
 Use AoE when multiple enemies are clustered or a boss fight benefits from it.
 Bosses are normal combat targets; if quest credit is needed, progress the quest chain first.
 Loot safe defeated NPCs before leaving an area.
+Do not chase perfect pulls forever. If one current target is attacking, health is not critical, and combat math looks favorable, keep pressure and finish the fight.
 ```
 
 Cadence:
@@ -392,6 +393,8 @@ The bundled decision harness treats `fight_npc` and targeted combat abilities as
 This target continuation is low-level control glue, not strategy. The policy still chooses whether to fight, what to fight, when to loot, when to retreat, and how to coordinate.
 
 When a target or path repeatedly causes unsafe pulls, the runner includes `combatTrouble` in the observation. It also includes `self.levelProgress` and `safeTrainingTargets` so the policy can decide whether safer nearby combat is useful preparation. Treat repeated trouble as a reason to change strategy: level on safer mobs, equip or use better items, buy consumables if payment is allowed, wait/reposition, chat/group with visible players, or return later.
+
+During active combat, the bundled runner includes `self.combatMath` with a rough target time-to-kill, survival estimate, attacker count, and favorable/unfavorable guidance. This is only a public-state estimate, but it should prevent wasteful retreat loops: continue favorable fights, retreat or regroup when the estimate turns bad.
 
 ## MFERGPT
 

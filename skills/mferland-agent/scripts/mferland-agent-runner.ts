@@ -94,6 +94,7 @@ type RuntimeNpc = {
   name: string;
   role: string;
   model: string;
+  combatStyle: string;
   health: number;
   maxHealth: number;
   isImmortal: boolean;
@@ -182,17 +183,17 @@ const COMBAT_ACTION_IDS = [
   "iceBlast",
 ] as const;
 
-const COMBAT: Record<CombatActionId, { minRange: number; maxRange: number; manaCost: number; castTimeMs: number; requiresStationary: boolean; minLevel: number }> = {
-  attack: { minRange: 0, maxRange: 5, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
-  shoot: { minRange: 4, maxRange: 40, manaCost: 0, castTimeMs: 0, requiresStationary: true, minLevel: 2 },
-  signalShot: { minRange: 4, maxRange: 34, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 3 },
-  fireblast: { minRange: 0, maxRange: 30, manaCost: 14, castTimeMs: 3500, requiresStationary: true, minLevel: 4 },
-  frostNova: { minRange: 0, maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
-  heal: { minRange: 0, maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
-  taunt: { minRange: 0, maxRange: 12, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 7 },
-  whirlwind: { minRange: 0, maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
-  multishot: { minRange: 4, maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 6 },
-  iceBlast: { minRange: 0, maxRange: 28, manaCost: 12, castTimeMs: 3500, requiresStationary: true, minLevel: 5 },
+const COMBAT: Record<CombatActionId, { damage: number; cooldownMs: number; minRange: number; maxRange: number; manaCost: number; castTimeMs: number; requiresStationary: boolean; minLevel: number }> = {
+  attack: { damage: 4, cooldownMs: 1500, minRange: 0, maxRange: 5, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 1 },
+  shoot: { damage: 10, cooldownMs: 2000, minRange: 4, maxRange: 40, manaCost: 0, castTimeMs: 0, requiresStationary: true, minLevel: 2 },
+  signalShot: { damage: 12, cooldownMs: 6000, minRange: 4, maxRange: 34, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 3 },
+  fireblast: { damage: 20, cooldownMs: 0, minRange: 0, maxRange: 30, manaCost: 14, castTimeMs: 3500, requiresStationary: true, minLevel: 4 },
+  frostNova: { damage: 5, cooldownMs: 12000, minRange: 0, maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
+  heal: { damage: 0, cooldownMs: 5000, minRange: 0, maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
+  taunt: { damage: 0, cooldownMs: 10000, minRange: 0, maxRange: 12, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 7 },
+  whirlwind: { damage: 9, cooldownMs: 9000, minRange: 0, maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
+  multishot: { damage: 9, cooldownMs: 10000, minRange: 4, maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 6 },
+  iceBlast: { damage: 14, cooldownMs: 0, minRange: 0, maxRange: 28, manaCost: 12, castTimeMs: 3500, requiresStationary: true, minLevel: 5 },
 };
 
 const COMBAT_UNLOCK_TALENTS: Partial<Record<CombatActionId, string>> = {
@@ -277,6 +278,10 @@ const DECISION_PROVIDER_BACKOFF_MS = 5 * 60_000;
 const DEFAULT_CHAT_COOLDOWN_MS = 30_000;
 const DEFAULT_EMOTE_COOLDOWN_MS = 45_000;
 const SOCIAL_MESSAGE_TTL_MS = 2 * 60_000;
+const PRESS_SINGLE_ATTACKER_HEALTH_RATIO = 0.46;
+const PRESS_MULTI_ATTACKER_HEALTH_RATIO = 0.68;
+const PRESS_LOW_HEALTH_FINISH_RATIO = 0.38;
+const FAVORABLE_FIGHT_SURVIVAL_MARGIN = 1.25;
 const BASE_CHAIN_ID = 8453;
 const BASE_RPC_URL = "https://mainnet.base.org";
 const BASE_BLOCK_EXPLORER_URL = "https://basescan.org";
@@ -1017,7 +1022,7 @@ class MferlandRunner {
           shopId: npc.shopId,
           hasLoot: npc.hasLoot,
           aggroTarget: npc.aggroTargetId === self.sessionId ? "you" : npc.aggroTargetId ? "someone" : "",
-          nearbyHostileCount: this.nearbyHostileCount(npc, 8),
+          nearbyHostileCount: this.nearbyHostileCount(npc, 8, npc.id),
           nearbyDangerousHostileCount: this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc),
           nearestDangerousHostile: this.nearestDangerousHostile(npc, CROWDED_PULL_RADIUS, npc),
           pullRisk: this.describePullRisk(npc),
@@ -1126,6 +1131,7 @@ class MferlandRunner {
         aggroCount: [...this.npcs.values()].filter((npc) => npc.aggroTargetId === self.sessionId && npc.health > 0 && npc.defeatedAt <= 0).length,
         nearbyHostileCount: this.nearbyHostileCount(self, 10),
         nearbyDangerousHostileCount: this.nearbyDangerousHostileCount(self, 14),
+        combatMath: this.describeCombatMath(self),
         quests,
         inventory: this.describeInventory(self),
         equipment: this.describeEquipment(self),
@@ -1185,6 +1191,8 @@ class MferlandRunner {
         "For travel_route, put a public route id or landmark id in text. Minor wording differences are accepted.",
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
         "If a corpse has loot and you are safe, use loot to clear it.",
+        "Do not chase a perfect pull forever. If only the current target is attacking, health is not critical, and self.combatMath says the fight is favorable, keep attacking instead of repeatedly retreating.",
+        "Retreat when health is critical, multiple adds make the combat math unfavorable, or the route would run deeper into a pack.",
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
@@ -1329,6 +1337,34 @@ class MferlandRunner {
         pullRisk: this.describePullRisk(npc),
         approachRisk: this.describeApproachRisk(self, npc),
       }));
+  }
+
+  private describeCombatMath(self: RuntimePlayer) {
+    const attackers = this.getAttackers(self);
+    const target = this.activeEngagementNpc() ?? attackers[0] ?? null;
+    if (!target) {
+      return {
+        attackers: 0,
+        target: "",
+        favorable: true,
+        guidance: "No active attackers.",
+      };
+    }
+    const estimate = this.estimateCombatOutcome(self, target, attackers);
+    return {
+      attackers: attackers.length,
+      target: target.name || target.id,
+      targetId: target.id,
+      extraAttackers: attackers.filter((attacker) => attacker.id !== target.id).map((attacker) => attacker.name || attacker.id).slice(0, 4),
+      playerDps: round(estimate.playerDps),
+      incomingDps: round(estimate.incomingDps),
+      targetTtkSeconds: formatEstimateSeconds(estimate.targetTtkMs),
+      survivalSeconds: formatEstimateSeconds(estimate.survivalMs),
+      favorable: estimate.favorable,
+      guidance: estimate.favorable
+        ? "Current fight looks winnable; keep pressure unless health becomes critical or more adds join."
+        : "Current fight looks unfavorable; stabilize, use control/items/heal, retreat, or group.",
+    };
   }
 
   private getNpcXpReward(npc: RuntimeNpc) {
@@ -2123,7 +2159,7 @@ class MferlandRunner {
     const distance = distance2d(self, npc);
     const attackers = this.getAttackers(self);
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
-    if (healthRatio < 0.88 && this.hasDangerousAdd(attackers, npc)) {
+    if (healthRatio < 0.88 && this.hasDangerousAdd(attackers, npc) && !this.shouldPressCurrentFight(self, npc, attackers)) {
       this.startRetreat(self, "retreat_dangerous_add");
       return;
     }
@@ -2132,6 +2168,7 @@ class MferlandRunner {
       && distance < 12
       && (attackers.length >= 2 || healthRatio < RECOVER_HEALTH_RATIO)
       && (this.lastSafePoint || this.combatAnchor)
+      && !this.shouldPressCurrentFight(self, npc, attackers)
     ) {
       this.startRetreat(self, "kite_to_range");
       return;
@@ -2161,7 +2198,7 @@ class MferlandRunner {
       }
       if (
         isHostile(npc)
-        && this.nearbyHostileCount(npc, 12) >= 3
+        && this.nearbyHostileCount(npc, 12, npc.id) >= 3
         && this.nearbyHostileCount(destination, 14) > 0
         && !canTakeQuestRisk
       ) {
@@ -2176,7 +2213,7 @@ class MferlandRunner {
       return;
     }
     this.targetPoint = null;
-    this.cast(actionId, { kind: "npc", id: npc.id });
+    this.cast(actionId, actionId === "heal" ? { kind: "player", id: self.sessionId } : { kind: "npc", id: npc.id });
     this.lastAction = `combat ${actionId} ${npc.id}`;
   }
 
@@ -2185,7 +2222,7 @@ class MferlandRunner {
     if (npc.aggroTargetId === self.sessionId || attackers.some((attacker) => attacker.id === npc.id)) return false;
     if (attackers.length > 0) return false;
     const dangerousNeighbors = this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc);
-    const crowdedNeighbors = this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS);
+    const crowdedNeighbors = this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS, npc.id);
     if (self.health >= self.maxHealth * 0.86) {
       if (this.isExactActiveQuestObjectiveNpc(self, npc)) return false;
       if (this.isModelActiveQuestObjectiveNpc(self, npc) && dangerousNeighbors === 0) return false;
@@ -2207,6 +2244,89 @@ class MferlandRunner {
     if (npc.maxHealth > self.maxHealth * 0.42) return false;
     if (this.getCombatTroubleCount(npc.id, 90_000) >= 2) return false;
     return true;
+  }
+
+  private shouldPressCurrentFight(self: RuntimePlayer, npc: RuntimeNpc, attackers: RuntimeNpc[]) {
+    if (!npc || npc.health <= 0 || npc.defeatedAt > 0) return false;
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    if (healthRatio <= CRITICAL_HEALTH_RATIO) return false;
+    if (attackers.length === 0) return true;
+
+    const targetIsAttacking = attackers.some((attacker) => attacker.id === npc.id);
+    const extraAttackers = attackers.filter((attacker) => attacker.id !== npc.id);
+    const estimate = this.estimateCombatOutcome(self, npc, attackers);
+    const canFinishSoon = npc.health <= this.estimatePlayerBurstDamage(self) * 1.35 && healthRatio >= PRESS_LOW_HEALTH_FINISH_RATIO;
+
+    if (extraAttackers.length === 0 && targetIsAttacking) {
+      return healthRatio >= PRESS_SINGLE_ATTACKER_HEALTH_RATIO || estimate.favorable || canFinishSoon;
+    }
+    if (attackers.length <= 2 && healthRatio >= PRESS_MULTI_ATTACKER_HEALTH_RATIO && estimate.favorable) return true;
+    return canFinishSoon && estimate.survivalMs > 2500;
+  }
+
+  private estimateCombatOutcome(self: RuntimePlayer, npc: RuntimeNpc, attackers: RuntimeNpc[]) {
+    const playerDps = this.estimatePlayerDamagePerSecond(self);
+    const incomingDps = attackers.reduce((total, attacker) => total + this.estimateNpcDamagePerSecond(attacker), 0);
+    const targetTtkMs = playerDps > 0 ? (Math.max(0, npc.health) / playerDps) * 1000 : Number.POSITIVE_INFINITY;
+    const survivalMs = incomingDps > 0 ? (Math.max(0, self.health) / incomingDps) * 1000 : Number.POSITIVE_INFINITY;
+    const burstFinish = npc.health <= this.estimatePlayerBurstDamage(self) * 1.2;
+    const favorable = incomingDps <= 0
+      || targetTtkMs * FAVORABLE_FIGHT_SURVIVAL_MARGIN <= survivalMs
+      || (burstFinish && self.health >= self.maxHealth * PRESS_LOW_HEALTH_FINISH_RATIO);
+    return { playerDps, incomingDps, targetTtkMs, survivalMs, favorable };
+  }
+
+  private estimatePlayerDamagePerSecond(self: RuntimePlayer) {
+    return Math.max(
+      ...COMBAT_ACTION_IDS
+        .filter((actionId) => actionId !== "heal" && actionId !== "taunt")
+        .filter((actionId) => this.isActionUsableSoon(self, actionId))
+        .map((actionId) => {
+          const action = COMBAT[actionId];
+          const cycleMs = Math.max(action.cooldownMs, action.castTimeMs + 1000, 1000);
+          return this.estimatePlayerActionDamage(self, actionId) / (cycleMs / 1000);
+        }),
+      this.estimatePlayerActionDamage(self, "attack") / 1.5,
+    );
+  }
+
+  private estimatePlayerBurstDamage(self: RuntimePlayer) {
+    return Math.max(
+      ...COMBAT_ACTION_IDS
+        .filter((actionId) => actionId !== "heal" && actionId !== "taunt")
+        .filter((actionId) => this.isActionUsableSoon(self, actionId))
+        .map((actionId) => this.estimatePlayerActionDamage(self, actionId)),
+      this.estimatePlayerActionDamage(self, "attack"),
+    );
+  }
+
+  private isActionUsableSoon(self: RuntimePlayer, actionId: CombatActionId) {
+    const action = COMBAT[actionId];
+    if (self.level < action.minLevel || self.mana < action.manaCost) return false;
+    const unlockTalentId = COMBAT_UNLOCK_TALENTS[actionId];
+    if (unlockTalentId && this.getTalentRank(self, unlockTalentId) <= 0) return false;
+    const readyAt = getNumber(self[`${actionId}ReadyAt`]);
+    return !readyAt || readyAt <= Date.now() + 2500;
+  }
+
+  private estimatePlayerActionDamage(self: RuntimePlayer, actionId: CombatActionId) {
+    const baseDamage = COMBAT[actionId].damage;
+    if (actionId === "attack") return baseDamage + Math.floor(self.strength * 0.7);
+    if (actionId === "shoot" || actionId === "multishot") return baseDamage + Math.floor(self.dexterity * 0.75);
+    if (actionId === "signalShot") return baseDamage + Math.floor(self.dexterity * 0.45) + Math.floor(self.magic * 0.45);
+    if (actionId === "whirlwind") return baseDamage + Math.floor(self.strength * 0.55);
+    if (actionId === "fireblast") return baseDamage + Math.floor(self.magic * 1.1);
+    if (actionId === "iceBlast") return baseDamage + Math.floor(self.magic * 0.78);
+    return baseDamage;
+  }
+
+  private estimateNpcDamagePerSecond(npc: RuntimeNpc) {
+    if (npc.id === "raid-ogre-mfer") return 38 / 1.4;
+    if (npc.id === "static-baron-nox") return 24 / 1.5;
+    if (npc.id === "mfergpt-daily-boss") return 10 / 1.55;
+    if (npc.role === "farmer") return npc.combatStyle === "caster" ? 14 / 3.2 : 8 / 1.7;
+    if (npc.model === "hog") return 5 / 1.7;
+    return 4 / 1.8;
   }
 
   private chooseCombatAction(self: RuntimePlayer, npc: RuntimeNpc, distance: number): CombatActionId {
@@ -2386,11 +2506,16 @@ class MferlandRunner {
     if (!this.engagedNpcId || Date.now() < this.nextAutoCombatAt || self.health <= 0 || self.castingAction) return;
     const attackers = this.getAttackers(self);
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    const npc = this.npcs.get(this.engagedNpcId);
     if (attackers.length >= 2 || healthRatio < 0.55) {
+      if (npc && this.shouldPressCurrentFight(self, npc, attackers)) {
+        this.nextAutoCombatAt = Date.now() + 650;
+        this.fight(self, npc);
+        return;
+      }
       this.startRetreat(self, attackers.length >= 2 ? "retreat_overpull" : "retreat_low_health");
       return;
     }
-    const npc = this.npcs.get(this.engagedNpcId);
     if (!npc || npc.health <= 0 || npc.defeatedAt > 0) {
       this.clearEngagement();
       return;
@@ -2515,8 +2640,8 @@ class MferlandRunner {
   private describePullRisk(npc: RuntimeNpc) {
     if (!isHostile(npc) || npc.health <= 0 || npc.defeatedAt > 0) return "none";
     if (this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc) > 0) return "high: stronger hostile is close enough to join the pull";
-    if (this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS) >= 4) return "high: crowded hostile cluster";
-    if (this.nearbyHostileCount(npc, 8) >= 2) return "medium: another hostile is nearby";
+    if (this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS, npc.id) >= 4) return "high: crowded hostile cluster";
+    if (this.nearbyHostileCount(npc, 8, npc.id) >= 2) return "medium: another hostile is nearby";
     return "low";
   }
 
@@ -2525,8 +2650,8 @@ class MferlandRunner {
     const pathThreat = this.dangerousHostileOnTravelPath(self, npc, 12);
     if (pathThreat) return `high: path from current position passes near ${pathThreat.name || pathThreat.id}`;
     if (this.nearbyDangerousHostileCount(npc, DANGEROUS_NEIGHBOR_RADIUS, npc) > 0) return "high: target is beside a stronger hostile";
-    if (distance2d(self, npc) > 34 && this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS) >= 3) return "high: target is beyond range inside a crowded cluster";
-    if (this.nearbyHostileCount(npc, 8) >= 2) return "medium: target has nearby hostiles";
+    if (distance2d(self, npc) > 34 && this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS, npc.id) >= 3) return "high: target is beyond range inside a crowded cluster";
+    if (this.nearbyHostileCount(npc, 8, npc.id) >= 2) return "medium: target has nearby hostiles";
     return "low";
   }
 
@@ -2605,19 +2730,23 @@ class MferlandRunner {
     const manaRatio = self.maxMana > 0 ? self.mana / self.maxMana : 1;
     const attackers = this.getAttackers(self);
     const closeAttackers = attackers.filter((npc) => distance2d(self, npc) <= 6.5);
+    const engagedNpc = this.activeEngagementNpc();
+    const pressCurrentFight = Boolean(engagedNpc && this.shouldPressCurrentFight(self, engagedNpc, attackers));
     if (attackers.length >= 2 && closeAttackers.length > 0 && this.canUse(self, "frostNova") && !self.castingAction) {
       this.nextAutoConsumableAt = Date.now() + 1800;
       this.cast("frostNova", { kind: "npc", id: "" });
-      this.startRetreat(self, "auto_control_frostNova", 5600);
+      if (pressCurrentFight) this.lastAction = "auto_control_frostNova_press";
+      else this.startRetreat(self, "auto_control_frostNova", 5600);
       return;
     }
-    if (healthRatio < 0.9 && this.hasDangerousAdd(closeAttackers) && this.canUse(self, "frostNova") && !self.castingAction) {
+    if (healthRatio < 0.9 && this.hasDangerousAdd(closeAttackers, engagedNpc ?? undefined) && this.canUse(self, "frostNova") && !self.castingAction) {
       this.nextAutoConsumableAt = Date.now() + 1800;
       this.cast("frostNova", { kind: "npc", id: "" });
-      this.startRetreat(self, "auto_control_dangerous_add", 6200);
+      if (pressCurrentFight) this.lastAction = "auto_control_dangerous_add_press";
+      else this.startRetreat(self, "auto_control_dangerous_add", 6200);
       return;
     }
-    if (healthRatio < 0.82 && this.hasDangerousAdd(attackers)) {
+    if (healthRatio < 0.82 && this.hasDangerousAdd(attackers, engagedNpc ?? undefined) && !pressCurrentFight) {
       this.startRetreat(self, "retreat_dangerous_add");
       return;
     }
@@ -2687,9 +2816,10 @@ class MferlandRunner {
     return [...this.players.values()].find((player) => player.name.toLowerCase() === key || player.sessionId.toLowerCase() === key) ?? null;
   }
 
-  private nearbyHostileCount(pointLike: Point, radius: number) {
+  private nearbyHostileCount(pointLike: Point, radius: number, excludeNpcId = "") {
     return [...this.npcs.values()].filter((npc) => (
-      npc.health > 0
+      npc.id !== excludeNpcId
+      && npc.health > 0
       && npc.defeatedAt <= 0
       && !npc.isImmortal
       && isHostile(npc)
@@ -2948,6 +3078,7 @@ function normalizeNpc(id: string, value: AnyRecord): RuntimeNpc {
     name: getString(value.name) || id,
     role: getString(value.role),
     model: getString(value.model),
+    combatStyle: getString(value.combatStyle),
     health: getNumber(value.health),
     maxHealth: getNumber(value.maxHealth, 1),
     isImmortal: Boolean(value.isImmortal),
@@ -3110,6 +3241,11 @@ function cleanText(value: unknown, maxLength: number) {
 
 function makeChatLine(value: unknown) {
   return cleanText(value, 180).replace(/\s+/g, " ");
+}
+
+function formatEstimateSeconds(milliseconds: number) {
+  if (!Number.isFinite(milliseconds)) return "safe";
+  return `${round(milliseconds / 1000)}s`;
 }
 
 function nullableText(value: unknown) {
