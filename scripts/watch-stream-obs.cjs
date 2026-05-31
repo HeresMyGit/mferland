@@ -18,6 +18,7 @@ function loadObsWebSocket() {
 }
 
 const OBSWebSocket = loadObsWebSocket();
+const DEFAULT_STREAM_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 const OBS_WS = process.env.OBS_WS || "ws://localhost:4455";
 const OBS_PASSWORD = process.env.OBS_PASSWORD || "";
@@ -164,12 +165,12 @@ function withWatchdogRefreshParam(value) {
 
 function getRefreshIntervalMs() {
   if (process.env.MFERLAND_STREAM_REFRESH_INTERVAL_MS) {
-    return readPositiveIntegerEnv("MFERLAND_STREAM_REFRESH_INTERVAL_MS", 90 * 60 * 1000);
+    return readPositiveIntegerEnv("MFERLAND_STREAM_REFRESH_INTERVAL_MS", DEFAULT_STREAM_REFRESH_INTERVAL_MS);
   }
 
   const minutes = Number.parseFloat(process.env.MFERLAND_STREAM_REFRESH_MINUTES || "");
   if (Number.isFinite(minutes) && minutes > 0) return Math.round(minutes * 60 * 1000);
-  return 90 * 60 * 1000;
+  return DEFAULT_STREAM_REFRESH_INTERVAL_MS;
 }
 
 function readPositiveIntegerEnv(name, fallback) {
