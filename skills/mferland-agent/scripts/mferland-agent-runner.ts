@@ -234,8 +234,11 @@ const PUBLIC_ROUTES: Record<string, Point[]> = {
   "claim-pile-to-route-post": [{ x: -89, z: 92 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
   "route-post-to-claim-booth": [{ x: -119.2, z: 132.4 }, { x: -111.2, z: 136.7 }],
   "route-post-to-signal-post": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "route-post-to-signal-ridge": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "plaza-to-signal-ridge": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
   "signal-post-to-uplink-shack": [{ x: 108.8, z: -92.8 }, { x: 117.6, z: -91.2 }],
   "signal-post-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
+  "signal-ridge-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
   "uplink-shack-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
   "field-to-plaza": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: -2.4, z: 4.2 }],
   "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
@@ -1771,10 +1774,15 @@ class MferlandRunner {
         const routeText = cleanText(decision.text, 80);
         const route = resolveRoute(routeText);
         if (!route) throw new Error(`unknown route ${routeText}`);
+        const actionLabel = `travel_route ${routeText}`;
+        if (this.lastAction === actionLabel && (this.targetPoint || this.routeQueue.length > 0)) {
+          this.followRoute(self);
+          return;
+        }
         this.clearEngagement();
         this.routeQueue = [...route];
         this.followRoute(self);
-        this.lastAction = `travel_route ${routeText}`;
+        this.lastAction = actionLabel;
         return;
       }
       case "move_near_npc":
@@ -2613,14 +2621,12 @@ class MferlandRunner {
     const dangerousNearby = this.nearbyDangerousHostileCount(self, 10) > 0;
     const crowdedNearby = this.nearbyHostileCount(self, 6) >= 2;
     if (!dangerousOnPath && !dangerousNearby && !crowdedNearby) return;
-    this.targetPoint = null;
-    this.routeQueue = [];
-    this.lastAction = dangerousOnPath
-      ? `hold_unsafe_travel_path ${dangerousOnPath.id}`
+    const reason = dangerousOnPath
+      ? `unsafe_travel_path_${dangerousOnPath.id}`
       : dangerousNearby
-        ? "hold_unsafe_travel_dangerous_hostile"
-        : "hold_unsafe_travel_crowded_hostiles";
-    this.nextDecisionAt = Math.min(this.nextDecisionAt, Date.now() + 350);
+        ? "unsafe_travel_dangerous_hostile"
+        : "unsafe_travel_crowded_hostiles";
+    this.recordMovementTrouble(self, reason, distance2d(self, this.targetPoint));
   }
 
   private continueEngagement(self: RuntimePlayer) {
