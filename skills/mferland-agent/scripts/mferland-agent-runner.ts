@@ -1075,6 +1075,7 @@ class MferlandRunner {
           } : null,
         };
       });
+    const teamContext = this.buildTeamContext(self);
 
     this.lastNpcRefs = refs;
     this.lastPlayerRefs = playerRefs;
@@ -1082,13 +1083,31 @@ class MferlandRunner {
     const quests = self.quests.map((quest) => {
       const questId = getString(quest.id);
       const memory = this.questMemory.get(questId);
+      const metadata = this.getQuestCatalogEntry(questId);
+      const encounterType = getString(metadata.encounterType) || "solo";
+      const groupSuggestion = getString(metadata.groupSuggestion);
+      const suggestedPlayerCount = Math.max(1, getNumber(metadata.suggestedPlayerCount, 1));
+      const suggestedAlliesNeeded = Math.max(0, suggestedPlayerCount - 1);
+      const needsHelp = suggestedAlliesNeeded > teamContext.nearbyHealthyAllies;
       return {
         id: questId,
         status: getString(quest.status),
         progress: `${getNumber(quest.progress)}/${getNumber(quest.required)}`,
         flags: getString(quest.flags),
-        lastKnownTitle: memory?.title ?? "",
-        lastKnownObjective: memory?.objectiveLabel ?? "",
+        title: memory?.title ?? getString(metadata.title),
+        objective: memory?.objectiveLabel ?? getString(metadata.objectiveLabel),
+        encounterType,
+        groupSuggestion,
+        suggestedPlayerCount,
+        suggestedAlliesNeeded,
+        nearbyHealthyAllies: teamContext.nearbyHealthyAllies,
+        needsHelp,
+        soloWarning: getString(metadata.soloWarning),
+        focusAdvice: needsHelp
+          ? `${groupSuggestion || encounterType} content: do not repeatedly solo this objective. Switch active quest focus, level/gear/shop, chat for help, wait for allies, or cancel optional daily raid content.`
+          : "",
+        lastKnownTitle: memory?.title ?? getString(metadata.title),
+        lastKnownObjective: memory?.objectiveLabel ?? getString(metadata.objectiveLabel),
         lastKnownNpcId: memory?.npcId ?? "",
         lastKnownNpcName: memory?.npcName ?? "",
         lastKnownTurnInNpcId: memory?.turnInNpcId ?? "",
@@ -1173,6 +1192,7 @@ class MferlandRunner {
       catalog: this.buildCatalogObservation(self),
       nearbyNpcs: visibleNpcs,
       nearbyPlayers: visiblePlayers,
+      teamContext,
       social: this.buildSocialObservation(now),
       safeTrainingTargets: this.describeSafeTrainingTargets(self),
       questMemory: [...this.questMemory.values()]
@@ -1193,6 +1213,9 @@ class MferlandRunner {
         "For accept_quest, use the offer npcRef. For complete_quest, use the turnInNpcId/turnInNpcName from quest messages when present.",
         "Prefer stable NPC ids or exact NPC names for npcRef. Numbered refs like npc1 also work, but only for the current observation.",
         "If a quest is completed or a questCompleted message was observed, move on to available next quest context instead of retrying that turn-in.",
+        "Active and ready quests are a menu of possible goals, not a single locked objective. You can change quest focus based on danger, team availability, level, gear, and nearby players.",
+        "Quest observations and catalog.questCatalog may mark group suggested or raid suggested objectives. If needsHelp is true or teamContext shows too few healthy allies nearby, do not repeatedly solo that objective.",
+        "For group/raid content without enough help, switch to another active/ready quest, level on safer targets, gear/shop/loot, chat or emote to form a group, wait at a rally point, or cancel optional daily raid content.",
         "For combat, prefer fight_npc with a visible hostile npcRef. Avoid pulling packs unless grouping or using AoE intentionally.",
         "Only use fight_npc or damaging use_ability on attackable NPCs. Quest givers, merchants, guards, and wanderers are friendly menu/interact targets, not combat targets.",
         "NPC observations include pullRisk, approachRisk, nearbyHostileCount, and nearbyDangerousHostileCount. Prefer low-risk pulls with low approachRisk unless you are intentionally grouping or fighting the stronger enemy.",
@@ -1279,6 +1302,21 @@ class MferlandRunner {
       equipmentSlots: this.catalog.equipmentSlots ?? {},
       talentTrees: this.catalog.talentTrees ?? {},
       talentChoices: this.buildTalentChoices(self),
+      questCatalog: Object.values(asRecord(this.catalog.quests))
+        .map((quest) => {
+          const record = asRecord(quest);
+          return {
+            id: getString(record.id),
+            title: getString(record.title),
+            objective: getString(record.objectiveLabel),
+            turnInNpcId: getString(record.turnInNpcId),
+            encounterType: getString(record.encounterType) || "solo",
+            groupSuggestion: getString(record.groupSuggestion),
+            suggestedPlayerCount: Math.max(1, getNumber(record.suggestedPlayerCount, 1)),
+            soloWarning: getString(record.soloWarning),
+          };
+        })
+        .filter((quest) => quest.id),
       equipmentCatalog: itemDefinitions
         .filter((item) => Boolean(item.equipment))
         .map((item) => this.summarizeItemDefinition(item))
@@ -1288,6 +1326,27 @@ class MferlandRunner {
         .map((item) => this.summarizeItemDefinition(item))
         .slice(0, 40),
       potionShop: this.catalog.potionShop ?? {},
+    };
+  }
+
+  private getQuestCatalogEntry(questId: string) {
+    const quests = asRecord(this.catalog?.quests);
+    return asRecord(quests[questId]);
+  }
+
+  private buildTeamContext(self: RuntimePlayer) {
+    const nearbyHealthyPlayers = [...this.players.values()]
+      .filter((player) => player.sessionId !== self.sessionId)
+      .map((player) => ({ player, distance: distance2d(self, player) }))
+      .filter(({ player, distance }) => player.health > 0 && distance <= 48);
+    const nearbyHealthyAgentAllies = nearbyHealthyPlayers.filter(({ player }) => player.isAgent).length;
+    const nearbyHealthyHumanAllies = nearbyHealthyPlayers.length - nearbyHealthyAgentAllies;
+    return {
+      nearbyHealthyAllies: nearbyHealthyPlayers.length,
+      nearbyHealthyAgentAllies,
+      nearbyHealthyHumanAllies,
+      radiusMeters: 48,
+      guidance: "Use this for group/raid judgment. Group suggested usually wants at least one healthy ally nearby; raid suggested wants a larger visible crew before calling or fighting the boss.",
     };
   }
 
@@ -2993,6 +3052,7 @@ function buildDecisionPrompt(objective: string, observation: unknown) {
     "Do not run commands, inspect files, browse, ask for hidden server state, use debug messages, teleport, boost, or request database access.",
     "Make your own gameplay decision from public in-game context: current room state, quest offers/status/turn-ins, NPC dialogue, visible players, public map landmarks, inventory, cooldowns, combat state, and recent chat.",
     "There is no quest script. Discover the game by exploring, interacting, accepting quests, reading objective text, completing objectives, looting, grouping, and turning in ready quests.",
+    "Active and ready quests are choices, not a locked script. If a quest is marked group suggested or raid suggested and the observation says needsHelp, switch focus, level/gear/shop, chat for help, wait for allies, or cancel optional daily raid content instead of repeatedly soloing it.",
     "Work toward the objective, but preserve normal gameplay: stay alive, avoid overpulls, loot when safe, and coordinate with visible players.",
     "",
     JSON.stringify({ objective, observation }),

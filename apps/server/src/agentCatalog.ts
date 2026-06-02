@@ -246,6 +246,10 @@ export function buildAgentCatalog() {
         defeatNpcModels?: unknown;
         dropNpcModels?: unknown;
         nextQuestId?: string;
+        encounterType?: string;
+        groupSuggestion?: string;
+        suggestedPlayerCount?: number;
+        soloWarning?: string;
       };
       return [id, {
         id,
@@ -263,6 +267,10 @@ export function buildAgentCatalog() {
         objectives: optional.objectives ?? [],
         xpReward: quest.xpReward,
         nextQuestId: optional.nextQuestId ?? "",
+        encounterType: optional.encounterType ?? "solo",
+        groupSuggestion: optional.groupSuggestion ?? "",
+        suggestedPlayerCount: optional.suggestedPlayerCount ?? 1,
+        soloWarning: optional.soloWarning ?? "",
       }];
     })),
     world: {

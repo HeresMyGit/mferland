@@ -262,6 +262,10 @@ export const QUESTS = {
     turnInLabel: "return to uplink shack mfer",
     required: 1,
     requiredQuestId: "cut-the-static",
+    encounterType: "group",
+    groupSuggestion: "group suggested",
+    suggestedPlayerCount: 2,
+    soloWarning: "The Centralizer is tuned for a group. Do not repeatedly solo it; group up, gear up, level, or work another active quest until help is nearby.",
     xpReward: 353,
     objectives: [
       { id: "static-baron-nox", label: "drop The Centralizer" },
@@ -272,11 +276,15 @@ export const QUESTS = {
   "ogre-raid-daily": {
     title: "bear market mfer",
     giverNpcId: "beacon-keeper-mfer",
-    description: "Every 24 hours the uplink can call one huge red candle with legs. Talk to uplink shack mfer to ring it in, then drop bear market mfer.",
+    description: "Every 24 hours the uplink can call one huge red candle with legs. Raid suggested: talk to uplink shack mfer to ring it in, then drop bear market mfer with a crew.",
     objectiveLabel: "talk to uplink shack mfer to call bear market mfer, then drop him",
     turnInLabel: "report back to uplink shack mfer",
     required: 1,
     requiredQuestId: "baron-of-static",
+    encounterType: "raid",
+    groupSuggestion: "raid suggested",
+    suggestedPlayerCount: 4,
+    soloWarning: "Bear market mfer is raid content. Do not repeatedly solo it; only call or fight it when a raid group is nearby, otherwise cancel or switch focus.",
     xpReward: 525,
     objectives: [
       { id: "raid-ogre-mfer", label: "call bear market mfer at uplink shack, then drop him" },

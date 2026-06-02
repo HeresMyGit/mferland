@@ -86,6 +86,15 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.payments.mferGpt.season0AgentRequiredBalanceWei, "25000000000000000000000000");
   assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
   assert.equal(catalog.traits.declaredAgentModel, "mfergpt");
+
+  assert.equal(catalog.quests["baron-of-static"].encounterType, "group");
+  assert.equal(catalog.quests["baron-of-static"].groupSuggestion, "group suggested");
+  assert.equal(catalog.quests["baron-of-static"].suggestedPlayerCount, 2);
+  assert.match(catalog.quests["baron-of-static"].soloWarning, /do not repeatedly solo/i);
+  assert.equal(catalog.quests["ogre-raid-daily"].encounterType, "raid");
+  assert.equal(catalog.quests["ogre-raid-daily"].groupSuggestion, "raid suggested");
+  assert.equal(catalog.quests["ogre-raid-daily"].suggestedPlayerCount, 4);
+  assert.match(catalog.quests["ogre-raid-daily"].soloWarning, /raid content/i);
 });
 
 test("agent catalog covers non-debug room messages sent by web menus", () => {

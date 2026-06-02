@@ -177,7 +177,7 @@ export function getGameAgentHandbook() {
       },
       {
         questId: "baron-of-static",
-        plan: "Bring nearby players, use heals/taunts/items, and fight The Centralizer from the edge of the static lot. Do not run through the whole pack.",
+        plan: "Group suggested: bring at least one healthy nearby player, use heals/taunts/items, and fight The Centralizer from the edge of the static lot. If you are alone, switch active quest focus, level/gear/shop, chat for help, or wait at a rally point instead of repeatedly soloing it.",
       },
       {
         questId: "mfergpt-daily-signal",
@@ -185,7 +185,7 @@ export function getGameAgentHandbook() {
       },
       {
         questId: "ogre-raid-daily",
-        plan: "Interact with beacon-keeper-mfer to call bear market mfer, then fight the visible raid boss as a group with heals, taunts, and items.",
+        plan: "Raid suggested: only interact with beacon-keeper-mfer to call bear market mfer when a visible crew is ready, then fight the visible raid boss as a raid with heals, taunts, and items. If you are alone, cancel the optional daily or switch active quest focus.",
       },
     ],
     questHints: Object.entries(QUESTS).map(([questId, quest]) => ({
@@ -195,6 +195,10 @@ export function getGameAgentHandbook() {
       turnInNpcId: "turnInNpcId" in quest ? quest.turnInNpcId : quest.giverNpcId,
       objective: quest.objectiveLabel,
       requiredQuestId: "requiredQuestId" in quest ? quest.requiredQuestId : "",
+      encounterType: "encounterType" in quest ? quest.encounterType : "solo",
+      groupSuggestion: "groupSuggestion" in quest ? quest.groupSuggestion : "",
+      suggestedPlayerCount: "suggestedPlayerCount" in quest ? quest.suggestedPlayerCount : 1,
+      soloWarning: "soloWarning" in quest ? quest.soloWarning : "",
     })),
     combat: Object.entries(COMBAT.actions).map(([actionId, action]) => ({
       actionId,

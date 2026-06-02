@@ -123,8 +123,19 @@ type VisibleObservation = {
       requiredQuestId: string;
       nextQuestId: string;
       objective: string;
+      encounterType: string;
+      groupSuggestion: string;
+      suggestedPlayerCount: number;
+      soloWarning: string;
       publicPlan: string;
     }>;
+  };
+  teamContext: {
+    nearbyHealthyAllies: number;
+    nearbyHealthyAgentAllies: number;
+    nearbyHealthyHumanAllies: number;
+    radiusMeters: number;
+    guidance: string;
   };
   self: {
     name: string;
@@ -152,6 +163,14 @@ type VisibleObservation = {
       progress: string;
       objective: string;
       turnInNpcId: string;
+      encounterType: string;
+      groupSuggestion: string;
+      suggestedPlayerCount: number;
+      suggestedAlliesNeeded: number;
+      nearbyHealthyAllies: number;
+      needsHelp: boolean;
+      soloWarning: string;
+      focusAdvice: string;
     }>;
     completedQuestIds: string[];
     inventory: Array<{
@@ -439,6 +458,15 @@ export function makeVisibleObservation(
       animation: player.animation,
     };
   });
+  const nearbyHealthyAllies = raw.nearbyPlayers.filter((player) => player.health > 0 && player.distance <= 48);
+  const nearbyHealthyAgentAllies = nearbyHealthyAllies.filter((player) => player.isAgent).length;
+  const teamContext: VisibleObservation["teamContext"] = {
+    nearbyHealthyAllies: nearbyHealthyAllies.length,
+    nearbyHealthyAgentAllies,
+    nearbyHealthyHumanAllies: nearbyHealthyAllies.length - nearbyHealthyAgentAllies,
+    radiusMeters: 48,
+    guidance: "Use this for group/raid judgment. Group suggested usually wants at least one healthy ally nearby; raid suggested wants a larger visible crew before calling or fighting the boss.",
+  };
 
   const visibleAliveNpcs = raw.nearbyNpcs.filter((npc) => npc.health > 0 && npc.defeatedAt <= 0);
   const nearbyNpcs = raw.nearbyNpcs.slice(0, 12).map((npc, index) => {
@@ -549,6 +577,9 @@ export function makeVisibleObservation(
           .filter((quest) => quest.status !== "completed")
           .map((quest) => {
             const definition = QUESTS[quest.id] as typeof QUESTS[QuestId] & { turnInNpcId?: string };
+            const encounter = getQuestEncounterMetadata(quest.id);
+            const suggestedAlliesNeeded = Math.max(0, encounter.suggestedPlayerCount - 1);
+            const needsHelp = suggestedAlliesNeeded > teamContext.nearbyHealthyAllies;
             return {
               questId: quest.id,
               title: definition.title,
@@ -556,6 +587,13 @@ export function makeVisibleObservation(
               progress: `${quest.progress}/${quest.required}`,
               objective: definition.objectiveLabel,
               turnInNpcId: definition.turnInNpcId ?? definition.giverNpcId,
+              ...encounter,
+              suggestedAlliesNeeded,
+              nearbyHealthyAllies: teamContext.nearbyHealthyAllies,
+              needsHelp,
+              focusAdvice: needsHelp
+                ? `${encounter.groupSuggestion || encounter.encounterType} content: do not repeatedly solo this objective. Switch quest focus, level/gear/shop, chat for help, wait for allies, or cancel optional daily raid content.`
+                : "",
             };
           }),
         completedQuestIds: self.quests
@@ -588,6 +626,7 @@ export function makeVisibleObservation(
         unlockedCombatActions: Object.keys(COMBAT.actions).filter((actionId) => isProbablyUnlocked(self, actionId as CombatActionId)),
         combatActions: getCombatActionStates(self),
       },
+      teamContext,
       nearbyNpcs,
       lootableCorpses,
       nearbyPlayers,
@@ -613,6 +652,8 @@ export function makeVisibleObservation(
           "Use questTrackerHints as the public quest-log style guide for what to do next.",
           "Use questProgress as the public all-quests checklist. Work toward questProgress.allQuestsCompletedOnce by completing remainingQuestIds once.",
           "When several options are legal, prefer questProgress.nextRecommendedQuestIds in order.",
+          "Active and ready quests are a menu of possible goals, not a locked objective. You can change quest focus based on danger, level, gear, nearby players, and teamContext.",
+          "Quests may be marked group suggested or raid suggested. If a quest needsHelp or teamContext shows too few healthy allies nearby, do not repeatedly solo it; switch to another active/ready quest, level/gear/shop, chat for help, wait at a rally point, or cancel optional daily raid content.",
           "Use known npcId from the handbook only for moving toward public, named NPCs.",
           "When no quest is active, questTrackerHints may name the next public quest giver; use move_near_npc or accept_quest with that npcId to continue.",
           "Use navigation.publicRallyPoints as public map coordinates for move_to. Prefer west-hog-pull for farm hog quests, claim-booth-hog-pull for hog-loop, loop-farm-road for farm danger, and plaza-safe for a full reset.",
@@ -705,6 +746,8 @@ class OpenAiActionPolicy implements ActionPolicy {
           "For quest actions, treat observation.questTrackerHints plus nearbyNpcs available/ready quest ids as the current legal quest state.",
           "Quest turn-in requires being within 3.75m of the turn-in NPC. If a ready turn-in is visible but you are being attacked outside turn-in range, stabilize first instead of spamming complete_quest.",
           "Use observation.questProgress as the public all-quests checklist and prefer observation.questProgress.nextRecommendedQuestIds.",
+          "Active and ready quests are choices, not a locked script. You may switch quest focus whenever survival, level, gear, or team availability makes another active/ready quest smarter.",
+          "If a quest is marked group suggested or raid suggested and observation.self.activeOrReadyQuests says needsHelp, do not repeatedly solo it. Group up through nearbyPlayers/recentChat, wait, gear/level, switch focus, or cancel optional daily raid content.",
           "When no quest is active, questTrackerHints may name a public quest giver npcId; use move_near_npc or accept_quest with that npcId to continue.",
           "Never complete a quest unless the current observation says it is ready.",
           "Never request database reads, scripts, hidden server state, debug messages, teleport, boost, or privileged shortcuts.",
@@ -1004,7 +1047,7 @@ async function buyPotionShopItem(
 function summarizeVisibleState(observation: VisibleObservation) {
   const quests = observation.self.activeOrReadyQuests
     .slice(0, 3)
-    .map((quest) => `${quest.questId}:${quest.status}:${quest.progress}`)
+    .map((quest) => `${quest.questId}:${quest.status}:${quest.progress}${quest.needsHelp ? ":needsHelp" : ""}`)
     .join(",");
   const nearby = observation.nearbyNpcs
     .slice(0, 4)
@@ -1036,6 +1079,7 @@ function summarizeVisibleState(observation: VisibleObservation) {
     nextQuests ? `next=${nextQuests}` : "",
     `aggro=${observation.self.aggroCount}`,
     `hostiles=${observation.self.nearbyHostileCount}`,
+    `team=${observation.teamContext.nearbyHealthyAllies}/${observation.teamContext.radiusMeters}m`,
     quests ? `quests=${quests}` : "quests=none",
     observation.self.dangerNote ? `danger=${observation.self.dangerNote}` : "",
     wallet,
@@ -1083,6 +1127,7 @@ function getQuestProgress(quests: PlayerSnapshot["quests"], memory: RunMemory): 
   const knownQuests = QUEST_IDS.map((questId) => {
     const quest = questById.get(questId);
     const status = getPublicQuestStatus(questId, quest, quests, memory);
+    const encounter = getQuestEncounterMetadata(questId);
     return {
       questId,
       title: QUESTS[questId].title,
@@ -1094,6 +1139,7 @@ function getQuestProgress(quests: PlayerSnapshot["quests"], memory: RunMemory): 
       requiredQuestId: getPublicQuestRequirement(questId),
       nextQuestId: getPublicQuestNextQuestId(questId),
       objective: QUESTS[questId].objectiveLabel,
+      ...encounter,
       publicPlan: getPublicQuestPlan(questId),
     };
   });
@@ -1159,6 +1205,21 @@ function getPublicQuestKind(questId: QuestId) {
   return "main";
 }
 
+function getQuestEncounterMetadata(questId: QuestId) {
+  const quest = QUESTS[questId] as typeof QUESTS[QuestId] & {
+    encounterType?: string;
+    groupSuggestion?: string;
+    suggestedPlayerCount?: number;
+    soloWarning?: string;
+  };
+  return {
+    encounterType: quest.encounterType ?? "solo",
+    groupSuggestion: quest.groupSuggestion ?? "",
+    suggestedPlayerCount: quest.suggestedPlayerCount ?? 1,
+    soloWarning: quest.soloWarning ?? "",
+  };
+}
+
 function isMainProgressionQuest(questId: QuestId) {
   if (isSideQuest(questId) || questId === "ogre-raid-daily") return false;
   return !isRepeatableQuest(questId) || questId === "route-patrol-daily" || questId === "hog-loop";
@@ -1205,8 +1266,8 @@ function getPublicQuestPlan(questId: QuestId) {
   if (questId === "ridge-dispatch") return "travel_route route-post-to-signal-ridge, then complete at ridge-guide-mfer";
   if (questId === "signal-scraps") return "travel_route signal-ridge-to-static-lot, fight and loot visible ridge enemies for scraps, then complete at ridge-guide-mfer";
   if (questId === "cut-the-static") return "fight visible ridge-raider-vex, ridge-raider-pax, and static-mage-ori one at a time, then complete at beacon-keeper-mfer";
-  if (questId === "baron-of-static") return "group with visible players, fight static-baron-nox from static-lot edge with items/heals/taunts, then complete at beacon-keeper-mfer";
-  if (questId === "ogre-raid-daily") return "accept at beacon-keeper-mfer, interact there to call raid-ogre-mfer, fight as a group, then complete at beacon-keeper-mfer";
+  if (questId === "baron-of-static") return "group suggested: if at least one healthy ally is nearby, fight static-baron-nox from static-lot edge with items/heals/taunts, then complete at beacon-keeper-mfer; otherwise switch active quest focus, level/gear/shop, or chat for help";
+  if (questId === "ogre-raid-daily") return "raid suggested: accept at beacon-keeper-mfer only when a visible crew is ready, interact there to call raid-ogre-mfer, fight as a raid, then complete at beacon-keeper-mfer; otherwise cancel or switch focus";
   return `complete the public objective and turn in at ${getQuestTurnInNpcId(questId)}`;
 }
 
@@ -1570,9 +1631,9 @@ function getQuestTrackerHints(quests: PlayerSnapshot["quests"], memory: RunMemor
     } else if (quest.id === "cut-the-static") {
       hints.push(`fight_npc visible named ridge enemies one at a time: operator vex, repeater pax, echo-shell ori; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
     } else if (quest.id === "baron-of-static") {
-      hints.push(`fight_npc visible The Centralizer with nearby players, using heals/taunts/items and avoiding extra pulls; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
+      hints.push(`group suggested: fight_npc visible The Centralizer only with at least one healthy nearby ally, using heals/taunts/items and avoiding extra pulls; if alone, switch active quest focus, level/gear/shop, or chat for help; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
     } else if (quest.id === "ogre-raid-daily") {
-      hints.push(`interact_npc beacon-keeper-mfer to call bear market mfer if needed, then fight_npc visible raid boss as a group; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
+      hints.push(`raid suggested: only interact_npc beacon-keeper-mfer to call bear market mfer when a visible crew is ready, then fight_npc visible raid boss as a raid; if alone, cancel_quest questId=ogre-raid-daily or switch active quest focus; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
     } else {
       hints.push(`work on active questId=${quest.id}: ${definition.objectiveLabel}; turn in at npcId=${getQuestTurnInNpcId(quest.id)} when ready`);
     }
@@ -1948,6 +2009,8 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "For quest actions, only use accept_quest or complete_quest when the current questTrackerHints or nearby NPC quest ids support that exact questId.",
     "Quest turn-in requires being within 3.75m of the turn-in NPC. If a ready turn-in is visible but you are being attacked outside turn-in range, stabilize first instead of spamming complete_quest.",
     "Use observation.questProgress as the public all-quests checklist and prefer observation.questProgress.nextRecommendedQuestIds when several actions are legal.",
+    "Active and ready quests are choices, not a locked script. You may switch quest focus whenever survival, level, gear, or team availability makes another active/ready quest smarter.",
+    "If a quest is marked group suggested or raid suggested and observation.self.activeOrReadyQuests says needsHelp, do not repeatedly solo it. Group up through nearbyPlayers/recentChat, wait, gear/level, switch focus, or cancel optional daily raid content.",
     "When no quest is active, questTrackerHints may name a public quest giver npcId; use move_near_npc or accept_quest with that npcId to continue the visible questline.",
     "Never complete a quest unless the current observation says it is ready.",
     "Use observation.self.aggroCount, observation.self.nearbyHostileCount, observation.self.dangerNote, and nearbyNpcs.targeting to avoid overpulls.",
