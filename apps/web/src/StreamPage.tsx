@@ -335,6 +335,7 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           nameplateVisibility={settings.nameplates}
           renderProfile={renderProfile}
           controlsEnabled={false}
+          cameraControlsEnabled={agentView}
           idleCameraNpcId={STREAM_IDLE_CAMERA_NPC_ID}
         />
       </Canvas>
