@@ -846,6 +846,9 @@ export class TownRoom extends Room<TownState> {
 
     this.state.players.set(client.sessionId, player);
     this.sessionJoinedAt.set(client.sessionId, Date.now());
+    if (identityType === "wallet" && walletAddress) {
+      await this.replaceDuplicateWalletSessions(client, walletAddress);
+    }
     this.recordPlayerAnalyticsEvent("session_joined", client.sessionId, player, {
       level: player.level,
       isAgent: player.isAgent,
@@ -947,6 +950,16 @@ export class TownRoom extends Room<TownState> {
       return this.replaceExistingPlayerSession(client, sessionId, player);
     }
     return null;
+  }
+
+  private async replaceDuplicateWalletSessions(client: Client, walletAddress: string) {
+    let replacedCount = 0;
+    while (await this.replaceExistingWalletSession(client, walletAddress)) {
+      replacedCount += 1;
+    }
+    if (replacedCount > 0) {
+      console.warn(`Replaced ${replacedCount} duplicate wallet session${replacedCount === 1 ? "" : "s"} for ${walletAddress}`);
+    }
   }
 
   private async replaceExistingPlayerSession(client: Client, sessionId: string, player: PlayerState): Promise<SessionHandoff> {
