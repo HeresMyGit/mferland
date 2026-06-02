@@ -635,6 +635,22 @@ function TownSceneComponent({
             ? localVisualPlayer.current
             : player;
           const showNameplate = isLocalPlayer ? nameplateVisibility.localPlayer : nameplateVisibility.otherPlayers;
+          if (renderedPlayer.isAgent) {
+            return (
+              <MferGptAvatar
+                key={sessionId}
+                npc={makeAgentModelSnapshot(renderedPlayer)}
+                variant="agent"
+                showNameplate={showNameplate}
+                showNameplateHealthBar={nameplateVisibility.healthBars}
+                isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
+                isDefeated={renderedPlayer.health <= 0}
+                chatBubble={chatBubbleBySessionId.get(sessionId)}
+                viewerPosition={viewerPosition}
+                onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
+              />
+            );
+          }
           return (
             <MferAvatar
               key={sessionId}
@@ -888,6 +904,33 @@ function getNpcRenderRadius(npc: NpcSnapshot, renderProfile: RenderPerformancePr
 
 function isHeavyNpcModel(model: NpcSnapshot["model"]) {
   return model === "mfer" || model === "mfergpt" || model === "training-dummy";
+}
+
+function makeAgentModelSnapshot(player: PlayerSnapshot): NpcSnapshot {
+  return {
+    id: player.sessionId,
+    name: player.name,
+    role: "wanderer",
+    model: "mfergpt",
+    portraitImage: "",
+    avatarSeed: player.avatarSeed,
+    health: player.health,
+    maxHealth: player.maxHealth,
+    isImmortal: false,
+    x: player.x,
+    y: player.y,
+    z: player.z,
+    yaw: player.yaw,
+    animation: player.animation,
+    dialogue: "",
+    questId: "",
+    defeatedAt: player.health <= 0 ? Date.now() : 0,
+    despawnAt: 0,
+    frozenUntil: player.frozenUntil,
+    slowedUntil: 0,
+    aggroTargetId: "",
+    hasLoot: false,
+  };
 }
 
 function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {

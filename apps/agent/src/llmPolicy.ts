@@ -137,7 +137,7 @@ type VisibleObservation = {
     appearanceTraits: {
       current: MferAppearanceTraits;
       categories: typeof MFER_APPEARANCE_TRAIT_CATEGORIES;
-      declaredAgentBaseTraits: MferAppearanceTraits;
+      declaredAgentModel: "mfergpt";
       guidance: string;
     };
     castingAction: string;
@@ -323,13 +323,10 @@ const ACTIONS = [
 
 const AGENT_DEFAULT_TRAITS: MferAppearanceTraits = {
   background: "orange",
-  type: "metal",
-  eyes: "metal",
-  mouth: "flat",
+  type: "plain",
+  eyes: "regular",
+  mouth: "smile",
   headphones: "black",
-};
-const AGENT_FORCED_TRAITS: MferAppearanceTraits = {
-  type: "metal",
 };
 
 const ACTION_SCHEMA = {
@@ -540,8 +537,8 @@ export function makeVisibleObservation(
         appearanceTraits: {
           current: self.appearanceTraits,
           categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
-          declaredAgentBaseTraits: AGENT_FORCED_TRAITS,
-          guidance: "For update_traits, keep type=metal as the agent shell and choose the other categories from your own identity, style, and play archetype.",
+          declaredAgentModel: "mfergpt",
+          guidance: "For update_traits, choose valid mfer trait ids as identity metadata and for supported overlays. Declared agents render with the mferGPT agent model.",
         },
         castingAction: self.castingAction,
         inCombat: aggroCount > 0,
@@ -640,7 +637,7 @@ export function makeVisibleObservation(
           "Use nearbyPlayers and recentChat as public social context. When safe, occasional chat, emote, move_near_player, or select_player actions are normal ways to greet, coordinate, or group with visible players; do not spam or interrupt combat recovery.",
           "If runMemory.canceledQuestIds contains a repeatable quest, do not accept that quest again during this run unless nearby players are visibly grouping for it.",
           "Use observation.stores for public merchant knowledge and available store actions.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Keep type=metal as the declared agent shell.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "Use swap_eth_for_mfergpt when the local wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal local wallet transaction to the configured local swap router.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
           "A quantity=5 purchase counts as one stock-up purchase and is useful before leaving town. If observation.runMemory.purchasedPotionShopItemIds is nonempty or inventory already has potion-shop stock, continue questing and use items instead.",
@@ -718,7 +715,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the local MFERGPT burn flow can buy stock.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Keep type=metal as the declared agent shell.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal local wallet transaction through the configured local swap router.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
           "Do not choose use_item as the only response while multiple NPCs are actively hitting you in melee unless health is high enough for the item to land; fight, AoE/control, or retreat farther first.",
@@ -1545,7 +1542,7 @@ function getQuestTrackerHints(quests: PlayerSnapshot["quests"], memory: RunMemor
     if (quest.status !== "active") continue;
     const definition = QUESTS[quest.id];
     if (quest.id === "set-your-traits") {
-      hints.push("choose your own traits from observation.self.appearanceTraits.categories, use update_traits at npcId=traits-mfer with type=metal, then complete_quest questId=set-your-traits");
+      hints.push("choose your own traits from observation.self.appearanceTraits.categories, use update_traits at npcId=traits-mfer, then complete_quest questId=set-your-traits");
     } else if ("chatMention" in definition) {
       hints.push(`chat ${definition.chatMention}, then complete_quest questId=${quest.id} at npcId=${getQuestTurnInNpcId(quest.id)}`);
     } else if ("socialAction" in definition) {
@@ -2124,7 +2121,7 @@ function resolveAgentTraits(value: unknown): MferAppearanceTraits {
     if (!allowed?.has(valueId)) continue;
     traits[categoryId] = valueId;
   }
-  return { ...traits, ...AGENT_FORCED_TRAITS };
+  return traits;
 }
 
 function readFiniteNumber(value: unknown) {

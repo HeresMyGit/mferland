@@ -33,7 +33,15 @@ const PORTRAIT_CONFIG: Record<NpcSnapshot["model"], PortraitConfig> = {
   hog: { cameraY: 0.92, cameraZ: 2.95, lookY: 0.82, modelY: 0.02, scale: 1.38, sway: 0.13, bob: 0.025 },
 };
 
-export function ActorModelPortrait({ npc, renderProfile }: { npc: NpcSnapshot; renderProfile?: RenderPerformanceProfile }) {
+export function ActorModelPortrait({
+  npc,
+  renderProfile,
+  variant = "npc",
+}: {
+  npc: NpcSnapshot;
+  renderProfile?: RenderPerformanceProfile;
+  variant?: "npc" | "agent";
+}) {
   const config = PORTRAIT_CONFIG[npc.model] ?? PORTRAIT_CONFIG.hog;
   const resolvedRenderProfile = useMemo(() => renderProfile ?? getClientRenderPerformanceProfile(), [renderProfile]);
 
@@ -50,14 +58,14 @@ export function ActorModelPortrait({ npc, renderProfile }: { npc: NpcSnapshot; r
       <hemisphereLight args={["#fff7df", "#8c765c", 1.02]} />
       <directionalLight position={[2.6, 3.8, 3.2]} intensity={2.2} color="#fff2d2" />
       <Suspense fallback={null}>
-        <PortraitRig npc={npc} config={config} />
+        <PortraitRig npc={npc} config={config} variant={variant} />
       </Suspense>
       <PortraitCamera config={config} />
     </Canvas>
   );
 }
 
-function PortraitRig({ npc, config }: { npc: NpcSnapshot; config: PortraitConfig }) {
+function PortraitRig({ npc, config, variant }: { npc: NpcSnapshot; config: PortraitConfig; variant: "npc" | "agent" }) {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame(({ clock }) => {
@@ -72,7 +80,7 @@ function PortraitRig({ npc, config }: { npc: NpcSnapshot; config: PortraitConfig
 
   return (
     <group ref={groupRef} scale={config.scale} position={[0, config.modelY, 0]}>
-      <PortraitModel npc={npc} />
+      <PortraitModel npc={npc} variant={variant} />
     </group>
   );
 }
@@ -89,17 +97,17 @@ function PortraitCamera({ config }: { config: PortraitConfig }) {
   return null;
 }
 
-function PortraitModel({ npc }: { npc: NpcSnapshot }) {
-  if (npc.model === "mfergpt") return <MferGptPortraitModel npc={npc} />;
+function PortraitModel({ npc, variant }: { npc: NpcSnapshot; variant: "npc" | "agent" }) {
+  if (npc.model === "mfergpt") return <MferGptPortraitModel npc={npc} variant={variant} />;
   if (npc.model === "training-dummy") return <TrainingDummyPortraitModel />;
   if (npc.model === "rabbit") return <RabbitModel />;
   if (npc.model === "deer") return <DeerModel />;
   return <HogModel />;
 }
 
-function MferGptPortraitModel({ npc }: { npc: NpcSnapshot }) {
+function MferGptPortraitModel({ npc, variant }: { npc: NpcSnapshot; variant: "npc" | "agent" }) {
   const isHostile = getNpcDisposition(npc) === "hostile";
-  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile)) as LoadedGltf;
+  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile, variant)) as LoadedGltf;
   const model = useMemo(() => createMferGptAvatar(gltf.scene, isHostile), [gltf.scene, isHostile]);
   return <primitive object={model} dispose={null} />;
 }

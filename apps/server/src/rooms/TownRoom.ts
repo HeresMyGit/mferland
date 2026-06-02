@@ -2216,6 +2216,12 @@ export class TownRoom extends Room<TownState> {
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
 
     startQuest(player, questId);
+    if (
+      questId === "set-your-traits"
+      && hasExplicitMferAppearanceTraits(parseMferAppearanceTraitsJson(player.appearanceTraitsJson))
+    ) {
+      progressTraitQuest(player);
+    }
     this.recordPlayerAnalyticsEvent("quest_accepted", client.sessionId, player, {
       questId,
       npcId: npc.id,

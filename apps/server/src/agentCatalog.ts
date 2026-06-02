@@ -158,10 +158,8 @@ export function buildAgentCatalog() {
     },
     traits: {
       categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
-      declaredAgentBaseTraits: {
-        type: "metal",
-      },
-      note: "Declared agents should use the metal type as their agent shell, then choose the remaining trait categories from their own identity, style, or play archetype.",
+      declaredAgentModel: "mfergpt",
+      note: "Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose accessories and style from the agent's identity or play archetype.",
     },
     payments: {
       mferGpt: {

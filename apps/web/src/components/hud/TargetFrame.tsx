@@ -29,7 +29,8 @@ export function TargetFrame({
   const healthPercent = Math.max(0, Math.min(100, (health / maxHealth) * 100));
   const label = npc ? roleLabel(npc) : playerLabel(unit as PlayerSnapshot);
   const healthText = npc?.isImmortal ? "∞" : `${Math.round(health)}/${Math.round(maxHealth)}`;
-  const showMferPortrait = !npc || npc.model === "mfer";
+  const showAgentModelPortrait = Boolean(player?.isAgent || player?.identityType === "agent");
+  const showMferPortrait = !showAgentModelPortrait && (!npc || npc.model === "mfer");
   const showMferGptModelPortrait = npc?.model === "mfergpt" && disposition !== "friendly";
   const portraitImage = showMferGptModelPortrait ? "" : npc?.portraitImage;
   const portraitTraits = useMemo(
@@ -46,9 +47,11 @@ export function TargetFrame({
           <img className="npc-portrait-image" src={portraitImage} alt={`${unit.name} portrait`} draggable={false} />
         ) : showMferPortrait ? (
           <MferPortrait traits={portraitTraits} title={`${unit.name} mfer portrait`} />
-        ) : (
+        ) : showAgentModelPortrait && player ? (
+          <ActorModelPortrait npc={makeAgentModelSnapshot(player)} renderProfile={renderProfile} variant="agent" />
+        ) : npc ? (
           <ActorModelPortrait npc={npc} renderProfile={renderProfile} />
-        )}
+        ) : null}
       </div>
       <div className="target-vitals">
         <strong>{unit.name}</strong>
@@ -92,4 +95,31 @@ function playerLabel(player: PlayerSnapshot) {
   if (player.identityType === "agent") return "Agent Player";
   if (player.identityType === "wallet") return "verified mfer";
   return "anon mfer";
+}
+
+function makeAgentModelSnapshot(player: PlayerSnapshot): NpcSnapshot {
+  return {
+    id: player.sessionId,
+    name: player.name,
+    role: "wanderer",
+    model: "mfergpt",
+    portraitImage: "",
+    avatarSeed: player.avatarSeed,
+    health: player.health,
+    maxHealth: player.maxHealth,
+    isImmortal: false,
+    x: player.x,
+    y: player.y,
+    z: player.z,
+    yaw: player.yaw,
+    animation: player.animation,
+    dialogue: "",
+    questId: "",
+    defeatedAt: player.health <= 0 ? Date.now() : 0,
+    despawnAt: 0,
+    frozenUntil: player.frozenUntil,
+    slowedUntil: 0,
+    aggroTargetId: "",
+    hasLoot: false,
+  };
 }

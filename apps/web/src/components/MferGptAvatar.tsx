@@ -26,6 +26,7 @@ import {
 
 type MferGptAvatarProps = {
   npc: NpcSnapshot;
+  variant?: "npc" | "agent";
   isTargeted?: boolean;
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
@@ -42,6 +43,7 @@ type LoadedMferGptGltf = {
 };
 
 export const MFER_GPT_MODEL_URL = "/models/mferGPT.glb";
+export const AGENT_MFER_GPT_MODEL_URL = "/models/mferGPT-agent.glb";
 export const ENEMY_MFER_GPT_MODEL_URL = "/models/mferGPT-enemy.glb";
 const NAMEPLATE_RENDER_DISTANCE_SQ = 58 * 58;
 const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 48 * 48;
@@ -62,12 +64,14 @@ const antennaLightPulseIntensity = 18;
 hitGeometry.computeBoundingBox();
 hitGeometry.computeBoundingSphere();
 
-export function getMferGptModelUrl(isHostile: boolean) {
+export function getMferGptModelUrl(isHostile: boolean, variant: "npc" | "agent" = "npc") {
+  if (variant === "agent") return AGENT_MFER_GPT_MODEL_URL;
   return isHostile ? ENEMY_MFER_GPT_MODEL_URL : MFER_GPT_MODEL_URL;
 }
 
 export function MferGptAvatar({
   npc,
+  variant = "npc",
   isTargeted = false,
   isDefeated = false,
   questMarker = null,
@@ -88,7 +92,7 @@ export function MferGptAvatar({
   const wasDefeatedRef = useRef(false);
   const disposition = getNpcDisposition(npc);
   const isHostile = disposition === "hostile";
-  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile)) as LoadedMferGptGltf;
+  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile, variant)) as LoadedMferGptGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const labelColor = isHostile ? hostileLabelColor : friendlyLabelColor;
   const badgeColor = isHostile ? hostileBadgeColor : friendlyBadgeColor;

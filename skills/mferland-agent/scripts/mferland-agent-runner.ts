@@ -233,13 +233,10 @@ const PUBLIC_ROUTES: Record<string, Point[]> = {
 
 const AGENT_DEFAULT_TRAITS = {
   background: "orange",
-  type: "metal",
-  eyes: "metal",
-  mouth: "flat",
+  type: "plain",
+  eyes: "regular",
+  mouth: "smile",
   headphones: "black",
-} as const;
-const AGENT_FORCED_TRAITS = {
-  type: "metal",
 } as const;
 
 const DECISION_ACTIONS = [
@@ -1205,7 +1202,7 @@ class MferlandRunner {
         "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
-        "For update_traits, choose a traits object from catalog.traits based on what you know about yourself as an agent, your intended play archetype, and your style. Declared agents keep the metal type as their base shell; choose the other traits yourself. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "For update_traits, choose a traits object from catalog.traits based on what you know about yourself as an agent, your intended play archetype, and your style. Declared agents render with the mferGPT agent model, so choose valid mfer trait ids as identity metadata and for supported overlays. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
       ],
       refs: {
         npcs: Object.fromEntries(refs),
@@ -1260,8 +1257,8 @@ class MferlandRunner {
       payments: this.catalog.payments ?? {},
       progression: this.catalog.progression ?? {},
       traits: this.catalog.traits ?? {
-        declaredAgentBaseTraits: AGENT_FORCED_TRAITS,
-        note: "Agent trait catalog unavailable. Use valid mfer trait ids if known; bundled runner forces type=metal for declared agents.",
+        declaredAgentModel: "mfergpt",
+        note: "Agent trait catalog unavailable. Use valid mfer trait ids if known; declared agents render with the mferGPT agent model.",
       },
       equipmentSlots: this.catalog.equipmentSlots ?? {},
       talentTrees: this.catalog.talentTrees ?? {},
@@ -2118,10 +2115,7 @@ class MferlandRunner {
       if (allowed && !allowed.has(value)) continue;
       traits[categoryId] = value;
     }
-    return {
-      ...traits,
-      ...AGENT_FORCED_TRAITS,
-    };
+    return traits;
   }
 
   private traitOptionMap() {
