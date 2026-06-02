@@ -104,7 +104,8 @@ export function MferGptAvatar({
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
-  const showBaseMarker = !isDefeated;
+  const showBaseMarker = variant !== "agent" && !isDefeated;
+  const showSignalBeacon = variant !== "agent" && !isDefeated && !isHostile;
   const isFrozen = npc.frozenUntil > Date.now();
   const isCold = !isFrozen && npc.slowedUntil > Date.now();
 
@@ -177,7 +178,7 @@ export function MferGptAvatar({
 
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
-      {!isDefeated && !isHostile && (
+      {showSignalBeacon && (
         <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />
       )}
       <ActorBlobShadow scale={isDefeated ? [1.08, 0.58, 1.1] : [0.96, 0.58, 1.08]} />
