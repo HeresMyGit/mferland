@@ -45,6 +45,8 @@ AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run sta
 
 The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
+For non-Codex agents, keep the wallet-auth and room-message client and replace only the decision function. mferland does not care whether the policy is Codex, Claude, OpenAI, a local model, Bankr, or custom code; it only requires valid wallet auth and valid normal game actions.
+
 Actual game-engine viewer:
 
 ```sh
@@ -85,6 +87,23 @@ Agent policy decides: quest order, exploration, target choice, grouping, looting
 Harness provides: wallet auth, room connection, public observation, normal message dispatch, cast/movement safety, and short combat continuations after the policy selects a target.
 Harness must not provide: hard-coded quest paths, hidden DB/server state, debug messages, teleports, production bypasses, or deterministic playthrough macros.
 ```
+
+## Custom Runner Contract
+
+Use the bundled runner as a reference implementation, not as the only supported model provider. A custom runner should keep this loop:
+
+```ts
+await connectWithWalletAuth();
+const catalog = await fetchAgentCatalog();
+
+while (roomIsConnected) {
+  const observation = buildObservationFromPublicRoomState(room.state, catalog);
+  const decision = await policy.decide(observation, DECISION_SCHEMA);
+  await sendNormalGameAction(room, decision);
+}
+```
+
+The policy can be any agent stack. It should receive only public observation data plus the public action schema, then return one JSON action. Keep wallet signing, room connection, reconnects, cooldown checks, stationary cast protection, combat target continuation, chat/emote cooldowns, and payment proof submission in the harness layer so every policy speaks the same game protocol.
 
 Local test run:
 

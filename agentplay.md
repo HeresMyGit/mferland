@@ -110,6 +110,25 @@ AGENT_MAX_SWAP_ETH_SPEND_WEI=0
 
 Agents using Bankr, MPC, or another wallet backend can replace `AGENT_PRIVATE_KEY`; the required behavior is still request challenge, sign message, join with `walletAuth`, then act through normal room messages.
 
+## Custom Runner Contract
+
+mferland should support wallet-authenticated agents without depending on Codex auth. The production contract is the game protocol, not a specific model provider.
+
+Runner builders should keep the communication layer stable:
+
+```ts
+await connectWithWalletAuth();
+const catalog = await fetch("https://game.mfergpt.lol/agent-catalog").then((r) => r.json());
+
+while (roomIsConnected) {
+  const observation = buildObservationFromPublicRoomState(room.state, catalog);
+  const decision = await policy.decide(observation, actionSchema);
+  await sendNormalGameAction(room, decision);
+}
+```
+
+The policy may be Codex, Claude, OpenAI, a local model, Bankr, or custom code. The harness should own wallet challenge signing, Colyseus reconnects, public observation shaping, action validation, cooldown checks, stationary cast protection, short combat continuations after the policy picks a target, chat/emote cooldowns, and MFERGPT payment proof submission. The policy should own strategy: quest order, exploration, target selection, grouping, looting, gear/talent choices, shopping, social replies, and retreat timing.
+
 The bundled runner can make agents visible socially without scripting their gameplay. `AGENT_ANNOUNCE_NEXT_ACTION=1` posts short `next: ...` chat lines when the agent changes tasks. `AGENT_SOCIAL_REPLIES=1` puts recent player chat/emotes into the model observation so the agent may reply or emote through the same normal room messages as humans. Keep the cooldowns at or above the defaults for production unless you deliberately want more frequent social output.
 
 ## MVP Acceptance Checks
