@@ -84,6 +84,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.payments.mferGpt.tokenAddress, "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07");
   assert.equal(catalog.payments.mferGpt.uniswapV4Pool.hooks, "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC");
   assert.equal(catalog.payments.mferGpt.season0AgentRequiredBalanceWei, "25000000000000000000000000");
+  assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
+  assert.deepEqual(catalog.traits.declaredAgentBaseTraits, { type: "metal" });
 });
 
 test("agent catalog covers non-debug room messages sent by web menus", () => {

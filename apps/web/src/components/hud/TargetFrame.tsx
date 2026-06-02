@@ -88,8 +88,8 @@ function roleLabel(npc: NpcSnapshot) {
 }
 
 function playerLabel(player: PlayerSnapshot) {
-  if (player.isAgent) return "agent mfer";
-  if (player.identityType === "agent") return "agent mfer";
+  if (player.isAgent) return "Agent Player";
+  if (player.identityType === "agent") return "Agent Player";
   if (player.identityType === "wallet") return "verified mfer";
   return "anon mfer";
 }

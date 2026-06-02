@@ -168,6 +168,7 @@ type Decision = {
   paymentChainId?: number | null;
   paymentContractAddress?: string | null;
   sprint?: boolean | null;
+  traits?: AnyRecord | null;
 };
 
 const COMBAT_ACTION_IDS = [
@@ -230,12 +231,15 @@ const PUBLIC_ROUTES: Record<string, Point[]> = {
   "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
 };
 
-const DEFAULT_TRAITS = {
+const AGENT_DEFAULT_TRAITS = {
   background: "orange",
-  type: "plain",
-  eyes: "regular",
-  mouth: "smile",
+  type: "metal",
+  eyes: "metal",
+  mouth: "flat",
   headphones: "black",
+} as const;
+const AGENT_FORCED_TRAITS = {
+  type: "metal",
 } as const;
 
 const DECISION_ACTIONS = [
@@ -1201,7 +1205,7 @@ class MferlandRunner {
         "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
-        "For a free update_traits, no item or quest id is required; the runner sends a basic trait set. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "For update_traits, choose a traits object from catalog.traits based on what you know about yourself as an agent, your intended play archetype, and your style. Declared agents keep the metal type as their base shell; choose the other traits yourself. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
       ],
       refs: {
         npcs: Object.fromEntries(refs),
@@ -1255,6 +1259,10 @@ class MferlandRunner {
       menus: this.catalog.menus ?? {},
       payments: this.catalog.payments ?? {},
       progression: this.catalog.progression ?? {},
+      traits: this.catalog.traits ?? {
+        declaredAgentBaseTraits: AGENT_FORCED_TRAITS,
+        note: "Agent trait catalog unavailable. Use valid mfer trait ids if known; bundled runner forces type=metal for declared agents.",
+      },
       equipmentSlots: this.catalog.equipmentSlots ?? {},
       talentTrees: this.catalog.talentTrees ?? {},
       talentChoices: this.buildTalentChoices(self),
@@ -1895,13 +1903,14 @@ class MferlandRunner {
         this.clearEngagement();
         const payment = this.buildPaymentProof(decision);
         if (payment) this.reserveMferGptSpend(payment.amountWei);
+        const traits = this.resolveAgentTraits(decision.traits);
         this.send("updateTraits", {
-          traits: DEFAULT_TRAITS,
+          traits,
           name: this.config.agentName,
           attemptId: `llm-skill-runner-${Date.now()}`,
           payment,
         });
-        this.lastAction = "update_traits";
+        this.lastAction = `update_traits ${JSON.stringify(traits)}`;
         return;
       }
       case "share_quest_link": {
@@ -2096,6 +2105,38 @@ class MferlandRunner {
     const payment = this.buildPaymentProof(decision);
     if (!payment) throw new Error(`${action} requires paymentTxHash, paymentAmountWei, and paymentChainId`);
     return payment;
+  }
+
+  private resolveAgentTraits(rawTraits: unknown) {
+    const selected = asRecord(rawTraits);
+    const allowedOptions = this.traitOptionMap();
+    const traits: Record<string, string> = { ...AGENT_DEFAULT_TRAITS };
+    for (const [categoryId, rawValue] of Object.entries(selected)) {
+      const value = cleanText(rawValue, 80);
+      if (!value) continue;
+      const allowed = allowedOptions.get(categoryId);
+      if (allowed && !allowed.has(value)) continue;
+      traits[categoryId] = value;
+    }
+    return {
+      ...traits,
+      ...AGENT_FORCED_TRAITS,
+    };
+  }
+
+  private traitOptionMap() {
+    const categories = Array.isArray(asRecord(this.catalog?.traits).categories)
+      ? asRecord(this.catalog?.traits).categories as unknown[]
+      : [];
+    return new Map(categories.map((entry) => {
+      const category = asRecord(entry);
+      const categoryId = cleanText(category.id, 80);
+      const options = Array.isArray(category.options) ? category.options.map(asRecord) : [];
+      return [
+        categoryId,
+        new Set(options.map((option) => cleanText(option.id, 80)).filter(Boolean)),
+      ] as const;
+    }).filter(([categoryId]) => Boolean(categoryId)));
   }
 
   private async resolvePotionShopPayment(decision: Decision, itemId: string, quantity: number) {
@@ -3120,6 +3161,7 @@ function normalizeDecision(value: unknown): Decision {
     paymentChainId: readFiniteNumber(record.paymentChainId) ?? null,
     paymentContractAddress: nullableText(record.paymentContractAddress),
     sprint: typeof record.sprint === "boolean" ? record.sprint : null,
+    traits: record.traits && typeof record.traits === "object" && !Array.isArray(record.traits) ? asRecord(record.traits) : null,
   };
 }
 
@@ -3977,6 +4019,10 @@ const DECISION_SCHEMA = {
     paymentChainId: { type: ["number", "null"] },
     paymentContractAddress: { type: ["string", "null"] },
     sprint: { type: ["boolean", "null"] },
+    traits: {
+      type: ["object", "null"],
+      additionalProperties: { type: "string" },
+    },
   },
   required: [
     "action",
@@ -4000,5 +4046,6 @@ const DECISION_SCHEMA = {
     "paymentChainId",
     "paymentContractAddress",
     "sprint",
+    "traits",
   ],
 } as const;

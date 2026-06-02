@@ -7,6 +7,7 @@ import {
   CHAT,
   COMBAT,
   ITEMS,
+  MFER_APPEARANCE_TRAIT_CATEGORIES,
   POTION_SHOP_NPC_ID,
   POTION_SHOP_ITEM_IDS,
   QUESTS,
@@ -23,6 +24,7 @@ import {
   type CombatActionId,
   type EmoteId,
   type ItemId,
+  type MferAppearanceTraits,
   type NpcSnapshot,
   type PlayerSnapshot,
   type PotionShopItemId,
@@ -132,6 +134,12 @@ type VisibleObservation = {
     health: string;
     mana: string;
     position: Point;
+    appearanceTraits: {
+      current: MferAppearanceTraits;
+      categories: typeof MFER_APPEARANCE_TRAIT_CATEGORIES;
+      declaredAgentBaseTraits: MferAppearanceTraits;
+      guidance: string;
+    };
     castingAction: string;
     inCombat: boolean;
     aggroCount: number;
@@ -284,6 +292,7 @@ type LlmDecision = {
   text?: string;
   emoteId?: string;
   sprint?: boolean;
+  traits?: MferAppearanceTraits;
 };
 
 const ACTIONS = [
@@ -312,6 +321,17 @@ const ACTIONS = [
   "buy_potion_shop_item",
 ] as const;
 
+const AGENT_DEFAULT_TRAITS: MferAppearanceTraits = {
+  background: "orange",
+  type: "metal",
+  eyes: "metal",
+  mouth: "flat",
+  headphones: "black",
+};
+const AGENT_FORCED_TRAITS: MferAppearanceTraits = {
+  type: "metal",
+};
+
 const ACTION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -331,8 +351,12 @@ const ACTION_SCHEMA = {
     text: { type: ["string", "null"] },
     emoteId: { type: ["string", "null"] },
     sprint: { type: ["boolean", "null"] },
+    traits: {
+      type: ["object", "null"],
+      additionalProperties: { type: "string" },
+    },
   },
-  required: ["action", "reason", "routeId", "x", "z", "npcRef", "playerRef", "questId", "itemId", "quantity", "amountEth", "actionId", "text", "emoteId", "sprint"],
+  required: ["action", "reason", "routeId", "x", "z", "npcRef", "playerRef", "questId", "itemId", "quantity", "amountEth", "actionId", "text", "emoteId", "sprint", "traits"],
 };
 
 export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGameAgentOptions): Promise<LlmRunResult> {
@@ -513,6 +537,12 @@ export function makeVisibleObservation(
         health: `${Math.ceil(self.health)}/${Math.ceil(self.maxHealth)}`,
         mana: `${Math.ceil(self.mana)}/${Math.ceil(self.maxMana)}`,
         position: point(self),
+        appearanceTraits: {
+          current: self.appearanceTraits,
+          categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
+          declaredAgentBaseTraits: AGENT_FORCED_TRAITS,
+          guidance: "For update_traits, keep type=metal as the agent shell and choose the other categories from your own identity, style, and play archetype.",
+        },
         castingAction: self.castingAction,
         inCombat: aggroCount > 0,
         aggroCount,
@@ -610,6 +640,7 @@ export function makeVisibleObservation(
           "Use nearbyPlayers and recentChat as public social context. When safe, occasional chat, emote, move_near_player, or select_player actions are normal ways to greet, coordinate, or group with visible players; do not spam or interrupt combat recovery.",
           "If runMemory.canceledQuestIds contains a repeatable quest, do not accept that quest again during this run unless nearby players are visibly grouping for it.",
           "Use observation.stores for public merchant knowledge and available store actions.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Keep type=metal as the declared agent shell.",
           "Use swap_eth_for_mfergpt when the local wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal local wallet transaction to the configured local swap router.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
           "A quantity=5 purchase counts as one stock-up purchase and is useful before leaving town. If observation.runMemory.purchasedPotionShopItemIds is nonempty or inventory already has potion-shop stock, continue questing and use items instead.",
@@ -643,6 +674,7 @@ export function normalizeLlmDecision(value: unknown): LlmDecision {
     text: cleanText(record.text, CHAT.maxLength),
     emoteId: cleanText(record.emoteId, 40),
     sprint: typeof record.sprint === "boolean" ? record.sprint : undefined,
+    traits: resolveAgentTraits(record.traits),
   };
 }
 
@@ -686,6 +718,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the local MFERGPT burn flow can buy stock.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Keep type=metal as the declared agent shell.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal local wallet transaction through the configured local swap router.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
           "Do not choose use_item as the only response while multiple NPCs are actively hitting you in melee unless health is high enough for the item to land; fight, AoE/control, or retreat farther first.",
@@ -904,7 +937,7 @@ async function executeDecision(
       return;
     case "update_traits":
       await agent.moveToNpc("traits-mfer", { range: 2.8, timeoutMs: 15_000 });
-      agent.updateTraits();
+      agent.updateTraits(resolveAgentTraits(decision.traits));
       await delay(1000);
       return;
     case "emote":
@@ -1512,7 +1545,7 @@ function getQuestTrackerHints(quests: PlayerSnapshot["quests"], memory: RunMemor
     if (quest.status !== "active") continue;
     const definition = QUESTS[quest.id];
     if (quest.id === "set-your-traits") {
-      hints.push("update_traits at npcId=traits-mfer, then complete_quest questId=set-your-traits");
+      hints.push("choose your own traits from observation.self.appearanceTraits.categories, use update_traits at npcId=traits-mfer with type=metal, then complete_quest questId=set-your-traits");
     } else if ("chatMention" in definition) {
       hints.push(`chat ${definition.chatMention}, then complete_quest questId=${quest.id} at npcId=${getQuestTurnInNpcId(quest.id)}`);
     } else if ("socialAction" in definition) {
@@ -2071,6 +2104,27 @@ function appendLimited(current: string, next: string) {
 
 function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function resolveAgentTraits(value: unknown): MferAppearanceTraits {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const allowedOptions = new Map(
+    MFER_APPEARANCE_TRAIT_CATEGORIES.map((category) => [
+      category.id,
+      new Set(category.options.map((option) => option.id)),
+    ]),
+  );
+  const traits: MferAppearanceTraits = { ...AGENT_DEFAULT_TRAITS };
+  for (const [categoryId, rawValue] of Object.entries(source)) {
+    const valueId = cleanText(rawValue, 80);
+    if (!valueId) continue;
+    const allowed = allowedOptions.get(categoryId);
+    if (!allowed?.has(valueId)) continue;
+    traits[categoryId] = valueId;
+  }
+  return { ...traits, ...AGENT_FORCED_TRAITS };
 }
 
 function readFiniteNumber(value: unknown) {

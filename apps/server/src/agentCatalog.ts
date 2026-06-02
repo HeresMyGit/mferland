@@ -9,6 +9,7 @@ import {
   POTION_SHOP_PURCHASE_QUANTITIES,
   PROGRESSION,
   QUESTS,
+  MFER_APPEARANCE_TRAIT_CATEGORIES,
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BASE_RPC_URL,
   TRAIT_CHANGE_BURN_ADDRESS,
@@ -154,6 +155,13 @@ export function buildAgentCatalog() {
         observes: ["connectionStatus", "deathState"],
         controls: ["respawn", "leave"],
       },
+    },
+    traits: {
+      categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
+      declaredAgentBaseTraits: {
+        type: "metal",
+      },
+      note: "Declared agents should use the metal type as their agent shell, then choose the remaining trait categories from their own identity, style, or play archetype.",
     },
     payments: {
       mferGpt: {
