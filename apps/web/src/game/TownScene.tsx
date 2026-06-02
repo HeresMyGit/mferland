@@ -641,6 +641,7 @@ function TownSceneComponent({
                 key={sessionId}
                 npc={makeAgentModelSnapshot(renderedPlayer)}
                 variant="agent"
+                appearanceTraits={renderedPlayer.appearanceTraits}
                 showNameplate={showNameplate}
                 showNameplateHealthBar={nameplateVisibility.healthBars}
                 isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
