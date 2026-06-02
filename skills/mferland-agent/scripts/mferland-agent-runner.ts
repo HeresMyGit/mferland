@@ -137,6 +137,16 @@ type CombatTroubleMemory = {
   lastAt: number;
 };
 
+type MovementTroubleMemory = {
+  reason: string;
+  action: string;
+  position: Point;
+  targetPoint: Point | null;
+  routeQueue: Point[];
+  attempts: number;
+  lastAt: number;
+};
+
 type SocialMessage = {
   sessionId: string;
   name: string;
@@ -283,6 +293,8 @@ const PRESS_SINGLE_ATTACKER_HEALTH_RATIO = 0.46;
 const PRESS_MULTI_ATTACKER_HEALTH_RATIO = 0.68;
 const PRESS_LOW_HEALTH_FINISH_RATIO = 0.38;
 const FAVORABLE_FIGHT_SURVIVAL_MARGIN = 1.25;
+const MOVEMENT_STUCK_RETHINK_ATTEMPTS = 3;
+const MOVEMENT_TROUBLE_TTL_MS = 2 * 60_000;
 const BASE_CHAIN_ID = 8453;
 const BASE_RPC_URL = "https://mainnet.base.org";
 const BASE_BLOCK_EXPLORER_URL = "https://basescan.org";
@@ -694,12 +706,14 @@ class MferlandRunner {
   private pendingSocialMessages: SocialMessage[] = [];
   private questMemory = new Map<string, QuestMemory>();
   private combatTrouble = new Map<string, CombatTroubleMemory>();
+  private movementTrouble: MovementTroubleMemory | null = null;
   private targetPoint: Point | null = null;
   private avoidancePoint: Point | null = null;
   private avoidanceUntil = 0;
   private movementProgressTarget: Point | null = null;
   private movementProgressDistance = Number.POSITIVE_INFINITY;
   private movementProgressAt = 0;
+  private movementUnstickAttempts = 0;
   private routeQueue: Point[] = [];
   private engagedNpcId = "";
   private combatAnchor: Point | null = null;
@@ -1165,6 +1179,7 @@ class MferlandRunner {
         .sort((a, b) => b.observedAt - a.observedAt)
         .slice(0, 20),
       combatTrouble: this.describeCombatTrouble(now),
+      movementTrouble: this.describeMovementTrouble(now),
       lootableCorpses: visibleNpcs.filter((npc) => !npc.alive && npc.hasLoot),
       recentMessages: this.recentMessages.slice(-20),
       availableActions: DECISION_ACTIONS,
@@ -1188,6 +1203,7 @@ class MferlandRunner {
         "If lastAction starts with hold_safe_pull, hold_unsafe_pull, or hold_unsafe_travel, choose a different target, wait for respawns, reposition around the hazard, or group up instead of repeating the same target.",
         "Use combatTrouble as memory of recent bad pulls. If a named quest target repeatedly causes retreat_dangerous_add or retreat_overpull, stop brute-forcing it. Level on safer mobs, equip better gear, use consumables, chat/group with nearby players, or approach from another edge.",
         "Use self.levelProgress and safeTrainingTargets to decide whether safer nearby combat is a worthwhile preparation step before retrying hard quest targets.",
+        "If movementTrouble is present or lastAction starts with stuck_rethink, the last route or movement target failed to make progress. Do not repeat the identical route immediately; pick a different local waypoint, approach from another side, interact with a nearby NPC/player for context, wait, or choose a different public route/landmark.",
         "If health is low and no enemy is currently attacking, the harness may wait briefly at a safe point to recover before asking for another decision.",
         "For travel_route, put a public route id or landmark id in text. Minor wording differences are accepted.",
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
@@ -1651,6 +1667,7 @@ class MferlandRunner {
       npcs,
       targetPoint: this.targetPoint,
       routeQueue: this.routeQueue,
+      movementTrouble: this.describeMovementTrouble(now),
       engagedNpcId: this.engagedNpcId,
       combatAnchor: this.combatAnchor,
       lastAction: this.lastAction,
@@ -2452,20 +2469,22 @@ class MferlandRunner {
     let z = 0;
     if (Date.now() >= this.stationaryUntil && this.targetPoint) {
       this.updateMovementRecovery(self);
-      const movementTarget = this.currentMovementTarget();
-      const dx = movementTarget.x - self.x;
-      const dz = movementTarget.z - self.z;
-      const length = Math.hypot(dx, dz);
-      if (length > 0.7) {
-        x = dx / length;
-        z = dz / length;
-        this.yaw = Math.atan2(x, z);
-      } else {
-        if (this.avoidancePoint && Date.now() < this.avoidanceUntil) {
-          this.avoidancePoint = null;
-          this.avoidanceUntil = 0;
+      if (this.targetPoint) {
+        const movementTarget = this.currentMovementTarget();
+        const dx = movementTarget.x - self.x;
+        const dz = movementTarget.z - self.z;
+        const length = Math.hypot(dx, dz);
+        if (length > 0.7) {
+          x = dx / length;
+          z = dz / length;
+          this.yaw = Math.atan2(x, z);
         } else {
-          this.targetPoint = null;
+          if (this.avoidancePoint && Date.now() < this.avoidanceUntil) {
+            this.avoidancePoint = null;
+            this.avoidanceUntil = 0;
+          } else {
+            this.targetPoint = null;
+          }
         }
       }
     }
@@ -2486,6 +2505,7 @@ class MferlandRunner {
     this.movementProgressTarget = target ? { ...target } : null;
     this.movementProgressDistance = Number.POSITIVE_INFINITY;
     this.movementProgressAt = Date.now();
+    this.movementUnstickAttempts = 0;
   }
 
   private updateMovementRecovery(self: RuntimePlayer) {
@@ -2503,9 +2523,16 @@ class MferlandRunner {
     if (distance < this.movementProgressDistance - 0.35) {
       this.movementProgressDistance = distance;
       this.movementProgressAt = now;
+      this.movementUnstickAttempts = 0;
       return;
     }
     if (distance < 3 || now - this.movementProgressAt < 2400) return;
+
+    this.movementUnstickAttempts += 1;
+    if (this.movementUnstickAttempts >= MOVEMENT_STUCK_RETHINK_ATTEMPTS) {
+      this.recordMovementTrouble(self, "stuck_loop", distance);
+      return;
+    }
 
     const dx = this.targetPoint.x - self.x;
     const dz = this.targetPoint.z - self.z;
@@ -2757,6 +2784,46 @@ class MferlandRunner {
           ? "Treat this as repeated trouble. Change approach: level safely, equip/use better items, pull a different target, wait/reposition, chat/group, or return later."
           : "Use this as caution before repeating the same target or path.",
       }));
+  }
+
+  private recordMovementTrouble(self: RuntimePlayer, reason: string, distance: number) {
+    const previousAction = this.lastAction || "movement";
+    const entry: MovementTroubleMemory = {
+      reason,
+      action: previousAction,
+      position: point(self),
+      targetPoint: this.targetPoint ? point(this.targetPoint) : null,
+      routeQueue: this.routeQueue.slice(0, 6).map(point),
+      attempts: this.movementUnstickAttempts,
+      lastAt: Date.now(),
+    };
+    this.movementTrouble = entry;
+    this.log(`movement trouble ${reason}: action=${previousAction} pos=${entry.position.x},${entry.position.z} target=${entry.targetPoint ? `${entry.targetPoint.x},${entry.targetPoint.z}` : "-"} distance=${round(distance)}`);
+    this.targetPoint = null;
+    this.routeQueue = [];
+    this.avoidancePoint = null;
+    this.avoidanceUntil = 0;
+    this.movementProgressTarget = null;
+    this.movementProgressDistance = Number.POSITIVE_INFINITY;
+    this.movementProgressAt = Date.now();
+    this.movementUnstickAttempts = 0;
+    this.lastAction = `stuck_rethink ${previousAction}`.slice(0, 120);
+    this.nextDecisionAt = Math.min(this.nextDecisionAt, Date.now() + 250);
+  }
+
+  private describeMovementTrouble(now: number) {
+    const entry = this.movementTrouble;
+    if (!entry || now - entry.lastAt > MOVEMENT_TROUBLE_TTL_MS) return null;
+    return {
+      reason: entry.reason,
+      action: entry.action,
+      position: entry.position,
+      targetPoint: entry.targetPoint,
+      routeQueue: entry.routeQueue,
+      attempts: entry.attempts,
+      lastAgoMs: Math.max(0, now - entry.lastAt),
+      recommendation: "Change movement strategy. Do not immediately repeat the same route or target point; choose a different local waypoint, approach from another side, ask visible players, interact nearby, wait, or use another public route/landmark.",
+    };
   }
 
   private maintainSurvival(self: RuntimePlayer) {
