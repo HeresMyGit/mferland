@@ -708,6 +708,7 @@ class MferlandRunner {
   private recentMessages: string[] = [];
   private pendingSocialMessages: SocialMessage[] = [];
   private questMemory = new Map<string, QuestMemory>();
+  private focusedQuestId = "";
   private combatTrouble = new Map<string, CombatTroubleMemory>();
   private movementTrouble: MovementTroubleMemory | null = null;
   private targetPoint: Point | null = null;
@@ -902,6 +903,8 @@ class MferlandRunner {
         observedAt: Date.now(),
       };
       this.questMemory.set(questId, entry);
+      if (kind === "status" || kind === "turnIn" || kind === "offer") this.focusedQuestId = questId;
+      if (kind === "completed" && this.focusedQuestId === questId) this.focusedQuestId = getString(record.nextQuestId);
     }
     this.remember(`${kind}:${messageSummary(message)}`, true);
   }
@@ -955,6 +958,7 @@ class MferlandRunner {
       const observation = this.buildObservation(self);
       const decision = await decideWithCodex(this.config, observation);
       this.lastDecision = decision;
+      this.updateFocusedQuestFromDecision(decision);
       this.log(`decision ${decision.action}: ${decision.reason}`);
       await this.executeDecision(decision);
       this.maybeAnnounceNextAction(self, decision);
@@ -1818,6 +1822,7 @@ class MferlandRunner {
         const questId = cleanText(decision.questId, 96);
         const npc = this.resolveNpc(decision.npcRef);
         if (!questId || !npc) throw new Error("accept_quest requires questId and npcRef");
+        this.focusedQuestId = questId;
         this.clearEngagement();
         if (!this.hasRecentQuestOffer(questId, npc.id)) {
           if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
@@ -1844,6 +1849,7 @@ class MferlandRunner {
         const questId = cleanText(decision.questId, 96);
         const npc = this.resolveNpc(decision.npcRef);
         if (!questId || !npc) throw new Error("complete_quest requires questId and npcRef");
+        this.focusedQuestId = questId;
         this.clearEngagement();
         if (distance2d(self, npc) > QUEST_SEND_RANGE) {
           this.moveNearNpc(self, npc);
@@ -1858,6 +1864,7 @@ class MferlandRunner {
       case "cancel_quest": {
         const questId = cleanText(decision.questId, 96);
         if (!questId) throw new Error("cancel_quest requires questId");
+        if (this.focusedQuestId === questId) this.focusedQuestId = "";
         this.send("cancelQuest", { questId });
         this.lastAction = `cancel_quest ${questId}`;
         return;
@@ -1997,6 +2004,7 @@ class MferlandRunner {
       case "share_quest_link": {
         const questId = cleanText(decision.questId, 96);
         if (!questId) throw new Error("share_quest_link requires questId");
+        this.focusedQuestId = questId;
         this.clearEngagement();
         this.send("shareQuestLink", { questId, url: "https://game.mfergpt.lol" });
         this.lastAction = `share_quest_link ${questId}`;
@@ -2805,14 +2813,59 @@ class MferlandRunner {
   }
 
   private describeCurrentQuest(self: RuntimePlayer) {
-    const quest = self.quests.find((entry) => getString(entry.status) !== "completed") ?? self.quests[0];
+    const focusedQuest = this.focusedQuestId
+      ? self.quests.find((entry) => getString(entry.id) === this.focusedQuestId && getString(entry.status) !== "completed")
+      : null;
+    const quest = focusedQuest
+      ?? self.quests.find((entry) => getString(entry.status) === "ready")
+      ?? self.quests.find((entry) => getString(entry.status) === "active")
+      ?? self.quests.find((entry) => getString(entry.status) !== "completed")
+      ?? self.quests[0];
     if (!quest) return "";
     const questId = getString(quest.id);
+    this.focusedQuestId = questId;
     const memory = this.questMemory.get(questId);
     const status = getString(quest.status);
     const progress = `${getNumber(quest.progress)}/${getNumber(quest.required)}`;
     const label = memory?.objectiveLabel || memory?.title || questId;
     return [status, progress, label].filter(Boolean).join(" ");
+  }
+
+  private updateFocusedQuestFromDecision(decision: Decision) {
+    const questId = cleanText(decision.questId, 96);
+    if (questId) {
+      this.focusedQuestId = questId;
+      return;
+    }
+    const reason = cleanText(decision.reason, 360).toLowerCase();
+    if (!reason) return;
+    for (const questId of this.activeQuestIds()) {
+      const memory = this.questMemory.get(questId);
+      const haystack = [
+        questId,
+        memory?.title ?? "",
+        memory?.objectiveLabel ?? "",
+        memory?.text ?? "",
+      ].join(" ").toLowerCase();
+      if (haystack && reason.includes(questId)) {
+        this.focusedQuestId = questId;
+        return;
+      }
+      const titleWords = (memory?.title ?? "").toLowerCase().split(/\s+/).filter((word) => word.length >= 5);
+      if (titleWords.length && titleWords.some((word) => reason.includes(word))) {
+        this.focusedQuestId = questId;
+        return;
+      }
+    }
+  }
+
+  private activeQuestIds() {
+    const self = this.self();
+    if (!self) return [];
+    return self.quests
+      .filter((quest) => getString(quest.status) !== "completed")
+      .map((quest) => getString(quest.id))
+      .filter(Boolean);
   }
 
   private recordCombatTrouble(targetId: string, reason: string) {
