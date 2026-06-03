@@ -302,12 +302,15 @@ export async function loadOrCreateWalletCharacter({
       character = updated;
     }
 
+    const canPersistBuffs = await hasCharacterBuffsTable(tx);
     const [questRows, inventoryRows, equipmentRows, talentRows, buffRows, seasonRewardTotals] = await Promise.all([
       tx.select().from(characterQuests).where(eq(characterQuests.characterId, character.id)),
       tx.select().from(characterInventory).where(eq(characterInventory.characterId, character.id)),
       tx.select().from(characterEquipment).where(eq(characterEquipment.characterId, character.id)),
       tx.select().from(characterTalents).where(eq(characterTalents.characterId, character.id)),
-      tx.select().from(characterBuffs).where(eq(characterBuffs.characterId, character.id)),
+      canPersistBuffs
+        ? tx.select().from(characterBuffs).where(eq(characterBuffs.characterId, character.id))
+        : Promise.resolve([]),
       getSeasonRewardTotals(tx, normalizedWallet, now),
     ]);
 
@@ -516,6 +519,13 @@ async function saveCharacterProgressRows(tx: DatabaseTransaction, state: Persist
     })));
   }
 
+  if (!(await hasCharacterBuffsTable(tx))) {
+    if (state.activeBuffs.some((buff) => isElixirBuffId(buff.id) && buff.expiresAt > Date.now())) {
+      console.warn("Skipping active buff persistence because character_buffs has not been migrated yet.");
+    }
+    return;
+  }
+
   await tx.delete(characterBuffs).where(eq(characterBuffs.characterId, state.characterId));
   const activeBuffs = state.activeBuffs.filter((buff) => isElixirBuffId(buff.id) && buff.expiresAt > Date.now());
   if (activeBuffs.length > 0) {
@@ -527,6 +537,12 @@ async function saveCharacterProgressRows(tx: DatabaseTransaction, state: Persist
       updatedAt: now,
     })));
   }
+}
+
+async function hasCharacterBuffsTable(tx: DatabaseTransaction) {
+  const result = await tx.execute(sql`SELECT to_regclass('public.character_buffs') IS NOT NULL AS "exists"`);
+  const [row] = result as Array<{ exists?: boolean }>;
+  return Boolean(row?.exists);
 }
 
 export async function awardSeason0QuestReward({
