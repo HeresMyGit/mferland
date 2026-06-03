@@ -1153,6 +1153,7 @@ function getAdminHtml() {
     .item-name { font-weight: 700; overflow-wrap: anywhere; }
     .item-meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
     .quality-common .item-name { color: #d8dee9; }
+    .quality-poor .item-name { color: #a4abb4; }
     .quality-uncommon .item-name { color: #76df92; }
     .quality-rare .item-name { color: #9f8cff; }
     .quality-quest .item-name { color: #f2d067; }

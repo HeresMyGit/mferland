@@ -30,6 +30,7 @@ import {
   type QuestId,
   type QuestSnapshot,
   type QuestStatus,
+  type SeasonRewardSourceType,
   type TalentRankSnapshot,
   type WalletCharacterPreview,
 } from "@mferland/shared";
@@ -609,6 +610,90 @@ export async function awardSeason0QuestReward({
       dailyTotal: totals.dailyTotal + points,
       seasonTotal: totals.seasonTotal + points,
       label: reward.label,
+    };
+  });
+}
+
+export async function saveCharacterProgressWithSeason0Reward(
+  state: PersistableCharacterState,
+  reward: {
+    walletAddress: string;
+    sourceType: SeasonRewardSourceType;
+    sourceId: string;
+    points: number;
+    label: string;
+    now?: Date;
+  },
+): Promise<SeasonRewardAwardResult> {
+  const normalizedWallet = normalizeWalletAddress(reward.walletAddress);
+  const pointsRequested = Math.max(0, Math.floor(reward.points));
+  const label = reward.label.trim().slice(0, 240);
+  if (!normalizedWallet || pointsRequested <= 0 || !reward.sourceId.trim()) {
+    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label };
+  }
+
+  const db = getDatabase();
+  if (!db) {
+    return { status: "no_database", points: 0, dailyTotal: 0, seasonTotal: 0, label };
+  }
+
+  const now = reward.now ?? new Date();
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:${normalizedWallet}`}), 0)`);
+
+    const sourceId = reward.sourceId.trim().slice(0, 160);
+    const existing = await tx.query.seasonRewardEvents.findFirst({
+      where: and(
+        eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+        eq(seasonRewardEvents.characterId, state.characterId),
+        eq(seasonRewardEvents.sourceType, reward.sourceType),
+        eq(seasonRewardEvents.sourceId, sourceId),
+      ),
+    });
+    const totals = await getSeasonRewardTotals(tx, normalizedWallet, now);
+    if (existing) {
+      return {
+        status: "duplicate",
+        points: 0,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label,
+      };
+    }
+
+    const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - totals.dailyTotal);
+    const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - totals.seasonTotal);
+    if (pointsRequested > remainingDaily || pointsRequested > remainingSeason) {
+      return {
+        status: "capped",
+        points: 0,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label,
+      };
+    }
+
+    await tx.insert(seasonRewardEvents).values({
+      id: randomUUID(),
+      seasonId: SEASON_0_ID,
+      characterId: state.characterId,
+      walletAddress: normalizedWallet,
+      sourceType: reward.sourceType,
+      sourceId,
+      points: pointsRequested,
+      status: "pending",
+      note: label,
+      createdAt: now,
+    });
+
+    await saveCharacterProgressRows(tx, state);
+
+    return {
+      status: "awarded",
+      points: pointsRequested,
+      dailyTotal: totals.dailyTotal + pointsRequested,
+      seasonTotal: totals.seasonTotal + pointsRequested,
+      label,
     };
   });
 }

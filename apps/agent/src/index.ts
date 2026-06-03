@@ -2,11 +2,14 @@ import { Client, type Room } from "colyseus.js";
 import {
   AGENT,
   CHAT,
+  ELIXIR_BUFFS,
   INPUT_SEND_RATE,
   PLAZA_BOUNDS,
   ROOM_NAME,
+  isElixirBuffId,
   parseMferAppearanceTraitsJson,
   stableHash,
+  type ActiveBuffSnapshot,
   type AgentObservation,
   type ChatMessage,
   type ClientInput,
@@ -88,6 +91,7 @@ type RuntimePlayer = {
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
   talents?: RuntimeTalentCollection;
+  activeBuffs?: RuntimeActiveBuffCollection;
 };
 
 type RuntimeQuestCollection = {
@@ -104,6 +108,16 @@ type RuntimeEquipmentCollection = {
 
 type RuntimeTalentCollection = {
   forEach(callback: (talent: TalentRankSnapshot, id: string) => void): void;
+};
+
+type RuntimeActiveBuffState = {
+  id?: string;
+  startedAt: number;
+  expiresAt: number;
+};
+
+type RuntimeActiveBuffCollection = {
+  forEach(callback: (buff: RuntimeActiveBuffState, id: string) => void): void;
 };
 
 type RuntimeNpc = {
@@ -229,6 +243,7 @@ class AgentCharacter {
           inventory: snapshotInventory(player.inventory),
           equipment: snapshotEquipment(player.equipment),
           talents: snapshotTalents(player.talents),
+          activeBuffs: snapshotActiveBuffs(player.activeBuffs),
         });
       });
       this.players = next;
@@ -529,6 +544,26 @@ function snapshotTalents(talents: RuntimeTalentCollection | undefined): TalentRa
       tree: talent.tree,
       nodeId: talent.nodeId,
       rank: talent.rank,
+    });
+  });
+  return next.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function snapshotActiveBuffs(activeBuffs: RuntimeActiveBuffCollection | undefined): ActiveBuffSnapshot[] {
+  const next: ActiveBuffSnapshot[] = [];
+  activeBuffs?.forEach((buff, id) => {
+    const buffId = buff.id || id;
+    if (!isElixirBuffId(buffId)) return;
+    const definition = ELIXIR_BUFFS[buffId];
+    next.push({
+      id: buffId,
+      itemId: definition.itemId,
+      name: definition.name,
+      shortName: definition.shortName,
+      description: definition.description,
+      effectLabel: definition.effectLabel,
+      startedAt: buff.startedAt,
+      expiresAt: buff.expiresAt,
     });
   });
   return next.sort((left, right) => left.id.localeCompare(right.id));

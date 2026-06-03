@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   POTION_SHOP_NPC_ID,
+  TRASH_VENDOR_NPC_ID,
   getNpcDisposition,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -73,6 +74,7 @@ function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "crypto-mfer") return "crypto";
   if (npc.id === "swap-mfer") return "swap";
   if (npc.id === POTION_SHOP_NPC_ID) return "potions";
+  if (npc.id === TRASH_VENDOR_NPC_ID) return "trash";
   if (npc.id === "hogwatch-mfer") return "claimwatch";
   if (npc.id === "field-guide-mfer") return "route post";
   if (npc.id === "pen-keeper-mfer") return "claim booth";

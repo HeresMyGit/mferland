@@ -48,7 +48,7 @@ export type ItemDefinition = {
   id: string;
   name: string;
   description: string;
-  quality: "common" | "uncommon" | "rare" | "quest";
+  quality: "poor" | "common" | "uncommon" | "rare" | "quest";
   iconColor: string;
   stackable: boolean;
   value?: number;
@@ -79,7 +79,7 @@ export const ITEMS = {
     id: "muddy-tusk",
     name: "muddy tusk",
     description: "a chipped tusk from a wild hog. still muddy.",
-    quality: "common",
+    quality: "poor",
     iconColor: "#d8c89c",
     stackable: true,
     value: 3,
@@ -88,7 +88,7 @@ export const ITEMS = {
     id: "small-tooth",
     name: "small tooth",
     description: "tiny animal tooth. no obvious plan.",
-    quality: "common",
+    quality: "poor",
     iconColor: "#e7dfc4",
     stackable: true,
     value: 2,
@@ -97,7 +97,7 @@ export const ITEMS = {
     id: "worn-antler",
     name: "worn antler",
     description: "a scuffed antler tip from a deer who said gm.",
-    quality: "common",
+    quality: "poor",
     iconColor: "#b89360",
     stackable: true,
     value: 4,
@@ -106,7 +106,7 @@ export const ITEMS = {
     id: "farmhand-bandana",
     name: "reply-loop rag",
     description: "cloth peeled off a loop-burnt farm mfer. smells like no sleep.",
-    quality: "common",
+    quality: "poor",
     iconColor: "#b84a3d",
     stackable: true,
     value: 3,
@@ -123,7 +123,7 @@ export const ITEMS = {
     id: "dummy-splinter",
     name: "bonk splinter",
     description: "training dummy splinter. proof of bonk.",
-    quality: "common",
+    quality: "poor",
     iconColor: "#9b6a3f",
     stackable: true,
     value: 1,

@@ -1095,6 +1095,11 @@ button.quest-row {
   border-color: var(--mfer-yellow);
 }
 
+.item-icon.poor {
+  border-color: #8d9299;
+  filter: saturate(0.72);
+}
+
 .item-icon.rare {
   border-color: #a875ff;
 }

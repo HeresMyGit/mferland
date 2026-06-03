@@ -23,7 +23,10 @@ import {
   SERVER_TICK_RATE,
   TALENTS,
   TRAITS_MFER_NPC_ID,
+  TRASH_VENDOR_ITEM_IDS,
+  TRASH_VENDOR_NPC_ID,
   clamp,
+  getTrashVendorSellValue,
   getNpcDisposition,
   getChainGearItemId,
   getInventoryItemKey,
@@ -33,6 +36,7 @@ import {
   hasExplicitMferAppearanceTraits,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
+  isTrashVendorItemId,
   normalizeAvatarSeed,
   normalizeChainTokenId,
   normalizeChainGearTier,
@@ -59,6 +63,7 @@ import {
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
   type ClientSelectTalent,
+  type ClientSellTrashItems,
   type ClientShareQuestLink,
   type ClientUpdateTraits,
   type ClientUnequipItem,
@@ -71,6 +76,9 @@ import {
   type JoinOptions,
   type PotionShopPurchaseResult,
   type QuestId,
+  type TrashVendorItemId,
+  type TrashVendorSellResult,
+  type TrashVendorSoldItem,
 } from "@mferland/shared";
 import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
@@ -86,10 +94,12 @@ import {
   recordWalletInviteUsage,
   saveCharacterProgress,
   saveCharacterProgressWithCryptoPurchase,
+  saveCharacterProgressWithSeason0Reward,
   saveCharacterProgressWithTraitPayment,
   PersistenceUnavailableError,
   type PersistableCharacterState,
   type PersistedCharacter,
+  type SeasonRewardAwardResult,
 } from "../persistence.js";
 import {
   aggroNeutralNpcOnPlayerAttackStart,
@@ -188,6 +198,8 @@ const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 const SESSION_REPLACED_CLOSE_CODE = 4000;
+const DEBUG_TRASH_VENDOR_STOCK_COUNT = 20;
+const LOCAL_DEBUG_WALLET_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 const CLIENT_ANALYTICS_EVENTS = new Set([
   "store_opened",
   "wallet_connect_started",
@@ -203,6 +215,11 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "potion_shop_item_selected",
   "potion_shop_purchase_started",
   "potion_shop_purchase_failed",
+  "trash_vendor_opened",
+  "trash_vendor_item_selected",
+  "trash_vendor_sell_started",
+  "trash_vendor_sell_confirmed",
+  "trash_vendor_sell_failed",
 ]);
 
 export function areDebugMessagesEnabled() {
@@ -213,9 +230,27 @@ export function isCryptoSmokeWalletAuthBypassEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS === "1";
 }
 
+export function isLocalDebugWalletAuthBypassEnabled() {
+  return process.env.NODE_ENV === "development" && process.env.MFERLAND_LOCAL_DEBUG_AUTH_BYPASS === "1";
+}
+
 function isCryptoSmokeWalletAuthBypassAllowed(walletAddress: string) {
   return isCryptoSmokeWalletAuthBypassEnabled()
-    && walletAddress === "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+    && walletAddress === LOCAL_DEBUG_WALLET_ADDRESS;
+}
+
+function isLocalDebugWalletAllowed(walletAddress: string) {
+  return isLocalDebugWalletAuthBypassEnabled()
+    && walletAddress === LOCAL_DEBUG_WALLET_ADDRESS;
+}
+
+function isWalletAuthBypassAllowed(walletAddress: string) {
+  return isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
+    || isLocalDebugWalletAllowed(walletAddress);
+}
+
+function shouldSeedDebugTrashVendorStock() {
+  return process.env.NODE_ENV === "development" && process.env.MFERLAND_DEBUG_TRASH_VENDOR_STOCK === "1";
 }
 
 function getRequiredInviteCode() {
@@ -229,6 +264,7 @@ function isInviteGateEnabled() {
 
 async function assertInviteAllowed(options: JoinOptions | undefined, walletAddress: string) {
   if (!isInviteGateEnabled()) return;
+  if (isWalletAuthBypassAllowed(walletAddress)) return;
 
   const inviteCode = typeof options?.inviteCode === "string" ? options.inviteCode.trim() : "";
   const requiredInvite = getRequiredInviteCode();
@@ -496,7 +532,7 @@ export class TownRoom extends Room<TownState> {
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
     if (
       (options?.identityType === "wallet" || walletAddress)
-      && !isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
+      && !isWalletAuthBypassAllowed(walletAddress)
       && !await verifyWalletAuthProof(walletAddress, options?.walletAuth)
     ) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");
@@ -565,6 +601,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("purchasePotionShopItem", (client, message: Partial<ClientPurchasePotionShopItem> = {}) => {
       void this.handlePurchasePotionShopItem(client, message);
+    });
+
+    this.onMessage("sellTrashItems", (client, message: Partial<ClientSellTrashItems> = {}) => {
+      void this.handleSellTrashItems(client, message);
     });
 
     this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
@@ -782,13 +822,14 @@ export class TownRoom extends Room<TownState> {
       ? Number(options?.avatarSeed)
       : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
     const avatarSeed = normalizeAvatarSeed(requestedAvatarSeed);
+    const useLocalDebugWallet = identityType === "wallet" && isLocalDebugWalletAllowed(walletAddress);
     let replacementHandoff = identityType === "wallet" && walletAddress
       ? await this.replaceExistingWalletSession(client, walletAddress)
       : null;
-    let persistedCharacter = identityType === "wallet" && walletAddress
+    let persistedCharacter = identityType === "wallet" && walletAddress && !useLocalDebugWallet
       ? await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter))
       : null;
-    if (identityType === "wallet" && !persistedCharacter) {
+    if (identityType === "wallet" && !persistedCharacter && !useLocalDebugWallet) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "character creation required");
     }
     if (persistedCharacter && !replacementHandoff) {
@@ -825,6 +866,7 @@ export class TownRoom extends Room<TownState> {
     normalizePlayerTalents(player);
     initializeCharacterEquipment(player);
     if (player.identityType === "guest") grantStarterConsumables(player);
+    if (shouldSeedDebugTrashVendorStock()) grantDebugTrashVendorStock(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
 
@@ -839,6 +881,11 @@ export class TownRoom extends Room<TownState> {
       client.send("persistenceStatus", {
         state: "saved",
         message: "wallet progress saved",
+      });
+    } else if (useLocalDebugWallet) {
+      client.send("persistenceStatus", {
+        state: "saved",
+        message: "local debug wallet",
       });
     }
     this.publishLiveMemoryStatus(Date.now(), true);
@@ -2054,6 +2101,182 @@ export class TownRoom extends Room<TownState> {
       paymentAmountWei: verifiedPayment.amountWei,
       chainId: verifiedPayment.chainId,
       txHash: verifiedPayment.txHash,
+    });
+  }
+
+  private async handleSellTrashItems(client: Client, message: Partial<ClientSellTrashItems>) {
+    const player = this.state.players.get(client.sessionId);
+    const selectedItemId = isTrashVendorItemId(message?.itemId) ? message.itemId : null;
+    const sellAll = message?.sellAll === true;
+    const sendResult = (result: Partial<TrashVendorSellResult> & Pick<TrashVendorSellResult, "ok">) => {
+      client.send("trashVendorSellResult", {
+        ok: result.ok,
+        sold: result.sold ?? [],
+        quantity: result.quantity ?? 0,
+        points: result.points ?? 0,
+        season0Points: result.season0Points ?? player?.season0Points ?? 0,
+        season0DailyPoints: result.season0DailyPoints ?? player?.season0DailyPoints ?? 0,
+        error: result.error,
+      } satisfies TrashVendorSellResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+    if (!sellAll && !selectedItemId) {
+      sendResult({ ok: false, error: "pick a trash item" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    const useLocalDebugWallet = isLocalDebugWalletAllowed(player.walletAddress);
+    if (player.identityType !== "wallet" || !player.walletAddress || (!characterId && !useLocalDebugWallet)) {
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    const npc = this.state.npcs.get(TRASH_VENDOR_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? TRASH_VENDOR_NPC_ID,
+      npcName: npc?.name ?? "trash mfer",
+      npcDistance,
+    };
+    if (!npc || npcDistance === null || npcDistance > LOOT.interactRange) {
+      this.recordPlayerAnalyticsEvent("trash_vendor_sell_failed", client.sessionId, player, {
+        supportKind: "trash_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        stage: "preflight",
+        error: "trash mfer too far",
+      });
+      sendResult({ ok: false, error: "trash mfer too far" });
+      return;
+    }
+
+    const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - player.season0DailyPoints);
+    const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - player.season0Points);
+    const pointCapacity = Math.min(remainingDaily, remainingSeason);
+    if (pointCapacity <= 0) {
+      sendResult({ ok: false, error: "Season 0 point cap reached" });
+      return;
+    }
+
+    const requestedQuantity = sellAll
+      ? Number.MAX_SAFE_INTEGER
+      : normalizeTrashSellQuantity(message?.quantity);
+    const sale = planTrashSale(player, {
+      itemId: selectedItemId,
+      maxQuantity: Math.min(requestedQuantity, pointCapacity),
+    });
+    if (sale.quantity <= 0) {
+      sendResult({ ok: false, error: "no sellable trash in stash" });
+      return;
+    }
+
+    this.recordPlayerAnalyticsEvent("trash_vendor_sell_started", client.sessionId, player, {
+      supportKind: "trash_vendor_sell",
+      ...npcAnalytics,
+      itemId: selectedItemId ?? "",
+      sellAll,
+      quantity: sale.quantity,
+      points: sale.points,
+    });
+
+    const previousInventory = snapshotInventoryState(player);
+    applyTrashSale(player, sale.removals);
+    const soldLabel = formatTrashSoldSummary(sale.sold);
+    if (!characterId && useLocalDebugWallet) {
+      player.season0Points += sale.points;
+      player.season0DailyPoints += sale.points;
+      this.recordPlayerAnalyticsEvent("trash_vendor_sell_confirmed", client.sessionId, player, {
+        supportKind: "trash_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        sellAll,
+        quantity: sale.quantity,
+        points: sale.points,
+        dailyTotal: player.season0DailyPoints,
+        seasonTotal: player.season0Points,
+        localDebug: true,
+      });
+      client.send("chat", makeSystemChat(
+        "Season 0",
+        `Sold ${soldLabel} for ${sale.points} Season 0 point${sale.points === 1 ? "" : "s"} in local debug mode. Daily ${player.season0DailyPoints}/${SEASON_0_DAILY_POINT_CAP}, season ${player.season0Points}/${SEASON_0_TOTAL_POINT_CAP}.`,
+      ));
+      sendResult({
+        ok: true,
+        sold: sale.sold,
+        quantity: sale.quantity,
+        points: sale.points,
+        season0Points: player.season0Points,
+        season0DailyPoints: player.season0DailyPoints,
+      });
+      return;
+    }
+
+    let awardResult: SeasonRewardAwardResult | null = null;
+    const persisted = await this.queueCharacterSave(
+      client.sessionId,
+      characterId,
+      makePersistableCharacterState(characterId, player),
+      undefined,
+      async (state) => {
+        awardResult = await saveCharacterProgressWithSeason0Reward(state, {
+          walletAddress: player.walletAddress,
+          sourceType: "event",
+          sourceId: makeTrashVendorSeasonRewardSourceId(client.sessionId),
+          points: sale.points,
+          label: `trash mfer sale: ${soldLabel}`,
+        });
+        if (awardResult.status !== "awarded") {
+          throw new Error(`trash sale reward ${awardResult.status}`);
+        }
+      },
+    );
+
+    const savedAwardResult = awardResult as SeasonRewardAwardResult | null;
+    if (!persisted || !savedAwardResult || savedAwardResult.status !== "awarded") {
+      restoreInventoryState(player, previousInventory);
+      this.recordPlayerAnalyticsEvent("trash_vendor_sell_failed", client.sessionId, player, {
+        supportKind: "trash_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        sellAll,
+        quantity: sale.quantity,
+        points: sale.points,
+        stage: "save",
+        rewardStatus: savedAwardResult?.status ?? "save_failed",
+        error: "wallet progress failed to save",
+      });
+      sendResult({ ok: false, error: savedAwardResult?.status === "capped" ? "Season 0 point cap reached" : "wallet progress failed to save" });
+      return;
+    }
+
+    player.season0Points = savedAwardResult.seasonTotal;
+    player.season0DailyPoints = savedAwardResult.dailyTotal;
+    this.recordPlayerAnalyticsEvent("trash_vendor_sell_confirmed", client.sessionId, player, {
+      supportKind: "trash_vendor_sell",
+      ...npcAnalytics,
+      itemId: selectedItemId ?? "",
+      sellAll,
+      quantity: sale.quantity,
+      points: sale.points,
+      dailyTotal: savedAwardResult.dailyTotal,
+      seasonTotal: savedAwardResult.seasonTotal,
+    });
+    client.send("chat", makeSystemChat(
+      "Season 0",
+      `Sold ${soldLabel} for ${sale.points} Season 0 point${sale.points === 1 ? "" : "s"}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+    ));
+    sendResult({
+      ok: true,
+      sold: sale.sold,
+      quantity: sale.quantity,
+      points: sale.points,
+      season0Points: savedAwardResult.seasonTotal,
+      season0DailyPoints: savedAwardResult.dailyTotal,
     });
   }
 
@@ -3315,6 +3538,132 @@ function clearPlayerEmote(player: PlayerState) {
   player.emote = "";
   player.emoteStartedAt = 0;
   player.emoteEndsAt = 0;
+}
+
+type TrashSalePlan = {
+  sold: TrashVendorSoldItem[];
+  removals: Array<{ key: string; quantity: number }>;
+  quantity: number;
+  points: number;
+};
+
+type InventoryStateSnapshot = Array<{
+  key: string;
+  id: ItemId;
+  chainTokenId: string;
+  chainTier: number;
+  count: number;
+}>;
+
+function normalizeTrashSellQuantity(value: unknown) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return 1;
+  return clamp(Math.floor(quantity), 1, 999);
+}
+
+function planTrashSale(
+  player: PlayerState,
+  options: { itemId: TrashVendorItemId | null; maxQuantity: number },
+): TrashSalePlan {
+  const maxQuantity = Math.max(0, Math.floor(options.maxQuantity));
+  const candidateItemIds = options.itemId ? [options.itemId] : [...TRASH_VENDOR_ITEM_IDS];
+  const soldCounts = new Map<TrashVendorItemId, number>();
+  const removals: TrashSalePlan["removals"] = [];
+  let remaining = maxQuantity;
+
+  for (const itemId of candidateItemIds) {
+    if (remaining <= 0) break;
+    player.inventory.forEach((item, key) => {
+      if (remaining <= 0) return;
+      if (item.id !== itemId || normalizeChainTokenId(item.chainTokenId)) return;
+      if (!isTrashVendorItemId(item.id) || item.count <= 0) return;
+
+      const quantity = Math.min(item.count, remaining);
+      removals.push({ key, quantity });
+      soldCounts.set(item.id, (soldCounts.get(item.id) ?? 0) + quantity);
+      remaining -= quantity;
+    });
+  }
+
+  const sold: TrashVendorSoldItem[] = [];
+  for (const itemId of candidateItemIds) {
+    const quantity = soldCounts.get(itemId) ?? 0;
+    if (quantity <= 0) continue;
+    sold.push({
+      itemId,
+      itemName: ITEMS[itemId].name,
+      quantity,
+      points: getTrashVendorSellValue(quantity),
+    });
+  }
+  const quantity = sold.reduce((total, item) => total + item.quantity, 0);
+
+  return {
+    sold,
+    removals,
+    quantity,
+    points: getTrashVendorSellValue(quantity),
+  };
+}
+
+function applyTrashSale(player: PlayerState, removals: TrashSalePlan["removals"]) {
+  for (const removal of removals) {
+    const item = player.inventory.get(removal.key);
+    if (!item) continue;
+    item.count = Math.max(0, item.count - removal.quantity);
+    if (item.count <= 0) player.inventory.delete(removal.key);
+  }
+}
+
+function snapshotInventoryState(player: PlayerState): InventoryStateSnapshot {
+  const snapshot: InventoryStateSnapshot = [];
+  player.inventory.forEach((item, key) => {
+    snapshot.push({
+      key,
+      id: item.id,
+      chainTokenId: normalizeChainTokenId(item.chainTokenId),
+      chainTier: normalizeChainGearTier(item.chainTier),
+      count: item.count,
+    });
+  });
+  return snapshot;
+}
+
+function restoreInventoryState(player: PlayerState, snapshot: InventoryStateSnapshot) {
+  player.inventory.clear();
+  for (const entry of snapshot) {
+    const item = new InventoryItemState();
+    item.id = entry.id;
+    item.chainTokenId = normalizeChainTokenId(entry.chainTokenId);
+    item.chainTier = normalizeChainGearTier(entry.chainTier);
+    item.count = entry.count;
+    player.inventory.set(entry.key, item);
+  }
+}
+
+function formatTrashSoldSummary(sold: TrashVendorSoldItem[]) {
+  return sold.map((item) => `${item.itemName} x${item.quantity}`).join(", ") || "trash";
+}
+
+function makeTrashVendorSeasonRewardSourceId(sessionId: string) {
+  return `trash-vendor:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
+}
+
+function grantDebugTrashVendorStock(player: PlayerState) {
+  for (const itemId of TRASH_VENDOR_ITEM_IDS) {
+    const current = getPlayerItemCount(player, itemId);
+    if (current < DEBUG_TRASH_VENDOR_STOCK_COUNT) {
+      addInventoryItem(player, itemId, DEBUG_TRASH_VENDOR_STOCK_COUNT - current);
+    }
+  }
+}
+
+function getPlayerItemCount(player: PlayerState, itemId: ItemId) {
+  let count = 0;
+  player.inventory.forEach((item) => {
+    if (item.id === itemId && !normalizeChainTokenId(item.chainTokenId)) count += item.count;
+  });
+  return count;
 }
 
 function makePersistableCharacterState(characterId: string, player: PlayerState): PersistableCharacterState {

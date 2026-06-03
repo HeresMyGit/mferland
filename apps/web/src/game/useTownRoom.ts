@@ -19,6 +19,7 @@ import {
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
   type ClientSelectTalent,
+  type ClientSellTrashItems,
   type ClientShareQuestLink,
   type ClientUpdateTraits,
   type ClientUnequipItem,
@@ -39,6 +40,7 @@ import {
   type QuestTurnIn,
   type TalentRankSnapshot,
   type TraitUpdateResult,
+  type TrashVendorSellResult,
   isElixirBuffId,
   normalizeChainGearTier,
   parseMferAppearanceTraitsJson,
@@ -180,6 +182,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
   const [traitUpdateResult, setTraitUpdateResult] = useState<TraitUpdateResult | null>(null);
   const [potionShopPurchaseResult, setPotionShopPurchaseResult] = useState<PotionShopPurchaseResult | null>(null);
+  const [trashVendorSellResult, setTrashVendorSellResult] = useState<TrashVendorSellResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
   const roomRef = useRef<Room<RuntimeTownState> | null>(null);
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
@@ -429,6 +432,9 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
           setPotionShopPurchaseResult(message);
         });
+        room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
+          setTrashVendorSellResult(message);
+        });
 
         room.onMessage("persistenceStatus", (message: Partial<PersistenceStatus>) => {
           const state = message.state === "saving" || message.state === "saved" || message.state === "error"
@@ -604,6 +610,9 @@ export function useTownRoom(identity: JoinOptions) {
   const sendPurchasePotionShopItem = useCallback((message: ClientPurchasePotionShopItem) => {
     roomRef.current?.send("purchasePotionShopItem", message);
   }, []);
+  const sendSellTrashItems = useCallback((message: ClientSellTrashItems) => {
+    roomRef.current?.send("sellTrashItems", message);
+  }, []);
 
   const sendDebugRegisterChainGear = useCallback((message: ClientDebugRegisterChainGear) => {
     if (!import.meta.env.DEV) return;
@@ -699,6 +708,7 @@ export function useTownRoom(identity: JoinOptions) {
     debugPlacementMap,
     traitUpdateResult,
     potionShopPurchaseResult,
+    trashVendorSellResult,
     persistenceStatus,
     leaveAndWait,
     sendInput,
@@ -720,6 +730,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendUseItem,
     sendRegisterChainGear,
     sendPurchasePotionShopItem,
+    sendSellTrashItems,
     sendDebugRegisterChainGear,
     sendDebugUpdateChainGearTier,
     sendSelectTalent,
