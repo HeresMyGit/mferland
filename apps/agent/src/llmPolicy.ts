@@ -7,6 +7,7 @@ import {
   CHAT,
   COMBAT,
   ITEMS,
+  AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   MFER_APPEARANCE_TRAIT_CATEGORIES,
   POTION_SHOP_NPC_ID,
   POTION_SHOP_ITEM_IDS,
@@ -19,6 +20,7 @@ import {
   getNpcDisposition,
   getPotionShopPrice,
   getQuestTurnInNpcId,
+  getAgentTrashVendorAwardPoints,
   getTrashVendorSellValue,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
@@ -689,7 +691,7 @@ export function makeVisibleObservation(
           "If runMemory.canceledQuestIds contains a repeatable quest, do not accept that quest again during this run unless nearby players are visibly grouping for it.",
           "Use observation.stores for public merchant knowledge and available store actions.",
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
-          "Trash sells for a base value of 1 Season 0 point each; declared agents may receive the server's reduced integer agent payout on the sale batch and must pass the Agent Season 0 reward gate.",
+          `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "Use swap_eth_for_mfergpt when the local wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal local wallet transaction to the configured local swap router.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
@@ -1061,9 +1063,11 @@ async function buyPotionShopItem(
 
 async function sellTrashItems(agent: MferlandAgentClient, decision: LlmDecision) {
   const itemId = decision.itemId ? resolveTrashVendorItemId(decision.itemId) : undefined;
+  const self = agent.getSelf();
+  const defaultQuantity = itemId && self?.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : undefined;
   const quantity = decision.quantity && decision.quantity > 0
     ? Math.min(999, Math.floor(decision.quantity))
-    : undefined;
+    : defaultQuantity;
   await agent.interactWithNpc(TRASH_VENDOR_NPC_ID);
   await agent.sellTrashItems({
     itemId,
@@ -1361,9 +1365,11 @@ function getStoreObservations(
           name: ITEMS[itemId].name,
           owned: getInventoryCount(self, itemId),
           price: `${getTrashVendorSellValue(1)} Season 0 point`,
-          bulkPrice: `${getTrashVendorSellValue(getInventoryCount(self, itemId))} base points for owned stack`,
+          bulkPrice: self.isAgent
+            ? `${getAgentTrashVendorAwardPoints(getInventoryCount(self, itemId))} agent points for owned stack`
+            : `${getTrashVendorSellValue(getInventoryCount(self, itemId))} points for owned stack`,
           effect: ITEMS[itemId].description,
-          recommendedUse: "sell when safe and near trash-mfer; agents receive the server-adjusted integer payout on the sale batch",
+          recommendedUse: `sell when safe and near trash-mfer; declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point`,
         }))
         : [],
     };

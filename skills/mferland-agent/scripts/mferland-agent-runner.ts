@@ -1241,7 +1241,7 @@ class MferlandRunner {
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
         "If a corpse has loot and you are safe, use loot to clear it.",
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
-        "Trash sells for a base value from catalog.trashVendor. Declared agents may receive a reduced integer payout on the sale batch and must pass the Agent Season 0 reward gate.",
+        "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
         "Do not chase a perfect pull forever. If only the current target is attacking, health is not critical, and self.combatMath says the fight is favorable, keep attacking instead of repeatedly retreating.",
         "Retreat when health is critical, multiple adds make the combat math unfavorable, or the route would run deeper into a pack.",
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
@@ -2013,7 +2013,10 @@ class MferlandRunner {
           return;
         }
         const itemId = cleanText(decision.itemId, 96);
-        const quantity = normalizeTrashSellQuantity(decision.quantity);
+        const trashVendor = asRecord(this.catalog?.trashVendor);
+        const agentItemsPerPoint = readInteger(trashVendor.agentItemsPerPoint) || 4;
+        const defaultQuantity = itemId && self.isAgent ? agentItemsPerPoint : 1;
+        const quantity = normalizeTrashSellQuantity(decision.quantity, defaultQuantity);
         this.targetPoint = null;
         this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
         this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
@@ -3529,9 +3532,9 @@ function normalizePurchaseQuantity(value: unknown) {
   return value === 5 ? 5 : 1;
 }
 
-function normalizeTrashSellQuantity(value: unknown) {
+function normalizeTrashSellQuantity(value: unknown, defaultQuantity = 1) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 1;
+  if (!Number.isFinite(parsed)) return Math.min(999, Math.max(1, Math.floor(defaultQuantity)));
   return Math.min(999, Math.max(1, Math.floor(parsed)));
 }
 

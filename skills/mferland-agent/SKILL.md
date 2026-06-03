@@ -212,7 +212,7 @@ disabled: server has disabled the token-balance gate
 
 If the wallet is below the goal, the agent can keep playing for quest/level/inventory progress and may acquire MFERGPT before turning in future Season 0 rewards.
 
-Trash-mfer sales use the same Season 0 agent reward rules. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents receive the server-adjusted integer payout on the sale batch, using the configured agent multiplier, default `0.25`.
+Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 4, and remainders stay in inventory.
 
 ## Observe
 

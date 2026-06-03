@@ -3,6 +3,7 @@ import {
   EMOTES,
   EQUIPMENT_SLOTS,
   ITEMS,
+  AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   POTION_SHOP_ITEM_IDS,
   POTION_SHOP_NPC_ID,
   POTION_SHOP_PRODUCT_ID,
@@ -252,8 +253,8 @@ export function buildAgentCatalog() {
     trashVendor: {
       npcId: TRASH_VENDOR_NPC_ID,
       baseSeasonPointValue: getTrashVendorSellValue(1),
-      agentPointMultiplier: readAgentSeason0PointMultiplier(),
-      agentPayoutNote: "Declared agents use the same integer Season 0 adjustment as quest rewards. With the default 0.25 multiplier, a positive sale batch awards at least 1 point and larger batches are reduced by floor(basePoints * multiplier).",
+      agentItemsPerPoint: AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
+      agentPayoutNote: `Declared agents sell complete ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT}-trash bundles for 1 Season 0 point. Remainders stay in inventory.`,
       itemIds: TRASH_VENDOR_ITEM_IDS,
       items: TRASH_VENDOR_ITEM_IDS.map((itemId) => ({
         itemId,

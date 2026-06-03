@@ -23,9 +23,12 @@ import {
   SERVER_TICK_RATE,
   TALENTS,
   TRAITS_MFER_NPC_ID,
+  AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   TRASH_VENDOR_ITEM_IDS,
   TRASH_VENDOR_NPC_ID,
   clamp,
+  getAgentTrashVendorAwardPoints,
+  getAgentTrashVendorPayableQuantity,
   getTrashVendorSellValue,
   getNpcDisposition,
   getChainGearItemId,
@@ -89,11 +92,6 @@ import {
   makeAgentSeason0MferGptGateMessage,
   type AgentSeason0MferGptGateStatus,
 } from "../agentMferGptGate.js";
-import {
-  adjustSeason0QuestPointsForAgent,
-  getAgentSeason0RewardNote,
-  readAgentSeason0PointMultiplier,
-} from "../agentRewards.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
@@ -2210,7 +2208,6 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
-    const agentMultiplier = player.isAgent ? readAgentSeason0PointMultiplier() : 1;
     const agentTokenGate = player.isAgent
       ? await this.notifyAgentSeason0GateStatus(client, player, "trash_vendor")
       : undefined;
@@ -2234,24 +2231,25 @@ export class TownRoom extends Room<TownState> {
     const requestedQuantity = sellAll
       ? Number.MAX_SAFE_INTEGER
       : normalizeTrashSellQuantity(message?.quantity);
+    const availableQuantity = getSellableTrashItemCount(player, selectedItemId);
     const maxQuantity = getMaxTrashSaleQuantityForPointCapacity(player, {
       itemId: selectedItemId,
       requestedQuantity,
       pointCapacity,
       isAgent: player.isAgent,
-      agentMultiplier,
     });
     const sale = planTrashSale(player, {
       itemId: selectedItemId,
       maxQuantity,
     });
-    const awardedPoints = getTrashSaleAwardPoints(sale.points, player.isAgent, agentMultiplier);
+    const awardedPoints = getTrashSaleAwardPoints(sale.quantity, player.isAgent);
     if (sale.quantity <= 0) {
-      sendResult({ ok: false, error: "no sellable trash in stash" });
-      return;
-    }
-    if (awardedPoints <= 0) {
-      sendResult({ ok: false, error: "agent reward multiplier reduced this sale to zero" });
+      sendResult({
+        ok: false,
+        error: player.isAgent && availableQuantity > 0
+          ? `agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 season point`
+          : "no sellable trash in stash",
+      });
       return;
     }
 
@@ -2263,7 +2261,7 @@ export class TownRoom extends Room<TownState> {
       quantity: sale.quantity,
       points: awardedPoints,
       basePoints: sale.points,
-      agentMultiplier,
+      agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
       isAgent: player.isAgent,
       agentTokenGateEligible: agentTokenGate?.eligible,
       agentTokenGateReason: agentTokenGate?.reason,
@@ -2283,7 +2281,7 @@ export class TownRoom extends Room<TownState> {
         quantity: sale.quantity,
         points: awardedPoints,
         basePoints: sale.points,
-        agentMultiplier,
+        agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
         isAgent: player.isAgent,
         dailyTotal: player.season0DailyPoints,
         seasonTotal: player.season0Points,
@@ -2317,9 +2315,11 @@ export class TownRoom extends Room<TownState> {
           sourceId: makeTrashVendorSeasonRewardSourceId(client.sessionId),
           points: awardedPoints,
           basePoints: sale.points,
-          agentMultiplier,
+          agentMultiplier: player.isAgent ? 1 / AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
           agentTokenGate,
-          label: getAgentSeason0RewardNote(`trash mfer sale: ${soldLabel}`, player.isAgent, agentMultiplier),
+          label: player.isAgent
+            ? `trash mfer sale: ${soldLabel} (agent ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT}:1 trash bundle)`
+            : `trash mfer sale: ${soldLabel}`,
         });
         if (awardResult.status !== "awarded") {
           throw new Error(`trash sale reward ${awardResult.status}`);
@@ -2338,7 +2338,7 @@ export class TownRoom extends Room<TownState> {
         quantity: sale.quantity,
         points: awardedPoints,
         basePoints: sale.points,
-        agentMultiplier,
+        agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
         isAgent: player.isAgent,
         agentTokenGateEligible: agentTokenGate?.eligible,
         agentTokenGateReason: agentTokenGate?.reason,
@@ -2360,7 +2360,7 @@ export class TownRoom extends Room<TownState> {
       quantity: sale.quantity,
       points: awardedPoints,
       basePoints: sale.points,
-      agentMultiplier,
+      agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
       isAgent: player.isAgent,
       agentTokenGateEligible: agentTokenGate?.eligible,
       agentTokenGateReason: agentTokenGate?.reason,
@@ -3775,8 +3775,8 @@ function normalizeTrashSellQuantity(value: unknown) {
   return clamp(Math.floor(quantity), 1, 999);
 }
 
-function getTrashSaleAwardPoints(basePoints: number, isAgent: boolean, agentMultiplier: number) {
-  return adjustSeason0QuestPointsForAgent(basePoints, isAgent, agentMultiplier);
+function getTrashSaleAwardPoints(quantity: number, isAgent: boolean) {
+  return isAgent ? getAgentTrashVendorAwardPoints(quantity) : getTrashVendorSellValue(quantity);
 }
 
 function getMaxTrashSaleQuantityForPointCapacity(
@@ -3786,7 +3786,6 @@ function getMaxTrashSaleQuantityForPointCapacity(
     requestedQuantity: number;
     pointCapacity: number;
     isAgent: boolean;
-    agentMultiplier: number;
   },
 ) {
   const requestedQuantity = Number.isFinite(options.requestedQuantity)
@@ -3795,21 +3794,7 @@ function getMaxTrashSaleQuantityForPointCapacity(
   const availableQuantity = getSellableTrashItemCount(player, options.itemId);
   const upperBound = Math.min(requestedQuantity, availableQuantity);
   if (!options.isAgent) return Math.min(upperBound, options.pointCapacity);
-
-  let low = 0;
-  let high = upperBound;
-  let best = 0;
-  while (low <= high) {
-    const quantity = Math.floor((low + high) / 2);
-    const points = getTrashSaleAwardPoints(getTrashVendorSellValue(quantity), true, options.agentMultiplier);
-    if (points <= options.pointCapacity) {
-      best = quantity;
-      low = quantity + 1;
-    } else {
-      high = quantity - 1;
-    }
-  }
-  return best;
+  return getAgentTrashVendorPayableQuantity(upperBound, options.pointCapacity);
 }
 
 function planTrashSale(
@@ -3903,7 +3888,7 @@ function formatSeasonPoints(points: number) {
 function formatTrashAwardPoints(awardedPoints: number, basePoints: number, isAgent: boolean) {
   const awarded = formatSeasonPoints(awardedPoints);
   if (!isAgent || awardedPoints === basePoints) return awarded;
-  return `${awarded} agent-adjusted from ${basePoints}`;
+  return `${awarded} from ${basePoints} trash (${AGENT_TRASH_VENDOR_ITEMS_PER_POINT}:1 agent rate)`;
 }
 
 function makeTrashVendorSeasonRewardSourceId(sessionId: string) {
