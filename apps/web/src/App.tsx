@@ -1257,12 +1257,10 @@ function GameShell({
     [debugPlacementOverrides, savedDebugPlacementDefaults],
   );
   const showGameLoader = room.status === "connecting" || (room.status === "connected" && !localPlayer);
-  const connectionStatusLabel = room.persistenceStatus.state === "saving" || room.persistenceStatus.state === "saved"
-    ? room.persistenceStatus.state
-    : room.status;
   const connectionErrorLabel = room.persistenceStatus.state === "error"
     ? room.persistenceStatus.message || "wallet progress failed to save"
     : room.error;
+  const connectionStatusLabel = connectionErrorLabel ? "error" : room.status;
   const [gameLoaderComplete, setGameLoaderComplete] = useState(false);
   const handleGameLoaderComplete = useCallback(() => setGameLoaderComplete(true), []);
   const renderGameLoader = !cryptoSmokeMode && (showGameLoader || !gameLoaderComplete);

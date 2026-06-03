@@ -960,6 +960,7 @@ export function Hud({
         <TargetFrame
           kind={selectedTarget.kind}
           unit={selectedTargetUnit}
+          now={now}
           renderProfile={renderProfile}
         />
       )}
@@ -1808,6 +1809,7 @@ function ActiveBuffStrip({ buffs, now }: { buffs: ActiveBuffSnapshot[]; now: num
             className="active-buff"
             data-tooltip={title}
             aria-label={formatTooltipLabel(title)}
+            tabIndex={0}
           >
             <ItemIcon itemId={buff.itemId} />
             <em>{formatBuffRemaining(buff, now)}</em>
