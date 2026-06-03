@@ -2159,7 +2159,7 @@ export class TownRoom extends Room<TownState> {
     const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - player.season0Points);
     const pointCapacity = Math.min(remainingDaily, remainingSeason);
     if (pointCapacity <= 0) {
-      sendResult({ ok: false, error: "Season 0 point cap reached" });
+      sendResult({ ok: false, error: "season point cap reached" });
       return;
     }
 
@@ -2202,8 +2202,8 @@ export class TownRoom extends Room<TownState> {
         localDebug: true,
       });
       client.send("chat", makeSystemChat(
-        "Season 0",
-        `Sold ${soldLabel} for ${sale.points} Season 0 point${sale.points === 1 ? "" : "s"} in local debug mode. Daily ${player.season0DailyPoints}/${SEASON_0_DAILY_POINT_CAP}, season ${player.season0Points}/${SEASON_0_TOTAL_POINT_CAP}.`,
+        "Season points",
+        `Sold ${soldLabel} for ${formatSeasonPoints(sale.points)} in local debug mode. Daily ${player.season0DailyPoints}/${SEASON_0_DAILY_POINT_CAP}, season ${player.season0Points}/${SEASON_0_TOTAL_POINT_CAP}.`,
       ));
       sendResult({
         ok: true,
@@ -2250,7 +2250,7 @@ export class TownRoom extends Room<TownState> {
         rewardStatus: savedAwardResult?.status ?? "save_failed",
         error: "wallet progress failed to save",
       });
-      sendResult({ ok: false, error: savedAwardResult?.status === "capped" ? "Season 0 point cap reached" : "wallet progress failed to save" });
+      sendResult({ ok: false, error: savedAwardResult?.status === "capped" ? "season point cap reached" : "wallet progress failed to save" });
       return;
     }
 
@@ -2267,8 +2267,8 @@ export class TownRoom extends Room<TownState> {
       seasonTotal: savedAwardResult.seasonTotal,
     });
     client.send("chat", makeSystemChat(
-      "Season 0",
-      `Sold ${soldLabel} for ${sale.points} Season 0 point${sale.points === 1 ? "" : "s"}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+      "Season points",
+      `Sold ${soldLabel} for ${formatSeasonPoints(sale.points)}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
     ));
     sendResult({
       ok: true,
@@ -2797,7 +2797,7 @@ export class TownRoom extends Room<TownState> {
         sentAt: Date.now(),
       } satisfies ChatMessage);
     } catch (error) {
-      console.error(`Failed to award Season 0 points for ${player.walletAddress}`, error);
+      console.error(`Failed to award season points for ${player.walletAddress}`, error);
     }
   }
 
@@ -3643,6 +3643,10 @@ function restoreInventoryState(player: PlayerState, snapshot: InventoryStateSnap
 
 function formatTrashSoldSummary(sold: TrashVendorSoldItem[]) {
   return sold.map((item) => `${item.itemName} x${item.quantity}`).join(", ") || "trash";
+}
+
+function formatSeasonPoints(points: number) {
+  return `${points} season point${points === 1 ? "" : "s"}`;
 }
 
 function makeTrashVendorSeasonRewardSourceId(sessionId: string) {

@@ -7,7 +7,7 @@ import {
   getSeasonRewardSourceId,
 } from "./seasonRewards.js";
 
-test("defines conservative Season 0 point caps", () => {
+test("defines conservative season point caps", () => {
   assert.equal(SEASON_0_DAILY_POINT_CAP, 100);
   assert.equal(SEASON_0_TOTAL_POINT_CAP, 3000);
 });

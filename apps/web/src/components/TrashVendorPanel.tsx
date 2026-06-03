@@ -50,7 +50,7 @@ export function TrashVendorPanel({
     if (!result) return;
     setBusy(false);
     setStatus(result.ok
-      ? `sold ${result.quantity} for ${result.points} Season 0 point${result.points === 1 ? "" : "s"}`
+      ? `sold ${result.quantity} for ${formatSeasonPoints(result.points)}`
       : result.error ?? "sale failed");
   }, [result]);
 
@@ -109,7 +109,7 @@ export function TrashVendorPanel({
 
       <div className="crypto-store-overview">
         <div className="crypto-store-account">
-          <span>Season 0</span>
+          <span>season points</span>
           <code>{canSell ? `${player?.season0Points ?? 0} points` : "wallet required"}</code>
           <strong>1 point each</strong>
         </div>
@@ -131,7 +131,7 @@ export function TrashVendorPanel({
               >
                 <ItemIcon itemId={item.id} />
                 <strong>{ITEMS[item.id].name}</strong>
-                <small>{getTrashVendorSellValue(item.count)} Season 0 pts</small>
+                <small>{formatSeasonPoints(getTrashVendorSellValue(item.count))}</small>
                 <span className="tile-count">x{item.count}</span>
               </button>
             );
@@ -193,6 +193,10 @@ function getSellableTrashStacks(player: PlayerSnapshot | null): SellableTrashSta
   return (player?.inventory ?? [])
     .filter((item): item is SellableTrashStack => isTrashVendorItemId(item.id) && !item.chainTokenId && item.count > 0)
     .sort((left, right) => ITEMS[left.id].name.localeCompare(ITEMS[right.id].name));
+}
+
+function formatSeasonPoints(points: number) {
+  return `${points} season point${points === 1 ? "" : "s"}`;
 }
 
 function sanitizeTrashVendorAnalyticsProperties(properties: AnalyticsProperties) {

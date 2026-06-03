@@ -168,7 +168,7 @@ export function spawnNpcs(npcs: MapSchema<NpcState>) {
       z: 25.4,
       yaw: 0,
       leashRadius: 1.2,
-      dialogue: "junk only. one Season 0 point each, no questions, no refunds.",
+      dialogue: "junk only. one season point each, no questions, no refunds.",
     },
     {
       id: "gate-guard",
