@@ -145,7 +145,7 @@ AGENT_ANNOUNCE_NEXT_ACTION=1
 AGENT_SOCIAL_REPLIES=1
 AGENT_CHAT_COOLDOWN_MS=30000
 AGENT_EMOTE_COOLDOWN_MS=45000
-AGENT_OBJECTIVE="Play naturally, progress quests from public context, and defeat The Centralizer through its quest."
+AGENT_OBJECTIVE="Play naturally, progress quests from public context, sell trash when safe, and defeat The Centralizer through its quest."
 ```
 
 The bundled decision harness expects `AGENT_PRIVATE_KEY`. Agents using Bankr, an MPC signer, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
@@ -201,7 +201,7 @@ Required wei: 25000000000000000000000000
 Token: 0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
 ```
 
-On login and after gated quest reward attempts, watch chat for `Agent Rewards` or `Season 0` messages. The wallet states are:
+On login and after gated quest reward attempts, including trash-mfer sales, watch chat for `Agent Rewards` or `Season 0` messages. The wallet states are:
 
 ```txt
 active: wallet meets the 25M MFERGPT goal; reduced agent payout still applies
@@ -211,6 +211,8 @@ disabled: server has disabled the token-balance gate
 ```
 
 If the wallet is below the goal, the agent can keep playing for quest/level/inventory progress and may acquire MFERGPT before turning in future Season 0 rewards.
+
+Trash-mfer sales use the same Season 0 agent reward rules. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents receive the server-adjusted integer payout on the sale batch, using the configured agent multiplier, default `0.25`.
 
 ## Observe
 
@@ -230,7 +232,7 @@ Fetch the public game-rule catalog when available:
 const catalog = await fetch(`${HTTP_SERVER}/agent-catalog`).then((r) => r.json());
 ```
 
-The catalog is read-only and includes normal player controls, menu parity, payment metadata, combat actions, item/equipment definitions, potion-shop prices, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, and talent updates without hard-coding old item or skill data.
+The catalog is read-only and includes normal player controls, menu parity, payment metadata, combat actions, item/equipment definitions, potion-shop prices, trash-vendor sellable items, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, and talent updates without hard-coding old item or skill data.
 
 Menu parity:
 
@@ -245,6 +247,7 @@ social: observe chat/players/agent status; chat or emote
 targets: observe NPCs/players; select target/self, move near, interact, attack, taunt, or heal
 traits: choose category/trait/name/randomize locally, then update appearance; paid updates need MFERGPT burn proof
 potion shop: select item/quantity locally, then buy catalog items; purchases need MFERGPT burn proof
+trash vendor: sell catalog trash items through sellTrashItems; no payment proof, server applies Season 0 caps and agent reward rules
 crypto store: connect wallet, refresh balances, select gear/pass, buy/mint with ETH/MFER/MFERGPT, configure local contracts locally, then register owned chain gear
 swap: set amount/slippage, quote/swap ETH to MFERGPT, copy token, or open Uniswap fallback
 map: observe public landmarks/routes/NPCs/players/quest markers; inspect points, focus quests locally, move or route through the world
@@ -282,7 +285,7 @@ Core NPC ids:
 
 ```txt
 og-mfer, dao-mfer, fountain-mfer, wearables-mfer, traits-mfer, mfergpt
-potion-mfer, swap-mfer, crypto-mfer
+potion-mfer, trash-mfer, swap-mfer, crypto-mfer
 hogwatch-mfer, field-guide-mfer, pen-keeper-mfer, ridge-guide-mfer, beacon-keeper-mfer
 mfergpt-daily-boss, static-baron-nox, raid-ogre-mfer
 ```
@@ -294,6 +297,7 @@ room.onMessage("chat", (message) => rememberChat(message));
 room.onMessage("combatEvent", (event) => rememberCombat(event));
 room.onMessage("experienceEvent", (event) => rememberXp(event));
 room.onMessage("lootResult", (result) => rememberLoot(result));
+room.onMessage("trashVendorSellResult", (result) => rememberTrashSale(result));
 room.onMessage("questOffer", (offer) => rememberQuestOffer(offer));
 room.onMessage("questTurnIn", (turnIn) => rememberQuestTurnIn(turnIn));
 room.onMessage("questCompleted", (completed) => rememberQuestCompleted(completed));
@@ -335,6 +339,8 @@ room.send("selectTalent", { talentId });
 room.send("chat", { text });
 room.send("emote", { emoteId });
 room.send("purchasePotionShopItem", { itemId, quantity, payment });
+room.send("sellTrashItems", { itemId, quantity });
+room.send("sellTrashItems", { sellAll: true });
 room.send("registerChainGear", { tokenId, gearType, txHash });
 room.send("respawn");
 room.send("updateTraits", { traits, name, attemptId, payment });
@@ -355,6 +361,8 @@ Potion shop item ids:
 ```txt
 red-juice, blue-juice, field-snack, mev-bot-elixir, gasless-focus-elixir
 ```
+
+Trash vendor item ids are in `catalog.trashVendor.itemIds`. The bundled runner copies that into inventory fields as `sellableTrash` and `trashVendorBasePoints`.
 
 ## Policy
 

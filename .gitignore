@@ -16,6 +16,7 @@ apps/web/public/crypto/production-contracts.json
 !.env.example
 docs/db-handoff.local.md
 invite.zip
+db-backups/
 
 # Internal project notes kept locally only.
 /MFERLAND_*_PLAN.md

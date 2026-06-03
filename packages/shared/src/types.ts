@@ -3,6 +3,7 @@ import type { EMOTES } from "./config.js";
 import type { ElixirBuffId, ElixirItemId } from "./elixirs.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
+import type { TrashVendorItemId } from "./trashVendor.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
@@ -440,6 +441,29 @@ export type PotionShopPurchaseResult = {
   error?: string;
 };
 
+export type ClientSellTrashItems = {
+  itemId?: TrashVendorItemId;
+  quantity?: number;
+  sellAll?: boolean;
+};
+
+export type TrashVendorSoldItem = {
+  itemId: TrashVendorItemId;
+  itemName: string;
+  quantity: number;
+  points: number;
+};
+
+export type TrashVendorSellResult = {
+  ok: boolean;
+  sold: TrashVendorSoldItem[];
+  quantity: number;
+  points: number;
+  season0Points: number;
+  season0DailyPoints: number;
+  error?: string;
+};
+
 export type ClientCombatAction = {
   actionId: CombatActionId;
   target?: TargetSelection | null;
@@ -476,6 +500,7 @@ export type AgentObservation = {
     | "updateTraits"
     | "registerChainGear"
     | "purchasePotionShopItem"
+    | "sellTrashItems"
     | CombatActionId
   >;
 };

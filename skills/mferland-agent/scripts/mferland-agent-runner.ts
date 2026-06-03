@@ -273,6 +273,7 @@ const DECISION_ACTIONS = [
   "swap_eth_for_mfergpt",
   "register_chain_gear",
   "purchase_potion_shop_item",
+  "sell_trash_items",
   "update_traits",
   "emote",
   "chat",
@@ -841,6 +842,7 @@ class MferlandRunner {
     room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
     room.onMessage("closeLootWindow", (message: unknown) => this.remember(`closeLoot:${messageSummary(message)}`));
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
+    room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
     room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
@@ -1238,12 +1240,14 @@ class MferlandRunner {
         "For travel_route, put a public route id or landmark id in text. Minor wording differences are accepted.",
         "If dead, use respawn. If multiple enemies target you, stabilize before moving deeper.",
         "If a corpse has loot and you are safe, use loot to clear it.",
+        "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
+        "Trash sells for a base value from catalog.trashVendor. Declared agents may receive a reduced integer payout on the sale batch and must pass the Agent Season 0 reward gate.",
         "Do not chase a perfect pull forever. If only the current target is attacking, health is not critical, and self.combatMath says the fight is favorable, keep attacking instead of repeatedly retreating.",
         "Retreat when health is critical, multiple adds make the combat math unfavorable, or the route would run deeper into a pack.",
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
-        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, and purchase_potion_shop_item through normal room messages when the observation shows a useful reason.",
+        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, and sell_trash_items through normal room messages when the observation shows a useful reason.",
         "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH.",
         "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
@@ -1333,6 +1337,7 @@ class MferlandRunner {
         .map((item) => this.summarizeItemDefinition(item))
         .slice(0, 40),
       potionShop: this.catalog.potionShop ?? {},
+      trashVendor: this.catalog.trashVendor ?? {},
     };
   }
 
@@ -1460,18 +1465,29 @@ class MferlandRunner {
   }
 
   private describeInventory(self: RuntimePlayer) {
+    const trashVendor = asRecord(this.catalog?.trashVendor);
+    const trashItemIds = new Set(
+      (Array.isArray(trashVendor.itemIds) ? trashVendor.itemIds : [])
+        .map((itemId) => getString(itemId))
+        .filter(Boolean),
+    );
+    const baseTrashPoints = Math.max(0, getNumber(trashVendor.baseSeasonPointValue, 1));
     return self.inventory.map((item) => {
       const itemId = getString(item.id);
+      const count = getNumber(item.count);
+      const sellableTrash = trashItemIds.has(itemId);
       return {
         itemId,
         name: getString(this.itemDefinition(itemId).name) || itemId,
         quality: getString(this.itemDefinition(itemId).quality),
-        count: getNumber(item.count),
+        count,
         chainTokenId: getString(item.chainTokenId),
         chainTier: getNumber(item.chainTier, 1),
         equipment: this.itemDefinition(itemId).equipment ?? null,
         consumable: this.itemDefinition(itemId).consumable ?? null,
         description: getString(this.itemDefinition(itemId).description),
+        sellableTrash,
+        trashVendorBasePoints: sellableTrash ? count * baseTrashPoints : 0,
       };
     });
   }
@@ -1985,6 +2001,22 @@ class MferlandRunner {
         this.clearEngagement();
         this.send("purchasePotionShopItem", { itemId, quantity, payment });
         this.lastAction = `purchase_potion_shop_item ${itemId} x${quantity}`;
+        return;
+      }
+      case "sell_trash_items": {
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("trash-mfer");
+        if (!npc) throw new Error("sell_trash_items requires trash-mfer to be visible in room state");
+        this.clearEngagement();
+        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_sell_trash ${npc.id}`;
+          return;
+        }
+        const itemId = cleanText(decision.itemId, 96);
+        const quantity = normalizeTrashSellQuantity(decision.quantity);
+        this.targetPoint = null;
+        this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
+        this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
         return;
       }
       case "update_traits": {
@@ -3226,7 +3258,7 @@ function readConfig(): AgentConfig {
     decisionModel: cleanEnv("AGENT_DECISION_MODEL") || cleanEnv("CODEX_LLM_MODEL"),
     decisionTimeoutMs: readNumberEnv("AGENT_DECISION_TIMEOUT_MS") || 60_000,
     decisionIntervalMs: readNumberEnv("AGENT_DECISION_INTERVAL_MS") || 1200,
-    objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, survive, and eventually defeat The Centralizer through its quest.",
+    objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, sell trash to trash-mfer when safe, survive, and eventually defeat The Centralizer through its quest.",
     maxMferGptSpendWei: readNonNegativeIntegerEnv("AGENT_MAX_MFERGPT_SPEND_WEI"),
     maxSwapEthSpendWei: readNonNegativeIntegerEnv("AGENT_MAX_SWAP_ETH_SPEND_WEI"),
     announceNextAction: cleanEnv("AGENT_ANNOUNCE_NEXT_ACTION") !== "0",
@@ -3495,6 +3527,12 @@ function readInteger(value: unknown) {
 
 function normalizePurchaseQuantity(value: unknown) {
   return value === 5 ? 5 : 1;
+}
+
+function normalizeTrashSellQuantity(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(999, Math.max(1, Math.floor(parsed)));
 }
 
 function normalizePositiveIntegerString(value: unknown) {

@@ -18,6 +18,7 @@ import {
   areDebugMessagesEnabled,
   isCryptoSmokeWalletAuthBypassEnabled,
   isLocalOnlyWalletAuthBypassEnabled,
+  isLocalDebugWalletAuthBypassEnabled,
   readDebugPlacementMap,
   TownRoom,
 } from "./rooms/TownRoom.js";
@@ -102,6 +103,7 @@ const server = createServer((req, res) => {
       debugMessagesEnabled: areDebugMessagesEnabled(),
       cryptoSmokeWalletAuthBypassEnabled: isCryptoSmokeWalletAuthBypassEnabled(),
       localOnlyWalletAuthBypassEnabled: isLocalOnlyWalletAuthBypassEnabled(),
+      localDebugWalletAuthBypassEnabled: isLocalDebugWalletAuthBypassEnabled(),
       localRpcProxyEnabled: isLocalRpcProxyEnabled(),
     }));
     return;

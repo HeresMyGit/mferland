@@ -493,6 +493,67 @@
   z-index: -1;
 }
 
+.target-effect-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 27px;
+  margin-top: 6px;
+}
+
+.target-effect {
+  position: relative;
+  display: grid;
+  place-items: end center;
+  width: 27px;
+  height: 27px;
+  border: 1px solid rgba(255, 226, 96, 0.34);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
+  cursor: help;
+  pointer-events: auto;
+}
+
+.target-effect.debuff {
+  border-color: rgba(255, 114, 120, 0.56);
+  box-shadow: 0 0 0 1px rgba(255, 114, 120, 0.12), 0 4px 10px rgba(0, 0, 0, 0.22);
+}
+
+.target-effect:hover,
+.target-effect:focus-visible {
+  border-color: rgba(255, 248, 224, 0.72);
+  box-shadow: 0 0 0 2px rgba(255, 226, 96, 0.28), 0 5px 12px rgba(0, 0, 0, 0.26);
+}
+
+.target-effect .item-icon,
+.target-effect .ability-icon {
+  width: 25px;
+  height: 25px;
+  border-radius: 4px;
+}
+
+.target-effect em {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 14px;
+  padding: 0 2px;
+  border-radius: 3px;
+  color: #101010;
+  background: var(--hud-accent);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 1000;
+  line-height: 9px;
+  text-align: center;
+}
+
+.target-effect.debuff em {
+  color: #fff8dc;
+  background: var(--hud-danger);
+}
+
 .bar {
   position: relative;
   display: grid;
@@ -564,6 +625,14 @@
   border-radius: 5px;
   background: rgba(0, 0, 0, 0.34);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  cursor: help;
+  pointer-events: auto;
+}
+
+.active-buff:hover,
+.active-buff:focus-visible {
+  border-color: rgba(255, 248, 224, 0.72);
+  box-shadow: 0 0 0 2px rgba(255, 226, 96, 0.28), 0 5px 12px rgba(0, 0, 0, 0.26);
 }
 
 .active-buff .item-icon {
@@ -1093,6 +1162,11 @@ button.quest-row {
 
 .item-icon.quest {
   border-color: var(--mfer-yellow);
+}
+
+.item-icon.poor {
+  border-color: #8d9299;
+  filter: saturate(0.72);
 }
 
 .item-icon.rare {

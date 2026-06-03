@@ -27,7 +27,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.quests, ["acceptQuest", "completeQuest", "cancelQuest"]);
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
-  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem"]);
+  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems"]);
   assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits"]);
   assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
@@ -60,6 +60,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.menus.errands.controls, ["setQuestFocus", "toggleCompletedQuestVisibility", "acceptQuest", "completeQuest", "cancelQuest", "shareQuestLink"]);
   assert.deepEqual(catalog.menus.potionShop.controls, ["selectPotionShopItem", "selectPotionShopQuantity", "purchasePotionShopItem"]);
   assert.equal(catalog.menus.potionShop.paidControlRequiresPaymentProof, true);
+  assert.deepEqual(catalog.menus.trashVendor.controls, ["sellTrashItems"]);
+  assert.equal(catalog.menus.trashVendor.paidControlRequiresPaymentProof, false);
   assert.deepEqual(catalog.menus.traits.controls, ["selectTraitCategory", "setTrait", "clearTrait", "randomizeTraits", "updateTraits"]);
   assert.equal(catalog.menus.traits.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.cryptoStore.controls, [

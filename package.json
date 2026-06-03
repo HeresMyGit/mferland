@@ -35,6 +35,7 @@
     "agent:playthrough:local": "npm run playthrough:local -w @mferland/agent",
     "agent:llm:local": "npm run llm:local -w @mferland/agent",
     "stream:obs": "node scripts/setup-stream-obs.cjs",
+    "stream:obs:watch": "node scripts/watch-stream-obs.cjs",
     "pricing:quote:mfer-pass": "node scripts/quote-mfer-pass-price.mjs",
     "pricing:refresh:market": "npm run market:refresh -w @mferland/server",
     "support:admin": "npm run support:admin -w @mferland/server --",

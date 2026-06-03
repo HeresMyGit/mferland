@@ -9,6 +9,8 @@ import {
   POTION_SHOP_PURCHASE_QUANTITIES,
   PROGRESSION,
   QUESTS,
+  TRASH_VENDOR_ITEM_IDS,
+  TRASH_VENDOR_NPC_ID,
   MFER_APPEARANCE_TRAIT_CATEGORIES,
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BASE_RPC_URL,
@@ -20,6 +22,7 @@ import {
   WORLD_LANDMARKS,
   WORLD_ROADS,
   getPotionShopPrice,
+  getTrashVendorSellValue,
   type PotionShopItemId,
   type PotionShopPurchaseQuantity,
 } from "@mferland/shared";
@@ -27,6 +30,7 @@ import {
   AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
   DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
 } from "./agentMferGptGate.js";
+import { readAgentSeason0PointMultiplier } from "./agentRewards.js";
 
 const BASE_WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
 const BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS = "0x6fF5693b99212Da76ad316178A184AB56D299b43";
@@ -45,7 +49,7 @@ export function buildAgentCatalog() {
       quests: ["acceptQuest", "completeQuest", "cancelQuest"],
       selection: ["selectTarget", "selectSelfTarget"],
       combat: ["combatAction"],
-      lootAndItems: ["lootCorpse", "equipItem", "unequipItem", "useItem"],
+      lootAndItems: ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems"],
       character: ["selectTalent", "updateTraits"],
       walletStores: ["purchasePotionShopItem", "registerChainGear"],
       walletActions: [
@@ -118,6 +122,13 @@ export function buildAgentCatalog() {
         controls: ["selectPotionShopItem", "selectPotionShopQuantity", "purchasePotionShopItem"],
         paidControlRequiresPaymentProof: true,
       },
+      trashVendor: {
+        npcId: TRASH_VENDOR_NPC_ID,
+        observes: ["inventory", "trashVendor", "trashVendorSellResult", "season0Points", "season0DailyPoints"],
+        controls: ["sellTrashItems"],
+        paidControlRequiresPaymentProof: false,
+        note: "Sell only catalog trash items through the normal sellTrashItems room message. The server applies Season 0 caps and declared-agent reward rules.",
+      },
       cryptoStore: {
         npcId: "crypto-mfer",
         observes: ["walletBalances", "contractPrices", "marketQuotes", "chainGearOwnership", "inventory"],
@@ -178,6 +189,7 @@ export function buildAgentCatalog() {
         },
         season0AgentRequiredBalanceWei: DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
         season0AgentRequiredBalanceLabel: AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
+        season0AgentPointMultiplier: readAgentSeason0PointMultiplier(),
       },
     },
     combatActions: COMBAT.actions,
@@ -236,6 +248,25 @@ export function buildAgentCatalog() {
         ])),
       })),
       quantities: POTION_SHOP_PURCHASE_QUANTITIES,
+    },
+    trashVendor: {
+      npcId: TRASH_VENDOR_NPC_ID,
+      baseSeasonPointValue: getTrashVendorSellValue(1),
+      agentPointMultiplier: readAgentSeason0PointMultiplier(),
+      agentPayoutNote: "Declared agents use the same integer Season 0 adjustment as quest rewards. With the default 0.25 multiplier, a positive sale batch awards at least 1 point and larger batches are reduced by floor(basePoints * multiplier).",
+      itemIds: TRASH_VENDOR_ITEM_IDS,
+      items: TRASH_VENDOR_ITEM_IDS.map((itemId) => ({
+        itemId,
+        name: ITEMS[itemId].name,
+        description: ITEMS[itemId].description,
+        quality: ITEMS[itemId].quality,
+        basePoints: getTrashVendorSellValue(1),
+      })),
+      controls: {
+        sellOne: { message: "sellTrashItems", shape: { itemId: "trash item id", quantity: 1 } },
+        sellStack: { message: "sellTrashItems", shape: { itemId: "trash item id", quantity: "integer 1..999" } },
+        sellAll: { message: "sellTrashItems", shape: { sellAll: true } },
+      },
     },
     quests: Object.fromEntries(Object.entries(QUESTS).map(([id, quest]) => {
       const optional = quest as {

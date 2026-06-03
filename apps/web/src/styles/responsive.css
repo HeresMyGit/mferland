@@ -286,10 +286,11 @@
   }
 
   .character-panel,
-  .inventory-panel,
-  .crypto-store-panel,
-  .potion-shop-panel,
-  .traits-panel,
+    .inventory-panel,
+    .crypto-store-panel,
+    .potion-shop-panel,
+    .trash-vendor-panel,
+    .traits-panel,
   .settings-panel {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
@@ -338,6 +339,11 @@
     bottom: auto;
   }
 
+  .floating-menu-overlay.trash-vendor-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
   .swap-anchor .auth-swap-panel {
     position: static;
     width: min(318px, calc(100vw - 28px));
@@ -356,7 +362,9 @@
   .crypto-market-layout,
   .crypto-store-config,
   .potion-shop-layout,
+  .trash-vendor-layout,
   .potion-shop-items,
+  .trash-vendor-items,
   .potion-shop-packs,
   .crypto-store-balance-grid,
   .crypto-store-currency-bar,
@@ -367,6 +375,7 @@
   .crypto-market-quotes,
   .crypto-store-actions,
   .potion-shop-actions,
+  .trash-vendor-actions,
   .crypto-pass-actions,
   .crypto-upgrade-row,
   .traits-layout,

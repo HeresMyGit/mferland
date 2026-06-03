@@ -19,7 +19,9 @@ import {
   isMferGptDailyQuestItem,
   isStackableItem,
   ITEMS,
+  hasExplicitMferAppearanceTraits,
   normalizeChainTokenId,
+  parseMferAppearanceTraitsJson,
   shouldConsumeQuestItem,
   type ItemId,
   type QuestId,
@@ -100,10 +102,16 @@ export function getNpcQuestInteraction(npc: NpcState, player: PlayerState): NpcQ
 function syncQuestState(player: PlayerState, questId: QuestId, quest: QuestState) {
   syncMferGptDailyQuestState(questId, quest);
   syncQuestItemProgress(player, questId);
-  if (quest.status === "active" && isQuestAutoReady(questId)) {
+  if (quest.status === "active" && isQuestImmediatelyReady(player, questId)) {
     quest.status = "ready";
     quest.progress = quest.required;
   }
+}
+
+function isQuestImmediatelyReady(player: PlayerState, questId: QuestId) {
+  if (isQuestAutoReady(questId)) return true;
+  if (questId !== "set-your-traits") return false;
+  return hasExplicitMferAppearanceTraits(parseMferAppearanceTraitsJson(player.appearanceTraitsJson));
 }
 
 function syncMferGptDailyQuestState(questId: QuestId, quest: QuestState) {
@@ -460,7 +468,7 @@ export function startQuest(player: PlayerState, questId: QuestId) {
   const questStartState = getQuestStartState(questId);
   quest.id = questId;
   quest.required = questStartState.required;
-  quest.status = isQuestAutoReady(questId) ? "ready" : "active";
+  quest.status = isQuestImmediatelyReady(player, questId) ? "ready" : "active";
   quest.progress = quest.status === "ready" ? quest.required : 0;
   quest.flags = questStartState.flags;
   quest.completedAt = 0;

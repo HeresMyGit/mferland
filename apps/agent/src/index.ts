@@ -193,7 +193,7 @@ function readConfig(): AgentConfig {
       "llm-model": { type: "string", default: process.env.AGENT_LLM_MODEL },
       "llm-objective": {
         type: "string",
-        default: process.env.AGENT_LLM_OBJECTIVE ?? "Register or continue a wallet character. If local wallet tools are configured, swap local ETH to MFERGPT if needed, buy one useful potion-shop item from potion-mfer by burning MFERGPT, then progress quests like a normal human player and cooperate with visible players.",
+        default: process.env.AGENT_LLM_OBJECTIVE ?? "Register or continue a wallet character. If local wallet tools are configured, swap local ETH to MFERGPT if needed, buy one useful potion-shop item from potion-mfer by burning MFERGPT, sell looted trash to trash-mfer when safe, then progress quests like a normal human player and cooperate with visible players.",
       },
       "llm-steps": { type: "string", default: process.env.AGENT_LLM_STEPS ?? "80" },
       "llm-interval-ms": { type: "string", default: process.env.AGENT_LLM_DECISION_INTERVAL_MS ?? "1200" },

@@ -13,6 +13,7 @@ import {
 } from "./items.js";
 import { ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_WEI, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI } from "./elixirs.js";
 import { POTION_SHOP_BULK_MFERGPT_AMOUNT_WEI, getPotionShopPrice, isPotionShopItemId } from "./potionShop.js";
+import { TRASH_VENDOR_SEASON_POINT_VALUE, getTrashVendorSellValue, isTrashVendorItemId } from "./trashVendor.js";
 
 test("maps local chain gear types to in-game gear items", () => {
   assert.equal(getChainGearItemId(1), "rusty-skate-deck");
@@ -34,6 +35,15 @@ test("defines the alpha gear progression spine", () => {
   assert.equal(ITEMS["airdrop-burn-hoodie"].quality, "uncommon");
   assert.equal(ITEMS["router-antenna-wand"].quality, "rare");
   assert.equal(ITEMS["all-nighter-hoodie"].quality, "rare");
+});
+
+test("marks unusable junk as trash-vendor items", () => {
+  assert.equal(ITEMS["muddy-tusk"].quality, "poor");
+  assert.equal(ITEMS["small-tooth"].quality, "poor");
+  assert.equal(isTrashVendorItemId("muddy-tusk"), true);
+  assert.equal(isTrashVendorItemId("red-juice"), false);
+  assert.equal(TRASH_VENDOR_SEASON_POINT_VALUE, 1);
+  assert.equal(getTrashVendorSellValue(7), 7);
 });
 
 test("adds one-hour elixirs to the potion shop with elixir pricing", () => {

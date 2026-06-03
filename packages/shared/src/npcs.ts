@@ -1,4 +1,5 @@
 import { POTION_SHOP_NPC_ID } from "./potionShop.js";
+import { TRASH_VENDOR_NPC_ID } from "./trashVendor.js";
 import type { NpcDisposition, NpcRole, NpcSnapshot } from "./types.js";
 
 export const CRYPTO_MFER_NPC_ID = "crypto-mfer";
@@ -9,6 +10,7 @@ export const MERCHANT_NPC_IDS = [
   CRYPTO_MFER_NPC_ID,
   TRAITS_MFER_NPC_ID,
   SWAP_MFER_NPC_ID,
+  TRASH_VENDOR_NPC_ID,
 ] as const;
 
 export type MerchantNpcId = typeof MERCHANT_NPC_IDS[number];

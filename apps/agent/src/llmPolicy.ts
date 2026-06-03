@@ -12,15 +12,19 @@ import {
   POTION_SHOP_ITEM_IDS,
   QUESTS,
   QUEST_IDS,
+  TRASH_VENDOR_ITEM_IDS,
+  TRASH_VENDOR_NPC_ID,
   getNpcQuestIds,
   getNpcQuestMarker,
   getNpcDisposition,
   getPotionShopPrice,
   getQuestTurnInNpcId,
+  getTrashVendorSellValue,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
   isQuestAvailableForSnapshots,
   isQuestReadyToRepeat,
+  isTrashVendorItemId,
   type CombatActionId,
   type EmoteId,
   type ItemId,
@@ -31,6 +35,7 @@ import {
   type PotionShopPurchaseQuantity,
   type QuestId,
   type TargetSelection,
+  type TrashVendorItemId,
 } from "@mferland/shared";
 import { MferlandAgentClient, delay, type Point } from "./client.js";
 import { getGameAgentHandbook } from "./humanKnowledge.js";
@@ -179,6 +184,8 @@ type VisibleObservation = {
       count: number;
       kind: string;
       description: string;
+      sellableTrash: boolean;
+      trashVendorBasePoints: number;
     }>;
     equipment: Array<{
       slot: string;
@@ -338,6 +345,7 @@ const ACTIONS = [
   "share_quest_link",
   "swap_eth_for_mfergpt",
   "buy_potion_shop_item",
+  "sell_trash_items",
 ] as const;
 
 const AGENT_DEFAULT_TRAITS: MferAppearanceTraits = {
@@ -608,8 +616,10 @@ export function makeVisibleObservation(
             itemId: item.id,
             name: definition.name,
             count: item.count,
-            kind: definition.consumable?.kind ?? (definition.equipment ? "equipment" : "item"),
+            kind: isTrashVendorItemId(item.id) ? "trash" : definition.consumable?.kind ?? (definition.equipment ? "equipment" : "item"),
             description: definition.description,
+            sellableTrash: isTrashVendorItemId(item.id),
+            trashVendorBasePoints: isTrashVendorItemId(item.id) ? getTrashVendorSellValue(item.count) : 0,
           };
         }),
         equipment: self.equipment.map((slot) => ({
@@ -678,6 +688,8 @@ export function makeVisibleObservation(
           "Use nearbyPlayers and recentChat as public social context. When safe, occasional chat, emote, move_near_player, or select_player actions are normal ways to greet, coordinate, or group with visible players; do not spam or interrupt combat recovery.",
           "If runMemory.canceledQuestIds contains a repeatable quest, do not accept that quest again during this run unless nearby players are visibly grouping for it.",
           "Use observation.stores for public merchant knowledge and available store actions.",
+          "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
+          "Trash sells for a base value of 1 Season 0 point each; declared agents may receive the server's reduced integer agent payout on the sale batch and must pass the Agent Season 0 reward gate.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "Use swap_eth_for_mfergpt when the local wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal local wallet transaction to the configured local swap router.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
@@ -999,6 +1011,9 @@ async function executeDecision(
     case "buy_potion_shop_item":
       await buyPotionShopItem(agent, decision, payment, memory);
       return;
+    case "sell_trash_items":
+      await sellTrashItems(agent, decision);
+      return;
     case "wait":
     default:
       await delay(5000);
@@ -1042,6 +1057,19 @@ async function buyPotionShopItem(
   const proof = await payment.burn(price.amountWei, price.label);
   await agent.purchasePotionShopItem(itemId, quantity, proof);
   memory.purchasedPotionShopItemIds.add(itemId);
+}
+
+async function sellTrashItems(agent: MferlandAgentClient, decision: LlmDecision) {
+  const itemId = decision.itemId ? resolveTrashVendorItemId(decision.itemId) : undefined;
+  const quantity = decision.quantity && decision.quantity > 0
+    ? Math.min(999, Math.floor(decision.quantity))
+    : undefined;
+  await agent.interactWithNpc(TRASH_VENDOR_NPC_ID);
+  await agent.sellTrashItems({
+    itemId,
+    quantity,
+    sellAll: !itemId,
+  });
 }
 
 function summarizeVisibleState(observation: VisibleObservation) {
@@ -1284,6 +1312,8 @@ function getStoreObservations(
     const distance = nearby ? nearby.distance : distanceToPoint(self, store.position);
     const isPotionShop = store.npcId === POTION_SHOP_NPC_ID;
     const isSwapMfer = store.npcId === "swap-mfer";
+    const isTrashVendor = store.npcId === TRASH_VENDOR_NPC_ID;
+    const sellableTrashCount = getSellableTrashCount(self);
     const status = isPotionShop
       ? capabilities.potionShopAlreadyStocked
         ? "already stocked; use existing items before buying more"
@@ -1294,6 +1324,10 @@ function getStoreObservations(
       ? capabilities.mferGptSwapConfigured
         ? "can swap local ETH to MFERGPT with the configured local router"
         : "known swap NPC; no local swap router is configured for this run"
+      : isTrashVendor
+      ? sellableTrashCount > 0
+        ? `can sell ${sellableTrashCount} trash item${sellableTrashCount === 1 ? "" : "s"} for Season 0 points through sell_trash_items`
+        : "known trash vendor; no sellable trash in inventory"
       : store.status;
     return {
       npcId: store.npcId,
@@ -1308,6 +1342,8 @@ function getStoreObservations(
         ? ["move_near_npc", "interact_npc", "buy_potion_shop_item"]
         : isSwapMfer && capabilities.mferGptSwapConfigured
         ? ["move_near_npc", "interact_npc", "swap_eth_for_mfergpt"]
+        : isTrashVendor
+        ? ["move_near_npc", "interact_npc", "sell_trash_items"]
         : [...store.supportedActions],
       items: isPotionShop
         ? POTION_SHOP_ITEM_IDS.map((itemId) => ({
@@ -1319,9 +1355,23 @@ function getStoreObservations(
           effect: describeItemEffect(itemId),
           recommendedUse: getPotionShopRecommendation(itemId),
         }))
+        : isTrashVendor
+        ? TRASH_VENDOR_ITEM_IDS.map((itemId) => ({
+          itemId,
+          name: ITEMS[itemId].name,
+          owned: getInventoryCount(self, itemId),
+          price: `${getTrashVendorSellValue(1)} Season 0 point`,
+          bulkPrice: `${getTrashVendorSellValue(getInventoryCount(self, itemId))} base points for owned stack`,
+          effect: ITEMS[itemId].description,
+          recommendedUse: "sell when safe and near trash-mfer; agents receive the server-adjusted integer payout on the sale batch",
+        }))
         : [],
     };
   });
+}
+
+function getSellableTrashCount(self: PlayerSnapshot) {
+  return TRASH_VENDOR_ITEM_IDS.reduce((total, itemId) => total + getInventoryCount(self, itemId), 0);
 }
 
 function getInventoryCount(self: PlayerSnapshot, itemId: string) {
@@ -1710,6 +1760,11 @@ function resolvePotionShopQuantity(value: number | undefined): PotionShopPurchas
   return quantity;
 }
 
+function resolveTrashVendorItemId(value: string | undefined): TrashVendorItemId {
+  if (!isTrashVendorItemId(value)) throw new Error(`invalid trash vendor itemId ${value || ""}`);
+  return value;
+}
+
 function resolveEmoteId(value: string | undefined): EmoteId {
   const emoteId = cleanText(value, 40);
   if (!["wave", "dance", "laugh", "cheer", "flex", "shrug"].includes(emoteId)) throw new Error(`invalid emoteId ${emoteId}`);
@@ -1951,6 +2006,15 @@ const PUBLIC_STORES = [
     payment: "swap local ETH to local MFERGPT through the configured local router, then burn MFERGPT for items",
     status: "swap status is computed from wallet payment config",
     supportedActions: ["move_near_npc", "interact_npc"],
+  },
+  {
+    npcId: TRASH_VENDOR_NPC_ID,
+    name: "trash mfer",
+    kind: "trash vendor",
+    position: { x: 11.1, z: 25.4 },
+    payment: "free in-game sale; server awards Season 0 points and applies agent gate/multiplier rules",
+    status: "trash-vendor status is computed from sellable inventory",
+    supportedActions: ["move_near_npc", "interact_npc", "sell_trash_items"],
   },
 ] as const;
 

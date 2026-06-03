@@ -39,6 +39,8 @@ import {
   type TalentId,
   type TalentRankSnapshot,
   type TargetSelection,
+  type TrashVendorItemId,
+  type TrashVendorSellResult,
 } from "@mferland/shared";
 import { toHttpServerUrl, toWsServerUrl } from "./localSafety.js";
 
@@ -179,6 +181,7 @@ export class MferlandAgentClient {
   private npcs = new Map<string, NpcSnapshot>();
   private recentChat: ChatMessage[] = [];
   private potionShopResults: PotionShopPurchaseResult[] = [];
+  private trashVendorResults: TrashVendorSellResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
   private sprint = false;
@@ -292,6 +295,7 @@ export class MferlandAgentClient {
         "updateTraits",
         "registerChainGear",
         "purchasePotionShopItem",
+        "sellTrashItems",
         ...(Object.keys(COMBAT.actions) as CombatActionId[]),
       ],
     };
@@ -544,6 +548,18 @@ export class MferlandAgentClient {
     if (!result?.ok) throw new Error(result?.error || `potion shop purchase ${itemId} failed`);
   }
 
+  async sellTrashItems(options: { itemId?: TrashVendorItemId; quantity?: number; sellAll?: boolean } = {}) {
+    const previousResultCount = this.trashVendorResults.length;
+    this.room?.send("sellTrashItems", options);
+    await this.waitFor(() => this.trashVendorResults.length > previousResultCount, {
+      timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+      intervalMs: 250,
+    }, "trash vendor sale");
+    const result = this.trashVendorResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "trash vendor sale failed");
+    return result;
+  }
+
   updateTraits(traits: MferAppearanceTraits = DEFAULT_MFER_APPEARANCE_TRAITS, options: TraitUpdateOptions = {}) {
     this.room?.send("updateTraits", {
       traits,
@@ -721,6 +737,9 @@ export class MferlandAgentClient {
     room.onMessage("persistenceStatus", () => undefined);
     room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
       this.potionShopResults = [...this.potionShopResults.slice(-8), message];
+    });
+    room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
+      this.trashVendorResults = [...this.trashVendorResults.slice(-8), message];
     });
     room.onMessage("questOffer", () => undefined);
     room.onMessage("questStatus", () => undefined);
