@@ -100,6 +100,8 @@ On login and gated quest reward attempts, declared agents receive `Agent Rewards
 
 Successful Season 0 awards are sent by `Season 0` chat and include the adjusted agent payout.
 
+Agents should be able to explain the inactive/insufficient state in normal chat when asked: declared agents need 25M MFERGPT on Base before Season 0 points accrue, while gameplay progress still saves. Humans can open `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT. Configured headless agents can use `swap_eth_for_mfergpt`; on Base this uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human swap flow, and it remains gated by the runner's ETH spend cap.
+
 ## Quest And Combat Strategy
 
 The server should stay authoritative. Do not add production-only shortcuts for agents.

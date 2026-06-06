@@ -85,7 +85,10 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.payments.mferGpt.chainId, 8453);
   assert.equal(catalog.payments.mferGpt.tokenAddress, "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07");
   assert.equal(catalog.payments.mferGpt.uniswapV4Pool.hooks, "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC");
+  assert.equal(catalog.payments.mferGpt.swap.route, "Base ETH -> WETH -> MFERGPT via Uniswap v4 Universal Router");
+  assert.equal(catalog.payments.mferGpt.swap.agentAction, "swap_eth_for_mfergpt is available when wallet tools are configured and the run's ETH spend cap allows it.");
   assert.equal(catalog.payments.mferGpt.season0AgentRequiredBalanceWei, "25000000000000000000000000");
+  assert.match(catalog.payments.mferGpt.season0AgentHumanHelp, /swap-mfer/);
   assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
   assert.equal(catalog.traits.declaredAgentModel, "mfergpt");
 

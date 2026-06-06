@@ -26,6 +26,7 @@ const PLAYER_MENU_METHODS = [
   "registerChainGear",
   "usePotionShopItem",
   "purchasePotionShopItem",
+  "sellTrashItems",
   "updateTraits",
 ] as const;
 
@@ -46,6 +47,7 @@ const WEB_ROOM_SEND_METHODS: Record<string, readonly string[]> = {
   useItem: ["useItem"],
   registerChainGear: ["registerChainGear"],
   purchasePotionShopItem: ["usePotionShopItem", "purchasePotionShopItem"],
+  sellTrashItems: ["sellTrashItems"],
   selectTalent: ["selectTalent"],
   updateTraits: ["updateTraits"],
 };

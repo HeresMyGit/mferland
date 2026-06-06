@@ -17,6 +17,11 @@ import {
   TRAIT_CHANGE_BASE_RPC_URL,
   TRAIT_CHANGE_BURN_ADDRESS,
   TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
+  DEFAULT_MFERGPT_SWAP_ETH_AMOUNT,
+  DEFAULT_MFERGPT_SWAP_SLIPPAGE_BPS,
+  MFERGPT_BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS,
+  MFERGPT_BASE_UNISWAP_V4_POOL,
+  MFERGPT_BASE_WETH_ADDRESS,
   TALENTS,
   TALENT_TREES,
   WORLD_HUBS,
@@ -32,10 +37,6 @@ import {
   DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
 } from "./agentMferGptGate.js";
 import { readAgentSeason0PointMultiplier } from "./agentRewards.js";
-
-const BASE_WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
-const BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS = "0x6fF5693b99212Da76ad316178A184AB56D299b43";
-const BASE_MFERGPT_UNISWAP_V4_HOOKS_ADDRESS = "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC";
 
 export function buildAgentCatalog() {
   return {
@@ -152,7 +153,7 @@ export function buildAgentCatalog() {
         npcId: "swap-mfer",
         observes: ["walletBalances"],
         controls: ["setSwapAmount", "setSwapSlippage", "quoteMferGptSwap", "swapEthForMferGpt", "copyMferGptContract", "openUniswapFallback"],
-        note: "Swap is a wallet/onchain action, then game use is through normal payment-proof messages.",
+        note: "Swap is a wallet/onchain action. Humans use swap-mfer or the swap menu; configured headless agents use swap_eth_for_mfergpt. Both use the Base ETH to MFERGPT Uniswap v4 route.",
       },
       map: {
         observes: ["world.hubs", "world.roads", "world.landmarks", "players", "npcs"],
@@ -179,17 +180,24 @@ export function buildAgentCatalog() {
         rpcUrl: TRAIT_CHANGE_BASE_RPC_URL,
         tokenAddress: TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
         burnAddress: TRAIT_CHANGE_BURN_ADDRESS,
-        wethAddress: BASE_WETH_ADDRESS,
-        uniswapUniversalRouterAddress: BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS,
-        uniswapV4Pool: {
-          currency0: TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS,
-          currency1: BASE_WETH_ADDRESS,
-          fee: 0x800000,
-          tickSpacing: 200,
-          hooks: BASE_MFERGPT_UNISWAP_V4_HOOKS_ADDRESS,
+        wethAddress: MFERGPT_BASE_WETH_ADDRESS,
+        uniswapUniversalRouterAddress: MFERGPT_BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS,
+        uniswapV4Pool: MFERGPT_BASE_UNISWAP_V4_POOL,
+        swap: {
+          input: "ETH",
+          output: "MFERGPT",
+          chainId: TRAIT_CHANGE_BASE_CHAIN_ID,
+          route: "Base ETH -> WETH -> MFERGPT via Uniswap v4 Universal Router",
+          npcId: "swap-mfer",
+          defaultEthAmount: DEFAULT_MFERGPT_SWAP_ETH_AMOUNT,
+          defaultSlippageBps: DEFAULT_MFERGPT_SWAP_SLIPPAGE_BPS,
+          humanHelp: "Open swap-mfer or the swap menu to swap Base ETH to MFERGPT.",
+          agentAction: "swap_eth_for_mfergpt is available when wallet tools are configured and the run's ETH spend cap allows it.",
         },
         season0AgentRequiredBalanceWei: DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
         season0AgentRequiredBalanceLabel: AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
+        season0AgentRequirementNote: `Declared agents need ${AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL} on Base before Season 0 points accrue. Progress still saves below the gate.`,
+        season0AgentHumanHelp: `To activate agent Season 0 earning, fund the agent wallet with ${AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL}. Humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT.`,
         season0AgentPointMultiplier: readAgentSeason0PointMultiplier(),
       },
     },

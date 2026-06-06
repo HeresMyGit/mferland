@@ -81,6 +81,7 @@ type WalletPaymentSnapshot = {
   mferGptBalanceWei?: string;
   mferGptBalance?: string;
   swapConfigured?: boolean;
+  swapMode?: string;
   swapRouterAddress?: string;
   recommendedSwapEthAmount?: string;
   error?: string;
@@ -100,6 +101,7 @@ type VisibleObservation = {
     mferGptBalance: string;
     mferGptBalanceWei: string;
     mferGptSwapConfigured: boolean;
+    mferGptSwapMode: string;
     mferGptSwapNote: string;
     recommendedSwapEthAmount: string;
   };
@@ -548,12 +550,15 @@ export function makeVisibleObservation(
         mferGptPaymentNote: potionShopAlreadyStocked
           ? "This character already has potion-shop stock; continue questing and use items instead of buying more."
           : capabilities.mferGptPaymentConfigured
-          ? "This local disposable wallet has an MFERGPT burn signer configured for potion-shop purchases. The purchase action will still fail normally if the local token balance is insufficient."
+          ? paymentSnapshot?.swapMode === "uniswap-v4"
+            ? "This wallet has Base MFERGPT burn tools configured for potion-shop purchases. The purchase action still fails normally if the token balance is insufficient."
+            : "This local disposable wallet has an MFERGPT burn signer configured for potion-shop purchases. The purchase action still fails normally if the local token balance is insufficient."
           : "No MFERGPT payment signer is configured for this run.",
         nativeBalanceEth: paymentSnapshot?.nativeBalanceEth ?? "",
         mferGptBalance: paymentSnapshot?.mferGptBalance ?? "",
         mferGptBalanceWei: paymentSnapshot?.mferGptBalanceWei ?? "",
         mferGptSwapConfigured: Boolean(paymentSnapshot?.swapConfigured),
+        mferGptSwapMode: paymentSnapshot?.swapMode ?? "",
         mferGptSwapNote: getMferGptSwapNote(paymentSnapshot, memory),
         recommendedSwapEthAmount: paymentSnapshot?.recommendedSwapEthAmount ?? "0.01",
       },
@@ -692,8 +697,9 @@ export function makeVisibleObservation(
           "Use observation.stores for public merchant knowledge and available store actions.",
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
+          "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
-          "Use swap_eth_for_mfergpt when the local wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal local wallet transaction to the configured local swap router.",
+          "Use swap_eth_for_mfergpt when the wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal wallet transaction through observation.wallet.mferGptSwapMode, using the same Base ETH to MFERGPT route as swap-mfer when mode is uniswap-v4.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
           "A quantity=5 purchase counts as one stock-up purchase and is useful before leaving town. If observation.runMemory.purchasedPotionShopItemIds is nonempty or inventory already has potion-shop stock, continue questing and use items instead.",
           "Use respawn when your health is 0.",
@@ -771,9 +777,9 @@ class OpenAiActionPolicy implements ActionPolicy {
           "If observation.lootableCorpses is nonempty and you are not in danger, prefer loot before leaving the area. Looting clears bodies for normal despawn/respawn, even when the active quest does not require the item.",
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
-          "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the local MFERGPT burn flow can buy stock.",
+          "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
-          "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal local wallet transaction through the configured local swap router.",
+          "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
           "Do not choose use_item as the only response while multiple NPCs are actively hitting you in melee unless health is high enough for the item to land; fight, AoE/control, or retreat farther first.",
           "Use share_quest_link for socialAction/tweet quests; chat does not progress those quests.",
@@ -1099,7 +1105,7 @@ function summarizeVisibleState(observation: VisibleObservation) {
     .map((store) => `${store.npcId}:d${store.distance}:${store.status}`)
     .join("|");
   const wallet = observation.wallet.mferGptBalance || observation.wallet.nativeBalanceEth
-    ? `wallet=eth:${observation.wallet.nativeBalanceEth || "?"},mfergpt:${observation.wallet.mferGptBalance || "?"},swap:${observation.wallet.mferGptSwapConfigured ? "yes" : "no"}`
+    ? `wallet=eth:${observation.wallet.nativeBalanceEth || "?"},mfergpt:${observation.wallet.mferGptBalance || "?"},swap:${observation.wallet.mferGptSwapConfigured ? observation.wallet.mferGptSwapMode || "yes" : "no"}`
     : "";
   const questGoal = `questGoal=${observation.questProgress.completedQuestCount}/${observation.questProgress.totalQuestCount}`;
   const nextQuests = observation.questProgress.nextRecommendedQuestIds.slice(0, 3).join(",");
@@ -1148,9 +1154,12 @@ async function observePayment(payment: MferGptBurner | null): Promise<WalletPaym
 }
 
 function getMferGptSwapNote(snapshot: WalletPaymentSnapshot | null, memory: RunMemory) {
-  if (snapshot?.error) return `local wallet balance/swap observation failed: ${cleanText(snapshot.error, 140)}`;
-  if (!snapshot?.swapConfigured) return "No local MFERGPT swap router is configured for this run.";
-  if (memory.mferGptSwapTxHashes.length > 0) return "This run already swapped local ETH to MFERGPT; use the tokens before swapping again.";
+  if (snapshot?.error) return `wallet balance/swap observation failed: ${cleanText(snapshot.error, 140)}`;
+  if (!snapshot?.swapConfigured) return "No MFERGPT swap route is configured for this run.";
+  if (memory.mferGptSwapTxHashes.length > 0) return "This run already swapped ETH to MFERGPT; use the tokens before swapping again.";
+  if (snapshot.swapMode === "uniswap-v4") {
+    return `Can swap Base ETH to MFERGPT through the same Uniswap v4 route as swap-mfer. Recommended first swap: ${snapshot.recommendedSwapEthAmount ?? "0.01"} ETH.`;
+  }
   return `Can swap local ETH to MFERGPT through the configured local router. Recommended first swap: ${snapshot.recommendedSwapEthAmount ?? "0.01"} ETH.`;
 }
 
@@ -1322,12 +1331,12 @@ function getStoreObservations(
       ? capabilities.potionShopAlreadyStocked
         ? "already stocked; use existing items before buying more"
         : capabilities.mferGptPaymentConfigured
-        ? "can buy now with local MFERGPT burn receipt"
-        : "visible/store-known, but no local MFERGPT payment signer is configured"
+        ? "can buy now with configured MFERGPT burn receipt"
+        : "visible/store-known, but no MFERGPT payment signer is configured"
       : isSwapMfer
       ? capabilities.mferGptSwapConfigured
-        ? "can swap local ETH to MFERGPT with the configured local router"
-        : "known swap NPC; no local swap router is configured for this run"
+        ? "can swap ETH to MFERGPT through the configured wallet route"
+        : "known swap NPC; no MFERGPT swap route is configured for this run"
       : isTrashVendor
       ? sellableTrashCount > 0
         ? `can sell ${sellableTrashCount} trash item${sellableTrashCount === 1 ? "" : "s"} for Season 0 points through sell_trash_items`
@@ -1982,7 +1991,7 @@ const PUBLIC_STORES = [
     name: "potion mfer",
     kind: "potion shop",
     position: { x: 7.4, z: 25.4 },
-    payment: "burn local MFERGPT to the burn address, then submit the normal potion-shop purchase message",
+    payment: "burn MFERGPT to the burn address, then submit the normal potion-shop purchase message",
     status: "potion-shop status is computed from wallet payment config and current inventory",
     supportedActions: ["move_near_npc", "interact_npc"],
   },
@@ -2009,7 +2018,7 @@ const PUBLIC_STORES = [
     name: "swap mfer",
     kind: "swap",
     position: { x: 0, z: 25.4 },
-    payment: "swap local ETH to local MFERGPT through the configured local router, then burn MFERGPT for items",
+    payment: "swap ETH to MFERGPT through the configured wallet route, then burn MFERGPT for items",
     status: "swap status is computed from wallet payment config",
     supportedActions: ["move_near_npc", "interact_npc"],
   },
@@ -2089,8 +2098,8 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
     "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates; west-hog-pull is for farm hog quests, claim-booth-hog-pull is for hog-loop, loop-farm-road is the farm retreat point, plaza-safe is a full reset.",
     "Use travel_route instead of move_to for long cross-zone travel; move_to is for local positioning and nearby rally points.",
-    "Use observation.stores for public merchant locations, item effects, prices, supported actions, whether the local swap router can swap ETH to MFERGPT, and whether the local MFERGPT burn flow can buy potion-shop stock.",
-    "If observation.wallet.mferGptSwapConfigured is true and MFERGPT is low, swap_eth_for_mfergpt with amountEth around observation.wallet.recommendedSwapEthAmount is a normal local wallet action.",
+    "Use observation.stores for public merchant locations, item effects, prices, supported actions, whether the wallet route can swap ETH to MFERGPT, and whether the MFERGPT burn flow can buy potion-shop stock.",
+    "If observation.wallet.mferGptSwapConfigured is true and MFERGPT is low, swap_eth_for_mfergpt with amountEth around observation.wallet.recommendedSwapEthAmount is a normal wallet action; uniswap-v4 mode uses the same Base route as swap-mfer.",
     "For active quest combat, prefer nearbyNpcs.activeQuestTargetIds containing the active quest id, including collection drop-source targets. Avoid unrelated safe targets unless defending yourself, clearing an add, grouping, or intentionally leveling.",
     "Use nearbyNpcs.pullRisk, pullAdvice, and nearbyHostileCount to choose targets. Do not describe a target as isolated unless nearbyHostileCount is 0.",
     "If multiple NPCs are targeting you, or dangerNote is nonempty, pick a stabilization action instead of starting a new pull or moving deeper into the pack.",

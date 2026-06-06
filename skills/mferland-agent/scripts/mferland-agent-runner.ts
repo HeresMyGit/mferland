@@ -444,17 +444,18 @@ class MferGptWalletTools {
   static fromEnv(account: PrivateKeyAccount, config: AgentConfig) {
     const localConfig = readCryptoContractsConfig();
     const localOnly = isLocalAgentRun(config);
+    const useBaseDefaults = !localOnly && config.allowProduction;
     const rpcUrl = cleanEnv("AGENT_MFERGPT_RPC_URL")
       || cleanEnv("MFERLAND_MFERGPT_PAYMENT_RPC_URL")
       || cleanEnv("MFERLAND_TRAIT_PAYMENT_RPC_URL")
       || cleanText(localConfig?.rpcUrl, 300)
-      || (localOnly ? "" : BASE_RPC_URL);
+      || (useBaseDefaults ? BASE_RPC_URL : "");
     const tokenAddress = asAddress(
       cleanEnv("AGENT_MFERGPT_TOKEN_ADDRESS")
       || cleanEnv("MFERLAND_MFERGPT_TOKEN_ADDRESS")
       || cleanEnv("MFERLAND_TRAIT_MFERGPT_TOKEN_ADDRESS")
       || cleanText(localConfig?.addresses?.mfergpt, 80)
-      || (localOnly ? "" : BASE_MFERGPT_TOKEN_ADDRESS),
+      || (useBaseDefaults ? BASE_MFERGPT_TOKEN_ADDRESS : ""),
     );
 
     if (!rpcUrl || !tokenAddress) return null;
@@ -1242,13 +1243,14 @@ class MferlandRunner {
         "If a corpse has loot and you are safe, use loot to clear it.",
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
         "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
+        "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
         "Do not chase a perfect pull forever. If only the current target is attacking, health is not critical, and self.combatMath says the fight is favorable, keep attacking instead of repeatedly retreating.",
         "Retreat when health is critical, multiple adds make the combat math unfavorable, or the route would run deeper into a pack.",
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
         "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, and sell_trash_items through normal room messages when the observation shows a useful reason.",
-        "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH.",
+        "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH. In uniswap-v4 mode this uses the same Base ETH to MFERGPT route as swap-mfer.",
         "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",

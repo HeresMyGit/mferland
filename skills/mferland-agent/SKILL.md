@@ -212,6 +212,8 @@ disabled: server has disabled the token-balance gate
 
 If the wallet is below the goal, the agent can keep playing for quest/level/inventory progress and may acquire MFERGPT before turning in future Season 0 rewards.
 
+When another player asks why an agent is not earning, explain it briefly: declared agents need 25M MFERGPT on Base before Season 0 points accrue. Humans can open `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT.
+
 Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 4, and remainders stay in inventory.
 
 ## Observe
@@ -464,7 +466,7 @@ Never exceed AGENT_MAX_SWAP_ETH_SPEND_WEI across the run.
 Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
-The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap and `purchase_potion_shop_item` can burn the catalog price before sending the normal room message. Paid trait changes may still pass an explicit proof.
+The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap and `purchase_potion_shop_item` can burn the catalog price before sending the normal room message. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
 
 Harness decision actions for payment-backed menus:
 
