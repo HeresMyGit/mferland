@@ -1,3 +1,4 @@
+import { appendFile } from "node:fs/promises";
 import { Client, type Room } from "colyseus.js";
 import type { PrivateKeyAccount } from "viem/accounts";
 import {
@@ -19,6 +20,7 @@ import {
   type ChatMessage,
   type ClientAgentStatus,
   type ClientInput,
+  type CombatEvent,
   type CombatActionId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
@@ -58,6 +60,7 @@ export type MferlandAgentOptions = {
   createCharacter?: boolean;
   agentClient?: boolean;
   chatEnabled?: boolean;
+  combatLogPath?: string;
   log?: (message: string) => void;
 };
 
@@ -142,13 +145,31 @@ type FightOptions = WaitOptions & {
   preferredActions?: CombatActionId[];
   abortOnRespawn?: boolean;
   stopDamageBelowHealth?: number;
+  disableSelfHeal?: boolean;
   healAllySessionId?: string;
+  healAllyHealthRatio?: number;
   healNearbyAllies?: boolean;
+  healNearbyAllyHealthRatio?: number;
+  followAllySessionId?: string;
+  followAllyMaxRange?: number;
+  suppressDamageWhileAllyNeedsHeal?: boolean;
+  healCastDelayMs?: number;
+  abortUnlessNpcAggroTargetId?: string;
+  abortUnlessNpcAggroTargetIds?: string[];
+  ignoreAggroGuardBelowHealthRatio?: number;
+  healNpcAggroTarget?: boolean;
+  healNpcAggroTargetHealthRatio?: number;
+  healthPotionThresholdRatio?: number;
   yieldOnDanger?: boolean;
   dangerRadius?: number;
   maxSelfAttackers?: number;
   maxCloseHostiles?: number;
   dangerHealthRatio?: number;
+  kiteMinRange?: number;
+  avoidNpcId?: string;
+  avoidNpcIds?: string[];
+  avoidNpcMinRange?: number;
+  avoidMovePoint?: Point;
 };
 
 type AmbientStyle = "lurker" | "builder" | "drifter";
@@ -163,6 +184,10 @@ const DEFAULT_MOVE_TIMEOUT_MS = 45_000;
 const DEFAULT_FIGHT_TIMEOUT_MS = 90_000;
 const MELEE_RANGE = 3.4;
 const RANGED_RANGE = 12;
+const NPC_OBSERVATION_RADIUS = Math.max(AGENT.observationRadius, 32);
+const PLAYER_OBSERVATION_RADIUS = Math.max(AGENT.observationRadius, 64);
+const COMBAT_LOGGED_EVENT_ID_LIMIT = 5000;
+const combatLoggedEventIds = new Set<string>();
 
 export class MferlandAgentClient {
   private readonly client: Client;
@@ -174,12 +199,14 @@ export class MferlandAgentClient {
   private readonly createCharacter: boolean;
   private readonly agentClient: boolean;
   private readonly chatEnabled: boolean;
+  private readonly combatLogPath: string;
   private readonly log: (message: string) => void;
   private readonly style: AmbientStyle;
   private room: Room<RuntimeState> | null = null;
   private players = new Map<string, PlayerSnapshot>();
   private npcs = new Map<string, NpcSnapshot>();
   private recentChat: ChatMessage[] = [];
+  private recentCombatEvents: CombatEvent[] = [];
   private potionShopResults: PotionShopPurchaseResult[] = [];
   private trashVendorResults: TrashVendorSellResult[] = [];
   private targetPoint: Point | null = null;
@@ -193,6 +220,8 @@ export class MferlandAgentClient {
   private jumpUntil = 0;
   private connected = false;
   private lastRespawnAt = 0;
+  private consumableAttemptedAt = new Map<string, number>();
+  private combatLogFailed = false;
 
   constructor(options: MferlandAgentOptions) {
     const wsServerUrl = toWsServerUrl(options.serverUrl);
@@ -205,6 +234,7 @@ export class MferlandAgentClient {
     this.createCharacter = options.createCharacter ?? true;
     this.agentClient = options.agentClient ?? true;
     this.chatEnabled = options.chatEnabled ?? true;
+    this.combatLogPath = options.combatLogPath?.trim() || process.env.AGENT_COMBAT_LOG_PATH?.trim() || "";
     this.log = options.log ?? ((message) => console.log(message));
     this.style = getAgentStyle(this.avatarSeed);
   }
@@ -227,6 +257,10 @@ export class MferlandAgentClient {
 
   getNpcs() {
     return Array.from(this.npcs.values());
+  }
+
+  getRecentCombatEvents() {
+    return [...this.recentCombatEvents];
   }
 
   getNpc(npcId: string) {
@@ -256,7 +290,7 @@ export class MferlandAgentClient {
         ...player,
         distance: distance2d(self, player),
       }))
-      .filter((player) => player.distance <= AGENT.observationRadius)
+      .filter((player) => player.distance <= PLAYER_OBSERVATION_RADIUS)
       .sort((a, b) => a.distance - b.distance);
 
     const nearbyNpcs = Array.from(this.npcs.values())
@@ -264,7 +298,7 @@ export class MferlandAgentClient {
         ...npc,
         distance: distance2d(self, npc),
       }))
-      .filter((npc) => npc.distance <= AGENT.observationRadius)
+      .filter((npc) => npc.distance <= NPC_OBSERVATION_RADIUS)
       .sort((a, b) => a.distance - b.distance);
 
     return {
@@ -356,6 +390,14 @@ export class MferlandAgentClient {
         const self = this.getSelf();
         if (self) {
           this.respawnIfDefeated(self);
+          if (this.useCombatConsumables(self)) {
+            this.targetPoint = null;
+            this.sendIdleInput();
+            await delay(650);
+            this.targetPoint = point;
+            this.sprint = options.sprint ?? true;
+            continue;
+          }
           const dangerReason = options.stopOnDanger ? this.getDangerYieldReason(self, options) : "";
           if (dangerReason) throw new Error(`${this.name} yielded movement: ${dangerReason}`);
           const distance = distanceToPoint(self, point);
@@ -407,6 +449,12 @@ export class MferlandAgentClient {
       const npc = this.getNpc(npcId);
       if (self) {
         this.respawnIfDefeated(self);
+        if (this.useCombatConsumables(self)) {
+          this.targetPoint = null;
+          this.sendIdleInput();
+          await delay(650);
+          continue;
+        }
         const dangerReason = options.stopOnDanger ? this.getDangerYieldReason(self, options, npcId) : "";
         if (dangerReason) {
           this.targetPoint = null;
@@ -613,26 +661,102 @@ export class MferlandAgentClient {
         await delay(500);
         continue;
       }
+      const ignoreAggroGuard = options.ignoreAggroGuardBelowHealthRatio !== undefined
+        && npc.maxHealth > 0
+        && npc.health / npc.maxHealth <= options.ignoreAggroGuardBelowHealthRatio;
+      if (
+        !ignoreAggroGuard
+        &&
+        (options.abortUnlessNpcAggroTargetId || options.abortUnlessNpcAggroTargetIds?.length)
+        && npc.aggroTargetId
+        && npc.aggroTargetId !== options.abortUnlessNpcAggroTargetId
+        && !options.abortUnlessNpcAggroTargetIds?.includes(npc.aggroTargetId)
+      ) {
+        throw new Error(`${this.name} stopped fighting ${npcId}: boss aggro is not on the assigned tank`);
+      }
       if (self.castingAction) {
         this.targetPoint = null;
         this.sendIdleInput();
         await delay(120);
         continue;
       }
-      this.useCombatConsumables(self);
-      if (this.trySelfHeal(self)) {
+      const healAlly = options.healAllySessionId ? this.players.get(options.healAllySessionId) : null;
+      const healAllyThreshold = options.healAllyHealthRatio ?? 0.74;
+      const healAllyNeedsHeal = Boolean(
+        healAlly
+        && healAlly.health > 0
+        && healAlly.maxHealth > 0
+        && healAlly.health <= healAlly.maxHealth * healAllyThreshold,
+      );
+      const followAllySessionId = options.followAllySessionId ?? options.healAllySessionId;
+      if (
+        followAllySessionId
+        && (!healAllyNeedsHeal || !healAlly || distance2d(self, healAlly) > COMBAT.actions.heal.maxRange)
+        && this.tryMoveTowardAlly(self, followAllySessionId, options.followAllyMaxRange ?? COMBAT.actions.heal.maxRange - 3)
+      ) {
+        await delay(220);
+        continue;
+      }
+      if (
+        options.healAllySessionId
+        && healAllyNeedsHeal
+        && options.healCastDelayMs
+        && self.mana >= COMBAT.actions.heal.manaCost
+      ) {
+        await delay(options.healCastDelayMs);
+      }
+      if (options.healAllySessionId && this.tryHealAlly(self, options.healAllySessionId, healAllyThreshold)) {
         this.targetPoint = null;
         this.sendIdleInput();
         await delay(500);
         continue;
       }
-      if (options.healAllySessionId && this.tryHealAlly(self, options.healAllySessionId)) {
+      const bossAggroAlly = options.healNpcAggroTarget && npc.aggroTargetId !== self.sessionId
+        ? this.players.get(npc.aggroTargetId)
+        : null;
+      const bossAggroAllyThreshold = options.healNpcAggroTargetHealthRatio ?? options.healNearbyAllyHealthRatio ?? 0.82;
+      if (
+        bossAggroAlly
+        && bossAggroAlly.health > 0
+        && bossAggroAlly.maxHealth > 0
+        && bossAggroAlly.health <= bossAggroAlly.maxHealth * bossAggroAllyThreshold
+        && distance2d(self, bossAggroAlly) > COMBAT.actions.heal.maxRange
+        && this.tryMoveTowardAlly(self, bossAggroAlly.sessionId, COMBAT.actions.heal.maxRange - 3)
+      ) {
+        await delay(220);
+        continue;
+      }
+      if (
+        bossAggroAlly
+        && this.tryHealAlly(self, bossAggroAlly.sessionId, bossAggroAllyThreshold)
+      ) {
         this.targetPoint = null;
         this.sendIdleInput();
         await delay(500);
         continue;
       }
-      if (options.healNearbyAllies && this.tryHealLowestAlly(self)) {
+      if (this.useCombatConsumables(self, {
+        preferMana: Boolean(options.healAllySessionId),
+        healthPotionThresholdRatio: options.healthPotionThresholdRatio,
+      })) {
+        this.targetPoint = null;
+        this.sendIdleInput();
+        await delay(500);
+        continue;
+      }
+      if (options.suppressDamageWhileAllyNeedsHeal && healAllyNeedsHeal) {
+        this.targetPoint = null;
+        this.sendIdleInput();
+        await delay(220);
+        continue;
+      }
+      if (!options.disableSelfHeal && this.trySelfHeal(self)) {
+        this.targetPoint = null;
+        this.sendIdleInput();
+        await delay(500);
+        continue;
+      }
+      if (options.healNearbyAllies && this.tryHealLowestAlly(self, options.healNearbyAllyHealthRatio)) {
         this.targetPoint = null;
         this.sendIdleInput();
         await delay(500);
@@ -645,6 +769,33 @@ export class MferlandAgentClient {
         this.sprint = false;
         this.sendIdleInput();
         throw new Error(`${this.name} yielded fight ${npcId}: ${dangerReason}`);
+      }
+
+      const avoidNpcIds = options.avoidNpcIds ?? (options.avoidNpcId ? [options.avoidNpcId] : []);
+      const avoidNpc = avoidNpcIds
+        .filter((id) => id !== npcId)
+        .map((id) => this.getNpc(id))
+        .filter((candidate): candidate is NpcSnapshot => Boolean(candidate && isAliveNpc(candidate)))
+        .sort((left, right) => distance2d(self, left) - distance2d(self, right))[0];
+      if (avoidNpc) {
+        const avoidRange = options.avoidNpcMinRange ?? 26;
+        if (distance2d(self, avoidNpc) < avoidRange) {
+          if (options.avoidMovePoint) {
+            this.yaw = Math.atan2(avoidNpc.x - self.x, avoidNpc.z - self.z);
+            this.targetPoint = options.avoidMovePoint;
+            this.sprint = true;
+          } else {
+            this.kiteAwayFromNpc(self, avoidNpc);
+          }
+          await delay(220);
+          continue;
+        }
+      }
+
+      if (options.kiteMinRange && distance2d(self, npc) < options.kiteMinRange) {
+        this.kiteAwayFromNpc(self, npc);
+        await delay(220);
+        continue;
       }
 
       const actionId = chooseCombatAction(self, npc, options.preferredActions);
@@ -732,7 +883,9 @@ export class MferlandAgentClient {
       if (message.items.length > 0) this.lootNpc(message.npcId);
     });
     room.onMessage("closeLootWindow", () => undefined);
-    room.onMessage("combatEvent", () => undefined);
+    room.onMessage("combatEvent", (event: CombatEvent) => {
+      this.recordCombatEvent(event);
+    });
     room.onMessage("experienceEvent", () => undefined);
     room.onMessage("persistenceStatus", () => undefined);
     room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
@@ -807,6 +960,41 @@ export class MferlandAgentClient {
     };
   }
 
+  private recordCombatEvent(event: CombatEvent) {
+    this.recentCombatEvents = [...this.recentCombatEvents.slice(-199), event];
+    if (!this.combatLogPath) return;
+    if (combatLoggedEventIds.has(event.id)) return;
+    combatLoggedEventIds.add(event.id);
+    if (combatLoggedEventIds.size > COMBAT_LOGGED_EVENT_ID_LIMIT) {
+      const oldestEventId = combatLoggedEventIds.values().next().value;
+      if (oldestEventId) combatLoggedEventIds.delete(oldestEventId);
+    }
+
+    const self = this.getSelf();
+    const entry = {
+      receivedAt: Date.now(),
+      agentName: this.name,
+      walletAddress: this.account.address,
+      sessionId: this.sessionId,
+      self: self
+        ? {
+            health: self.health,
+            maxHealth: self.maxHealth,
+            mana: self.mana,
+            maxMana: self.maxMana,
+            x: self.x,
+            z: self.z,
+          }
+        : null,
+      event,
+    };
+    void appendFile(this.combatLogPath, `${JSON.stringify(entry)}\n`, "utf8").catch((error) => {
+      if (this.combatLogFailed) return;
+      this.combatLogFailed = true;
+      this.log(`combat log write failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
   private sendIdleInput() {
     const self = this.getSelf();
     if (!this.room || !self) return;
@@ -858,8 +1046,15 @@ export class MferlandAgentClient {
     this.sprint = false;
   }
 
+  private kiteAwayFromNpc(self: PlayerSnapshot, npc: NpcSnapshot) {
+    this.yaw = Math.atan2(npc.x - self.x, npc.z - self.z);
+    const away = unitAwayFrom(npc, self);
+    this.targetPoint = { x: self.x + away.x * 7, z: self.z + away.z * 7 };
+    this.sprint = true;
+  }
+
   private trySelfHeal(self: PlayerSnapshot) {
-    if (self.health > self.maxHealth * 0.58) return false;
+    if (self.health > self.maxHealth * 0.78) return false;
     if (!canUseAction(self, "heal")) return false;
     if (isMoving(self)) {
       this.targetPoint = null;
@@ -870,9 +1065,9 @@ export class MferlandAgentClient {
     return true;
   }
 
-  private tryHealAlly(self: PlayerSnapshot, sessionId: string) {
+  private tryHealAlly(self: PlayerSnapshot, sessionId: string, healthRatioThreshold = 0.74) {
     const ally = this.players.get(sessionId);
-    if (!ally || ally.health <= 0 || ally.health > ally.maxHealth * 0.64) return false;
+    if (!ally || ally.health <= 0 || ally.health > ally.maxHealth * healthRatioThreshold) return false;
     if (distance2d(self, ally) > COMBAT.actions.heal.maxRange) return false;
     if (!canUseAction(self, "heal")) return false;
     if (isMoving(self)) {
@@ -885,28 +1080,77 @@ export class MferlandAgentClient {
     return true;
   }
 
-  private tryHealLowestAlly(self: PlayerSnapshot) {
+  private tryHealLowestAlly(self: PlayerSnapshot, healthRatioThreshold = 0.74) {
     const ally = Array.from(this.players.values())
       .filter((player) => (
         player.sessionId !== self.sessionId
         && player.health > 0
-        && player.health <= player.maxHealth * 0.64
+        && player.health <= player.maxHealth * healthRatioThreshold
         && distance2d(self, player) <= COMBAT.actions.heal.maxRange
       ))
       .sort((left, right) => (left.health / left.maxHealth) - (right.health / right.maxHealth))[0];
-    return ally ? this.tryHealAlly(self, ally.sessionId) : false;
+    return ally ? this.tryHealAlly(self, ally.sessionId, healthRatioThreshold) : false;
   }
 
-  private useCombatConsumables(self: PlayerSnapshot) {
-    if (self.health > 0 && self.health < self.maxHealth * 0.68 && hasInventoryItem(self, "red-juice")) {
-      this.useItem("red-juice");
+  private tryMoveTowardAlly(self: PlayerSnapshot, sessionId: string, maxRange: number) {
+    const ally = this.players.get(sessionId);
+    if (!ally || ally.health <= 0) return false;
+    if (distance2d(self, ally) <= maxRange) return false;
+    this.yaw = Math.atan2(ally.x - self.x, ally.z - self.z);
+    this.targetPoint = { x: ally.x, z: ally.z };
+    this.sprint = true;
+    return true;
+  }
+
+  private useCombatConsumables(
+    self: PlayerSnapshot,
+    options: { preferMana?: boolean; healthPotionThresholdRatio?: number } = {},
+  ) {
+    if (
+      options.preferMana
+      && this.tryUseCombatConsumable(self, "blue-juice", "potion", self.maxMana * 0.75, 14_500, "mana")
+    ) {
+      return true;
     }
-    if (self.health > 0 && self.health < self.maxHealth * 0.84 && hasInventoryItem(self, "field-snack")) {
-      this.useItem("field-snack");
-    }
-    if (self.mana < self.maxMana * 0.42 && hasInventoryItem(self, "blue-juice")) {
-      this.useItem("blue-juice");
-    }
+    return this.tryUseCombatConsumable(
+      self,
+      "red-juice",
+      "potion",
+      self.maxHealth * (options.healthPotionThresholdRatio ?? 0.9),
+      14_500,
+      "health",
+    )
+      || this.tryUseCombatConsumable(self, "field-snack", "food", self.maxHealth * 0.95, 11_500, "health")
+      || this.tryUseCombatConsumable(self, "blue-juice", "potion", self.maxMana * 0.45, 14_500, "mana")
+      || this.tryUseElixirBuff(self, "exit-liquidity-elixir", "exit-liquidity")
+      || this.tryUseElixirBuff(self, "hopium-elixir", "hopium")
+      || this.tryUseElixirBuff(self, "mev-bot-elixir", "mev-bot");
+  }
+
+  private tryUseCombatConsumable(
+    self: PlayerSnapshot,
+    itemId: ItemId,
+    cooldownKey: string,
+    threshold: number,
+    cooldownMs: number,
+    resource: "health" | "mana",
+  ) {
+    const value = resource === "health" ? self.health : self.mana;
+    if (value <= 0 || value >= threshold || !hasInventoryItem(self, itemId)) return false;
+    const now = Date.now();
+    if (now - (this.consumableAttemptedAt.get(cooldownKey) ?? 0) < cooldownMs) return false;
+    this.consumableAttemptedAt.set(cooldownKey, now);
+    this.useItem(itemId);
+    return true;
+  }
+
+  private tryUseElixirBuff(self: PlayerSnapshot, itemId: ItemId, buffId: string) {
+    if (self.health <= 0 || hasActiveBuff(self, buffId) || !hasInventoryItem(self, itemId)) return false;
+    const now = Date.now();
+    if (now - (this.consumableAttemptedAt.get("elixir") ?? 0) < 14_500) return false;
+    this.consumableAttemptedAt.set("elixir", now);
+    this.useItem(itemId);
+    return true;
   }
 
   private getDangerYieldReason(
@@ -979,7 +1223,9 @@ export class MferlandAgentClient {
       const nearestApproachDistance = Math.min(...points.map((point) => distanceToPoint(initialSelf, point)));
       if (npcDistance <= finalRange + 1 || npcDistance + 4 < nearestApproachDistance) return;
     }
-    for (const point of points) {
+    const routePoints = this.getRoutePointsFromCurrentPosition(points, finalRange);
+    for (let index = 0; index < routePoints.length; index += 1) {
+      const point = routePoints[index]!;
       const self = this.getSelf();
       const npc = this.getNpc(npcId);
       if (self && npc && distance2d(self, npc) <= finalRange + 1) return;
@@ -987,9 +1233,12 @@ export class MferlandAgentClient {
       if (self && distanceToPoint(self, point) <= 6) continue;
       const remainingMs = timeoutMs - (Date.now() - startedAt);
       if (remainingMs <= 5000) return;
+      const pointRange = index === routePoints.length - 1
+        ? Math.max(finalRange + 0.5, 3.5)
+        : 6;
       await this.moveToPoint(point, {
         ...options,
-        range: 6,
+        range: pointRange,
         timeoutMs: Math.min(remainingMs, 35_000),
       });
     }
@@ -1222,6 +1471,10 @@ function hasInventoryItem(self: PlayerSnapshot, itemId: ItemId) {
   return self.inventory.some((item) => item.id === itemId && item.count > 0);
 }
 
+function hasActiveBuff(self: PlayerSnapshot, buffId: string) {
+  return self.activeBuffs.some((buff) => buff.id === buffId && buff.expiresAt > Date.now());
+}
+
 function isAliveNpc(npc: NpcSnapshot) {
   return npc.health > 0 && npc.defeatedAt <= 0;
 }
@@ -1350,7 +1603,7 @@ function getNpcApproachPoints(npcId: string): Point[] {
     mfergpt: [{ x: -2.4, z: 4.2 }, { x: 6.8, z: -5.2 }],
     "hogwatch-mfer": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
     "field-guide-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
-    "pen-keeper-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -111.2, z: 136.7 }],
+    "pen-keeper-mfer": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -121, z: 123 }, { x: -116, z: 123 }, { x: -112, z: 124 }, { x: -111, z: 130 }, { x: -111, z: 136 }],
     "ridge-guide-mfer": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
     "beacon-keeper-mfer": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }, { x: 117.6, z: -91.2 }],
   } satisfies Partial<Record<string, Point[]>>)[npcId] ?? [];

@@ -11,10 +11,14 @@ import {
   MFER_APPEARANCE_TRAIT_CATEGORIES,
   POTION_SHOP_NPC_ID,
   POTION_SHOP_ITEM_IDS,
+  STARTER_GEAR_IDS,
+  TALENTS,
   QUESTS,
   QUEST_IDS,
   TRASH_VENDOR_ITEM_IDS,
   TRASH_VENDOR_NPC_ID,
+  getTalentRankStatus,
+  isCombatActionUnlocked,
   getNpcQuestIds,
   getNpcQuestMarker,
   getNpcDisposition,
@@ -36,6 +40,7 @@ import {
   type PotionShopItemId,
   type PotionShopPurchaseQuantity,
   type QuestId,
+  type TalentId,
   type TargetSelection,
   type TrashVendorItemId,
 } from "@mferland/shared";
@@ -74,6 +79,8 @@ type RunMemory = {
   mferGptSwapTxHashes: string[];
   recentActions: string[];
 };
+
+type RaidRole = "tank" | "offtank" | "healer" | "dps";
 
 type WalletPaymentSnapshot = {
   nativeBalanceWei?: string;
@@ -187,6 +194,9 @@ type VisibleObservation = {
       name: string;
       count: number;
       kind: string;
+      quality: string;
+      equipmentSlot: string;
+      equipmentStats: Record<string, number>;
       description: string;
       sellableTrash: boolean;
       trashVendorBasePoints: number;
@@ -195,12 +205,28 @@ type VisibleObservation = {
       slot: string;
       itemId: string;
       itemName: string;
+      quality: string;
+      stats: Record<string, number>;
     }>;
     activeBuffs: Array<{
       itemId: string;
       name: string;
       effect: string;
       expiresInSeconds: number;
+    }>;
+    talentPoints: number;
+    talents: Array<{
+      talentId: string;
+      tree: string;
+      rank: number;
+    }>;
+    rankableTalents: Array<{
+      talentId: string;
+      tree: string;
+      name: string;
+      nextRank: number;
+      maxRank: number;
+      effect: string;
     }>;
     unlockedCombatActions: string[];
     combatActions: Array<{
@@ -316,6 +342,7 @@ type LlmDecision = {
   playerRef?: string;
   questId?: string;
   itemId?: string;
+  talentId?: string;
   quantity?: number;
   amountEth?: string;
   actionId?: string;
@@ -343,6 +370,7 @@ const ACTIONS = [
   "loot",
   "equip_item",
   "use_item",
+  "select_talent",
   "update_traits",
   "emote",
   "chat",
@@ -373,6 +401,7 @@ const ACTION_SCHEMA = {
     playerRef: { type: ["string", "null"] },
     questId: { type: ["string", "null"] },
     itemId: { type: ["string", "null"] },
+    talentId: { type: ["string", "null"] },
     quantity: { type: ["number", "null"] },
     amountEth: { type: ["string", "null"] },
     actionId: { type: ["string", "null"] },
@@ -384,7 +413,7 @@ const ACTION_SCHEMA = {
       additionalProperties: { type: "string" },
     },
   },
-  required: ["action", "reason", "routeId", "x", "z", "npcRef", "playerRef", "questId", "itemId", "quantity", "amountEth", "actionId", "text", "emoteId", "sprint", "traits"],
+  required: ["action", "reason", "routeId", "x", "z", "npcRef", "playerRef", "questId", "itemId", "talentId", "quantity", "amountEth", "actionId", "text", "emoteId", "sprint", "traits"],
 };
 
 export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGameAgentOptions): Promise<LlmRunResult> {
@@ -415,6 +444,23 @@ export async function runLlmGameAgent(agent: MferlandAgentClient, options: LlmGa
     if (frame.observation.questProgress.allQuestsCompletedOnce) {
       log(`[llm:${agent.walletAddress.slice(0, 6)}] quest goal complete: all public quests completed once`);
       break;
+    }
+    if (ENABLE_EXAMPLE_RAID_AUTOPILOT) {
+      try {
+        if (await executeDeterministicRaidAction(agent, options.payment ?? null, memory)) {
+          log(`[llm:${agent.walletAddress.slice(0, 6)}] step ${step}: example_raid_autopilot - fast raid role action from room state`);
+          rememberAction(memory, { action: "wait", reason: "example raid autopilot action" }, "ok");
+          await delay(options.decisionIntervalMs);
+          continue;
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        actionFailureCount += 1;
+        log(`[llm:${agent.walletAddress.slice(0, 6)}] action failed: example raid autopilot action: ${errorMessage}`);
+        rememberAction(memory, { action: "wait", reason: "example raid autopilot action" }, "failed", errorMessage);
+        await delay(750);
+        continue;
+      }
     }
     const decision = await policy.decide(frame.observation);
     log(`[llm:${agent.walletAddress.slice(0, 6)}] step ${step}: ${decision.action} - ${decision.reason}`);
@@ -448,7 +494,7 @@ export function makeVisibleObservation(
   const npcRefs = new Map<string, string>();
   const playerRefs = new Map<string, string>();
   const self = raw.self;
-  const potionShopAlreadyStocked = memory.purchasedPotionShopItemIds.size > 0 || hasPotionShopStock(self);
+  const potionShopAlreadyStocked = hasPotionShopStock(self);
   const mferGptPaymentConfigured = Boolean(capabilities.mferGptPaymentConfigured) && !potionShopAlreadyStocked;
   const paymentSnapshot = capabilities.paymentSnapshot ?? null;
 
@@ -477,7 +523,7 @@ export function makeVisibleObservation(
     nearbyHealthyAgentAllies,
     nearbyHealthyHumanAllies: nearbyHealthyAllies.length - nearbyHealthyAgentAllies,
     radiusMeters: 48,
-    guidance: "Use this for group/raid judgment. Group suggested usually wants at least one healthy ally nearby; raid suggested wants a larger visible crew before calling or fighting the boss.",
+    guidance: "Use this for group/raid judgment. Group suggested usually wants at least one healthy ally nearby; raid suggested wants a larger visible crew before calling or fighting the boss. If allies are scattered, move to the public rally for the current objective instead of repeating chat.",
   };
 
   const visibleAliveNpcs = raw.nearbyNpcs.filter((npc) => npc.health > 0 && npc.defeatedAt <= 0);
@@ -594,7 +640,11 @@ export function makeVisibleObservation(
             const definition = QUESTS[quest.id] as typeof QUESTS[QuestId] & { turnInNpcId?: string };
             const encounter = getQuestEncounterMetadata(quest.id);
             const suggestedAlliesNeeded = Math.max(0, encounter.suggestedPlayerCount - 1);
-            const needsHelp = suggestedAlliesNeeded > teamContext.nearbyHealthyAllies;
+            const spawnedRaidBossVisible = quest.id === "ogre-raid-daily"
+              && visibleAliveNpcs.some((npc) => npc.id === "raid-ogre-mfer");
+            const needsHelp = spawnedRaidBossVisible
+              ? false
+              : suggestedAlliesNeeded > teamContext.nearbyHealthyAllies;
             return {
               questId: quest.id,
               title: definition.title,
@@ -607,7 +657,7 @@ export function makeVisibleObservation(
               nearbyHealthyAllies: teamContext.nearbyHealthyAllies,
               needsHelp,
               focusAdvice: needsHelp
-                ? `${encounter.groupSuggestion || encounter.encounterType} content: do not repeatedly solo this objective. Switch quest focus, level/gear/shop, chat for help, wait for allies, or cancel optional daily raid content.`
+                ? `${encounter.groupSuggestion || encounter.encounterType} content: do not repeatedly solo this objective. Move to the public rally for this objective, recover, gear/shop if needed, or cancel optional daily raid content. Use chat sparingly.`
                 : "",
             };
           }),
@@ -617,29 +667,47 @@ export function makeVisibleObservation(
         inventory: self.inventory.map((item) => {
           const definition = ITEMS[item.id] as typeof ITEMS[ItemId] & {
             consumable?: { kind: string };
-            equipment?: unknown;
+            equipment?: { slot: string; stats: Record<string, number> };
+            quality?: string;
           };
           return {
             itemId: item.id,
             name: definition.name,
             count: item.count,
             kind: isTrashVendorItemId(item.id) ? "trash" : definition.consumable?.kind ?? (definition.equipment ? "equipment" : "item"),
+            quality: definition.quality ?? "",
+            equipmentSlot: definition.equipment?.slot ?? "",
+            equipmentStats: definition.equipment?.stats ?? {},
             description: definition.description,
             sellableTrash: isTrashVendorItemId(item.id),
             trashVendorBasePoints: isTrashVendorItemId(item.id) ? getTrashVendorSellValue(item.count) : 0,
           };
         }),
-        equipment: self.equipment.map((slot) => ({
-          slot: slot.slot,
-          itemId: slot.itemId,
-          itemName: slot.itemId ? ITEMS[slot.itemId].name : "",
-        })),
+        equipment: self.equipment.map((slot) => {
+          const definition = slot.itemId
+            ? ITEMS[slot.itemId] as typeof ITEMS[ItemId] & { equipment?: { stats: Record<string, number> }; quality?: string }
+            : null;
+          return {
+            slot: slot.slot,
+            itemId: slot.itemId,
+            itemName: definition?.name ?? "",
+            quality: definition?.quality ?? "",
+            stats: definition?.equipment?.stats ?? {},
+          };
+        }),
         activeBuffs: self.activeBuffs.map((buff) => ({
           itemId: buff.itemId,
           name: buff.name,
           effect: buff.effectLabel,
           expiresInSeconds: Math.max(0, Math.ceil((buff.expiresAt - Date.now()) / 1000)),
         })),
+        talentPoints: self.talentPoints,
+        talents: self.talents.map((talent) => ({
+          talentId: talent.id,
+          tree: talent.tree,
+          rank: talent.rank,
+        })),
+        rankableTalents: getRankableTalents(self),
         unlockedCombatActions: Object.keys(COMBAT.actions).filter((actionId) => isProbablyUnlocked(self, actionId as CombatActionId)),
         combatActions: getCombatActionStates(self),
       },
@@ -660,7 +728,7 @@ export function makeVisibleObservation(
       navigation: {
         publicRallyPoints: getPublicRallyPoints(self),
       },
-      questTrackerHints: getQuestTrackerHints(self.quests, memory),
+      questTrackerHints: getQuestTrackerHints(self, memory),
       actionContract: {
         output: "Return one JSON object only. Pick exactly one action.",
         actions: [...ACTIONS],
@@ -670,11 +738,14 @@ export function makeVisibleObservation(
           "Use questProgress as the public all-quests checklist. Work toward questProgress.allQuestsCompletedOnce by completing remainingQuestIds once.",
           "When several options are legal, prefer questProgress.nextRecommendedQuestIds in order.",
           "Active and ready quests are a menu of possible goals, not a locked objective. You can change quest focus based on danger, level, gear, nearby players, and teamContext.",
-          "Quests may be marked group suggested or raid suggested. If a quest needsHelp or teamContext shows too few healthy allies nearby, do not repeatedly solo it; switch to another active/ready quest, level/gear/shop, chat for help, wait at a rally point, or cancel optional daily raid content.",
+          "Quests may be marked group suggested or raid suggested. If a quest needsHelp or teamContext shows too few healthy allies nearby, do not repeatedly solo it or keep chatting. Move to the public rally for that objective, recover, level/gear/shop, or cancel optional daily raid content.",
           "Use known npcId from the handbook only for moving toward public, named NPCs.",
           "When no quest is active, questTrackerHints may name the next public quest giver; use move_near_npc or accept_quest with that npcId to continue.",
           "Use navigation.publicRallyPoints as public map coordinates for move_to. Prefer west-hog-pull for farm hog quests, claim-booth-hog-pull for hog-loop, loop-farm-road for farm danger, and plaza-safe for a full reset.",
-          "Use travel_route for known public roads: plaza-to-daily-signal-camp, daily-signal-camp-to-mfergpt, plaza-to-loop-farm, loop-farm-to-claim-pile, loop-farm-to-route-post, route-post-to-plaza, route-post-to-signal-ridge, plaza-to-signal-ridge, or signal-ridge-to-static-lot.",
+          "For baron-of-static, use static-lot-inner-pull as the group point for echo-shell ori and verified shell, then static-lot-centralizer only after those inner blockers are down.",
+          "Do not start The Centralizer with a duo. Regroup until at least four healthy agents are visible nearby, then keep damaging, healing, and using red-juice instead of resetting to signal-ridge-road mid-fight.",
+          "For ogre-raid-daily, regroup on the bear-market uplink road before calling or rejoining the boss. Do not use static-lot-centralizer as the bear-market rally; that belongs to The Centralizer. Once bear market mfer is visible, hard-commit only when the raid crew is actually present; otherwise kite/regroup to the uplink road, recover, and return together.",
+          "Use travel_route for known public roads: plaza-to-daily-signal-camp, daily-signal-camp-to-mfergpt, plaza-to-loop-farm, loop-farm-to-claim-pile, loop-farm-to-route-post, route-post-to-plaza, route-post-to-signal-ridge, plaza-to-signal-ridge, signal-ridge-to-plaza, or signal-ridge-to-static-lot.",
           "For quests, prefer accept_quest only from nearbyNpcs.availableQuestIds and complete_quest only from nearbyNpcs.readyTurnInQuestIds.",
           "Quest turn-in requires being within 3.75m of the turn-in NPC. If an enemy is targeting you and the ready turn-in NPC is farther away, clear the attacker or retreat before complete_quest.",
           "When several quests are available, prefer main progression quests, including main repeatable gates like route-patrol-daily and hog-loop, before side quests or optional dailies.",
@@ -695,13 +766,15 @@ export function makeVisibleObservation(
           "Use nearbyPlayers and recentChat as public social context. When safe, occasional chat, emote, move_near_player, or select_player actions are normal ways to greet, coordinate, or group with visible players; do not spam or interrupt combat recovery.",
           "If runMemory.canceledQuestIds contains a repeatable quest, do not accept that quest again during this run unless nearby players are visibly grouping for it.",
           "Use observation.stores for public merchant knowledge and available store actions.",
+          "If observation.self.talentPoints is above 0, use select_talent with one of observation.self.rankableTalents before hard raid attempts. Prioritize survival and sustained damage: brawler:street-tough, brawler:heavy-hands, brawler:snap-swing, caster:deep-pockets, caster:sticker-sparks, caster:flow-state, utility:light-step, utility:recovery-loop.",
+          "Before real raid attempts, use equip_item for clear same-slot upgrades in observation.self.inventory and use buy_potion_shop_item at potion-mfer to stock at least 5 red-juice plus exit-liquidity-elixir when MFERGPT payment is configured.",
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "Use swap_eth_for_mfergpt when the wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal wallet transaction through observation.wallet.mferGptSwapMode, using the same Base ETH to MFERGPT route as swap-mfer when mode is uniswap-v4.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
-          "A quantity=5 purchase counts as one stock-up purchase and is useful before leaving town. If observation.runMemory.purchasedPotionShopItemIds is nonempty or inventory already has potion-shop stock, continue questing and use items instead.",
+          "A quantity=5 red-juice purchase is useful before leaving town and before static-lot pushes. For raid prep, also buy exit-liquidity-elixir quantity=1 when you do not own or already have its active buff. Use stocked elixirs before boss or dangerous pack attempts.",
           "Use respawn when your health is 0.",
           "Never ask for database reads, scripts, debug commands, hidden state, teleporting, or boosting.",
         ],
@@ -726,6 +799,7 @@ export function normalizeLlmDecision(value: unknown): LlmDecision {
     playerRef: cleanText(record.playerRef, 80),
     questId: cleanText(record.questId, 80),
     itemId: cleanText(record.itemId, 80),
+    talentId: cleanText(record.talentId, 80),
     quantity: readFiniteNumber(record.quantity),
     amountEth: cleanText(record.amountEth, 32),
     actionId: cleanText(record.actionId, 40),
@@ -767,7 +841,9 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Quest turn-in requires being within 3.75m of the turn-in NPC. If a ready turn-in is visible but you are being attacked outside turn-in range, stabilize first instead of spamming complete_quest.",
           "Use observation.questProgress as the public all-quests checklist and prefer observation.questProgress.nextRecommendedQuestIds.",
           "Active and ready quests are choices, not a locked script. You may switch quest focus whenever survival, level, gear, or team availability makes another active/ready quest smarter.",
-          "If a quest is marked group suggested or raid suggested and observation.self.activeOrReadyQuests says needsHelp, do not repeatedly solo it. Group up through nearbyPlayers/recentChat, wait, gear/level, switch focus, or cancel optional daily raid content.",
+          "If a quest is marked group suggested or raid suggested and observation.self.activeOrReadyQuests says needsHelp, do not repeatedly solo it or keep chatting. Group up through nearbyPlayers/recentChat, move to the public rally for that objective, recover, gear/level, or cancel optional daily raid content.",
+          "For baron-of-static, restock red-juice before the push when below 3, regroup until at least four healthy agents are visible, use static-lot-inner-pull for echo-shell ori and verified shell, then static-lot-centralizer for The Centralizer.",
+          "Once The Centralizer is engaged with the group, keep pressure with fight_npc, heals, red-juice, frostNova/iceBlast/control, and damage. Do not reset to signal-ridge-road unless defeated or critically alone.",
           "When no quest is active, questTrackerHints may name a public quest giver npcId; use move_near_npc or accept_quest with that npcId to continue.",
           "Never complete a quest unless the current observation says it is ready.",
           "Never request database reads, scripts, hidden server state, debug messages, teleport, boost, or privileged shortcuts.",
@@ -868,6 +944,8 @@ async function executeDecision(
   payment: MferGptBurner | null,
   memory: RunMemory,
 ) {
+  if (ENABLE_EXAMPLE_RAID_AUTOPILOT && await executeDeterministicRaidAction(agent, payment, memory)) return;
+
   switch (decision.action) {
     case "respawn":
       agent.respawn();
@@ -877,6 +955,52 @@ async function executeDecision(
       {
         const movingWhileTargeted = getSelfAttackerCount(agent) > 0;
         const target = { x: requiredNumber(decision.x, "x"), z: requiredNumber(decision.z, "z") };
+        const movingToStaticInnerPull = isNearPoint(target, STATIC_LOT_INNER_PULL_POINT, 4);
+        const committingToStaticBoss = isNearPoint(target, STATIC_LOT_CENTRALIZER_RALLY_POINT, 3);
+        if (movingToStaticInnerPull) {
+          const self = agent.getSelf();
+          const blocker = getStaticLotBlockers(agent).find((npc) => self && distanceToPoint(npc, self) <= 32);
+          if (self && blocker && distanceToPoint(self, STATIC_LOT_INNER_PULL_POINT) <= 7) {
+            assertStaticInnerBlockerReady(agent, `fight_npc ${blocker.id}`);
+            await agent.fightNpc(blocker.id, {
+              timeoutMs: 120_000,
+              preferredActions: ["frostNova", "iceBlast", "fireblast", "signalShot", "multishot", "shoot", "whirlwind", "attack", "taunt"],
+              healNearbyAllies: true,
+              yieldOnDanger: true,
+              maxSelfAttackers: 5,
+              maxCloseHostiles: 6,
+              dangerHealthRatio: 0.05,
+            });
+            return;
+          }
+        }
+        if (committingToStaticBoss) {
+          if (getStaticLotBlockers(agent).length > 0) {
+            const routeIds = getPublicRoutesForLongMove(agent, STATIC_LOT_INNER_PULL_POINT);
+            for (const routeId of routeIds) {
+              await agent.moveAlong(resolveRoute(routeId), {
+                range: getRouteRange(routeId),
+                sprint: decision.sprint ?? true,
+                timeoutMs: 180_000,
+                stopOnDanger: true,
+                maxSelfAttackers: 0,
+                maxCloseHostiles: 4,
+                dangerHealthRatio: 0.28,
+              });
+            }
+            await agent.moveToPoint(STATIC_LOT_INNER_PULL_POINT, {
+              range: 4,
+              sprint: decision.sprint ?? true,
+              timeoutMs: 60_000,
+              stopOnDanger: true,
+              maxSelfAttackers: 1,
+              maxCloseHostiles: 3,
+              dangerHealthRatio: 0.28,
+            });
+            return;
+          }
+          assertStaticBossCommitReady(agent, "move_to static-lot-centralizer");
+        }
         if (!movingWhileTargeted) assertHealthyEnoughForTravel(agent, "move_to");
         const routeIds = getPublicRoutesForLongMove(agent, target);
         if (routeIds.length > 0) {
@@ -899,10 +1023,10 @@ async function executeDecision(
           range: 5,
           sprint: decision.sprint ?? true,
           timeoutMs: 60_000,
-          stopOnDanger: !movingWhileTargeted,
-          maxSelfAttackers: 0,
-          maxCloseHostiles: 3,
-          dangerHealthRatio: 0.42,
+          stopOnDanger: committingToStaticBoss ? false : !movingWhileTargeted,
+          maxSelfAttackers: committingToStaticBoss ? 4 : 0,
+          maxCloseHostiles: committingToStaticBoss ? 5 : 3,
+          dangerHealthRatio: committingToStaticBoss ? 0.28 : 0.42,
         });
       }
       return;
@@ -936,7 +1060,25 @@ async function executeDecision(
       await moveNearPlayer(agent, resolvePlayerRef(refs, decision.playerRef));
       return;
     case "interact_npc":
-      await agent.interactWithNpc(resolveNpcRef(refs, decision.npcRef));
+      {
+        const npcId = resolveNpcRef(refs, decision.npcRef);
+        if (npcId === RAID_CALLER_NPC_ID && isSelfActiveOnRaid(agent)) {
+          if (getRaidRole(agent) !== "tank") {
+            throw new Error("raid call blocked: only the raid tank should talk to uplink shack mfer so bear market mfer opens on the tank");
+          }
+          if (!isRaidCallReady(agent)) {
+            throw new Error("raid call blocked: stage the full raid with main tank, off tank, healers, and DPS before calling bear market mfer");
+          }
+        }
+        await agent.interactWithNpc(npcId);
+        if (npcId === RAID_CALLER_NPC_ID && isSelfActiveOnRaid(agent)) {
+          await delay(1000);
+          const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+          if (boss && boss.health > 0 && boss.defeatedAt <= 0) {
+            await fightRaidBoss(agent);
+          }
+        }
+      }
       return;
     case "accept_quest": {
       const questId = resolveQuestId(decision.questId);
@@ -968,6 +1110,13 @@ async function executeDecision(
     case "use_ability":
       {
         const actionId = resolveCombatAction(decision.actionId);
+        if (isSelfActiveOnRaid(agent) && actionId === "heal") {
+          if (getRaidRole(agent) !== "healer") {
+            throw new Error("raid heal blocked: assigned healers own tank healing during bear market mfer");
+          }
+          await healRaidTank(agent);
+          return;
+        }
         agent.useCombatAbility(actionId, resolveTarget(refs, decision));
         if (COMBAT.actions[actionId].requiresStationary) await delay(Math.min(COMBAT.actions[actionId].castTimeMs + 160, 4200));
       }
@@ -975,14 +1124,48 @@ async function executeDecision(
     case "fight_npc": {
       const npcId = resolveVisibleNpcRef(refs, decision.npcRef);
       const teamTarget = isTeamTargetNpcId(npcId);
+      const staticInnerBlocker = STATIC_LOT_BOSS_BLOCKER_IDS.has(npcId);
+      const staticLotHostile = STATIC_LOT_HOSTILE_IDS.has(npcId);
+        if (npcId === STATIC_BOSS_NPC_ID) {
+        const self = agent.getSelf();
+        const blocker = getStaticLotBlockers(agent).find((npc) => self && distanceToPoint(npc, self) <= 42);
+        const boss = agent.getNpc(STATIC_BOSS_NPC_ID);
+        const bossHealthRatio = boss && boss.maxHealth > 0 ? boss.health / boss.maxHealth : 1;
+        if (blocker && (!boss?.aggroTargetId || bossHealthRatio > 0.9)) {
+          assertStaticInnerBlockerReady(agent, `fight_npc ${blocker.id}`);
+          await agent.fightNpc(blocker.id, {
+            timeoutMs: 120_000,
+            preferredActions: ["frostNova", "iceBlast", "fireblast", "signalShot", "multishot", "shoot", "whirlwind", "attack", "taunt"],
+            healNearbyAllies: true,
+            yieldOnDanger: true,
+            maxSelfAttackers: 5,
+            maxCloseHostiles: 6,
+            dangerHealthRatio: 0.05,
+          });
+          return;
+        }
+        assertStaticBossCommitReady(agent, "fight_npc static-baron-nox");
+      }
+      if (staticInnerBlocker) assertStaticInnerBlockerReady(agent, `fight_npc ${npcId}`);
+      const raidBossTarget = npcId === RAID_BOSS_NPC_ID;
+      if (raidBossTarget) {
+        const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+        if (boss && !isRaidBossExecutePhase(boss) && !isRaidTankRole(getRaidRole(agent)) && !isRaidBossControlledByTank(agent, boss)) {
+          throw new Error("fight_npc raid-ogre-mfer blocked: wait at the bear-market uplink road until the tank has boss aggro");
+        }
+        await fightRaidBoss(agent);
+        return;
+      }
       await agent.fightNpc(npcId, {
-        timeoutMs: teamTarget ? 120_000 : 60_000,
-        preferredActions: ["taunt", "iceBlast", "fireblast", "signalShot", "shoot", "whirlwind", "multishot", "attack"],
+        timeoutMs: teamTarget || staticLotHostile ? 120_000 : 60_000,
+        preferredActions: teamTarget || staticLotHostile
+          ? ["frostNova", "iceBlast", "fireblast", "signalShot", "multishot", "shoot", "whirlwind", "attack", "taunt"]
+          : ["iceBlast", "fireblast", "signalShot", "shoot", "whirlwind", "multishot", "attack", "taunt"],
         healNearbyAllies: true,
         yieldOnDanger: true,
-        maxSelfAttackers: teamTarget ? 4 : 3,
-        maxCloseHostiles: teamTarget ? 5 : 4,
-        dangerHealthRatio: teamTarget ? 0.34 : 0.2,
+        maxSelfAttackers: teamTarget || staticLotHostile ? 5 : 2,
+        maxCloseHostiles: teamTarget || staticLotHostile ? 6 : 3,
+        dangerHealthRatio: teamTarget || staticLotHostile ? 0.03 : 0.45,
       });
       return;
     }
@@ -994,6 +1177,10 @@ async function executeDecision(
       return;
     case "use_item":
       agent.useItem(resolveItemId(decision.itemId));
+      return;
+    case "select_talent":
+      agent.selectTalent(resolveTalentId(decision.talentId));
+      await delay(500);
       return;
     case "update_traits":
       await agent.moveToNpc("traits-mfer", { range: 2.8, timeoutMs: 15_000 });
@@ -1028,6 +1215,50 @@ async function executeDecision(
   }
 }
 
+async function executeDeterministicRaidAction(
+  agent: MferlandAgentClient,
+  payment: MferGptBurner | null,
+  memory: RunMemory,
+) {
+  const decision: LlmDecision = { action: "wait", reason: "deterministic raid role action" };
+  if (maybeSelectRaidTalent(agent)) return true;
+  if (maybeEquipRaidGear(agent)) return true;
+  if (await maybePrepareRaidConsumables(agent, payment, memory)) return true;
+  if (shouldCallRaidBoss(agent, decision)) {
+    await callRaidBoss(agent);
+    return true;
+  }
+  if (shouldStageRaidCall(agent)) {
+    await stageRaidCall(agent);
+    return true;
+  }
+  if (shouldHoldRaidStage(agent)) {
+    await holdRaidStage(agent);
+    return true;
+  }
+  if (shouldRecoverRaidBossAggro(agent)) {
+    await recoverRaidBossAggro(agent);
+    return true;
+  }
+  if (shouldHealRaidTank(agent)) {
+    await healRaidTank(agent);
+    return true;
+  }
+  if (shouldRegroupForSpawnedRaidBoss(agent)) {
+    await regroupForSpawnedRaidBoss(agent);
+    return true;
+  }
+  if (shouldWaitForTankRaidPull(agent)) {
+    await waitForTankRaidPull(agent);
+    return true;
+  }
+  if (shouldCommitSpawnedRaidBoss(agent, decision)) {
+    await fightRaidBoss(agent);
+    return true;
+  }
+  return false;
+}
+
 async function swapEthForMferGpt(
   decision: LlmDecision,
   payment: MferGptBurner | null,
@@ -1050,21 +1281,49 @@ async function buyPotionShopItem(
 ) {
   if (!payment) throw new Error("MFERGPT payment is not configured for this agent.");
   const self = agent.getSelf();
-  if (memory.purchasedPotionShopItemIds.size > 0 || (self && hasPotionShopStock(self))) {
+  if (self && hasPotionShopStock(self)) {
     await delay(250);
     return;
   }
   const itemId = resolvePotionShopItemId(decision.itemId);
   const quantity = resolvePotionShopQuantity(decision.quantity);
-  if (memory.purchasedPotionShopItemIds.has(itemId)) {
-    await delay(250);
-    return;
-  }
+  await purchasePotionShopItem(agent, itemId, quantity, payment, memory);
+}
+
+async function purchasePotionShopItem(
+  agent: MferlandAgentClient,
+  itemId: PotionShopItemId,
+  quantity: PotionShopPurchaseQuantity,
+  payment: MferGptBurner,
+  memory: RunMemory,
+) {
   const price = getPotionShopPrice(quantity, itemId);
+  await ensurePotionShopFunds(payment, price.amountWei, memory);
+  await agent.moveToNpc(POTION_SHOP_NPC_ID, {
+    range: 3,
+    timeoutMs: 120_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 4,
+    maxCloseHostiles: 6,
+    dangerHealthRatio: 0.1,
+  });
   await agent.interactWithNpc(POTION_SHOP_NPC_ID);
   const proof = await payment.burn(price.amountWei, price.label);
   await agent.purchasePotionShopItem(itemId, quantity, proof);
   memory.purchasedPotionShopItemIds.add(itemId);
+}
+
+async function ensurePotionShopFunds(
+  payment: MferGptBurner,
+  amountWei: string,
+  memory: RunMemory,
+) {
+  const observed = await payment.observe();
+  const balance = BigInt(observed.mferGptBalanceWei ?? "0");
+  if (balance >= BigInt(amountWei)) return;
+  if (!observed.swapConfigured) return;
+  const result = await payment.swapEthForMferGpt(observed.recommendedSwapEthAmount || "0.01");
+  memory.mferGptSwapTxHashes.push(result.txHash);
 }
 
 async function sellTrashItems(agent: MferlandAgentClient, decision: LlmDecision) {
@@ -1080,6 +1339,918 @@ async function sellTrashItems(agent: MferlandAgentClient, decision: LlmDecision)
     quantity,
     sellAll: !itemId,
   });
+}
+
+function shouldCommitSpawnedRaidBoss(agent: MferlandAgentClient, decision: LlmDecision) {
+  if (decision.action === "respawn" || decision.action === "complete_quest") return false;
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!boss || boss.health <= 0 || boss.defeatedAt > 0) return false;
+  const role = getRaidRole(agent);
+  const distance = distanceToPoint(self, boss);
+  if (distance > 84) return false;
+  if (isRaidTankRole(role)) return true;
+  if (!boss.aggroTargetId && !isRaidPullSupportReady(agent)) return false;
+  const executePhase = isRaidBossExecutePhase(boss);
+  if (!executePhase && role === "healer" && isRaidBossControlledByTank(agent, boss)) return true;
+  if (!executePhase && !isRaidTankRole(role) && !isRaidBossControlledByTank(agent, boss)) return false;
+  if (executePhase) return true;
+  return isRaidCrewReadyForBoss(agent, boss);
+}
+
+function shouldWaitForTankRaidPull(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  if (isRaidTankRole(getRaidRole(agent))) return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!boss || boss.health <= 0 || boss.defeatedAt > 0) return false;
+  if (isRaidBossExecutePhase(boss)) return false;
+  return !isRaidBossControlledByTank(agent, boss);
+}
+
+async function waitForTankRaidPull(agent: MferlandAgentClient) {
+  const tank = getRaidTank(agent);
+  const role = getRaidRole(agent);
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  agent.sendAgentStatus({
+    action: "wait for tank pull",
+    thought: `holding rally until ${tank?.name ?? "the tank"} has bear market mfer under control`,
+    objective: "kill bear market mfer with normal raid mechanics",
+    quest: "ogre-raid-daily",
+  });
+  if (boss && boss.health > 0 && boss.defeatedAt <= 0 && !isRaidBossControlledByTank(agent, boss)) {
+    const fallbackPoint = tank && tank.health > 0
+      ? getRaidTankSupportPoint(boss, tank, role)
+      : RAID_BOSS_SUPPORT_POINT;
+    await agent.moveToPoint(fallbackPoint, {
+      range: 5,
+      sprint: true,
+      timeoutMs: 90_000,
+      stopOnDanger: false,
+      maxSelfAttackers: 8,
+      maxCloseHostiles: 10,
+      dangerHealthRatio: 0.02,
+    });
+    return;
+  }
+  if (tank && tank.health > 0 && distanceToPoint(tank, RAID_BOSS_SUPPORT_POINT) > 7) {
+    await moveToRaidTankSupportPosition(agent, tank, role);
+    return;
+  }
+  await agent.moveToPoint(RAID_BOSS_SUPPORT_POINT, {
+    range: 5,
+    sprint: true,
+    timeoutMs: 90_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  });
+}
+
+function shouldRegroupForSpawnedRaidBoss(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  const role = getRaidRole(agent);
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!boss || boss.health <= 0 || boss.defeatedAt > 0) return false;
+  if (isRaidBossExecutePhase(boss)) return false;
+  if (isRaidTankRole(role)) return false;
+  if (role === "healer" && isRaidBossControlledByTank(agent, boss)) return false;
+  if (boss.aggroTargetId && !isRaidBossControlledByTank(agent, boss)) return false;
+  if (!boss.aggroTargetId && !isRaidPullSupportReady(agent)) return true;
+  if (isRaidCrewReadyForBoss(agent, boss)) return false;
+  const regroupPoint = getRaidRegroupPoint(agent);
+  if (distanceToPoint(self, regroupPoint) <= 5 && getSelfAttackerCount(agent) === 0) return false;
+  return true;
+}
+
+function shouldStageRaidCall(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (boss && boss.health > 0 && boss.defeatedAt <= 0) return false;
+  const caller = agent.getNpc(RAID_CALLER_NPC_ID);
+  if (!caller || caller.health <= 0 || caller.defeatedAt > 0) return false;
+  return !isRaidPullSupportReady(agent);
+}
+
+async function stageRaidCall(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  const role = getRaidRole(agent);
+  const readyHere = Boolean(
+    self
+    && self.health > 0
+    && self.maxHealth > 0
+    && self.health / self.maxHealth >= 0.65
+    && isRaidPlayerReadyForGo(self, RAID_BOSS_SUPPORT_POINT)
+    && (role !== "healer" || isRaidHealerReadyToHeal(self))
+    && (role !== "tank" || isRaidTankReadyToPull(self))
+    && distanceToPoint(self, RAID_BOSS_SUPPORT_POINT) <= 5,
+  );
+  agent.sendAgentStatus({
+    action: readyHere ? "raid ready" : "raid staging",
+    thought: readyHere
+      ? `${role} ready at bear market support point, waiting for the shared go`
+      : `${role} moving to bear market support point before the shared go`,
+    objective: "sync raid pull for bear market mfer",
+    quest: "ogre-raid-daily",
+  });
+  if (readyHere) {
+    await delay(1000);
+    return;
+  }
+  await agent.moveToPoint(RAID_BOSS_SUPPORT_POINT, {
+    range: 4,
+    sprint: true,
+    timeoutMs: 120_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  });
+}
+
+function shouldHoldRaidStage(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (boss && boss.health > 0 && boss.defeatedAt <= 0) return false;
+  const caller = agent.getNpc(RAID_CALLER_NPC_ID);
+  return Boolean(caller && caller.health > 0 && caller.defeatedAt <= 0);
+}
+
+async function holdRaidStage(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  const role = getRaidRole(agent);
+  if (!self || self.health <= 0) return;
+  const readyHere = self.maxHealth > 0
+    && self.health / self.maxHealth >= 0.65
+    && isRaidPlayerReadyForGo(self, RAID_BOSS_SUPPORT_POINT)
+    && (role !== "healer" || isRaidHealerReadyToHeal(self))
+    && (role !== "tank" || isRaidTankReadyToPull(self));
+  agent.sendAgentStatus({
+    action: readyHere ? "hold raid go" : "raid staging",
+    thought: readyHere
+      ? `${role} holding the bear-market rally and waiting for the main tank call`
+      : `${role} returning to the bear-market rally instead of leaving for side objectives`,
+    objective: "sync raid pull for bear market mfer",
+    quest: "ogre-raid-daily",
+  });
+  if (readyHere) {
+    await delay(1000);
+    return;
+  }
+  await agent.moveToPoint(RAID_BOSS_SUPPORT_POINT, {
+    range: 4,
+    sprint: true,
+    timeoutMs: 120_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  });
+}
+
+function shouldHealRaidTank(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  if (getRaidRole(agent) !== "healer") return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!boss || boss.health <= 0 || boss.defeatedAt > 0) return false;
+  const tank = getActiveRaidTank(agent, boss);
+  if (!tank || tank.health <= 0 || tank.maxHealth <= 0) return false;
+  return tank.health / tank.maxHealth <= RAID_TANK_HEAL_HEALTH_RATIO;
+}
+
+async function healRaidTank(agent: MferlandAgentClient) {
+  const tank = getActiveRaidTank(agent);
+  if (!tank || tank.health <= 0) return;
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return;
+  agent.sendAgentStatus({
+    action: "raid heal tank",
+    thought: `casting heal on ${tank.name} before doing anything else`,
+    objective: "keep the bear market tank alive",
+    quest: "ogre-raid-daily",
+  });
+  if (distanceToPoint(self, tank) > COMBAT.actions.heal.maxRange) {
+    await moveToRaidTankSupportPosition(agent, tank, "healer");
+    return;
+  }
+  const castDelayMs = getRaidHealerCastDelayMs(agent);
+  if (castDelayMs > 0) await delay(castDelayMs);
+  agent.useCombatAbility("heal", { kind: "player", id: tank.sessionId });
+  await delay(COMBAT.actions.heal.castTimeMs + 180);
+}
+
+function shouldRecoverRaidBossAggro(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!boss || boss.health <= 0 || boss.defeatedAt > 0) return false;
+  if (isRaidBossExecutePhase(boss)) return false;
+  return Boolean(boss.aggroTargetId && !isRaidBossControlledByTank(agent, boss));
+}
+
+async function recoverRaidBossAggro(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!self || !boss || self.health <= 0 || boss.health <= 0 || boss.defeatedAt > 0) return;
+
+  const role = getRaidRole(agent);
+  const tank = getRaidTank(agent);
+  const offTank = getRaidOffTank(agent);
+  const nearestTank = [tank, offTank]
+    .filter((candidate): candidate is PlayerSnapshot => Boolean(candidate && candidate.health > 0))
+    .sort((left, right) => distanceToPoint(self, left) - distanceToPoint(self, right))[0] ?? null;
+  const aggroPlayer = getRaidBossAggroPlayer(agent, boss);
+
+  agent.sendAgentStatus({
+    action: isRaidTankRole(role) ? "raid taunt recovery" : "raid aggro recovery",
+    thought: isRaidTankRole(role)
+      ? "boss aggro is loose; using taunt and melee threat to get it back on a tank"
+      : self.sessionId === boss.aggroTargetId
+        ? `boss is on me; kiting through ${nearestTank?.name ?? "the tank"} instead of dragging him to rally`
+        : `boss is loose on ${aggroPlayer?.name ?? "a non-tank"}; holding support behind the tank`,
+    objective: "recover bear market mfer aggro without scattering the raid",
+    quest: "ogre-raid-daily",
+  });
+
+  if (isRaidTankRole(role)) {
+    await agent.fightNpc(RAID_BOSS_NPC_ID, {
+      timeoutMs: 45_000,
+      preferredActions: ["taunt", "attack", "whirlwind", "frostNova"],
+      disableSelfHeal: true,
+      abortOnRespawn: true,
+      healthPotionThresholdRatio: 0.99,
+      yieldOnDanger: false,
+      maxSelfAttackers: 12,
+      maxCloseHostiles: 12,
+      dangerHealthRatio: 0.02,
+      avoidNpcIds: [STATIC_BOSS_NPC_ID],
+      avoidNpcMinRange: 34,
+      avoidMovePoint: RAID_BOSS_SUPPORT_POINT,
+    });
+    return;
+  }
+
+  if (
+    role === "healer"
+    && aggroPlayer
+    && aggroPlayer.health > 0
+    && aggroPlayer.maxHealth > 0
+    && aggroPlayer.health / aggroPlayer.maxHealth <= RAID_AGGRO_TARGET_HEAL_HEALTH_RATIO
+  ) {
+    if (distanceToPoint(self, aggroPlayer) > COMBAT.actions.heal.maxRange) {
+      const supportTank = nearestTank ?? tank;
+      if (supportTank) await moveToRaidTankSupportPosition(agent, supportTank, role);
+      else await agent.moveToPoint(RAID_BOSS_SUPPORT_POINT, getRaidSupportMoveOptions(90_000, 5));
+      return;
+    }
+    const castDelayMs = getRaidHealerCastDelayMs(agent);
+    if (castDelayMs > 0) await delay(castDelayMs);
+    agent.useCombatAbility("heal", { kind: "player", id: aggroPlayer.sessionId });
+    await delay(COMBAT.actions.heal.castTimeMs + 180);
+    return;
+  }
+
+  if (nearestTank && self.sessionId === boss.aggroTargetId) {
+    await agent.moveToPoint(getRaidAggroKitePoint(boss, nearestTank), getRaidSupportMoveOptions(45_000, 4));
+    return;
+  }
+
+  if (nearestTank) {
+    await moveToRaidTankSupportPosition(agent, nearestTank, role);
+    return;
+  }
+
+  await agent.moveToPoint(RAID_BOSS_SUPPORT_POINT, getRaidSupportMoveOptions(90_000, 5));
+}
+
+async function regroupForSpawnedRaidBoss(agent: MferlandAgentClient) {
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  const tank = getActiveRaidTank(agent, boss);
+  const role = getRaidRole(agent);
+  if (boss && tank && (role === "healer" || role === "dps")) {
+    await moveToRaidTankSupportPosition(agent, tank, role);
+    return;
+  }
+  const regroupPoint = getRaidRegroupPoint(agent);
+  const routeIds = getPublicRoutesForLongMove(agent, regroupPoint);
+  for (const routeId of routeIds) {
+    await agent.moveAlong(resolveRoute(routeId), {
+      range: getRouteRange(routeId),
+      sprint: true,
+      timeoutMs: 180_000,
+      stopOnDanger: false,
+      maxSelfAttackers: 8,
+      maxCloseHostiles: 10,
+      dangerHealthRatio: 0.02,
+    });
+  }
+  await agent.moveToPoint(regroupPoint, {
+    range: 5,
+    sprint: true,
+    timeoutMs: 120_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  });
+}
+
+function getRaidRegroupPoint(agent: MferlandAgentClient) {
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (boss && boss.health > 0 && boss.defeatedAt <= 0) {
+    const tank = getActiveRaidTank(agent, boss);
+    return tank ? getRaidTankSupportPoint(boss, tank, getRaidRole(agent)) : RAID_BOSS_SUPPORT_POINT;
+  }
+  return RAID_BOSS_SUPPORT_POINT;
+}
+
+function isRaidCrewReadyForBoss(agent: MferlandAgentClient, boss: NpcSnapshot) {
+  const tank = getRaidTank(agent);
+  if (!tank || tank.health <= 0) return false;
+  const offTank = getRaidOffTank(agent);
+  const healers = getRaidHealers(agent);
+  const readyRaiders = getRaidParticipants(agent).filter((player) => (
+    player.health > 0
+    && player.maxHealth > 0
+    && player.health / player.maxHealth >= 0.45
+    && (
+      player.sessionId === tank.sessionId
+      || distanceToPoint(player, tank) <= 42
+      || distanceToPoint(player, boss) <= 58
+    )
+  ));
+  return readyRaiders.length >= RAID_READY_MIN
+    && readyRaiders.some((player) => player.sessionId === tank.sessionId)
+    && Boolean(offTank && readyRaiders.some((player) => player.sessionId === offTank.sessionId))
+    && healers.length >= RAID_HEALER_COUNT
+    && healers.every((healer) => (
+      readyRaiders.some((player) => player.sessionId === healer.sessionId)
+      && isRaidHealerReadyToHeal(healer)
+      && distanceToPoint(healer, tank) <= RAID_HEALER_TANK_READY_RANGE
+    ));
+}
+
+function isRaidBossControlledByTank(agent: MferlandAgentClient, boss: NpcSnapshot) {
+  return getRaidTanks(agent).some((tank) => tank.health > 0 && boss.aggroTargetId === tank.sessionId);
+}
+
+function getRaidBossAggroPlayer(agent: MferlandAgentClient, boss: NpcSnapshot) {
+  if (!boss.aggroTargetId) return null;
+  return agent.getPlayers().find((player) => player.sessionId === boss.aggroTargetId) ?? null;
+}
+
+function getRaidTankSupportPoint(boss: NpcSnapshot | null, tank: PlayerSnapshot, role: RaidRole): Point {
+  const distance = role === "healer"
+    ? RAID_HEALER_SUPPORT_DISTANCE
+    : role === "dps"
+      ? RAID_DPS_SUPPORT_DISTANCE
+      : RAID_OFFTANK_SUPPORT_DISTANCE;
+  return projectPointAwayFromBoss(boss, tank, distance);
+}
+
+function getRaidAggroKitePoint(boss: NpcSnapshot, tank: PlayerSnapshot): Point {
+  return projectPointAwayFromBoss(boss, tank, RAID_AGGRO_KITE_PAST_TANK_DISTANCE);
+}
+
+function projectPointAwayFromBoss(boss: NpcSnapshot | null, anchor: Pick<PlayerSnapshot, "x" | "z">, distance: number): Point {
+  const origin = boss && boss.health > 0 ? boss : RAID_BOSS_SPAWN_POINT;
+  let dx = anchor.x - origin.x;
+  let dz = anchor.z - origin.z;
+  const magnitude = Math.hypot(dx, dz);
+  if (magnitude < 0.1) {
+    dx = RAID_BOSS_SUPPORT_POINT.x - origin.x;
+    dz = RAID_BOSS_SUPPORT_POINT.z - origin.z;
+  }
+  const fallbackMagnitude = Math.hypot(dx, dz) || 1;
+  return {
+    x: round(anchor.x + (dx / fallbackMagnitude) * distance),
+    z: round(anchor.z + (dz / fallbackMagnitude) * distance),
+  };
+}
+
+function getRaidSupportMoveOptions(timeoutMs: number, range: number) {
+  return {
+    range,
+    sprint: true,
+    timeoutMs,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  };
+}
+
+function isRaidBossExecutePhase(boss: NpcSnapshot) {
+  return boss.maxHealth > 0 && boss.health / boss.maxHealth <= RAID_EXECUTE_HEALTH_RATIO;
+}
+
+function isRaidPullSupportReady(agent: MferlandAgentClient) {
+  const readyRaiders = getRaidParticipants(agent).filter((player) => isRaidPlayerReadyForGo(player, RAID_BOSS_SUPPORT_POINT));
+  const tank = getRaidTank(agent);
+  const offTank = getRaidOffTank(agent);
+  const healers = getRaidHealers(agent);
+  return readyRaiders.length >= RAID_READY_MIN
+    && Boolean(tank && isRaidTankReadyToPull(tank) && readyRaiders.some((player) => player.sessionId === tank.sessionId))
+    && Boolean(offTank && isRaidTankReadyToPull(offTank) && readyRaiders.some((player) => player.sessionId === offTank.sessionId))
+    && healers.length >= RAID_HEALER_COUNT
+    && healers.every((healer) => (
+      readyRaiders.some((player) => player.sessionId === healer.sessionId)
+      && isRaidHealerReadyToHeal(healer)
+      && Boolean(tank && distanceToPoint(healer, tank) <= RAID_HEALER_TANK_READY_RANGE)
+    ));
+}
+
+function isSelfActiveOnRaid(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  return Boolean(self && self.health > 0 && isActiveQuest(self, "ogre-raid-daily"));
+}
+
+function shouldCallRaidBoss(agent: MferlandAgentClient, decision: LlmDecision) {
+  if (decision.action === "respawn" || decision.action === "complete_quest") return false;
+  const self = agent.getSelf();
+  if (!self || self.health <= 0 || self.maxHealth <= 0) return false;
+  if (!isActiveQuest(self, "ogre-raid-daily")) return false;
+  const role = getRaidRole(agent);
+  if (role !== "tank") return false;
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (boss && boss.health > 0 && boss.defeatedAt <= 0) return false;
+  const caller = agent.getNpc(RAID_CALLER_NPC_ID);
+  if (!caller || caller.health <= 0 || caller.defeatedAt > 0) return false;
+  if (distanceToPoint(self, caller) > 48) return false;
+  const tank = getRaidTank(agent);
+  const healers = getRaidHealers(agent);
+  if (!tank || tank.sessionId !== self.sessionId || healers.length < RAID_HEALER_COUNT) return false;
+  return isRaidPullSupportReady(agent);
+}
+
+async function callRaidBoss(agent: MferlandAgentClient) {
+  agent.sendAgentStatus({
+    action: "raid go",
+    thought: "all raiders are staged at the support point; tank is calling bear market mfer now",
+    objective: "sync raid pull for bear market mfer",
+    quest: "ogre-raid-daily",
+  });
+  await agent.moveToNpc(RAID_CALLER_NPC_ID, {
+    range: 3,
+    timeoutMs: 70_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  });
+  await agent.interactWithNpc(RAID_CALLER_NPC_ID);
+  await delay(1000);
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (boss && boss.health > 0 && boss.defeatedAt <= 0) {
+    await fightRaidBoss(agent);
+  }
+}
+
+async function fightRaidBoss(agent: MferlandAgentClient) {
+  const role = getRaidRole(agent);
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  const executePhase = Boolean(boss && isRaidBossExecutePhase(boss));
+  const aggroUncontrolled = Boolean(boss?.aggroTargetId && !isRaidBossControlledByTank(agent, boss));
+  const tank = getActiveRaidTank(agent, boss);
+  const bossAggroPlayer = boss ? getRaidBossAggroPlayer(agent, boss) : null;
+  const healerPrimaryTarget = role === "healer" && aggroUncontrolled
+    ? bossAggroPlayer ?? tank
+    : tank;
+  if (!executePhase && (role === "healer" || role === "dps") && tank && tank.health > 0) {
+    const self = agent.getSelf();
+    const maxSupportDistance = role === "healer" ? 20 : 28;
+    if (self && distanceToPoint(self, tank) > maxSupportDistance) {
+      await moveToRaidTankSupportPosition(agent, tank, role);
+      return;
+    }
+  }
+  const addTarget = executePhase ? null : getRaidAddTarget(agent, role);
+  agent.sendAgentStatus({
+    action: executePhase ? "raid execute" : isRaidTankRole(role) ? "raid go" : `raid ${role}`,
+    thought: role === "tank"
+      ? "holding bear market mfer with taunt and melee threat while the healers top me"
+      : role === "offtank"
+      ? "standing by as off tank, adding melee threat and taking over if the main tank drops"
+      : role === "healer"
+      ? executePhase
+        ? "execute phase: healing the boss target and nearby low allies until the kill lands"
+        : `keeping ${tank?.name ?? "the tank"} alive first, then healing lowest nearby allies`
+      : executePhase
+        ? "execute phase: staying on the boss even if aggro is messy"
+        : "burning the boss and clearing raid adds without dragging The Centralizer into the pull",
+    objective: "kill bear market mfer with normal raid mechanics",
+    quest: "ogre-raid-daily",
+  });
+  if (addTarget) {
+    await agent.fightNpc(addTarget.id, {
+      timeoutMs: 90_000,
+      preferredActions: isRaidTankRole(role)
+        ? ["taunt", "attack", "whirlwind", "frostNova"]
+        : role === "healer"
+          ? ["shoot"]
+          : ["frostNova", "multishot", "iceBlast", "fireblast", "signalShot", "shoot", "whirlwind", "attack"],
+      disableSelfHeal: isRaidTankRole(role),
+      healAllySessionId: role === "healer" ? healerPrimaryTarget?.sessionId : undefined,
+      healAllyHealthRatio: role === "healer" ? RAID_TANK_PRECAST_HEAL_HEALTH_RATIO : undefined,
+      healCastDelayMs: role === "healer" ? getRaidHealerCastDelayMs(agent) : undefined,
+      followAllySessionId: role === "healer" ? healerPrimaryTarget?.sessionId : undefined,
+      followAllyMaxRange: role === "healer" ? RAID_HEALER_TANK_FOLLOW_RANGE : undefined,
+      suppressDamageWhileAllyNeedsHeal: role === "healer",
+      healNearbyAllies: role === "healer",
+      healNearbyAllyHealthRatio: role === "healer" ? RAID_ALLY_HEAL_HEALTH_RATIO : undefined,
+      yieldOnDanger: false,
+      abortOnRespawn: true,
+      healthPotionThresholdRatio: isRaidTankRole(role) ? 0.99 : undefined,
+      maxSelfAttackers: 12,
+      maxCloseHostiles: 12,
+      dangerHealthRatio: 0.02,
+      avoidNpcIds: [RAID_BOSS_NPC_ID, STATIC_BOSS_NPC_ID],
+      avoidNpcMinRange: 32,
+      avoidMovePoint: RAID_RALLY_POINT,
+    });
+    return;
+  }
+
+  const preferredActions = isRaidTankRole(role)
+    ? ["taunt", "attack", "whirlwind", "frostNova"] as CombatActionId[]
+    : role === "healer"
+      ? ["shoot"] as CombatActionId[]
+      : ["signalShot", "shoot", "multishot", "fireblast", "iceBlast"] as CombatActionId[];
+  await agent.fightNpc(RAID_BOSS_NPC_ID, {
+    timeoutMs: 600_000,
+    preferredActions,
+    disableSelfHeal: isRaidTankRole(role),
+    healAllySessionId: role === "healer" ? healerPrimaryTarget?.sessionId : undefined,
+    healAllyHealthRatio: role === "healer" ? RAID_TANK_PRECAST_HEAL_HEALTH_RATIO : undefined,
+    healNpcAggroTarget: role === "healer" && (executePhase || aggroUncontrolled),
+    healNpcAggroTargetHealthRatio: executePhase ? RAID_EXECUTE_ALLY_HEAL_HEALTH_RATIO : RAID_AGGRO_TARGET_HEAL_HEALTH_RATIO,
+    healCastDelayMs: role === "healer" ? getRaidHealerCastDelayMs(agent) : undefined,
+    followAllySessionId: role === "healer" ? healerPrimaryTarget?.sessionId : undefined,
+    followAllyMaxRange: role === "healer" ? RAID_HEALER_TANK_FOLLOW_RANGE : undefined,
+    suppressDamageWhileAllyNeedsHeal: role === "healer",
+    healNearbyAllies: role === "healer",
+    healNearbyAllyHealthRatio: role === "healer" ? RAID_ALLY_HEAL_HEALTH_RATIO : undefined,
+    yieldOnDanger: false,
+    abortOnRespawn: true,
+    abortUnlessNpcAggroTargetIds: isRaidTankRole(role) ? undefined : getRaidTanks(agent).map((raidTank) => raidTank.sessionId),
+    ignoreAggroGuardBelowHealthRatio: RAID_EXECUTE_HEALTH_RATIO,
+    healthPotionThresholdRatio: isRaidTankRole(role) ? 0.99 : executePhase ? 0.78 : undefined,
+    maxSelfAttackers: 12,
+    maxCloseHostiles: 12,
+    dangerHealthRatio: 0.02,
+    kiteMinRange: isRaidTankRole(role) ? undefined : role === "healer" ? 18 : executePhase ? 14 : 22,
+    avoidNpcIds: [STATIC_BOSS_NPC_ID],
+    avoidNpcMinRange: 34,
+    avoidMovePoint: RAID_RALLY_POINT,
+  });
+}
+
+async function moveToRaidTankSupportPosition(
+  agent: MferlandAgentClient,
+  tank: PlayerSnapshot,
+  role: RaidRole,
+) {
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  await agent.moveToPoint(getRaidTankSupportPoint(boss, tank, role), {
+    range: role === "healer" ? 4 : 5,
+    sprint: true,
+    timeoutMs: 30_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 8,
+    maxCloseHostiles: 10,
+    dangerHealthRatio: 0.02,
+  });
+}
+
+function getRaidRole(agent: MferlandAgentClient): RaidRole {
+  const self = agent.getSelf();
+  if (!self) return "dps";
+  const tank = getRaidTank(agent);
+  if (tank?.sessionId === self.sessionId) return "tank";
+  const offTank = getRaidOffTank(agent);
+  if (offTank?.sessionId === self.sessionId) return "offtank";
+  const healers = getRaidHealers(agent);
+  if (healers.some((healer) => healer.sessionId === self.sessionId)) return "healer";
+  return "dps";
+}
+
+function isRaidTankRole(role: RaidRole) {
+  return role === "tank" || role === "offtank";
+}
+
+function getRaidParticipants(agent: MferlandAgentClient) {
+  return agent.getPlayers()
+    .filter((player) => player.isAgent && isActiveQuest(player, "ogre-raid-daily"))
+    .sort(comparePlayersStable);
+}
+
+function getRaidTank(agent: MferlandAgentClient) {
+  const participants = getRaidParticipants(agent);
+  const localTank = participants.find(isLocalBearMarketTank);
+  if (localTank) return localTank.health > 0 ? localTank : null;
+  if (participants.some(isLocalBearMarketAgent)) return null;
+  return participants
+    .filter((player) => player.health > 0)
+    .sort((left, right) => raidTankScore(right) - raidTankScore(left) || comparePlayersStable(left, right))[0] ?? null;
+}
+
+function getRaidOffTank(agent: MferlandAgentClient) {
+  const participants = getRaidParticipants(agent);
+  const localOffTank = participants.find(isLocalBearMarketOffTank);
+  if (localOffTank) return localOffTank.health > 0 ? localOffTank : null;
+  if (participants.some(isLocalBearMarketAgent)) return null;
+  const mainTank = getRaidTank(agent);
+  return participants
+    .filter((player) => player.health > 0 && player.sessionId !== mainTank?.sessionId)
+    .sort((left, right) => raidTankScore(right) - raidTankScore(left) || comparePlayersStable(left, right))[0] ?? null;
+}
+
+function getRaidTanks(agent: MferlandAgentClient) {
+  const tanks = [getRaidTank(agent), getRaidOffTank(agent)]
+    .filter((player): player is PlayerSnapshot => Boolean(player && player.health > 0));
+  return tanks.filter((tank, index) => tanks.findIndex((candidate) => candidate.sessionId === tank.sessionId) === index);
+}
+
+function getActiveRaidTank(agent: MferlandAgentClient, boss = agent.getNpc(RAID_BOSS_NPC_ID)) {
+  const tanks = getRaidTanks(agent);
+  if (boss?.aggroTargetId) {
+    const aggroTank = tanks.find((tank) => tank.sessionId === boss.aggroTargetId);
+    if (aggroTank) return aggroTank;
+  }
+  return tanks[0] ?? null;
+}
+
+function getRaidHealerCastDelayMs(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self) return 0;
+  const index = getRaidHealers(agent).findIndex((healer) => healer.sessionId === self.sessionId);
+  return [0, 200, 400, 600][index] ?? 0;
+}
+
+function getRaidHealers(agent: MferlandAgentClient) {
+  const tankIds = new Set(getRaidTanks(agent).map((tank) => tank.sessionId));
+  const participants = getRaidParticipants(agent);
+  const localHealers = participants
+    .filter((player) => player.health > 0 && !tankIds.has(player.sessionId) && isLocalBearMarketHealer(player))
+    .sort(comparePlayersStable);
+  if (participants.some(isLocalBearMarketAgent)) return localHealers.slice(0, RAID_HEALER_COUNT);
+  return participants
+    .filter((player) => player.health > 0 && !tankIds.has(player.sessionId))
+    .sort((left, right) => raidHealerScore(right) - raidHealerScore(left) || comparePlayersStable(left, right))
+    .slice(0, RAID_HEALER_COUNT);
+}
+
+function raidTankScore(player: PlayerSnapshot) {
+  return player.maxHealth * 1.5
+    + player.strength * 12
+    + (hasTalentRank(player, "brawler:street-tough") ? 24 : 0)
+    + (hasTalentRank(player, "brawler:whirlwind") ? 28 : 0)
+    + (hasEquippedItem(player, "baron-breaker-board") ? 32 : 0)
+    + (hasEquippedItem(player, "stickered-laptop-lid") ? 22 : 0);
+}
+
+function raidHealerScore(player: PlayerSnapshot) {
+  return player.maxMana * 0.8
+    + player.magic * 14
+    + (isCombatActionUnlocked("heal", player.level, player.talents) ? 36 : 0)
+    + (hasTalentRank(player, "caster:deep-pockets") ? 18 : 0)
+    + (hasTalentRank(player, "caster:flow-state") ? 18 : 0)
+    + (hasEquippedItem(player, "router-antenna-wand") ? 30 : 0)
+    + (hasEquippedItem(player, "claim-clipboard") ? 22 : 0)
+    + (hasEquippedItem(player, "static-loop-ring") ? 18 : 0);
+}
+
+function comparePlayersStable(left: PlayerSnapshot, right: PlayerSnapshot) {
+  return left.name.localeCompare(right.name)
+    || left.walletAddress.localeCompare(right.walletAddress)
+    || left.sessionId.localeCompare(right.sessionId);
+}
+
+function isLocalBearMarketTank(player: PlayerSnapshot) {
+  return player.name === LOCAL_BEAR_MARKET_TANK_NAME
+    || player.walletAddress.toLowerCase() === LOCAL_BEAR_MARKET_TANK_WALLET;
+}
+
+function isLocalBearMarketOffTank(player: PlayerSnapshot) {
+  return LOCAL_BEAR_MARKET_OFF_TANK_NAMES.has(player.name);
+}
+
+function isLocalBearMarketAgent(player: PlayerSnapshot) {
+  return /^mfer-agent-\d+$/.test(player.name);
+}
+
+function isLocalBearMarketHealer(player: PlayerSnapshot) {
+  return LOCAL_BEAR_MARKET_HEALER_NAMES.has(player.name);
+}
+
+function hasTalentRank(player: PlayerSnapshot, talentId: TalentId) {
+  return player.talents.some((talent) => talent.id === talentId && talent.rank > 0);
+}
+
+function hasEquippedItem(player: PlayerSnapshot, itemId: ItemId) {
+  return player.equipment.some((slot) => slot.itemId === itemId);
+}
+
+function maybeSelectRaidTalent(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0 || !isActiveQuest(self, "ogre-raid-daily") || self.talentPoints <= 0) return false;
+  const rankable = new Set(getRankableTalents(self).map((talent) => talent.talentId));
+  const talentId = RAID_TALENT_PREFERENCES[getRaidRole(agent)].find((candidate) => rankable.has(candidate));
+  if (!talentId) return false;
+  agent.selectTalent(talentId);
+  return true;
+}
+
+function maybeEquipRaidGear(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0 || !isActiveQuest(self, "ogre-raid-daily")) return false;
+
+  for (const itemIds of RAID_GEAR_PREFERENCES[getRaidRole(agent)]) {
+    const itemPreference: readonly ItemId[] = itemIds;
+    const targetItemId = itemPreference.find((itemId) => getInventoryCount(self, itemId) > 0);
+    if (!targetItemId) continue;
+    const targetSlot = getEquipmentSlot(targetItemId);
+    if (!targetSlot) continue;
+    const currentItemId = self.equipment.find((slot) => slot.slot === targetSlot)?.itemId ?? "";
+    if (currentItemId === targetItemId) continue;
+    const currentPreferenceIndex = itemPreference.indexOf(currentItemId as ItemId);
+    const targetPreferenceIndex = itemPreference.indexOf(targetItemId);
+    if (currentPreferenceIndex >= 0 && currentPreferenceIndex < targetPreferenceIndex) continue;
+    agent.equipItem(targetItemId);
+    return true;
+  }
+
+  return false;
+}
+
+async function maybePrepareRaidConsumables(
+  agent: MferlandAgentClient,
+  payment: MferGptBurner | null,
+  memory: RunMemory,
+) {
+  const self = agent.getSelf();
+  if (!self || self.health <= 0 || !isActiveQuest(self, "ogre-raid-daily")) return false;
+  if (getSelfAttackerCount(agent) > 0) return false;
+
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  const bossDistance = boss && boss.health > 0 && boss.defeatedAt <= 0
+    ? distanceToPoint(self, boss)
+    : Number.POSITIVE_INFINITY;
+  const bossIsActivelyFighting = Boolean(
+    boss
+    && boss.health > 0
+    && boss.defeatedAt <= 0
+    && (boss.aggroTargetId || boss.health < boss.maxHealth),
+  );
+  const inImmediateBossFight = bossIsActivelyFighting && bossDistance <= 45;
+  const role = getRaidRole(agent);
+  const potionShop = agent.getNpc(POTION_SHOP_NPC_ID);
+  const nearPotionShop = Boolean(potionShop && distanceToPoint(self, potionShop) <= 16);
+
+  if (!hasActiveBuff(self, "exit-liquidity")) {
+    if (getInventoryCount(self, "exit-liquidity-elixir") > 0) {
+      agent.useItem("exit-liquidity-elixir");
+      await delay(750);
+      return true;
+    }
+    if (!inImmediateBossFight && payment && nearPotionShop) {
+      await purchasePotionShopItem(agent, "exit-liquidity-elixir", 1, payment, memory);
+      return true;
+    }
+  }
+
+  const redJuiceCount = getRedJuiceCount(self);
+  if (!inImmediateBossFight && payment && redJuiceCount < RAID_RED_JUICE_TARGET && (nearPotionShop || redJuiceCount < RAID_RED_JUICE_MIN)) {
+    await purchasePotionShopItem(agent, "red-juice", 5, payment, memory);
+    return true;
+  }
+
+  const blueJuiceCount = getInventoryCount(self, "blue-juice");
+  if (role === "healer" && !inImmediateBossFight && payment && blueJuiceCount < RAID_BLUE_JUICE_TARGET && (nearPotionShop || blueJuiceCount < RAID_BLUE_JUICE_MIN)) {
+    await purchasePotionShopItem(agent, "blue-juice", 5, payment, memory);
+    return true;
+  }
+
+  return false;
+}
+
+function hasActiveBuff(self: PlayerSnapshot, buffId: string) {
+  return self.activeBuffs.some((buff) => buff.id === buffId && buff.expiresAt > Date.now());
+}
+
+function isRaidCallReady(agent: MferlandAgentClient) {
+  const caller = agent.getNpc(RAID_CALLER_NPC_ID);
+  const tank = getRaidTank(agent);
+  const offTank = getRaidOffTank(agent);
+  const healers = getRaidHealers(agent);
+  if (!caller || !tank || !offTank || healers.length < RAID_HEALER_COUNT) return false;
+  const readyRaiders = getRaidReadyParticipants(agent, caller);
+  return readyRaiders.length >= RAID_READY_MIN
+    && isRaidTankReadyToPull(tank)
+    && isRaidTankReadyToPull(offTank)
+    && readyRaiders.some((player) => player.sessionId === tank.sessionId)
+    && readyRaiders.some((player) => player.sessionId === offTank.sessionId)
+    && healers.every((healer) => (
+      readyRaiders.some((player) => player.sessionId === healer.sessionId)
+      && isRaidHealerReadyToHeal(healer)
+      && distanceToPoint(healer, tank) <= RAID_HEALER_TANK_READY_RANGE
+    ));
+}
+
+function getRaidReadyParticipants(agent: MferlandAgentClient, anchor: Point) {
+  return getRaidParticipants(agent).filter((player) => (
+    player.health > 0
+    && player.maxHealth > 0
+    && distanceToPoint(player, anchor) <= 52
+    && player.health / player.maxHealth >= 0.65
+  ));
+}
+
+function isRaidPlayerReadyForGo(player: PlayerSnapshot, anchor: Point) {
+  return player.health > 0
+    && player.maxHealth > 0
+    && player.health / player.maxHealth >= 0.65
+    && distanceToPoint(player, anchor) <= 18;
+}
+
+function isRaidTankReadyToPull(player: PlayerSnapshot) {
+  return player.health > 0
+    && player.maxHealth > 0
+    && player.health / player.maxHealth >= 0.85;
+}
+
+function isRaidHealerReadyToHeal(player: PlayerSnapshot) {
+  return player.health > 0
+    && (
+      player.mana >= COMBAT.actions.heal.manaCost
+      || getInventoryCount(player, "blue-juice") > 0
+    );
+}
+
+function getRaidAddTarget(agent: MferlandAgentClient, role: RaidRole) {
+  const self = agent.getSelf();
+  const boss = agent.getNpc(RAID_BOSS_NPC_ID);
+  if (!self || !boss || boss.health <= 0 || boss.defeatedAt > 0) return null;
+  if (distanceToPoint(self, boss) > 72) return null;
+
+  const raidPlayerSessionIds = new Set<string>([self.sessionId]);
+  for (const player of agent.getPlayers()) {
+    if (player.health <= 0) continue;
+    if (distanceToPoint(player, boss) <= 58 || distanceToPoint(player, self) <= 48) {
+      raidPlayerSessionIds.add(player.sessionId);
+    }
+  }
+
+  return agent.getNpcs()
+    .filter((npc) => (
+      npc.id !== RAID_BOSS_NPC_ID
+      && npc.id !== STATIC_BOSS_NPC_ID
+      && npc.health > 0
+      && npc.defeatedAt <= 0
+      && !npc.isImmortal
+      && getNpcDisposition(npc) === "hostile"
+      && (
+        raidPlayerSessionIds.has(npc.aggroTargetId)
+        || distanceToPoint(npc, self) <= 18
+        || distanceToPoint(npc, boss) <= 34
+      )
+    ))
+    .filter((npc) => {
+      if (role !== "tank") return true;
+      return npc.aggroTargetId === self.sessionId && distanceToPoint(npc, self) <= 14;
+    })
+    .sort((left, right) => {
+      if (role === "healer") {
+        const leftOnTank = left.aggroTargetId && left.aggroTargetId !== self.sessionId && raidPlayerSessionIds.has(left.aggroTargetId) ? 0 : 1;
+        const rightOnTank = right.aggroTargetId && right.aggroTargetId !== self.sessionId && raidPlayerSessionIds.has(right.aggroTargetId) ? 0 : 1;
+        if (leftOnTank !== rightOnTank) return leftOnTank - rightOnTank;
+      }
+
+      const leftSelf = left.aggroTargetId === self.sessionId ? 0 : 1;
+      const rightSelf = right.aggroTargetId === self.sessionId ? 0 : 1;
+      if (leftSelf !== rightSelf) return leftSelf - rightSelf;
+
+      const leftAggro = raidPlayerSessionIds.has(left.aggroTargetId) ? 0 : 1;
+      const rightAggro = raidPlayerSessionIds.has(right.aggroTargetId) ? 0 : 1;
+      if (leftAggro !== rightAggro) return leftAggro - rightAggro;
+
+      const healthDelta = left.health - right.health;
+      if (healthDelta !== 0) return healthDelta;
+      return distanceToPoint(left, self) - distanceToPoint(right, self);
+    })[0] ?? null;
 }
 
 function summarizeVisibleState(observation: VisibleObservation) {
@@ -1141,7 +2312,38 @@ function rememberAction(memory: RunMemory, decision: LlmDecision, status: "ok" |
 }
 
 function hasPotionShopStock(self: PlayerSnapshot) {
-  return self.inventory.some((item) => POTION_SHOP_ITEM_IDS.includes(item.id as PotionShopItemId) && item.count > 0);
+  if (isActiveQuest(self, "ogre-raid-daily")) {
+    return getRedJuiceCount(self) >= RAID_RED_JUICE_TARGET
+      && hasElixirStockOrBuff(self, "exit-liquidity-elixir", "exit-liquidity");
+  }
+  if (isPreparingForStaticRaid(self)) {
+    return getRedJuiceCount(self) >= 5 && hasElixirStockOrBuff(self, "exit-liquidity-elixir", "exit-liquidity");
+  }
+  return getRedJuiceCount(self) >= 3;
+}
+
+function getRedJuiceCount(self: PlayerSnapshot) {
+  return getInventoryCount(self, "red-juice");
+}
+
+function isPreparingForStaticRaid(self: PlayerSnapshot) {
+  return self.quests.some((quest) => (
+    (quest.id === "baron-of-static" || quest.id === "ogre-raid-daily")
+    && (quest.status === "active" || quest.status === "ready")
+  ));
+}
+
+function isActiveQuest(self: PlayerSnapshot, questId: QuestId) {
+  return self.quests.some((quest) => quest.id === questId && quest.status === "active");
+}
+
+function hasElixirStockOrBuff(self: PlayerSnapshot, itemId: string, buffId: string) {
+  return getInventoryCount(self, itemId) > 0
+    || self.activeBuffs.some((buff) => buff.id === buffId && buff.expiresAt > Date.now());
+}
+
+function hasStarterGearEquipped(self: PlayerSnapshot) {
+  return self.equipment.some((slot) => STARTER_GEAR_IDS.includes(slot.itemId as typeof STARTER_GEAR_IDS[number]));
 }
 
 async function observePayment(payment: MferGptBurner | null): Promise<WalletPaymentSnapshot | null> {
@@ -1202,13 +2404,16 @@ function getQuestProgress(quests: PlayerSnapshot["quests"], memory: RunMemory): 
   const remainingQuestIds = knownQuests
     .filter((quest) => quest.status !== "completed")
     .map((quest) => quest.questId);
+  const baronCompleted = completedQuestIds.includes("baron-of-static");
+  const shouldPrioritizeRaid = baronCompleted && availableQuestIds.includes("ogre-raid-daily");
   const nextRecommendedQuestIds = [
     ...readyQuestIds,
     ...activeQuestIds,
+    ...(shouldPrioritizeRaid ? ["ogre-raid-daily"] : []),
     ...availableQuestIds.filter((questId) => isMainProgressionQuest(questId as QuestId)),
     ...availableQuestIds.filter((questId) => getPublicQuestKind(questId as QuestId) === "side"),
     ...availableQuestIds.filter((questId) => !isMainProgressionQuest(questId as QuestId) && getPublicQuestKind(questId as QuestId) !== "side"),
-  ].slice(0, 8);
+  ].filter((questId, index, all) => all.indexOf(questId) === index).slice(0, 8);
 
   return {
     totalQuestCount: QUEST_IDS.length,
@@ -1307,8 +2512,8 @@ function getPublicQuestPlan(questId: QuestId) {
   if (questId === "ridge-dispatch") return "travel_route route-post-to-signal-ridge, then complete at ridge-guide-mfer";
   if (questId === "signal-scraps") return "travel_route signal-ridge-to-static-lot, fight and loot visible ridge enemies for scraps, then complete at ridge-guide-mfer";
   if (questId === "cut-the-static") return "fight visible ridge-raider-vex, ridge-raider-pax, and static-mage-ori one at a time, then complete at beacon-keeper-mfer";
-  if (questId === "baron-of-static") return "group suggested: if at least one healthy ally is nearby, fight static-baron-nox from static-lot edge with items/heals/taunts, then complete at beacon-keeper-mfer; otherwise switch active quest focus, level/gear/shop, or chat for help";
-  if (questId === "ogre-raid-daily") return "raid suggested: accept at beacon-keeper-mfer only when a visible crew is ready, interact there to call raid-ogre-mfer, fight as a raid, then complete at beacon-keeper-mfer; otherwise cancel or switch focus";
+  if (questId === "baron-of-static") return "group suggested: restock red-juice, regroup at signal-ridge-road, move as at least four agents to static-lot-inner-pull for echo-shell ori and verified shell, then commit to static-lot-centralizer and fight static-baron-nox with items/heals/control/damage; outer respawns like operator/repeater/loop are not hard blockers";
+  if (questId === "ogre-raid-daily") return "raid suggested: accept at beacon-keeper-mfer only when a visible crew is ready, interact there to call raid-ogre-mfer, fight as a raid with items/heals/taunts, then complete at beacon-keeper-mfer";
   return `complete the public objective and turn in at ${getQuestTurnInNpcId(questId)}`;
 }
 
@@ -1393,6 +2598,13 @@ function getInventoryCount(self: PlayerSnapshot, itemId: string) {
   return self.inventory
     .filter((item) => item.id === itemId)
     .reduce((total, item) => total + item.count, 0);
+}
+
+function getEquipmentSlot(itemId: ItemId) {
+  const definition = ITEMS[itemId] as typeof ITEMS[ItemId] & {
+    equipment?: { slot: string };
+  };
+  return definition.equipment?.slot ?? "";
 }
 
 function describeItemEffect(itemId: PotionShopItemId) {
@@ -1567,6 +2779,8 @@ function suggestPublicRouteIds(self: Point, target: Point) {
   if (self.x < -45 && self.z > 45 && target.x < -100 && target.z > 100) return ["loop-farm-to-route-post"];
   if (self.x < -100 && self.z > 100 && target.x > 70 && target.z < -40) return ["route-post-to-signal-ridge"];
   if (Math.hypot(self.x, self.z) < 45 && target.x > 70 && target.z < -40) return ["plaza-to-signal-ridge"];
+  if (self.x > 35 && self.x < 90 && self.z > -25 && self.z < 15 && target.x > 70 && target.z < -40) return ["plaza-to-signal-ridge"];
+  if (self.x > 70 && self.z < -40 && Math.hypot(target.x, target.z) < 45) return ["signal-ridge-to-plaza"];
   return [];
 }
 
@@ -1657,8 +2871,30 @@ function getReadyTurnInQuestIds(npcId: string, quests: PlayerSnapshot["quests"])
   ));
 }
 
-function getQuestTrackerHints(quests: PlayerSnapshot["quests"], memory: RunMemory) {
+function getQuestTrackerHints(self: PlayerSnapshot, memory: RunMemory) {
+  const quests = self.quests;
   const hints: string[] = [];
+  const preparingForStaticArea = quests.some((quest) => (
+    (quest.id === "signal-scraps" || quest.id === "cut-the-static" || quest.id === "baron-of-static" || quest.id === "ogre-raid-daily")
+    && (quest.status === "active" || quest.status === "ready")
+  ));
+  if (preparingForStaticArea && getRedJuiceCount(self) < 3) {
+    hints.push(`static-lot prep: red-juice stock is ${getRedJuiceCount(self)}; if safe near potion-mfer and observation.stores says potion-mfer can buy now, buy_potion_shop_item itemId=red-juice quantity=5 before another ridge/add/Centralizer attempt`);
+  }
+  if (quests.some((quest) => quest.id === "ogre-raid-daily" && quest.status === "active")) {
+    if (getRedJuiceCount(self) < 1) {
+      hints.push(`real raid prep: red-juice stock is ${getRedJuiceCount(self)}; buy_potion_shop_item itemId=red-juice quantity=5 at potion-mfer before calling bear market mfer if payment is configured`);
+    }
+    if (!hasElixirStockOrBuff(self, "exit-liquidity-elixir", "exit-liquidity")) {
+      hints.push("real raid prep: buy_potion_shop_item itemId=exit-liquidity-elixir quantity=1 at potion-mfer, then use_item itemId=exit-liquidity-elixir before the boss for the one-hour HP buff");
+    }
+    if (self.talentPoints > 0) {
+      hints.push("real raid prep: spend unused talentPoints with select_talent from observation.self.rankableTalents before the boss; prioritize HP, sustained damage, regen, and unlocked control/AoE actions");
+    }
+  }
+  if (preparingForStaticArea && hasStarterGearEquipped(self)) {
+    hints.push("static-lot prep: if safe and observation.self.equipment still has starter gear, use equip_item for a same-slot inventory upgrade before the next static-lot attempt; prioritize higher health/rare gear like boar-bristle-cap, field-patched-hoodie, stickered-laptop-lid, burn-hole-mousepad/static-loop-ring, bottlecap-sling, router-antenna-wand, stickerbomb-sling, or farmhand-spade when owned");
+  }
   for (const quest of quests) {
     if (quest.status !== "ready") continue;
     hints.push(`complete_quest questId=${quest.id} at npcId=${getQuestTurnInNpcId(quest.id)}`);
@@ -1692,13 +2928,16 @@ function getQuestTrackerHints(quests: PlayerSnapshot["quests"], memory: RunMemor
     } else if (quest.id === "hog-loop") {
       hints.push(`fight_npc visible hogs near claim booth one at a time; if no safe hog is visible and you are already near route post or claim booth, wait for a nearby hog instead of walking west; progress ${quest.progress}/${quest.required}; complete at pen-keeper-mfer when ready`);
     } else if (quest.id === "signal-scraps") {
-      hints.push(`travel_route routeId=signal-ridge-to-static-lot, fight_npc visible ridge raiders/static mages one at a time, and loot them for signal scraps; progress ${quest.progress}/${quest.required}; complete at ridge-guide-mfer when ready`);
+      hints.push(`travel_route routeId=signal-ridge-to-static-lot through static-lot-vex, static-lot-pax, and static-lot-ori; fight_npc visible ridge raiders/static mages one at a time and loot them for signal scraps; progress ${quest.progress}/${quest.required}; complete at ridge-guide-mfer when ready`);
     } else if (quest.id === "cut-the-static") {
-      hints.push(`fight_npc visible named ridge enemies one at a time: operator vex, repeater pax, echo-shell ori; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
+      const completedObjectiveIds = new Set(quest.flags.split(",").filter(Boolean));
+      const missingTargets = ["ridge-raider-vex", "ridge-raider-pax", "static-mage-ori"].filter((npcId) => !completedObjectiveIds.has(npcId));
+      const missingLabel = missingTargets.length ? missingTargets.join(", ") : "none";
+      hints.push(`fight_npc visible named ridge enemies one at a time: operator vex, repeater pax, echo-shell ori; missing target npcIds: ${missingLabel}; if no missing target is visible, move_to public rally static-lot-pax or static-lot-ori with the group instead of waiting at signal ridge; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
     } else if (quest.id === "baron-of-static") {
-      hints.push(`group suggested: fight_npc visible The Centralizer only with at least one healthy nearby ally, using heals/taunts/items and avoiding extra pulls; if alone, switch active quest focus, level/gear/shop, or chat for help; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
+      hints.push(`group suggested: regroup at signal-ridge-road until at least four healthy agents are visible, move_to static-lot-inner-pull for the hard inner blockers echo-shell ori and verified shell if alive, then move_to static-lot-centralizer and fight_npc visible The Centralizer using heals/red-juice/control/damage; outer respawns like operator vex, repeater pax, and loop runner are not hard blockers once the group is stocked and moving; once The Centralizer is engaged, keep pressure and do not reset to signal-ridge-road unless defeated or critically alone; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
     } else if (quest.id === "ogre-raid-daily") {
-      hints.push(`raid suggested: only interact_npc beacon-keeper-mfer to call bear market mfer when a visible crew is ready, then fight_npc visible raid boss as a raid; if alone, cancel_quest questId=ogre-raid-daily or switch active quest focus; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
+      hints.push(`raid suggested: regroup on the bear-market uplink road before the call, not static-lot-centralizer; if bear market mfer is visible before the crew is ready, kite/regroup to the uplink road instead of feeding solo. When the full raid is staged with main tank, off tank, healers, and DPS, commit with fight_npc visible raid boss or finish current attackers while pulling away from The Centralizer, using heals/taunts/red-juice/control/items; progress ${quest.progress}/${quest.required}; complete at beacon-keeper-mfer when ready`);
     } else {
       hints.push(`work on active questId=${quest.id}: ${definition.objectiveLabel}; turn in at npcId=${getQuestTurnInNpcId(quest.id)} when ready`);
     }
@@ -1706,9 +2945,17 @@ function getQuestTrackerHints(quests: PlayerSnapshot["quests"], memory: RunMemor
 
   const activeOrReady = quests.some((quest) => quest.status === "active" || quest.status === "ready");
   if (!activeOrReady) {
+    const baronCompleted = quests.some((quest) => quest.id === "baron-of-static" && quest.status === "completed");
+    const raidAvailable = baronCompleted
+      && isQuestAvailableForSnapshots("ogre-raid-daily", quests)
+      && !memory.canceledQuestIds.has("ogre-raid-daily");
+    if (raidAvailable) {
+      hints.push("raid chain: baron-of-static is complete; accept_quest questId=ogre-raid-daily from npcId=beacon-keeper-mfer before taking side quests");
+    }
     const availableQuestIds = QUEST_IDS
       .filter((questId) => isQuestAvailableForSnapshots(questId, quests))
       .filter((questId) => !memory.canceledQuestIds.has(questId))
+      .filter((questId) => !(raidAvailable && questId === "ogre-raid-daily"))
       .sort((left, right) => getQuestRecommendationRank(left) - getQuestRecommendationRank(right));
     for (const questId of availableQuestIds) {
       const definition = QUESTS[questId];
@@ -1764,6 +3011,12 @@ function resolveItemId(value: string | undefined): ItemId {
   return itemId as ItemId;
 }
 
+function resolveTalentId(value: string | undefined): TalentId {
+  const talentId = cleanText(value, 80);
+  if (!Object.prototype.hasOwnProperty.call(TALENTS, talentId)) throw new Error(`invalid talentId ${talentId}`);
+  return talentId as TalentId;
+}
+
 function resolvePotionShopItemId(value: string | undefined): PotionShopItemId {
   if (!isPotionShopItemId(value)) throw new Error(`invalid potion shop itemId ${value || ""}`);
   return value;
@@ -1796,6 +3049,7 @@ function resolveRouteId(value: string | undefined) {
   if (routeId === "route-post-to-signal-ridge") return routeId;
   if (routeId === "route-post-to-plaza") return routeId;
   if (routeId === "plaza-to-signal-ridge") return routeId;
+  if (routeId === "signal-ridge-to-plaza") return routeId;
   if (routeId === "signal-ridge-to-static-lot") return routeId;
   throw new Error(`invalid routeId ${routeId}`);
 }
@@ -1810,16 +3064,77 @@ function resolveRoute(value: string | undefined): Point[] {
   if (routeId === "route-post-to-signal-ridge") return RIDGE_ROUTE;
   if (routeId === "route-post-to-plaza") return ROUTE_POST_TO_PLAZA_ROUTE;
   if (routeId === "plaza-to-signal-ridge") return RIDGE_FROM_PLAZA_ROUTE;
+  if (routeId === "signal-ridge-to-plaza") return SIGNAL_RIDGE_TO_PLAZA_ROUTE;
   if (routeId === "signal-ridge-to-static-lot") return RIDGE_FIELD_ROUTE;
   throw new Error(`invalid routeId ${routeId}`);
 }
 
 function getRouteRange(routeId: string) {
+  if (routeId === "route-post-to-signal-ridge" || routeId === "route-post-to-plaza" || routeId === "plaza-to-signal-ridge" || routeId === "signal-ridge-to-plaza") return 4;
   return routeId === "loop-farm-to-claim-pile" ? 3 : 8;
 }
 
 function isTeamTargetNpcId(npcId: string) {
-  return npcId === "static-baron-nox" || npcId === "raid-ogre-mfer" || npcId === "mfergpt-daily-boss";
+  return npcId === STATIC_BOSS_NPC_ID || npcId === "raid-ogre-mfer" || npcId === "mfergpt-daily-boss";
+}
+
+function assertStaticBossCommitReady(agent: MferlandAgentClient, action: string) {
+  const self = agent.getSelf();
+  if (!self) return;
+  const boss = agent.getNpc(STATIC_BOSS_NPC_ID);
+  const fightingEngagedBoss = action.startsWith("fight_npc") && Boolean(boss?.aggroTargetId);
+  const committedEngagedBoss = fightingEngagedBoss;
+  const blockers = getStaticLotBlockers(agent);
+  if (blockers.length > 0 && !fightingEngagedBoss) {
+    const labels = blockers
+      .slice(0, 4)
+      .map((npc) => `${npc.name} (${npc.id})`)
+      .join(", ");
+    throw new Error(`${action} blocked: clear static-lot inner blockers first from static-lot-inner-pull: ${labels}. Regroup there, fight visible blockers together, loot and recover, then commit to The Centralizer.`);
+  }
+  const healthyAllies = agent.getPlayers().filter((player) => (
+    player.sessionId !== self.sessionId
+    && player.health > 0
+    && player.maxHealth > 0
+    && distanceToPoint(player, self) <= 48
+    && player.health / player.maxHealth >= 0.45
+  ));
+  if (healthyAllies.length < 3 && !committedEngagedBoss) {
+    throw new Error(`${action} blocked: The Centralizer is group content. Regroup with at least three healthy nearby allies at signal-ridge-road or static-lot-inner-pull before committing.`);
+  }
+  if (self.maxHealth > 0 && self.health / self.maxHealth < (committedEngagedBoss ? 0.08 : 0.55)) {
+    throw new Error(`${action} blocked at ${Math.ceil((self.health / self.maxHealth) * 100)}% health: use red-juice/food or recover before committing to The Centralizer.`);
+  }
+}
+
+function assertStaticInnerBlockerReady(agent: MferlandAgentClient, action: string) {
+  const self = agent.getSelf();
+  if (!self) return;
+  const healthyAllies = agent.getPlayers().filter((player) => (
+    player.sessionId !== self.sessionId
+    && player.health > 0
+    && player.maxHealth > 0
+    && distanceToPoint(player, self) <= 48
+    && player.health / player.maxHealth >= 0.4
+  ));
+  if (healthyAllies.length < 2) {
+    throw new Error(`${action} blocked: static-lot inner blockers should be fought as a group. Regroup with at least two healthy nearby allies at static-lot-inner-pull or signal-ridge-road first.`);
+  }
+  if (self.maxHealth > 0 && self.health / self.maxHealth < 0.45) {
+    throw new Error(`${action} blocked at ${Math.ceil((self.health / self.maxHealth) * 100)}% health: use red-juice/food or recover before clearing the blocker.`);
+  }
+}
+
+function getStaticLotBlockers(agent: MferlandAgentClient) {
+  const self = agent.getSelf();
+  if (!self) return [];
+  return agent.getNpcs()
+    .filter((npc) => (
+      STATIC_LOT_BOSS_BLOCKER_IDS.has(npc.id)
+      && npc.health > 0
+      && npc.defeatedAt <= 0
+    ))
+    .sort((left, right) => distanceToPoint(left, self) - distanceToPoint(right, self));
 }
 
 function isRepeatableQuest(questId: QuestId) {
@@ -1830,6 +3145,78 @@ function requiredNumber(value: number | undefined, label: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label} required`);
   return value;
 }
+
+const RAID_TALENT_PREFERENCES = {
+  tank: [
+    "brawler:street-tough",
+    "brawler:heavy-hands",
+    "brawler:snap-swing",
+    "brawler:whirlwind",
+    "utility:recovery-loop",
+    "utility:light-step",
+    "caster:deep-pockets",
+    "caster:flow-state",
+  ],
+  offtank: [
+    "brawler:street-tough",
+    "brawler:heavy-hands",
+    "brawler:snap-swing",
+    "brawler:whirlwind",
+    "utility:recovery-loop",
+    "utility:light-step",
+    "caster:deep-pockets",
+    "caster:flow-state",
+  ],
+  healer: [
+    "caster:deep-pockets",
+    "caster:sticker-sparks",
+    "caster:flow-state",
+    "caster:frost-nova",
+    "utility:recovery-loop",
+    "utility:light-step",
+    "brawler:street-tough",
+  ],
+  dps: [
+    "caster:deep-pockets",
+    "caster:sticker-sparks",
+    "caster:flow-state",
+    "utility:multishot",
+    "caster:frost-nova",
+    "utility:light-step",
+    "brawler:street-tough",
+  ],
+} as const satisfies Record<RaidRole, readonly TalentId[]>;
+
+const RAID_GEAR_PREFERENCES = {
+  tank: [
+    ["baron-breaker-board", "farmhand-spade", "rusty-skate-deck"],
+    ["stickered-laptop-lid", "road-sign-lid"],
+    ["boar-bristle-cap", "claim-booth-cap", "feedback-headphones", "frayed-cap"],
+    ["field-patched-hoodie", "all-nighter-hoodie", "plaza-hoodie"],
+    ["static-loop-ring", "burn-hole-mousepad", "antler-charm", "lucky-lighter"],
+  ],
+  offtank: [
+    ["baron-breaker-board", "farmhand-spade", "rusty-skate-deck"],
+    ["stickered-laptop-lid", "road-sign-lid"],
+    ["boar-bristle-cap", "claim-booth-cap", "feedback-headphones", "frayed-cap"],
+    ["field-patched-hoodie", "all-nighter-hoodie", "plaza-hoodie"],
+    ["static-loop-ring", "burn-hole-mousepad", "antler-charm", "lucky-lighter"],
+  ],
+  healer: [
+    ["router-antenna-wand", "stickered-wand"],
+    ["claim-clipboard", "receipt-zine", "pocket-zine"],
+    ["deadzone-beanie", "feedback-headphones", "ridge-runner-beanie", "frayed-cap"],
+    ["static-zip-hoodie", "all-nighter-hoodie", "plaza-hoodie"],
+    ["static-loop-ring", "burn-hole-mousepad", "missed-creyzies-keychain", "antler-charm", "headphone-splitter", "lucky-lighter"],
+  ],
+  dps: [
+    ["bottlecap-sling", "stickerbomb-sling", "router-antenna-wand", "farmhand-spade", "baron-breaker-board", "stickered-wand", "rusty-skate-deck"],
+    ["stickered-laptop-lid", "claim-clipboard", "receipt-zine", "road-sign-lid", "pocket-zine"],
+    ["deadzone-beanie", "feedback-headphones", "boar-bristle-cap", "ridge-runner-beanie", "reply-lag-visor", "frayed-cap"],
+    ["all-nighter-hoodie", "static-zip-hoodie", "field-patched-hoodie", "logoff-hoodie", "airdrop-burn-hoodie", "plaza-hoodie"],
+    ["static-loop-ring", "burn-hole-mousepad", "antler-charm", "missed-creyzies-keychain", "headphone-splitter", "lucky-lighter"],
+  ],
+} as const satisfies Record<RaidRole, readonly (readonly ItemId[])[]>;
 
 const DAILY_BOSS_ROUTE: Point[] = [
   { x: -18, z: 0 },
@@ -1862,20 +3249,30 @@ const FIELD_CAMP_ROUTE: Point[] = [
   { x: -119.2, z: 132.4 },
 ];
 const RIDGE_ROUTE: Point[] = [
-  { x: -124, z: 124 },
+  { x: -111, z: 136 },
+  { x: -111, z: 130 },
+  { x: -111, z: 124 },
+  { x: -118, z: 116 },
+  { x: -128, z: 106 },
   { x: -128, z: 102 },
   { x: -112, z: 70 },
   { x: -82, z: 60 },
   { x: -31, z: 60 },
   { x: 0, z: 29 },
-  { x: 0, z: -34 },
+  { x: 6, z: 34 },
+  { x: 34, z: 6 },
+  { x: 50, z: -9 },
   { x: 53, z: -11.5 },
   { x: 75, z: -22 },
   { x: 120, z: -62 },
   { x: 108.8, z: -92.8 },
 ];
 const ROUTE_POST_TO_PLAZA_ROUTE: Point[] = [
-  { x: -124, z: 124 },
+  { x: -111, z: 136 },
+  { x: -111, z: 130 },
+  { x: -111, z: 124 },
+  { x: -118, z: 116 },
+  { x: -128, z: 106 },
   { x: -128, z: 102 },
   { x: -112, z: 70 },
   { x: -82, z: 60 },
@@ -1884,17 +3281,82 @@ const ROUTE_POST_TO_PLAZA_ROUTE: Point[] = [
   { x: -2.4, z: 4.2 },
 ];
 const RIDGE_FROM_PLAZA_ROUTE: Point[] = [
-  { x: 0, z: -34 },
+  { x: 0, z: 29 },
+  { x: 6, z: 34 },
+  { x: 34, z: 6 },
+  { x: 50, z: -9 },
   { x: 53, z: -11.5 },
   { x: 75, z: -22 },
   { x: 120, z: -62 },
   { x: 108.8, z: -92.8 },
 ];
+const SIGNAL_RIDGE_TO_PLAZA_ROUTE: Point[] = [
+  { x: 108.8, z: -92.8 },
+  { x: 120, z: -62 },
+  { x: 75, z: -22 },
+  { x: 53, z: -11.5 },
+  { x: 50, z: -9 },
+  { x: 34, z: 6 },
+  { x: 6, z: 34 },
+  { x: 0, z: 29 },
+  { x: 7.4, z: 25.4 },
+];
 const RIDGE_FIELD_ROUTE: Point[] = [
   { x: 124, z: -104 },
   { x: 145.5, z: -84.2 },
+  { x: 153.2, z: -95.8 },
+  { x: 150.2, z: -113.4 },
 ];
 
+const STATIC_BOSS_NPC_ID = "static-baron-nox";
+const RAID_BOSS_NPC_ID = "raid-ogre-mfer";
+const RAID_CALLER_NPC_ID = "beacon-keeper-mfer";
+const RAID_BOSS_SPAWN_POINT = { x: 76, z: -111 };
+const RAID_RALLY_POINT = { x: 100, z: -70 };
+const RAID_BOSS_SUPPORT_POINT = { x: 90, z: -92 };
+const ENABLE_EXAMPLE_RAID_AUTOPILOT = process.env.AGENT_EXAMPLE_RAID_AUTOPILOT === "1";
+const RAID_READY_MIN = parsePositiveIntEnv("AGENT_RAID_READY_MIN", 10);
+const RAID_HEALER_COUNT = parsePositiveIntEnv("AGENT_RAID_HEALER_COUNT", 4);
+const RAID_RED_JUICE_MIN = 5;
+const RAID_RED_JUICE_TARGET = 8;
+const RAID_BLUE_JUICE_MIN = 20;
+const RAID_BLUE_JUICE_TARGET = 20;
+const RAID_TANK_HEAL_HEALTH_RATIO = 0.99;
+const RAID_TANK_PRECAST_HEAL_HEALTH_RATIO = 1.05;
+const RAID_ALLY_HEAL_HEALTH_RATIO = 0.82;
+const RAID_EXECUTE_HEALTH_RATIO = 0.18;
+const RAID_EXECUTE_ALLY_HEAL_HEALTH_RATIO = 0.9;
+const RAID_AGGRO_TARGET_HEAL_HEALTH_RATIO = 0.92;
+const RAID_HEALER_SUPPORT_DISTANCE = 14;
+const RAID_DPS_SUPPORT_DISTANCE = 22;
+const RAID_OFFTANK_SUPPORT_DISTANCE = 10;
+const RAID_AGGRO_KITE_PAST_TANK_DISTANCE = 10;
+const RAID_HEALER_TANK_READY_RANGE = 24;
+const RAID_HEALER_TANK_FOLLOW_RANGE = 17;
+const LOCAL_BEAR_MARKET_TANK_NAME = process.env.AGENT_RAID_TANK_NAME?.trim() || "mfer-agent-2";
+const LOCAL_BEAR_MARKET_TANK_WALLET = (
+  process.env.AGENT_RAID_TANK_WALLET?.trim()
+  || "0x140fec2833669fa2f695a2cc60afc671fb12357f"
+).toLowerCase();
+const LOCAL_BEAR_MARKET_OFF_TANK_NAMES = parseNameSetEnv("AGENT_RAID_OFF_TANK_NAMES", ["mfer-agent-6"]);
+const LOCAL_BEAR_MARKET_HEALER_NAMES = parseNameSetEnv("AGENT_RAID_HEALER_NAMES", [
+  "mfer-agent-1",
+  "mfer-agent-3",
+  "mfer-agent-4",
+  "mfer-agent-5",
+]);
+const STATIC_LOT_INNER_PULL_POINT = { x: 139, z: -105 };
+const STATIC_LOT_CENTRALIZER_RALLY_POINT = { x: 151.5, z: -119.2 };
+const STATIC_LOT_BOSS_BLOCKER_IDS = new Set([
+  "ridge-raider-spark",
+  "static-mage-ori",
+]);
+const STATIC_LOT_HOSTILE_IDS = new Set([
+  "ridge-raider-vex",
+  "ridge-raider-pax",
+  "ridge-raider-loop",
+  ...STATIC_LOT_BOSS_BLOCKER_IDS,
+]);
 const PUBLIC_ASSIST_RISK_RANGE = 12;
 const QUEST_TURN_IN_RANGE = 3.75;
 const AGENT_ITEM_DROP_TARGETS: Partial<Record<QuestId, {
@@ -1982,6 +3444,42 @@ const PUBLIC_RALLY_POINTS = [
     label: "signal ridge road",
     position: { x: 108.8, z: -92.8 },
     useWhen: "use to stage before signal ridge/static lot combat",
+  },
+  {
+    id: "bear-market-uplink",
+    label: "bear market uplink road",
+    position: RAID_RALLY_POINT,
+    useWhen: "use for ogre-raid-daily to stage the tank, healer, and DPS before calling or rejoining bear market mfer; safer than the uplink shack and static-lot-centralizer",
+  },
+  {
+    id: "static-lot-vex",
+    label: "static lot operator edge",
+    position: { x: 145.5, z: -84.2 },
+    useWhen: "use with a group to find operator vex and nearby signal-scraps targets",
+  },
+  {
+    id: "static-lot-pax",
+    label: "static lot repeater edge",
+    position: { x: 153.2, z: -95.8 },
+    useWhen: "use with a group when repeater pax is missing for cut-the-static or signal scraps need deeper targets",
+  },
+  {
+    id: "static-lot-ori",
+    label: "static lot echo-shell edge",
+    position: { x: 150.2, z: -113.4 },
+    useWhen: "use with a group when echo-shell ori is missing for cut-the-static; avoid going alone at low health",
+  },
+  {
+    id: "static-lot-inner-pull",
+    label: "static lot inner pull",
+    position: STATIC_LOT_INNER_PULL_POINT,
+    useWhen: "use with at least three agents to pull echo-shell ori and verified shell before committing to The Centralizer",
+  },
+  {
+    id: "static-lot-centralizer",
+    label: "static lot centralizer edge",
+    position: STATIC_LOT_CENTRALIZER_RALLY_POINT,
+    useWhen: "use with at least four healthy agents for baron-of-static after echo-shell ori and verified shell are down; do not use for ogre-raid-daily",
   },
 ] as const;
 
@@ -2089,7 +3587,10 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "Quest turn-in requires being within 3.75m of the turn-in NPC. If a ready turn-in is visible but you are being attacked outside turn-in range, stabilize first instead of spamming complete_quest.",
     "Use observation.questProgress as the public all-quests checklist and prefer observation.questProgress.nextRecommendedQuestIds when several actions are legal.",
     "Active and ready quests are choices, not a locked script. You may switch quest focus whenever survival, level, gear, or team availability makes another active/ready quest smarter.",
-    "If a quest is marked group suggested or raid suggested and observation.self.activeOrReadyQuests says needsHelp, do not repeatedly solo it. Group up through nearbyPlayers/recentChat, wait, gear/level, switch focus, or cancel optional daily raid content.",
+    "If a quest is marked group suggested or raid suggested and observation.self.activeOrReadyQuests says needsHelp, do not repeatedly solo it or keep chatting. Group up through nearbyPlayers/recentChat, move to the public rally for that objective, recover, gear/level, or cancel optional daily raid content.",
+    "For baron-of-static, restock red-juice before the push when below 3, regroup until at least four healthy agents are visible, use static-lot-inner-pull for echo-shell ori and verified shell, then static-lot-centralizer for The Centralizer.",
+    "Once The Centralizer is engaged with the group, keep pressure with fight_npc, heals, red-juice, frostNova/iceBlast/control, and damage. Do not reset to signal-ridge-road unless defeated or critically alone.",
+    "For ogre-raid-daily, regroup on the bear-market uplink road before calling or rejoining the boss. Do not use static-lot-centralizer as the bear-market rally; that belongs to The Centralizer. Once bear market mfer is visible, hard-commit only when the raid crew is actually present; otherwise kite/regroup to the uplink road, recover, and return together.",
     "When no quest is active, questTrackerHints may name a public quest giver npcId; use move_near_npc or accept_quest with that npcId to continue the visible questline.",
     "Never complete a quest unless the current observation says it is ready.",
     "Use observation.self.aggroCount, observation.self.nearbyHostileCount, observation.self.dangerNote, and nearbyNpcs.targeting to avoid overpulls.",
@@ -2272,6 +3773,24 @@ function readFiniteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function getRankableTalents(self: PlayerSnapshot) {
+  return (Object.entries(TALENTS) as Array<[TalentId, typeof TALENTS[TalentId]]>)
+    .map(([talentId, definition]) => {
+      const status = getTalentRankStatus(self.talents, self.level, self.talentPoints, talentId);
+      return {
+        talentId,
+        tree: definition.tree,
+        name: definition.name,
+        nextRank: status.nextRank,
+        maxRank: status.maxRank,
+        effect: definition.effectText,
+        canRank: status.canRank,
+      };
+    })
+    .filter((talent) => talent.canRank)
+    .map(({ canRank: _canRank, ...talent }) => talent);
+}
+
 function getCombatActionStates(self: PlayerSnapshot) {
   const now = Date.now();
   return (Object.keys(COMBAT.actions) as CombatActionId[]).map((actionId) => {
@@ -2330,19 +3849,29 @@ function distanceToPoint(value: Pick<PlayerSnapshot, "x" | "z">, target: Point) 
   return Math.hypot(value.x - target.x, value.z - target.z);
 }
 
+function isNearPoint(value: Point, target: Point, range: number) {
+  return Math.hypot(value.x - target.x, value.z - target.z) <= range;
+}
+
 function round(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function parsePositiveIntEnv(name: string, fallback: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNameSetEnv(name: string, fallback: string[]) {
+  const raw = process.env[name]?.trim();
+  const names = raw
+    ? raw.split(",").map((value) => value.trim()).filter(Boolean)
+    : fallback;
+  return new Set(names);
+}
+
 function isProbablyUnlocked(self: PlayerSnapshot, actionId: CombatActionId) {
-  if (actionId === "attack") return self.level >= 1;
-  if (actionId === "shoot") return self.level >= 2;
-  if (actionId === "signalShot") return self.level >= 3;
-  if (actionId === "fireblast") return self.level >= 4;
-  if (actionId === "iceBlast") return self.level >= 5;
-  if (actionId === "heal") return self.level >= 6;
-  if (actionId === "taunt") return self.level >= 7;
-  if (actionId === "whirlwind") return self.level >= 8;
-  if (actionId === "multishot") return self.level >= 9;
-  return false;
+  return isCombatActionUnlocked(actionId, self.level, self.talents);
 }

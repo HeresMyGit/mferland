@@ -9,6 +9,7 @@
     "playtest:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode playtest",
     "playthrough:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode playtest --playtest-scope all",
     "llm:local": "MFERLAND_AGENT_LOCAL_ONLY=1 tsx src/index.ts --mode llm",
+    "summarize:combat": "node scripts/summarize-combat-log.mjs",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
