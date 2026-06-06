@@ -203,6 +203,7 @@ import {
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const DAILY_RAID_BOSS_NPC_ID = "raid-ogre-mfer";
 const DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS = 5 * 60 * 1000;
+const DAILY_RAID_BOSS_SPAWN = { x: 76, z: -111, yaw: -0.35 };
 const EMOTE_MIN_INTERVAL_MS = 900;
 const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
@@ -2694,9 +2695,9 @@ export class TownRoom extends Room<TownState> {
       name: "bear market mfer",
       role: "farmer",
       model: "mfer",
-      x: 160.9,
-      z: -108,
-      yaw: -1.2,
+      x: DAILY_RAID_BOSS_SPAWN.x,
+      z: DAILY_RAID_BOSS_SPAWN.z,
+      yaw: DAILY_RAID_BOSS_SPAWN.yaw,
       leashRadius: 22,
       health: 5200,
       maxHealth: 5200,
