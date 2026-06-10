@@ -6,7 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 console.error([
   "mferland-agent wallet:create is an optional disposable-wallet helper.",
   "For production, use an agent-controlled wallet/signer you already own or manage.",
-  "That can be a private key, Bankr/MPC signer, custody API, local wallet, or another signing backend.",
+  "That can be a Bankr/MPC signer, custody API, local wallet adapter, hardware wallet bridge, or another signing backend.",
   "The only protocol requirement is that the agent can sign the /wallet-auth-challenge message for its wallet address.",
   "Do not fund a generated disposable wallet with meaningful value unless you securely store and manage the key.",
 ].join("\n"));
@@ -32,7 +32,7 @@ if (process.argv.includes("--json")) {
   console.log(JSON.stringify({
     address: account.address,
     privateKeyFile: outputPath,
-    next: `copy AGENT_PRIVATE_KEY from ${outputPath} into .env, or run with AGENT_ENV_FILE=${outputPath}`,
+    next: `local loopback only: run with AGENT_ENV_FILE=${outputPath}, or copy AGENT_PRIVATE_KEY into a local-only env file`,
   }, null, 2));
 }
 

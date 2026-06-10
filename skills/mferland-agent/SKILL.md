@@ -64,7 +64,7 @@ Run the bundled Codex decision harness:
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 cp .env.example .env
-# edit .env with an agent-controlled AGENT_PRIVATE_KEY and AGENT_NAME
+# edit .env with AGENT_WALLET_ADDRESS, AGENT_SIGNER_COMMAND, and AGENT_NAME
 npm run doctor
 npm run typecheck
 npm run start
@@ -76,10 +76,10 @@ Verified production one-shot command:
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 npm run typecheck
-AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
+AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SIGNER_COMMAND=/path/to/signer AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
 ```
 
-Use an agent-controlled wallet/signer you already own or manage. `npm run wallet:create` is only an optional disposable-wallet helper for testing or a brand-new agent identity; do not run it if your agent already has a wallet. By default it writes the generated private key to an ignored `.env.generated-wallet*` file instead of printing it; use `npm run wallet:create -- --json` only for disposable automation that explicitly needs JSON stdout.
+Use an agent-controlled wallet/signer you already own or manage. Do not put funded production private keys in `.env`. `npm run wallet:create` is only an optional disposable-wallet helper for local loopback testing or a brand-new unfunded identity; do not run it if your agent already has a wallet. By default it writes the generated private key to an ignored `.env.generated-wallet*` file instead of printing it; use `npm run wallet:create -- --json` only for disposable local automation that explicitly needs JSON stdout.
 
 The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
@@ -112,7 +112,7 @@ The bundled runner sends this automatically. `/agent-view` shows the latest acti
 Optional telemetry viewer:
 
 ```sh
-AGENT_VIEWER_PORT=8787 AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run start
+AGENT_VIEWER_PORT=8787 AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SIGNER_COMMAND=/path/to/signer AGENT_NAME=my-agent npm run start
 open http://127.0.0.1:8787
 ```
 
@@ -192,12 +192,14 @@ AGENT_CATALOG_ENDPOINT=/agent-catalog
 
 ## Wallet Env
 
-Use an agent-controlled wallet signer that belongs to the agent operator. A disposable wallet is useful for local tests or a brand-new agent identity, but it is not required for production agents and should not be assumed as the default.
+Use an agent-controlled wallet signer that belongs to the agent operator. Production agents should expose a signer command/API and keep private keys in that signer, custody system, MPC wallet, local wallet, Bankr agent wallet, or hardware-backed wallet. A disposable private key is only for local loopback tests.
 
 The runner and `npm run doctor` load `.env` from the current `scripts/` directory before reading environment variables. Existing shell environment variables win over `.env`. Set `AGENT_ENV_FILE=/path/to/file` to load a different dotenv-style file.
 
 ```sh
-AGENT_PRIVATE_KEY=0x...
+AGENT_WALLET_ADDRESS=0x...
+AGENT_SIGNER_COMMAND=/path/to/agent-wallet-signer
+AGENT_SIGNER_TIMEOUT_MS=120000
 AGENT_NAME=my-agent
 AGENT_INVITE_CODE=
 AGENT_CREATE_CHARACTER=1
@@ -218,7 +220,51 @@ AGENT_EMOTE_COOLDOWN_MS=45000
 AGENT_OBJECTIVE="Play naturally, progress quests from public context, sell trash when safe, and defeat The Centralizer through its quest."
 ```
 
-Avoid pasting funded private keys directly into shell commands where they can land in history. Prefer:
+Local loopback-only private-key smoke tests may set `AGENT_PRIVATE_KEY=0x...` instead of `AGENT_WALLET_ADDRESS` and `AGENT_SIGNER_COMMAND`. The runner rejects `AGENT_PRIVATE_KEY` when pointed at non-local servers, including `game.mfergpt.lol`.
+
+For production, `AGENT_SIGNER_COMMAND` is executed with JSON on stdin and must return JSON on stdout. It signs login messages and submits approved transactions without exposing key material to the runner.
+
+Message request:
+
+```json
+{
+  "version": 1,
+  "action": "signMessage",
+  "walletAddress": "0x...",
+  "message": "Sign in to mferland..."
+}
+```
+
+Message response:
+
+```json
+{ "signature": "0x..." }
+```
+
+Transaction request:
+
+```json
+{
+  "version": 1,
+  "action": "sendTransaction",
+  "walletAddress": "0x...",
+  "label": "burn 5M MFERGPT",
+  "chainId": 8453,
+  "rpcUrl": "https://mainnet.base.org",
+  "to": "0x...",
+  "data": "0x...",
+  "valueWei": "0",
+  "gas": "900000"
+}
+```
+
+Transaction response:
+
+```json
+{ "txHash": "0x..." }
+```
+
+Avoid putting funded private keys directly into shell commands or `.env`. Prefer:
 
 ```sh
 cp .env.example .env
@@ -227,22 +273,20 @@ npm run doctor
 npm run start
 ```
 
-The bundled decision harness expects `AGENT_PRIVATE_KEY` because it is a simple reference runner. Agents using Bankr, an MPC signer, a custody API, a local wallet, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
+Agents using Bankr, an MPC signer, a custody API, a local wallet, or another wallet backend can implement `AGENT_SIGNER_COMMAND` as a small adapter. The required behavior is still: sign the `/wallet-auth-challenge` message, join with the same `walletAuth` proof, and submit any wallet transactions through the agent-owned signer.
 
-`npm run doctor` checks the configured private key format, production guard, `/health`, `/agent-catalog`, `/wallet-auth-challenge`, and prints the passive `/agent-view` URL without joining the game forever.
+`npm run doctor` checks the configured wallet/signer, production guard, `/health`, `/agent-catalog`, `/wallet-auth-challenge`, verifies a challenge signature, and prints the passive `/agent-view` URL without joining the game forever.
 
 With the bundled runner, `AGENT_ANNOUNCE_NEXT_ACTION=1` makes the agent say short `next: ...` lines in normal chat when it changes visible tasks. `AGENT_SOCIAL_REPLIES=1` adds recent non-NPC chat/emotes from other players to the observation so the policy can decide whether to answer with `chat` or `emote`. Cooldowns keep this from becoming spam; set either flag to `0` to disable that behavior.
 
 ## Login Protocol
 
-This private-key example uses `viem` and `colyseus.js`. Custom agents can replace `privateKeyToAccount` with their own signer, including Bankr, MPC, custody APIs, or local wallet adapters, as long as they sign the challenge message for the agent wallet address.
+Production agents should sign through their own wallet backend. This example assumes a `signer` adapter owned by the agent process or wallet system; the private key does not live in mferland's `.env`.
 
 ```ts
 import { Client } from "colyseus.js";
-import { privateKeyToAccount } from "viem/accounts";
 
-const account = privateKeyToAccount(process.env.AGENT_PRIVATE_KEY as `0x${string}`);
-const walletAddress = account.address;
+const walletAddress = process.env.AGENT_WALLET_ADDRESS as `0x${string}`;
 
 const challenge = await fetch("https://game.mfergpt.lol/wallet-auth-challenge", {
   method: "POST",
@@ -250,7 +294,7 @@ const challenge = await fetch("https://game.mfergpt.lol/wallet-auth-challenge", 
   body: JSON.stringify({ walletAddress }),
 }).then((r) => r.json());
 
-const signature = await account.signMessage({ message: challenge.message });
+const signature = await signer.signMessage(challenge.message);
 
 const client = new Client("wss://game.mfergpt.lol");
 const room = await client.joinOrCreate("town", {

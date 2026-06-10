@@ -31,7 +31,10 @@ type AgentConfig = {
   roomName: string;
   authEndpoint: string;
   catalogEndpoint: string;
-  privateKey: `0x${string}`;
+  walletAddress: Address;
+  privateKey: `0x${string}` | "";
+  signerCommand: string;
+  signerTimeoutMs: number;
   agentName: string;
   inviteCode: string;
   createCharacter: boolean;
@@ -50,6 +53,23 @@ type AgentConfig = {
   viewerPort: number;
   viewerHost: string;
   gameViewerUrl: string;
+};
+
+type SignerTransactionRequest = {
+  label: string;
+  chainId: number;
+  rpcUrl: string;
+  to: Address;
+  data?: `0x${string}`;
+  valueWei?: string;
+  gas?: string;
+};
+
+type AgentSigner = {
+  address: Address;
+  kind: "private-key" | "command";
+  signMessage(message: string): Promise<`0x${string}`>;
+  sendTransaction(request: SignerTransactionRequest): Promise<`0x${string}`>;
 };
 
 type RuntimePlayer = AnyRecord & {
@@ -405,8 +425,73 @@ type DexScreenerTokenResponse = {
   }>;
 };
 
-class MferGptWalletTools {
+class PrivateKeyAgentSigner implements AgentSigner {
+  readonly kind = "private-key" as const;
   private readonly account: PrivateKeyAccount;
+
+  constructor(privateKey: `0x${string}`) {
+    this.account = privateKeyToAccount(privateKey);
+  }
+
+  get address() {
+    return this.account.address;
+  }
+
+  signMessage(message: string) {
+    return this.account.signMessage({ message });
+  }
+
+  sendTransaction(request: SignerTransactionRequest) {
+    const walletClient = createWalletClient({
+      account: this.account,
+      chain: makeChain(request.chainId, request.rpcUrl),
+      transport: http(request.rpcUrl),
+    });
+    return walletClient.sendTransaction({
+      to: request.to,
+      data: request.data,
+      value: BigInt(request.valueWei ?? "0"),
+      gas: request.gas ? BigInt(request.gas) : undefined,
+    });
+  }
+}
+
+class CommandAgentSigner implements AgentSigner {
+  readonly kind = "command" as const;
+
+  constructor(
+    readonly address: Address,
+    private readonly command: string,
+    private readonly timeoutMs: number,
+  ) {}
+
+  async signMessage(message: string) {
+    const response = await runSignerCommand(this.command, this.timeoutMs, {
+      version: 1,
+      action: "signMessage",
+      walletAddress: this.address,
+      message,
+    });
+    const signature = normalizeSignature(response.signature);
+    if (!signature) throw new Error("AGENT_SIGNER_COMMAND signMessage response must include a 0x signature.");
+    return signature;
+  }
+
+  async sendTransaction(request: SignerTransactionRequest) {
+    const response = await runSignerCommand(this.command, this.timeoutMs, {
+      version: 1,
+      action: "sendTransaction",
+      walletAddress: this.address,
+      ...request,
+    });
+    const txHash = normalizeTxHash(response.txHash);
+    if (!txHash) throw new Error("AGENT_SIGNER_COMMAND sendTransaction response must include a 0x txHash.");
+    return txHash as `0x${string}`;
+  }
+}
+
+class MferGptWalletTools {
+  private readonly signer: AgentSigner;
   private readonly rpcUrl: string;
   private readonly rpcChainId: number;
   private readonly proofChainId: number;
@@ -418,7 +503,7 @@ class MferGptWalletTools {
   private readonly useUniversalRouter: boolean;
 
   constructor(options: {
-    account: PrivateKeyAccount;
+    signer: AgentSigner;
     rpcUrl: string;
     rpcChainId: number;
     proofChainId: number;
@@ -429,7 +514,7 @@ class MferGptWalletTools {
     universalRouterAddress?: Address;
     useUniversalRouter: boolean;
   }) {
-    this.account = options.account;
+    this.signer = options.signer;
     this.rpcUrl = options.rpcUrl;
     this.rpcChainId = options.rpcChainId;
     this.proofChainId = options.proofChainId;
@@ -441,7 +526,7 @@ class MferGptWalletTools {
     this.useUniversalRouter = options.useUniversalRouter;
   }
 
-  static fromEnv(account: PrivateKeyAccount, config: AgentConfig) {
+  static fromEnv(signer: AgentSigner, config: AgentConfig) {
     const localConfig = readCryptoContractsConfig();
     const localOnly = isLocalAgentRun(config);
     const useBaseDefaults = !localOnly && config.allowProduction;
@@ -497,7 +582,7 @@ class MferGptWalletTools {
     const useUniversalRouter = !rpcIsLocal && !localSwapRouterAddress;
 
     return new MferGptWalletTools({
-      account,
+      signer,
       rpcUrl,
       rpcChainId,
       proofChainId,
@@ -513,12 +598,12 @@ class MferGptWalletTools {
   async observe(): Promise<WalletToolSnapshot> {
     const publicClient = this.publicClient();
     const [nativeBalance, tokenBalance] = await Promise.all([
-      publicClient.getBalance({ address: this.account.address }),
+      publicClient.getBalance({ address: this.signer.address }),
       publicClient.readContract({
         address: this.tokenAddress,
         abi: ERC20_ABI,
         functionName: "balanceOf",
-        args: [this.account.address],
+        args: [this.signer.address],
       }),
     ]);
     const swapRouterAddress = this.localSwapRouterAddress ?? (this.useUniversalRouter ? this.universalRouterAddress : undefined);
@@ -544,20 +629,25 @@ class MferGptWalletTools {
   async burn(amountWei: string, amountLabel: string): Promise<MferGptPaymentProof> {
     const amount = BigInt(amountWei);
     const publicClient = this.publicClient();
-    const walletClient = this.walletClient();
     const balance = await publicClient.readContract({
       address: this.tokenAddress,
       abi: ERC20_ABI,
       functionName: "balanceOf",
-      args: [this.account.address],
+      args: [this.signer.address],
     });
     if (balance < amount) throw new Error(`not enough ${amountLabel}`);
 
-    const txHash = await walletClient.writeContract({
-      address: this.tokenAddress,
-      abi: ERC20_ABI,
-      functionName: "transfer",
-      args: [this.burnAddress, amount],
+    const txHash = await this.signer.sendTransaction({
+      label: `burn ${amountLabel}`,
+      chainId: this.rpcChainId,
+      rpcUrl: this.rpcUrl,
+      to: this.tokenAddress,
+      data: encodeFunctionData({
+        abi: ERC20_ABI,
+        functionName: "transfer",
+        args: [this.burnAddress, amount],
+      }),
+      valueWei: "0",
     });
     const receipt = await publicClient.waitForTransactionReceipt({
       hash: txHash,
@@ -585,14 +675,13 @@ class MferGptWalletTools {
     if (!this.localSwapRouterAddress) throw new Error("local MFERGPT swap router is not configured.");
     const amountIn = parseEthAmount(amountEth);
     const publicClient = this.publicClient();
-    const walletClient = this.walletClient();
     const [nativeBalance, beforeBalance, quotedOut] = await Promise.all([
-      publicClient.getBalance({ address: this.account.address }),
+      publicClient.getBalance({ address: this.signer.address }),
       publicClient.readContract({
         address: this.tokenAddress,
         abi: ERC20_ABI,
         functionName: "balanceOf",
-        args: [this.account.address],
+        args: [this.signer.address],
       }),
       publicClient.readContract({
         address: this.localSwapRouterAddress,
@@ -605,12 +694,17 @@ class MferGptWalletTools {
     if (quotedOut <= 0n) throw new Error("MFERGPT swap quote returned 0");
     const minOut = quotedOut * (BPS_DENOMINATOR - DEFAULT_SWAP_SLIPPAGE_BPS) / BPS_DENOMINATOR;
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-    const txHash = await walletClient.writeContract({
-      address: this.localSwapRouterAddress,
-      abi: LOCAL_SWAP_ROUTER_ABI,
-      functionName: "swapExactETHForTokens",
-      args: [minOut, [this.swapInputAddress, this.tokenAddress], this.account.address, deadline],
-      value: amountIn,
+    const txHash = await this.signer.sendTransaction({
+      label: `swap ${amountEth} ETH for MFERGPT`,
+      chainId: this.rpcChainId,
+      rpcUrl: this.rpcUrl,
+      to: this.localSwapRouterAddress,
+      data: encodeFunctionData({
+        abi: LOCAL_SWAP_ROUTER_ABI,
+        functionName: "swapExactETHForTokens",
+        args: [minOut, [this.swapInputAddress, this.tokenAddress], this.signer.address, deadline],
+      }),
+      valueWei: amountIn.toString(),
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1, timeout: 90_000 });
     if (receipt.status !== "success") throw new Error(`${amountEth} ETH to MFERGPT swap failed`);
@@ -629,23 +723,25 @@ class MferGptWalletTools {
     const amountIn = parseEthAmount(amountEth);
     const quote = await getMferGptSwapQuote(amountIn);
     const publicClient = this.publicClient();
-    const walletClient = this.walletClient();
     const [nativeBalance, beforeBalance] = await Promise.all([
-      publicClient.getBalance({ address: this.account.address }),
+      publicClient.getBalance({ address: this.signer.address }),
       publicClient.readContract({
         address: this.tokenAddress,
         abi: ERC20_ABI,
         functionName: "balanceOf",
-        args: [this.account.address],
+        args: [this.signer.address],
       }),
     ]);
     if (nativeBalance <= amountIn) throw new Error(`not enough Base ETH to swap ${amountEth}`);
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-    const txHash = await walletClient.sendTransaction({
+    const txHash = await this.signer.sendTransaction({
+      label: `swap ${amountEth} Base ETH for MFERGPT`,
+      chainId: this.rpcChainId,
+      rpcUrl: this.rpcUrl,
       to: this.universalRouterAddress,
       data: buildMferGptUniversalRouterCallData(quote.minAmountOutWei, amountIn, deadline),
-      value: amountIn,
-      gas: MFERGPT_SWAP_GAS_LIMIT,
+      valueWei: amountIn.toString(),
+      gas: MFERGPT_SWAP_GAS_LIMIT.toString(),
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1, timeout: 90_000 });
     if (receipt.status !== "success") throw new Error(`${amountEth} ETH to MFERGPT swap failed`);
@@ -665,7 +761,7 @@ class MferGptWalletTools {
       address: this.tokenAddress,
       abi: ERC20_ABI,
       functionName: "balanceOf",
-      args: [this.account.address],
+      args: [this.signer.address],
     });
     return afterBalance > beforeBalance ? afterBalance - beforeBalance : 0n;
   }
@@ -677,29 +773,14 @@ class MferGptWalletTools {
     });
   }
 
-  private walletClient() {
-    return createWalletClient({
-      account: this.account,
-      chain: this.chain,
-      transport: http(this.rpcUrl),
-    });
-  }
-
   private get chain() {
-    return {
-      id: this.rpcChainId,
-      name: this.rpcChainId === 31337 ? "mferland local" : "Base",
-      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: {
-        default: { http: [this.rpcUrl] },
-      },
-    } as const;
+    return makeChain(this.rpcChainId, this.rpcUrl);
   }
 }
 
 class MferlandRunner {
   private readonly config: AgentConfig;
-  private readonly account: PrivateKeyAccount;
+  private readonly signer: AgentSigner;
   private readonly client: Client;
   private room: Room | null = null;
   private players = new Map<string, RuntimePlayer>();
@@ -750,9 +831,9 @@ class MferlandRunner {
 
   constructor(config: AgentConfig) {
     this.config = config;
-    this.account = privateKeyToAccount(config.privateKey);
+    this.signer = createAgentSigner(config);
     this.client = new Client(config.roomServer);
-    this.walletTools = MferGptWalletTools.fromEnv(this.account, config);
+    this.walletTools = MferGptWalletTools.fromEnv(this.signer, config);
   }
 
   async start() {
@@ -794,11 +875,11 @@ class MferlandRunner {
 
   private async connect() {
     const challenge = await this.requestChallenge();
-    const signature = await this.account.signMessage({ message: challenge.message });
+    const signature = await this.signer.signMessage(challenge.message);
     const room = await this.client.joinOrCreate(this.config.roomName, {
       name: this.config.agentName,
       identityType: "wallet",
-      walletAddress: this.account.address,
+      walletAddress: this.signer.address,
       createCharacter: this.config.createCharacter,
       inviteCode: this.config.inviteCode,
       agentClient: true,
@@ -810,9 +891,9 @@ class MferlandRunner {
     });
     this.room = room;
     this.installHandlers(room);
-    this.log(`joined ${this.config.roomName} as ${this.config.agentName} ${shortAddress(this.account.address)}`);
+    this.log(`joined ${this.config.roomName} as ${this.config.agentName} ${shortAddress(this.signer.address)} via ${this.signer.kind} signer`);
     if (this.config.gameViewerUrl) {
-      this.log(`game viewer ${makeAgentGameViewerUrl(this.config.gameViewerUrl, this.account.address)}`);
+      this.log(`game viewer ${makeAgentGameViewerUrl(this.config.gameViewerUrl, this.signer.address)}`);
     }
   }
 
@@ -821,7 +902,7 @@ class MferlandRunner {
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress: this.account.address }),
+      body: JSON.stringify({ walletAddress: this.signer.address }),
     });
     const payload = await response.json().catch(() => null) as { ok?: boolean; nonce?: string; message?: string; error?: string } | null;
     if (!response.ok || !payload?.ok || !payload.nonce || !payload.message) {
@@ -1130,7 +1211,7 @@ class MferlandRunner {
     return {
       objective: this.config.objective,
       wallet: {
-        address: this.account.address,
+        address: this.signer.address,
         agentClient: true,
         maxMferGptSpendWei: this.config.maxMferGptSpendWei,
         mferGptSpendSubmittedWei: this.mferGptSpendSubmittedWei.toString(),
@@ -1718,7 +1799,7 @@ class MferlandRunner {
       roomName: this.config.roomName,
       objective: this.config.objective,
       wallet: {
-        address: this.account.address,
+        address: this.signer.address,
         agentClient: true,
       },
       self: self
@@ -3239,7 +3320,27 @@ function readConfig(): AgentConfig {
   const roomServer = cleanEnv("ROOM_SERVER") || "wss://game.mfergpt.lol";
   const httpServer = cleanEnv("HTTP_SERVER") || toHttpServer(roomServer);
   const privateKey = cleanEnv("AGENT_PRIVATE_KEY");
-  if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) throw new Error("AGENT_PRIVATE_KEY must be a 0x-prefixed 32-byte private key.");
+  const signerCommand = cleanEnv("AGENT_SIGNER_COMMAND");
+  const configuredWalletAddress = asAddress(cleanEnv("AGENT_WALLET_ADDRESS"));
+  const localRun = isLoopbackUrl(roomServer) || isLoopbackUrl(httpServer) || cleanEnv("MFERLAND_AGENT_LOCAL_ONLY") === "1";
+  let walletAddress = configuredWalletAddress;
+  if (privateKey) {
+    if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) throw new Error("AGENT_PRIVATE_KEY must be a 0x-prefixed 32-byte private key.");
+    if (!localRun) {
+      throw new Error("AGENT_PRIVATE_KEY is only allowed for local/loopback testing. For production, use AGENT_WALLET_ADDRESS plus AGENT_SIGNER_COMMAND.");
+    }
+    const derivedAddress = privateKeyToAccount(privateKey as `0x${string}`).address;
+    if (walletAddress && walletAddress.toLowerCase() !== derivedAddress.toLowerCase()) {
+      throw new Error("AGENT_WALLET_ADDRESS does not match the AGENT_PRIVATE_KEY test wallet.");
+    }
+    walletAddress = derivedAddress;
+  }
+  if (!walletAddress) {
+    throw new Error("Set AGENT_WALLET_ADDRESS for production signing, or AGENT_PRIVATE_KEY for local loopback testing.");
+  }
+  if (!privateKey && !signerCommand) {
+    throw new Error("Set AGENT_SIGNER_COMMAND so the agent wallet can sign auth messages and transactions.");
+  }
   const allowProduction = cleanEnv("AGENT_ALLOW_PRODUCTION") === "1";
   if (/game\.mfergpt\.lol/i.test(roomServer) && !allowProduction) {
     throw new Error("Set AGENT_ALLOW_PRODUCTION=1 to connect this runner to game.mfergpt.lol.");
@@ -3256,7 +3357,10 @@ function readConfig(): AgentConfig {
     roomName: cleanEnv("ROOM_NAME") || "town",
     authEndpoint: cleanEnv("AUTH_ENDPOINT") || "/wallet-auth-challenge",
     catalogEndpoint: cleanEnv("AGENT_CATALOG_ENDPOINT") || "/agent-catalog",
-    privateKey: privateKey as `0x${string}`,
+    walletAddress,
+    privateKey: privateKey as `0x${string}` | "",
+    signerCommand,
+    signerTimeoutMs: readNumberEnv("AGENT_SIGNER_TIMEOUT_MS") || 120_000,
     agentName: cleanEnv("AGENT_NAME") || "mfer-agent",
     inviteCode: cleanEnv("AGENT_INVITE_CODE"),
     createCharacter: cleanEnv("AGENT_CREATE_CHARACTER") !== "0",
@@ -3276,6 +3380,75 @@ function readConfig(): AgentConfig {
     viewerHost,
     gameViewerUrl,
   };
+}
+
+function createAgentSigner(config: AgentConfig): AgentSigner {
+  if (config.privateKey) return new PrivateKeyAgentSigner(config.privateKey);
+  return new CommandAgentSigner(config.walletAddress, config.signerCommand, config.signerTimeoutMs);
+}
+
+function runSignerCommand(command: string, timeoutMs: number, request: AnyRecord) {
+  return new Promise<AnyRecord>((resolve, reject) => {
+    const child = spawn(command, {
+      shell: true,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: getSanitizedSignerEnv(),
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 1000).unref();
+    }, timeoutMs);
+
+    child.stdin?.end(`${JSON.stringify(request)}\n`);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = appendLimited(stdout, chunk.toString("utf8"));
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = appendLimited(stderr, chunk.toString("utf8"));
+    });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (timedOut) {
+        reject(new Error(`AGENT_SIGNER_COMMAND timed out after ${timeoutMs}ms.`));
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(`AGENT_SIGNER_COMMAND failed with code ${code}: ${stderr || stdout}`));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        const record = asRecord(parsed);
+        if (typeof record.error === "string" && record.error) throw new Error(record.error);
+        resolve(record);
+      } catch (error) {
+        reject(new Error(`AGENT_SIGNER_COMMAND returned invalid JSON: ${errorMessage(error)} ${stdout}`));
+      }
+    });
+  });
+}
+
+function getSanitizedSignerEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    HOME: process.env.HOME || homedir(),
+    LANG: process.env.LANG || "C.UTF-8",
+    LOGNAME: process.env.LOGNAME || process.env.USER,
+    NODE_NO_WARNINGS: process.env.NODE_NO_WARNINGS,
+    PATH: process.env.PATH || "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+    SHELL: process.env.SHELL || "/bin/zsh",
+    TMPDIR: process.env.TMPDIR || tmpdir(),
+    USER: process.env.USER || process.env.LOGNAME,
+  };
+  if (process.env.CODEX_HOME) env.CODEX_HOME = process.env.CODEX_HOME;
+  return env;
 }
 
 function loadDotEnvFile() {
@@ -3586,6 +3759,12 @@ function normalizeTxHash(value: unknown) {
   return /^0x[a-f0-9]{64}$/.test(text) ? text : "";
 }
 
+function normalizeSignature(value: unknown) {
+  if (typeof value !== "string") return "";
+  const text = value.trim().toLowerCase();
+  return /^0x[a-f0-9]+$/.test(text) && text.length >= 132 ? text as `0x${string}` : "";
+}
+
 function normalizeAddress(value: unknown) {
   if (typeof value !== "string") return "";
   const text = value.trim().toLowerCase();
@@ -3748,6 +3927,17 @@ function toHttpServer(roomServer: string) {
   if (roomServer.startsWith("wss://")) return `https://${roomServer.slice("wss://".length)}`;
   if (roomServer.startsWith("ws://")) return `http://${roomServer.slice("ws://".length)}`;
   return roomServer;
+}
+
+function makeChain(chainId: number, rpcUrl: string) {
+  return {
+    id: chainId,
+    name: chainId === 31337 ? "mferland local" : "Base",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: {
+      default: { http: [rpcUrl] },
+    },
+  } as const;
 }
 
 function defaultAgentGameViewerUrl(roomServer: string) {

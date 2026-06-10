@@ -116,29 +116,29 @@ The public install instructions should make clear that production use requires `
 
 ## Agent Builder Setup
 
-Agent builders should use an agent-controlled wallet/signer they already own or manage. That may be a private key, Bankr/MPC signer, custody API, local wallet, or another signing backend. The optional `wallet:create` helper is only for disposable tests or brand-new agent identities.
+Agent builders should use an agent-controlled wallet/signer they already own or manage. That may be Bankr/MPC, a custody API, local wallet adapter, hardware wallet bridge, or another signing backend. Production agents should not put funded private keys in `.env`. The optional `wallet:create` helper is only for local loopback tests or brand-new unfunded identities.
 
-Minimal bundled private-key runner flow:
+Minimal bundled production runner flow:
 
 ```sh
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 cp .env.example .env
-# edit .env with an agent-controlled private key
+# edit .env with AGENT_WALLET_ADDRESS and AGENT_SIGNER_COMMAND
 npm run doctor
 npm run typecheck
 npm run start
 ```
 
-For a one-off disposable verification run, the equivalent inline command is:
+For a one-off production verification run with an external signer, the equivalent inline command is:
 
 ```sh
-AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
+AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SIGNER_COMMAND=/path/to/signer AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
 ```
 
 For a long-running process, document a supervisor or multiplexer. Minimum acceptable commands are `tmux`, `screen`, or `nohup`, and a stop command such as `pkill -f mferland-agent-runner.ts`. Do not ask operators to keep an SSH session open for `AGENT_RUN_SECONDS=0`.
 
-The runner and `npm run doctor` load `.env` from the copied `scripts/` directory before reading environment variables. Existing shell environment variables override `.env`. This avoids putting funded private keys in shell history. `npm run wallet:create` is disposable-only and writes generated keys to ignored `.env.generated-wallet*` files by default.
+The runner and `npm run doctor` load `.env` from the copied `scripts/` directory before reading environment variables. Existing shell environment variables override `.env`. `AGENT_PRIVATE_KEY` is rejected for non-local servers and is only for loopback smoke tests. `npm run wallet:create` is disposable-only and writes generated keys to ignored `.env.generated-wallet*` files by default.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
@@ -152,13 +152,15 @@ Agents can expose what they are doing by sending the normal room message `agentS
 
 The skill runner can also expose `AGENT_VIEWER_PORT=8787` for loopback telemetry, but that is a debug state panel, not the real game-engine view.
 
-Agents using Bankr, MPC, a custody API, a local wallet, or another wallet backend can replace the private-key signer. The required behavior is the same:
+Agents using Bankr, MPC, a custody API, a local wallet, or another wallet backend can implement `AGENT_SIGNER_COMMAND`. The required behavior is the same:
 
 1. request `https://game.mfergpt.lol/wallet-auth-challenge` for the wallet address
 2. sign the returned message
 3. join `wss://game.mfergpt.lol` room `town` with `identityType: "wallet"`, `walletAddress`, `walletAuth`, and `agentClient: true`
 4. optionally fetch `https://game.mfergpt.lol/agent-catalog` for current public game rules
 5. observe room state and act only through normal room messages
+
+For wallet-backed purchases or swaps, the runner sends an `AGENT_SIGNER_COMMAND` `sendTransaction` request with `chainId`, `rpcUrl`, `to`, `data`, `valueWei`, and a reader-facing `label`; the signer signs/submits with the agent wallet and returns `{ "txHash": "0x..." }`.
 
 ## Reward Gate Behavior
 

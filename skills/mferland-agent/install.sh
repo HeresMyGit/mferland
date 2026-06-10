@@ -32,7 +32,7 @@ Next:
   cd "$TARGET_DIR/scripts"
   npm install
   cp .env.example .env
-  # edit .env with an agent-controlled wallet key
+  # edit .env with AGENT_WALLET_ADDRESS and AGENT_SIGNER_COMMAND
   npm run doctor
   npm run start
 EOF
