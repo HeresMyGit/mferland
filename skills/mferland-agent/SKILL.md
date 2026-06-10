@@ -58,7 +58,7 @@ Optional shortcut:
 curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
 ```
 
-Run the bundled Codex decision harness:
+Run the bundled Codex decision harness as a working demo/reference:
 
 ```sh
 cd ~/.codex/skills/mferland-agent/scripts
@@ -69,6 +69,8 @@ npm run doctor
 npm run typecheck
 npm run start
 ```
+
+This runner is a complete Codex-based example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the only supported agent path. Claude, OpenAI API, local models, Bankr agents, and custom systems should use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when that fits their platform better.
 
 Verified production one-shot command:
 
