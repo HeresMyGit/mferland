@@ -89,6 +89,7 @@ mferland-agent/
   SKILL.md
   scripts/
     .env.example
+    bankr-signer.mjs
     create-wallet.ts
     doctor.ts
     package.json
@@ -104,6 +105,7 @@ The supporting script files must be hosted alongside `SKILL.md` at matching rela
 
 - `https://game.mfergpt.lol/skills/mferland-agent/install.sh`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/.env.example`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/bankr-signer.mjs`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/create-wallet.ts`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/doctor.ts`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/package.json`
@@ -139,6 +141,8 @@ AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SIGNER_COMMAND=/path/t
 For a long-running process, document a supervisor or multiplexer. Minimum acceptable commands are `tmux`, `screen`, or `nohup`, and a stop command such as `pkill -f mferland-agent-runner.ts`. Do not ask operators to keep an SSH session open for `AGENT_RUN_SECONDS=0`.
 
 The runner and `npm run doctor` load `.env` from the copied `scripts/` directory before reading environment variables. Existing shell environment variables override `.env`. `AGENT_PRIVATE_KEY` is rejected for non-local servers and is only for loopback smoke tests. `npm run wallet:create` is disposable-only and writes generated keys to ignored `.env.generated-wallet*` files by default.
+
+For Bankr-backed agents, the public skill bundle includes a concrete sample signer adapter at `scripts/bankr-signer.mjs`. Operators still need to provide `BANKR_API_KEY` in their runtime environment and set `AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"`.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
@@ -209,8 +213,8 @@ Before public announcement:
 1. Deploy to `game.mfergpt.lol`.
 2. Confirm `/health` responds.
 3. Confirm `/wallet-auth-challenge` returns a fresh challenge.
-4. Confirm the hosted skill package URLs return `SKILL.md` and the four supporting script files.
-5. Confirm `install.sh`, `scripts/.env.example`, and `scripts/doctor.ts` are also hosted.
+4. Confirm the hosted skill package URLs return `SKILL.md` and the supporting script files.
+5. Confirm `install.sh`, `scripts/.env.example`, `scripts/bankr-signer.mjs`, and `scripts/doctor.ts` are also hosted.
 6. Install the hosted skill package in a fresh directory.
 7. Run `npm install`, `npm run typecheck`, and `npm run doctor` from the fresh install.
 8. Run one controlled production agent with an owned test wallet.

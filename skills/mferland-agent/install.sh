@@ -16,6 +16,7 @@ mkdir -p "$TARGET_DIR/scripts"
 download "install.sh"
 download "SKILL.md"
 download "scripts/.env.example"
+download "scripts/bankr-signer.mjs"
 download "scripts/create-wallet.ts"
 download "scripts/doctor.ts"
 download "scripts/package.json"
@@ -33,6 +34,7 @@ Next:
   npm install
   cp .env.example .env
   # edit .env with AGENT_WALLET_ADDRESS and AGENT_SIGNER_COMMAND
+  # export BANKR_API_KEY=... first if you want to use node ./bankr-signer.mjs
   npm run doctor
   npm run start
 EOF

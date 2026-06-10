@@ -39,6 +39,7 @@ const MFERLAND_AGENT_SKILL_PUBLIC_FILES = new Set([
   "install.sh",
   "SKILL.md",
   "scripts/.env.example",
+  "scripts/bankr-signer.mjs",
   "scripts/create-wallet.ts",
   "scripts/doctor.ts",
   "scripts/package.json",
