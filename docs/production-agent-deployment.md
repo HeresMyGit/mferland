@@ -2,11 +2,13 @@
 
 This note is for deploying the public mferland agent MVP on `game.mfergpt.lol`.
 
+The Mac mini is already the live production game server. For live upgrades, do not reinstall the server service unless it is missing; merge the branch into the existing `main` checkout, migrate, rebuild, restart, and smoke-check the running service.
+
 ## Goal
 
 Let live wallet-authenticated agents connect to the single production game server, observe normal public room state, act only through the same Colyseus messages as humans, identify themselves as agents, and earn reduced Season 0 rewards only after meeting the 25M MFERGPT wallet goal.
 
-There is no separate agent server for production.
+There is no separate agent server for production. Production agents are normal wallet-authenticated Colyseus clients connecting to the same live game server.
 
 ## Server Requirements
 
@@ -33,7 +35,51 @@ MFERLAND_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
 
 The gate only controls Season 0 earning for declared agents. Agents below 25M MFERGPT can still play, save progress, complete quests, loot, and fight bosses.
 
+## Live Mac Mini Upgrade
+
+Use the live repo and launchd service that are already running production:
+
+```sh
+cd /Users/mfergpt/dev/mferland
+git status --short
+git branch --show-current
+git rev-parse --short HEAD
+./scripts/mferland-prod-server.sh status
+curl -fsS https://game.mfergpt.lol/health
+```
+
+If the worktree is dirty, inspect it first. Do not reset or discard live-server changes without explicit approval.
+
+Merge and deploy:
+
+```sh
+git fetch origin
+git checkout main
+git pull --ff-only
+git merge --no-ff origin/codex/local-agent-gameplay
+
+npm install
+node apps/server/scripts/migrate.mjs
+./scripts/mferland-prod-server.sh build
+./scripts/mferland-prod-server.sh restart
+./scripts/mferland-prod-server.sh status
+```
+
+Smoke-check:
+
+```sh
+curl -fsS https://game.mfergpt.lol/health
+curl -fsS https://game.mfergpt.lol/agent-catalog
+curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
+```
+
 ## Skill Hosting
+
+The skill package is the installable starter bundle for external agent builders. It is new with the agent harness work and lives in this repo at `skills/mferland-agent`.
+
+After the branch is merged, the Mac mini repo has the source files, but that does not automatically make them downloadable from `https://game.mfergpt.lol/skills/...`.
+
+The live game server does not need this package to accept wallet agents. Host it only when public install of the reference runner is part of the release.
 
 Do not publish only `SKILL.md`. Agents need the complete package:
 
@@ -47,18 +93,26 @@ mferland-agent/
     mferland-agent-runner.ts
 ```
 
-Host one of these production install targets:
+The primary URL to give agents is:
 
-- `https://game.mfergpt.lol/skills/mferland-agent.tar.gz`
-- `https://game.mfergpt.lol/skills/mferland-agent.zip`
-- static file paths under `https://game.mfergpt.lol/skills/mferland-agent/...`
-- a public repo path that agent runners can install from
+- `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md`
+
+The supporting script files must be hosted alongside `SKILL.md` at matching relative paths:
+
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/create-wallet.ts`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/package.json`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts`
+
+Optional zip/tar artifacts or a public repo path are fine as convenience install targets, but the public agent entrypoint should be the hosted `SKILL.md` URL.
 
 The public install instructions should make clear that production use requires `AGENT_ALLOW_PRODUCTION=1` and an agent-controlled wallet signer.
 
 ## Agent Builder Setup
 
-Minimal runner flow:
+Agent builders should use an agent-controlled wallet/signer they already own or manage. That may be a private key, Bankr/MPC signer, custody API, local wallet, or another signing backend. The optional `wallet:create` helper is only for disposable tests or brand-new agent identities.
+
+Minimal bundled private-key runner flow:
 
 ```sh
 cd ~/.codex/skills/mferland-agent/scripts
@@ -81,7 +135,7 @@ Agents can expose what they are doing by sending the normal room message `agentS
 
 The skill runner can also expose `AGENT_VIEWER_PORT=8787` for loopback telemetry, but that is a debug state panel, not the real game-engine view.
 
-Agents using Bankr, MPC, or another wallet backend can replace the private-key signer. The required behavior is the same:
+Agents using Bankr, MPC, a custody API, a local wallet, or another wallet backend can replace the private-key signer. The required behavior is the same:
 
 1. request `https://game.mfergpt.lol/wallet-auth-challenge` for the wallet address
 2. sign the returned message

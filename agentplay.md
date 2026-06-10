@@ -1,22 +1,74 @@
-# mferland Production Agent Playbook
+# mferland Production Agent Handoff
 
-This file is for the production server/operator that pulls the agent gameplay harness onto `game.mfergpt.lol`.
+This file is for the Codex agent operating the live Mac mini production server for `game.mfergpt.lol`.
 
-## Ship Target
+## Current Live Assumption
 
-Use branch `codex/local-agent-gameplay`.
+The Mac mini is already the live production game server. It is already running `main` through the existing launchd/autoboot setup, and people may be playing.
 
-Agent harness commit already made locally:
+Do not reinstall the Mac mini service unless it is missing. This handoff is only for merging the agent branch, running any pending migrations, rebuilding, restarting, and smoke-checking the live server.
+
+There is no separate production agent server. Production agents are normal wallet-authenticated Colyseus clients connecting to the same live game server.
+
+## Branch And Scope
+
+Branch to merge:
 
 ```txt
-21eb703 Build local agent gameplay harness
+codex/local-agent-gameplay
 ```
 
-Do not include unrelated local quest shortcut edits unless you deliberately want them in production.
+The committed branch includes the wallet-agent server contract, `/agent-catalog`, `/agent-view`, public skill package source, local/internal agent harness work, and the approved gameplay changes from the bear-market testing branch.
 
-## Production Server Env
+Current approved gameplay changes in this branch include:
 
-Set these on the production game server:
+- heal cooldown changed from `5000ms` to `0`
+- bear market boss spawn moved to `{ x: 76, z: -111, yaw: -0.35 }`
+
+Before pushing or merging from another machine, check whether there are uncommitted local changes. Uncommitted local raid-test harness edits are not part of the pushed branch unless explicitly committed.
+
+## Live Prod Preflight
+
+Run these on the Mac mini before changing anything:
+
+```sh
+cd /Users/mfergpt/dev/mferland
+git status --short
+git branch --show-current
+git rev-parse --short HEAD
+./scripts/mferland-prod-server.sh status
+curl -fsS https://game.mfergpt.lol/health
+```
+
+If the worktree is dirty, inspect it first. Do not reset or discard live-server changes without explicit approval.
+
+## Merge And Restart
+
+From the live repo:
+
+```sh
+cd /Users/mfergpt/dev/mferland
+git fetch origin
+git checkout main
+git pull --ff-only
+git merge --no-ff origin/codex/local-agent-gameplay
+```
+
+Install/build/restart:
+
+```sh
+npm install
+node apps/server/scripts/migrate.mjs
+./scripts/mferland-prod-server.sh build
+./scripts/mferland-prod-server.sh restart
+./scripts/mferland-prod-server.sh status
+```
+
+The launchd helper runs the built server/web output. Build before restart.
+
+## Production Env Delta
+
+Confirm these are present in the production server environment:
 
 ```sh
 MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER="0.25"
@@ -26,20 +78,36 @@ MFERLAND_MFERGPT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
 MFERLAND_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
 ```
 
-MFERGPT Base/onchain details exposed to agents:
+The older `MFERLAND_TRAIT_*` names are still accepted by the payment verifier, but prefer the `MFERLAND_MFERGPT_*` names above for agent documentation and future consistency.
+
+Do not set local-only envs on production:
 
 ```txt
-CHAIN_ID=8453
-MFERGPT=0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
-BURN=0x000000000000000000000000000000000000dEaD
-WETH=0x4200000000000000000000000000000000000006
-UNISWAP_UNIVERSAL_ROUTER=0x6fF5693b99212Da76ad316178A184AB56D299b43
-UNISWAP_V4_HOOKS=0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC
-UNISWAP_V4_FEE=0x800000
-UNISWAP_V4_TICK_SPACING=200
+MFERLAND_LOCAL_ONLY=1
+MFERLAND_AGENT_LOCAL_ONLY=1
 ```
 
-Do not enable local-only wallet-auth bypasses or local-only test envs on production.
+## Smoke Checks
+
+After restart:
+
+```sh
+curl -fsS https://game.mfergpt.lol/health
+curl -fsS https://game.mfergpt.lol/agent-catalog
+curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
+```
+
+Verify from one controlled agent wallet when ready:
+
+1. `/wallet-auth-challenge` returns a fresh challenge.
+2. Wallet signature login succeeds.
+3. The player snapshot has `isAgent=true`.
+4. `Agent Rewards` chat reports the 25M MFERGPT gate status.
+5. Quest progress saves even below the gate.
+6. Season 0 payout is blocked below the gate or reduced by the multiplier above the gate.
+7. The agent can move, interact, fight, loot, equip/use items, spend talents, chat, and emote through normal room messages.
+8. `/agent-view?wallet=<wallet>` follows the agent in the real game renderer.
+9. No production bypass, debug teleport, DB shortcut, local wallet JSON, or local-only test env is deployed.
 
 ## What The Server Must Expose
 
@@ -60,9 +128,9 @@ createCharacter=true when needed
 
 Declared agents get `PlayerState.isAgent=true` and may send `agentStatus` with current action/thought/objective/quest text. The passive `/agent-view` page shows the real game renderer plus that status text.
 
-## Agent Skill Hosting
+## Agent Skill Package
 
-Host the whole skill package, not only `SKILL.md`:
+The skill package is the installable starter bundle for external agent builders. It lives in this repo at:
 
 ```txt
 skills/mferland-agent/
@@ -73,17 +141,34 @@ skills/mferland-agent/
   scripts/mferland-agent-runner.ts
 ```
 
-Good production install targets:
+This package is new with the agent harness work. After the branch is merged, the Mac mini repo will have the source files, but that does not automatically mean users can download them from `https://game.mfergpt.lol/skills/...`.
+
+The live game server does not need this package to accept wallet agents. It is only needed when we want to publish a ready-to-install reference runner for third-party/Codex-style agents.
+
+If public install is part of the release, the primary URL to give agents is:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland-agent.tar.gz
-https://game.mfergpt.lol/skills/mferland-agent.zip
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-## Agent Runner Env
+The supporting script files must be hosted alongside that `SKILL.md` at the matching relative paths:
 
-Production agent runners should use:
+```txt
+https://game.mfergpt.lol/skills/mferland-agent/scripts/create-wallet.ts
+https://game.mfergpt.lol/skills/mferland-agent/scripts/package.json
+https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json
+https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts
+```
+
+Optional zip/tar artifacts are fine as a convenience, but they are not the primary install target. The primary handoff target is the hosted `SKILL.md`.
+
+If public install is not part of this release, leave skill hosting as a follow-up and only verify the game server endpoints.
+
+## Production Reference Runner Env
+
+Agent builders should use an agent-controlled wallet/signer they already own or manage. That may be a private key, Bankr/MPC signer, custody API, local wallet, or another signing backend.
+
+The bundled reference runner uses a direct private key and should use:
 
 ```sh
 ROOM_SERVER="wss://game.mfergpt.lol"
@@ -101,18 +186,18 @@ AGENT_CHAT_COOLDOWN_MS=30000
 AGENT_EMOTE_COOLDOWN_MS=45000
 ```
 
-Wallet spending defaults to disabled unless the agent operator opts in:
+Wallet spending defaults should remain disabled unless the agent operator opts in:
 
 ```sh
 AGENT_MAX_MFERGPT_SPEND_WEI=0
 AGENT_MAX_SWAP_ETH_SPEND_WEI=0
 ```
 
-Agents using Bankr, MPC, or another wallet backend can replace `AGENT_PRIVATE_KEY`; the required behavior is still request challenge, sign message, join with `walletAuth`, then act through normal room messages.
+Agents using Bankr, MPC, a custody API, a local wallet, or another wallet backend can replace `AGENT_PRIVATE_KEY` and the bundled signer code. The required behavior is still request challenge, sign message, join with `walletAuth`, then act through normal room messages.
 
 ## Custom Runner Contract
 
-mferland should support wallet-authenticated agents without depending on Codex auth. The production contract is the game protocol, not a specific model provider.
+mferland supports wallet-authenticated agents without depending on Codex auth. The production contract is the game protocol, not a specific model provider.
 
 Runner builders should keep the communication layer stable:
 
@@ -129,39 +214,10 @@ while (roomIsConnected) {
 
 The policy may be Codex, Claude, OpenAI, a local model, Bankr, or custom code. The harness should own wallet challenge signing, Colyseus reconnects, public observation shaping, action validation, cooldown checks, stationary cast protection, short combat continuations after the policy picks a target, chat/emote cooldowns, and MFERGPT payment proof submission. The policy should own strategy: quest order, exploration, target selection, grouping, looting, gear/talent choices, shopping, social replies, and retreat timing.
 
-The bundled runner can make agents visible socially without scripting their gameplay. `AGENT_ANNOUNCE_NEXT_ACTION=1` posts short `next: ...` chat lines when the agent changes tasks. `AGENT_SOCIAL_REPLIES=1` puts recent player chat/emotes into the model observation so the agent may reply or emote through the same normal room messages as humans. Keep the cooldowns at or above the defaults for production unless you deliberately want more frequent social output.
-
-## MVP Acceptance Checks
-
-After deploy/restart:
-
-```sh
-curl -fsS https://game.mfergpt.lol/health
-curl -fsS https://game.mfergpt.lol/agent-catalog
-```
-
-Then run one controlled production agent with an owned test wallet and verify:
-
-1. Wallet challenge/signature login succeeds.
-2. Character creates or resumes.
-3. Player snapshot has `isAgent=true`.
-4. `Agent Rewards` chat reports the 25M MFERGPT gate status.
-5. Quest progress saves even below the gate.
-6. Season 0 payout is blocked below the gate or reduced by the multiplier above the gate.
-7. Agent can observe nearby human players and other agents.
-8. Agent can move, interact, accept/complete quests, fight, loot, equip/use items, spend talents, announce intent in chat, reply to player chat when useful, and emote through normal room messages.
-9. `/agent-view?wallet=<wallet>` follows the agent in the real game renderer.
-10. No production bypass, debug teleport, DB shortcut, or local testing wallet material is deployed.
-
-## Current Local Playthrough Evidence
-
-Fresh copied-skill run used wallet `0xaE1b254321ECA2E1F6fBf5623eBAc3736aa8Bd6B` against the local server only.
-
-The agent autonomously completed early mainline quests through observed quest offers/status/turn-ins, reached `boar-bristle-cull`, killed the final hog from 9/10 to 10/10, turned it in, accepted `feral-farmers`, and started adapting to farmer overpull risk by choosing safer fights for XP. It did not reach Centralizer before we stopped the local run.
-
 ## Do Not Ship
 
 - Private keys, mnemonics, real API keys, or wallet secrets.
 - `.tmp/` copied-skill directories or local wallet JSON.
 - Local-only wallet-auth bypass envs.
-- The current unstaged ogre-raid quest prerequisite shortcut unless intentionally approved for production.
+- Local-only Anvil payment config.
+- Debug teleports, DB shortcuts, or production-only agent shortcuts.
