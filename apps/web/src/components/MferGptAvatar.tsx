@@ -5,8 +5,15 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
-import { getNpcDisposition, type AnimationState, type NpcSnapshot, type QuestMarkerType } from "@mferland/shared";
+import {
+  getNpcDisposition,
+  type AnimationState,
+  type MferAppearanceTraits,
+  type NpcSnapshot,
+  type QuestMarkerType,
+} from "@mferland/shared";
 import { type ChatBubble } from "../game/chatBubbles";
+import { resolveMferTraitsForPlayer, traitsToMeshes } from "../game/mferTraits";
 import { MFER_COLORS } from "../game/mferPalette";
 import {
   ActorBlobShadow,
@@ -26,6 +33,8 @@ import {
 
 type MferGptAvatarProps = {
   npc: NpcSnapshot;
+  variant?: "npc" | "agent";
+  appearanceTraits?: MferAppearanceTraits | null;
   isTargeted?: boolean;
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
@@ -42,7 +51,17 @@ type LoadedMferGptGltf = {
 };
 
 export const MFER_GPT_MODEL_URL = "/models/mferGPT.glb";
+export const AGENT_MFER_GPT_MODEL_URL = "/models/mferGPT-agent.glb";
 export const ENEMY_MFER_GPT_MODEL_URL = "/models/mferGPT-enemy.glb";
+const MFER_MASHUP_MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
+const AGENT_ROBOT_BASE_MESHES = new Set(["body", "bot_light", "eyes_bot", "heres_my_signature", "mouth_bot", "type_plain003"]);
+const AGENT_ROBOT_REMOVED_TRAIT_MESH_PATTERNS = [
+  /^body/,
+  /^type_/,
+  /^mouth_/,
+  /^eyes_(normal|metal|mfercoin|red|alien|zombie)$/,
+  /^heres_my_signature$/,
+];
 const NAMEPLATE_RENDER_DISTANCE_SQ = 58 * 58;
 const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 48 * 48;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 54 * 54;
@@ -62,12 +81,28 @@ const antennaLightPulseIntensity = 18;
 hitGeometry.computeBoundingBox();
 hitGeometry.computeBoundingSphere();
 
-export function getMferGptModelUrl(isHostile: boolean) {
+export function getMferGptModelUrl(isHostile: boolean, variant: "npc" | "agent" = "npc") {
+  if (variant === "agent") return AGENT_MFER_GPT_MODEL_URL;
   return isHostile ? ENEMY_MFER_GPT_MODEL_URL : MFER_GPT_MODEL_URL;
 }
 
 export function MferGptAvatar({
+  variant = "npc",
+  ...props
+}: MferGptAvatarProps) {
+  if (variant === "agent") return <AgentMferGptAvatar {...props} variant={variant} />;
+  return <MferGptAvatarRig {...props} variant={variant} />;
+}
+
+function AgentMferGptAvatar(props: MferGptAvatarProps) {
+  const traitGltf = useLoader(GLTFLoader, MFER_MASHUP_MODEL_URL) as LoadedMferGptGltf;
+  return <MferGptAvatarRig {...props} agentTraitSourceScene={traitGltf.scene} />;
+}
+
+function MferGptAvatarRig({
   npc,
+  variant = "npc",
+  appearanceTraits = null,
   isTargeted = false,
   isDefeated = false,
   questMarker = null,
@@ -77,7 +112,8 @@ export function MferGptAvatar({
   showNameplate: canShowNameplate = true,
   showNameplateHealthBar = true,
   onTarget,
-}: MferGptAvatarProps) {
+  agentTraitSourceScene = null,
+}: MferGptAvatarProps & { agentTraitSourceScene?: THREE.Group | null }) {
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -88,11 +124,18 @@ export function MferGptAvatar({
   const wasDefeatedRef = useRef(false);
   const disposition = getNpcDisposition(npc);
   const isHostile = disposition === "hostile";
-  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile)) as LoadedMferGptGltf;
+  const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile, variant)) as LoadedMferGptGltf;
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const labelColor = isHostile ? hostileLabelColor : friendlyLabelColor;
   const badgeColor = isHostile ? hostileBadgeColor : friendlyBadgeColor;
-  const avatar = useMemo(() => createMferGptAvatar(gltf.scene, isHostile), [gltf.scene, isHostile]);
+  const avatar = useMemo(
+    () => createMferGptAvatar(gltf.scene, isHostile, {
+      agentTraitSourceScene,
+      appearanceTraits,
+      avatarSeed: npc.avatarSeed,
+    }),
+    [gltf.scene, isHostile, agentTraitSourceScene, appearanceTraits, npc.avatarSeed],
+  );
   const antennaLightMaterials = useMemo(() => getMferGptAntennaLightMaterials(avatar), [avatar]);
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
@@ -100,7 +143,8 @@ export function MferGptAvatar({
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
-  const showBaseMarker = !isDefeated;
+  const showBaseMarker = variant !== "agent" && !isDefeated;
+  const showSignalBeacon = variant !== "agent" && !isDefeated && !isHostile;
   const isFrozen = npc.frozenUntil > Date.now();
   const isCold = !isFrozen && npc.slowedUntil > Date.now();
 
@@ -173,7 +217,7 @@ export function MferGptAvatar({
 
   return (
     <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
-      {!isDefeated && !isHostile && (
+      {showSignalBeacon && (
         <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />
       )}
       <ActorBlobShadow scale={isDefeated ? [1.08, 0.58, 1.1] : [0.96, 0.58, 1.08]} />
@@ -327,11 +371,20 @@ function MferGptSignalBeacon({ isHostile, isTargeted, showMention }: { isHostile
   );
 }
 
-export function createMferGptAvatar(sourceScene: THREE.Group, isHostile: boolean) {
+export function createMferGptAvatar(
+  sourceScene: THREE.Group,
+  isHostile: boolean,
+  options: {
+    agentTraitSourceScene?: THREE.Group | null;
+    appearanceTraits?: MferAppearanceTraits | null;
+    avatarSeed?: number;
+  } = {},
+) {
   const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
   const antennaColor = isHostile ? hostileAntennaLightColor : friendlyAntennaLightColor;
   scene.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
+    child.visible = !options.agentTraitSourceScene || AGENT_ROBOT_BASE_MESHES.has(child.name);
     child.frustumCulled = false;
     child.castShadow = false;
     child.receiveShadow = false;
@@ -354,7 +407,88 @@ export function createMferGptAvatar(sourceScene: THREE.Group, isHostile: boolean
   const scale = size.y > 0.01 ? 2.95 / size.y : 1;
   scene.scale.setScalar(scale);
   scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+  if (options.agentTraitSourceScene) {
+    graftAgentTraitMeshes(scene, options.agentTraitSourceScene, options.avatarSeed ?? 0, options.appearanceTraits ?? null);
+  }
   return scene;
+}
+
+function graftAgentTraitMeshes(
+  robotScene: THREE.Group,
+  traitSourceScene: THREE.Group,
+  avatarSeed: number,
+  appearanceTraits: MferAppearanceTraits | null,
+) {
+  const targetSkeleton: THREE.Skeleton | null = findFirstSkeleton(robotScene);
+  if (!targetSkeleton) return;
+
+  const targetBoneByName = new Map<string, THREE.Bone>(
+    targetSkeleton.bones.map((bone: THREE.Bone) => [
+      bone.name,
+      bone,
+    ]),
+  );
+  const fallbackBone = targetBoneByName.get("mixamorigHips");
+  const traitMeshes = getAgentRobotTraitMeshes(avatarSeed, appearanceTraits);
+  const sourceScene = SkeletonUtils.clone(traitSourceScene) as THREE.Group;
+  const graftGroup = new THREE.Group();
+  graftGroup.name = "agent_robot_traits";
+
+  sourceScene.traverse((child) => {
+    if (!(child instanceof THREE.SkinnedMesh)) return;
+    if (!traitMeshes.has(child.name)) return;
+
+    const mappedBones: THREE.Bone[] = [];
+    const mappedInverses: THREE.Matrix4[] = [];
+    let missingBone = false;
+    child.skeleton.bones.forEach((sourceBone, sourceBoneIndex) => {
+      const target = targetBoneByName.get(sourceBone.name) ?? (sourceBone.name === "neutral_bone" ? fallbackBone : undefined);
+      if (!target) {
+        missingBone = true;
+        return;
+      }
+      mappedBones.push(target);
+      mappedInverses.push((child.skeleton.boneInverses[sourceBoneIndex] ?? new THREE.Matrix4()).clone());
+    });
+    if (missingBone || mappedBones.length !== child.skeleton.bones.length) return;
+
+    const material = cloneMaterial(child.material);
+    const mesh = child.clone(false) as THREE.SkinnedMesh;
+    mesh.geometry = child.geometry;
+    mesh.material = material;
+    mesh.name = `agent_trait_${child.name}`;
+    mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.bind(new THREE.Skeleton(mappedBones, mappedInverses), child.bindMatrix.clone());
+    graftGroup.add(mesh);
+  });
+
+  if (graftGroup.children.length > 0) robotScene.add(graftGroup);
+}
+
+function findFirstSkeleton(scene: THREE.Group): THREE.Skeleton | null {
+  let skeleton: THREE.Skeleton | null = null;
+  scene.traverse((child) => {
+    if (skeleton || !(child instanceof THREE.SkinnedMesh)) return;
+    skeleton = child.skeleton;
+  });
+  return skeleton;
+}
+
+function getAgentRobotTraitMeshes(avatarSeed: number, appearanceTraits: MferAppearanceTraits | null) {
+  const visibleMeshes = traitsToMeshes(resolveMferTraitsForPlayer(avatarSeed, appearanceTraits));
+  for (const meshName of [...visibleMeshes]) {
+    if (AGENT_ROBOT_REMOVED_TRAIT_MESH_PATTERNS.some((pattern) => pattern.test(meshName))) {
+      visibleMeshes.delete(meshName);
+    }
+  }
+  return visibleMeshes;
+}
+
+function cloneMaterial(material: THREE.Material | THREE.Material[]) {
+  if (Array.isArray(material)) return material.map((entry) => entry.clone());
+  return material.clone();
 }
 
 function getMferGptAntennaLightMaterials(scene: THREE.Group) {

@@ -17,6 +17,9 @@
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "viem": "^2.40.1"
+  },
   "devDependencies": {
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

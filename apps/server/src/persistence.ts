@@ -48,6 +48,15 @@ import {
   inviteCodes,
   seasonRewardEvents,
 } from "./db/schema.js";
+import {
+  adjustSeason0QuestPointsForAgent,
+  getAgentSeason0RewardNote,
+  readAgentSeason0PointMultiplier,
+} from "./agentRewards.js";
+import {
+  makeUncheckedAgentSeason0MferGptGateStatus,
+  type AgentSeason0MferGptGateStatus,
+} from "./agentMferGptGate.js";
 
 type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
 
@@ -104,11 +113,14 @@ export type CharacterCryptoPurchaseRecord = CharacterTraitPaymentRecord & {
 };
 
 export type SeasonRewardAwardResult = {
-  status: "awarded" | "duplicate" | "capped" | "ineligible" | "no_database";
+  status: "awarded" | "duplicate" | "capped" | "ineligible" | "adjusted_zero" | "agent_token_gate" | "no_database";
   points: number;
+  basePoints: number;
+  agentMultiplier: number;
   dailyTotal: number;
   seasonTotal: number;
   label: string;
+  agentTokenGate?: AgentSeason0MferGptGateStatus;
 };
 
 export type SeasonLeaderboardEntry = {
@@ -547,28 +559,39 @@ async function hasCharacterBuffsTable(tx: DatabaseTransaction) {
 
 export async function awardSeason0QuestReward({
   characterId,
+  agentTokenGate,
+  isAgent = false,
   walletAddress,
   questId,
   now = new Date(),
 }: {
   characterId: string;
+  agentTokenGate?: AgentSeason0MferGptGateStatus;
+  isAgent?: boolean;
   walletAddress: string;
   questId: QuestId;
   now?: Date;
 }): Promise<SeasonRewardAwardResult> {
   const reward = getSeason0QuestReward(questId);
+  const agentMultiplier = isAgent ? readAgentSeason0PointMultiplier() : 1;
+  const effectiveAgentTokenGate = isAgent
+    ? agentTokenGate ?? makeUncheckedAgentSeason0MferGptGateStatus()
+    : undefined;
+  const adjustedRewardPoints = reward
+    ? adjustSeason0QuestPointsForAgent(reward.points, isAgent, agentMultiplier)
+    : 0;
   if (!reward) {
-    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label: "" };
+    return { status: "ineligible", points: 0, basePoints: 0, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: "" };
   }
 
   const db = getDatabase();
   if (!db) {
-    return { status: "no_database", points: 0, dailyTotal: 0, seasonTotal: 0, label: reward.label };
+    return { status: "no_database", points: 0, basePoints: reward.points, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: reward.label };
   }
 
   const normalizedWallet = walletAddress.toLowerCase();
   if (!normalizedWallet) {
-    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label: reward.label };
+    return { status: "ineligible", points: 0, basePoints: reward.points, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: reward.label };
   }
 
   return db.transaction(async (tx) => {
@@ -588,22 +611,52 @@ export async function awardSeason0QuestReward({
       return {
         status: "duplicate",
         points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
+      };
+    }
+    if (effectiveAgentTokenGate && !effectiveAgentTokenGate.eligible) {
+      return {
+        status: "agent_token_gate",
+        points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
+      };
+    }
+    if (adjustedRewardPoints <= 0) {
+      return {
+        status: "adjusted_zero",
+        points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
+        dailyTotal: totals.dailyTotal,
+        seasonTotal: totals.seasonTotal,
+        label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
       };
     }
 
     const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - totals.dailyTotal);
     const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - totals.seasonTotal);
-    const points = Math.min(reward.points, remainingDaily, remainingSeason);
+    const points = Math.min(adjustedRewardPoints, remainingDaily, remainingSeason);
     if (points <= 0) {
       return {
         status: "capped",
         points: 0,
+        basePoints: reward.points,
+        agentMultiplier,
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label: reward.label,
+        agentTokenGate: effectiveAgentTokenGate,
       };
     }
 
@@ -616,16 +669,19 @@ export async function awardSeason0QuestReward({
       sourceId,
       points,
       status: "pending",
-      note: reward.label,
+      note: getAgentSeason0RewardNote(reward.label, isAgent, agentMultiplier),
       createdAt: now,
     });
 
     return {
       status: "awarded",
       points,
+      basePoints: reward.points,
+      agentMultiplier,
       dailyTotal: totals.dailyTotal + points,
       seasonTotal: totals.seasonTotal + points,
       label: reward.label,
+      agentTokenGate: effectiveAgentTokenGate,
     };
   });
 }
@@ -637,20 +693,25 @@ export async function saveCharacterProgressWithSeason0Reward(
     sourceType: SeasonRewardSourceType;
     sourceId: string;
     points: number;
+    basePoints?: number;
+    agentMultiplier?: number;
+    agentTokenGate?: AgentSeason0MferGptGateStatus;
     label: string;
     now?: Date;
   },
 ): Promise<SeasonRewardAwardResult> {
   const normalizedWallet = normalizeWalletAddress(reward.walletAddress);
   const pointsRequested = Math.max(0, Math.floor(reward.points));
+  const basePoints = Math.max(0, Math.floor(reward.basePoints ?? reward.points));
+  const agentMultiplier = reward.agentMultiplier ?? 1;
   const label = reward.label.trim().slice(0, 240);
   if (!normalizedWallet || pointsRequested <= 0 || !reward.sourceId.trim()) {
-    return { status: "ineligible", points: 0, dailyTotal: 0, seasonTotal: 0, label };
+    return { status: "ineligible", points: 0, basePoints, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label, agentTokenGate: reward.agentTokenGate };
   }
 
   const db = getDatabase();
   if (!db) {
-    return { status: "no_database", points: 0, dailyTotal: 0, seasonTotal: 0, label };
+    return { status: "no_database", points: 0, basePoints, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label, agentTokenGate: reward.agentTokenGate };
   }
 
   const now = reward.now ?? new Date();
@@ -671,9 +732,12 @@ export async function saveCharacterProgressWithSeason0Reward(
       return {
         status: "duplicate",
         points: 0,
+        basePoints,
+        agentMultiplier,
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label,
+        agentTokenGate: reward.agentTokenGate,
       };
     }
 
@@ -683,9 +747,12 @@ export async function saveCharacterProgressWithSeason0Reward(
       return {
         status: "capped",
         points: 0,
+        basePoints,
+        agentMultiplier,
         dailyTotal: totals.dailyTotal,
         seasonTotal: totals.seasonTotal,
         label,
+        agentTokenGate: reward.agentTokenGate,
       };
     }
 
@@ -707,9 +774,12 @@ export async function saveCharacterProgressWithSeason0Reward(
     return {
       status: "awarded",
       points: pointsRequested,
+      basePoints,
+      agentMultiplier,
       dailyTotal: totals.dailyTotal + pointsRequested,
       seasonTotal: totals.seasonTotal + pointsRequested,
       label,
+      agentTokenGate: reward.agentTokenGate,
     };
   });
 }

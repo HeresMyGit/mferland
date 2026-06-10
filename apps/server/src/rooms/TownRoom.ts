@@ -23,9 +23,12 @@ import {
   SERVER_TICK_RATE,
   TALENTS,
   TRAITS_MFER_NPC_ID,
+  AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   TRASH_VENDOR_ITEM_IDS,
   TRASH_VENDOR_NPC_ID,
   clamp,
+  getAgentTrashVendorAwardPoints,
+  getAgentTrashVendorPayableQuantity,
   getTrashVendorSellValue,
   getNpcDisposition,
   getChainGearItemId,
@@ -50,6 +53,7 @@ import {
   sanitizePlayerName,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientAgentStatus,
   type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
@@ -83,6 +87,11 @@ import {
 import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
+import {
+  getAgentSeason0MferGptGateStatus,
+  makeAgentSeason0MferGptGateMessage,
+  type AgentSeason0MferGptGateStatus,
+} from "../agentMferGptGate.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
@@ -161,6 +170,7 @@ import {
   getNpcQuestInteraction,
   isQuestAvailable,
   makeQuestOffer,
+  makeQuestStatusNotice,
   makeQuestTurnIn,
   normalizeQuestId,
   addInventoryItem,
@@ -193,6 +203,7 @@ import {
 const NPC_DAMAGE_TAG_TTL_MS = 5 * 60 * 1000;
 const DAILY_RAID_BOSS_NPC_ID = "raid-ogre-mfer";
 const DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS = 5 * 60 * 1000;
+const DAILY_RAID_BOSS_SPAWN = { x: 76, z: -111, yaw: -0.35 };
 const EMOTE_MIN_INTERVAL_MS = 900;
 const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
@@ -230,6 +241,10 @@ export function isCryptoSmokeWalletAuthBypassEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS === "1";
 }
 
+export function isLocalOnlyWalletAuthBypassEnabled() {
+  return process.env.NODE_ENV === "development" && process.env.MFERLAND_LOCAL_ONLY === "1";
+}
+
 export function isLocalDebugWalletAuthBypassEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_LOCAL_DEBUG_AUTH_BYPASS === "1";
 }
@@ -245,7 +260,8 @@ function isLocalDebugWalletAllowed(walletAddress: string) {
 }
 
 function isWalletAuthBypassAllowed(walletAddress: string) {
-  return isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
+  return isLocalOnlyWalletAuthBypassEnabled()
+    || isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
     || isLocalDebugWalletAllowed(walletAddress);
 }
 
@@ -418,6 +434,7 @@ export type AdminPlayerSnapshot = {
   characterId: string;
   name: string;
   identityType: IdentityType;
+  isAgent: boolean;
   walletAddress: string;
   avatarSeed: number;
   status: "online" | "dead";
@@ -521,6 +538,7 @@ export class TownRoom extends Room<TownState> {
   private readonly forcedNpcTargets = new Map<string, { sessionId: string; until: number }>();
   private readonly consumableCooldowns = new Map<string, number>();
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
+  private readonly agentSeason0GateStatuses = new Map<string, AgentSeason0MferGptGateStatus>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private dailyRaidBossInactiveDespawnAt = 0;
@@ -530,6 +548,9 @@ export class TownRoom extends Room<TownState> {
 
   async onAuth(_client: Client, options?: JoinOptions) {
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
+    if (isDeclaredAgentClient(options) && !walletAddress) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "agent wallet required");
+    }
     if (
       (options?.identityType === "wallet" || walletAddress)
       && !isWalletAuthBypassAllowed(walletAddress)
@@ -577,6 +598,10 @@ export class TownRoom extends Room<TownState> {
 
     this.onMessage("analyticsEvent", (client, message: ClientAnalyticsMessage = {}) => {
       this.handleClientAnalyticsEvent(client, message);
+    });
+
+    this.onMessage("agentStatus", (client, message: Partial<ClientAgentStatus> = {}) => {
+      this.handleAgentStatus(client, message);
     });
 
     this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
@@ -841,6 +866,7 @@ export class TownRoom extends Room<TownState> {
 
     player.name = persistedCharacter?.name ?? name;
     player.identityType = identityType;
+    player.isAgent = identityType === "wallet" && isDeclaredAgentClient(options);
     player.walletAddress = walletAddress;
     player.avatarSeed = persistedCharacter?.avatarSeed ?? avatarSeed;
     player.appearanceTraitsJson = JSON.stringify(persistedCharacter?.appearanceTraits ?? {});
@@ -872,11 +898,20 @@ export class TownRoom extends Room<TownState> {
 
     this.state.players.set(client.sessionId, player);
     this.sessionJoinedAt.set(client.sessionId, Date.now());
+    if (identityType === "wallet" && walletAddress) {
+      await this.replaceDuplicateWalletSessions(client, walletAddress);
+    }
     this.recordPlayerAnalyticsEvent("session_joined", client.sessionId, player, {
       level: player.level,
+      isAgent: player.isAgent,
       persisted: Boolean(persistedCharacter),
       playerCount: this.state.players.size,
     });
+    if (player.isAgent) {
+      void this.notifyAgentSeason0GateStatus(client, player, "login").catch((error) => {
+        console.error(`Failed to read agent MFERGPT earning gate for ${player.walletAddress}`, error);
+      });
+    }
     if (persistedCharacter) {
       client.send("persistenceStatus", {
         state: "saved",
@@ -974,6 +1009,16 @@ export class TownRoom extends Room<TownState> {
     return null;
   }
 
+  private async replaceDuplicateWalletSessions(client: Client, walletAddress: string) {
+    let replacedCount = 0;
+    while (await this.replaceExistingWalletSession(client, walletAddress)) {
+      replacedCount += 1;
+    }
+    if (replacedCount > 0) {
+      console.warn(`Replaced ${replacedCount} duplicate wallet session${replacedCount === 1 ? "" : "s"} for ${walletAddress}`);
+    }
+  }
+
   private async replaceExistingPlayerSession(client: Client, sessionId: string, player: PlayerState): Promise<SessionHandoff> {
     const characterId = this.persistentCharacterIds.get(sessionId);
     const joinedAt = this.sessionJoinedAt.get(sessionId) ?? Date.now();
@@ -1040,6 +1085,7 @@ export class TownRoom extends Room<TownState> {
     this.lastMferGptAt.delete(sessionId);
     this.lastInteractAt.delete(sessionId);
     this.persistentCharacterIds.delete(sessionId);
+    this.agentSeason0GateStatuses.delete(sessionId);
     if (characterId) this.cleanupCharacterSaveTracking(characterId);
     this.sessionJoinedAt.delete(sessionId);
     this.deadSessionIds.delete(sessionId);
@@ -2163,15 +2209,48 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
+    const agentTokenGate = player.isAgent
+      ? await this.notifyAgentSeason0GateStatus(client, player, "trash_vendor")
+      : undefined;
+    if (agentTokenGate && !agentTokenGate.eligible) {
+      this.recordPlayerAnalyticsEvent("trash_vendor_sell_failed", client.sessionId, player, {
+        supportKind: "trash_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        stage: "agent_token_gate",
+        error: "agent rewards inactive",
+        agentTokenGateEligible: agentTokenGate.eligible,
+        agentTokenGateReason: agentTokenGate.reason,
+        agentTokenGateRequiredWei: agentTokenGate.requiredWei,
+        agentTokenGateBalanceWei: agentTokenGate.balanceWei,
+      });
+      client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(agentTokenGate)));
+      sendResult({ ok: false, error: "agent rewards inactive" });
+      return;
+    }
+
     const requestedQuantity = sellAll
       ? Number.MAX_SAFE_INTEGER
       : normalizeTrashSellQuantity(message?.quantity);
+    const availableQuantity = getSellableTrashItemCount(player, selectedItemId);
+    const maxQuantity = getMaxTrashSaleQuantityForPointCapacity(player, {
+      itemId: selectedItemId,
+      requestedQuantity,
+      pointCapacity,
+      isAgent: player.isAgent,
+    });
     const sale = planTrashSale(player, {
       itemId: selectedItemId,
-      maxQuantity: Math.min(requestedQuantity, pointCapacity),
+      maxQuantity,
     });
+    const awardedPoints = getTrashSaleAwardPoints(sale.quantity, player.isAgent);
     if (sale.quantity <= 0) {
-      sendResult({ ok: false, error: "no sellable trash in stash" });
+      sendResult({
+        ok: false,
+        error: player.isAgent && availableQuantity > 0
+          ? `agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 season point`
+          : "no sellable trash in stash",
+      });
       return;
     }
 
@@ -2181,35 +2260,43 @@ export class TownRoom extends Room<TownState> {
       itemId: selectedItemId ?? "",
       sellAll,
       quantity: sale.quantity,
-      points: sale.points,
+      points: awardedPoints,
+      basePoints: sale.points,
+      agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
+      isAgent: player.isAgent,
+      agentTokenGateEligible: agentTokenGate?.eligible,
+      agentTokenGateReason: agentTokenGate?.reason,
     });
 
     const previousInventory = snapshotInventoryState(player);
     applyTrashSale(player, sale.removals);
     const soldLabel = formatTrashSoldSummary(sale.sold);
     if (!characterId && useLocalDebugWallet) {
-      player.season0Points += sale.points;
-      player.season0DailyPoints += sale.points;
+      player.season0Points += awardedPoints;
+      player.season0DailyPoints += awardedPoints;
       this.recordPlayerAnalyticsEvent("trash_vendor_sell_confirmed", client.sessionId, player, {
         supportKind: "trash_vendor_sell",
         ...npcAnalytics,
         itemId: selectedItemId ?? "",
         sellAll,
         quantity: sale.quantity,
-        points: sale.points,
+        points: awardedPoints,
+        basePoints: sale.points,
+        agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
+        isAgent: player.isAgent,
         dailyTotal: player.season0DailyPoints,
         seasonTotal: player.season0Points,
         localDebug: true,
       });
       client.send("chat", makeSystemChat(
         "Season points",
-        `Sold ${soldLabel} for ${formatSeasonPoints(sale.points)} in local debug mode. Daily ${player.season0DailyPoints}/${SEASON_0_DAILY_POINT_CAP}, season ${player.season0Points}/${SEASON_0_TOTAL_POINT_CAP}.`,
+        `Sold ${soldLabel} for ${formatTrashAwardPoints(awardedPoints, sale.points, player.isAgent)} in local debug mode. Daily ${player.season0DailyPoints}/${SEASON_0_DAILY_POINT_CAP}, season ${player.season0Points}/${SEASON_0_TOTAL_POINT_CAP}.`,
       ));
       sendResult({
         ok: true,
         sold: sale.sold,
         quantity: sale.quantity,
-        points: sale.points,
+        points: awardedPoints,
         season0Points: player.season0Points,
         season0DailyPoints: player.season0DailyPoints,
       });
@@ -2227,8 +2314,13 @@ export class TownRoom extends Room<TownState> {
           walletAddress: player.walletAddress,
           sourceType: "event",
           sourceId: makeTrashVendorSeasonRewardSourceId(client.sessionId),
-          points: sale.points,
-          label: `trash mfer sale: ${soldLabel}`,
+          points: awardedPoints,
+          basePoints: sale.points,
+          agentMultiplier: player.isAgent ? 1 / AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
+          agentTokenGate,
+          label: player.isAgent
+            ? `trash mfer sale: ${soldLabel} (agent ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT}:1 trash bundle)`
+            : `trash mfer sale: ${soldLabel}`,
         });
         if (awardResult.status !== "awarded") {
           throw new Error(`trash sale reward ${awardResult.status}`);
@@ -2245,7 +2337,12 @@ export class TownRoom extends Room<TownState> {
         itemId: selectedItemId ?? "",
         sellAll,
         quantity: sale.quantity,
-        points: sale.points,
+        points: awardedPoints,
+        basePoints: sale.points,
+        agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
+        isAgent: player.isAgent,
+        agentTokenGateEligible: agentTokenGate?.eligible,
+        agentTokenGateReason: agentTokenGate?.reason,
         stage: "save",
         rewardStatus: savedAwardResult?.status ?? "save_failed",
         error: "wallet progress failed to save",
@@ -2262,19 +2359,24 @@ export class TownRoom extends Room<TownState> {
       itemId: selectedItemId ?? "",
       sellAll,
       quantity: sale.quantity,
-      points: sale.points,
+      points: awardedPoints,
+      basePoints: sale.points,
+      agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
+      isAgent: player.isAgent,
+      agentTokenGateEligible: agentTokenGate?.eligible,
+      agentTokenGateReason: agentTokenGate?.reason,
       dailyTotal: savedAwardResult.dailyTotal,
       seasonTotal: savedAwardResult.seasonTotal,
     });
     client.send("chat", makeSystemChat(
       "Season points",
-      `Sold ${soldLabel} for ${formatSeasonPoints(sale.points)}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+      `Sold ${soldLabel} for ${formatTrashAwardPoints(awardedPoints, sale.points, player.isAgent)}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
     ));
     sendResult({
       ok: true,
       sold: sale.sold,
       quantity: sale.quantity,
-      points: sale.points,
+      points: awardedPoints,
       season0Points: savedAwardResult.seasonTotal,
       season0DailyPoints: savedAwardResult.dailyTotal,
     });
@@ -2392,6 +2494,17 @@ export class TownRoom extends Room<TownState> {
     );
   }
 
+  private handleAgentStatus(client: Client, message: Partial<ClientAgentStatus>) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player?.isAgent) return;
+
+    player.agentStatusAction = sanitizeAgentStatusText(message?.action, 96);
+    player.agentStatusThought = sanitizeAgentStatusText(message?.thought, 260);
+    player.agentStatusObjective = sanitizeAgentStatusText(message?.objective, 180);
+    player.agentStatusQuest = sanitizeAgentStatusText(message?.quest, 140);
+    player.agentStatusUpdatedAt = Date.now();
+  }
+
   private handleAcceptQuest(client: Client, message: Partial<ClientAcceptQuest>) {
     const player = this.state.players.get(client.sessionId);
     if (!player || player.health <= 0) return;
@@ -2405,6 +2518,12 @@ export class TownRoom extends Room<TownState> {
     if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
 
     startQuest(player, questId);
+    if (
+      questId === "set-your-traits"
+      && hasExplicitMferAppearanceTraits(parseMferAppearanceTraitsJson(player.appearanceTraitsJson))
+    ) {
+      progressTraitQuest(player);
+    }
     this.recordPlayerAnalyticsEvent("quest_accepted", client.sessionId, player, {
       questId,
       npcId: npc.id,
@@ -2412,6 +2531,18 @@ export class TownRoom extends Room<TownState> {
     });
     if (questId === "ogre-raid-daily") {
       this.ensureDailyRaidBoss();
+    }
+    const questState = player.quests.get(questId);
+    if (questState) {
+      const turnInNpc = this.state.npcs.get(getQuestTurnInNpcId(questId));
+      client.send("questStatus", makeQuestStatusNotice(
+        questId,
+        npc,
+        questState,
+        questState.status === "ready"
+          ? `Accepted ${QUESTS[questId].title}. Ready to turn in with ${turnInNpc?.name ?? "the turn-in NPC"}.`
+          : `Accepted ${QUESTS[questId].title}. ${QUESTS[questId].objectiveLabel}.`,
+      ));
     }
     this.persistPlayerProgress(client.sessionId, player);
   }
@@ -2425,9 +2556,26 @@ export class TownRoom extends Room<TownState> {
 
     const turnInNpcId = getQuestTurnInNpcId(questId);
     const npc = this.state.npcs.get(turnInNpcId);
-    if (!npc || distanceToNpc(player, npc) > 3.75) return;
-    if (typeof message?.npcId === "string" && message.npcId !== npc.id) return;
-    if (!completeQuest(player, questId, Date.now())) return;
+    const questState = player.quests.get(questId);
+    if (!npc || !questState) return;
+    if (distanceToNpc(player, npc) > 3.75 || (typeof message?.npcId === "string" && message.npcId !== npc.id)) {
+      client.send("questStatus", makeQuestStatusNotice(
+        questId,
+        npc,
+        questState,
+        `${QUESTS[questId].title}: take it to ${npc.name}.`,
+      ));
+      return;
+    }
+    if (!completeQuest(player, questId, Date.now())) {
+      client.send("questStatus", makeQuestStatusNotice(
+        questId,
+        npc,
+        questState,
+        `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`,
+      ));
+      return;
+    }
     const xpReward = getPlayerQuestXpReward(player, QUESTS[questId].xpReward);
     const award = awardExperience(player, xpReward);
     if (award.levelsGained > 0) recalculatePlayerStats(player);
@@ -2444,6 +2592,16 @@ export class TownRoom extends Room<TownState> {
     this.persistPlayerProgress(client.sessionId, player);
 
     const nextQuestId = getNextAvailableQuestId(player, questId);
+    const nextGiverNpcId = nextQuestId ? QUESTS[nextQuestId].giverNpcId : "";
+    const nextGiverNpc = nextGiverNpcId ? this.state.npcs.get(nextGiverNpcId) : undefined;
+    client.send("questCompleted", {
+      ...makeQuestTurnIn(questId, npc, questState),
+      xpReward,
+      nextQuestId: nextQuestId ?? "",
+      nextQuestTitle: nextQuestId ? QUESTS[nextQuestId].title : "",
+      nextGiverNpcId,
+      nextGiverNpcName: nextGiverNpc?.name ?? "",
+    });
     this.recordPlayerAnalyticsEvent("quest_completed", client.sessionId, player, {
       questId,
       npcId: npc.id,
@@ -2537,9 +2695,9 @@ export class TownRoom extends Room<TownState> {
       name: "bear market mfer",
       role: "farmer",
       model: "mfer",
-      x: 160.9,
-      z: -108,
-      yaw: -1.2,
+      x: DAILY_RAID_BOSS_SPAWN.x,
+      z: DAILY_RAID_BOSS_SPAWN.z,
+      yaw: DAILY_RAID_BOSS_SPAWN.yaw,
       leashRadius: 22,
       health: 5200,
       maxHealth: 5200,
@@ -2767,13 +2925,44 @@ export class TownRoom extends Room<TownState> {
     void this.queueCharacterSave(sessionId, characterId, state, fingerprint);
   }
 
+  private async notifyAgentSeason0GateStatus(
+    client: Client,
+    player: PlayerState,
+    phase: "login" | "quest_turn_in" | "trash_vendor",
+  ): Promise<AgentSeason0MferGptGateStatus | undefined> {
+    if (!player.isAgent || player.identityType !== "wallet" || !player.walletAddress) return undefined;
+
+    const status = await getAgentSeason0MferGptGateStatus(player.walletAddress);
+    this.agentSeason0GateStatuses.set(client.sessionId, status);
+    this.recordPlayerAnalyticsEvent("agent_reward_gate_checked", client.sessionId, player, {
+      phase,
+      eligible: status.eligible,
+      reason: status.reason,
+      requiredWei: status.requiredWei,
+      balanceWei: status.balanceWei,
+      requiredLabel: status.requiredLabel,
+      balanceLabel: status.balanceLabel,
+    });
+
+    if (phase === "login" && this.state.players.get(client.sessionId) === player) {
+      client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(status)));
+    }
+
+    return status;
+  }
+
   private async awardSeason0QuestReward(client: Client, player: PlayerState, questId: QuestId) {
     const characterId = this.persistentCharacterIds.get(client.sessionId);
     if (!characterId || player.identityType !== "wallet" || !player.walletAddress) return;
 
     try {
+      const agentTokenGate = player.isAgent
+        ? await this.notifyAgentSeason0GateStatus(client, player, "quest_turn_in")
+        : undefined;
       const result = await awardSeason0QuestReward({
         characterId,
+        agentTokenGate,
+        isAgent: player.isAgent,
         walletAddress: player.walletAddress,
         questId,
       });
@@ -2783,17 +2972,31 @@ export class TownRoom extends Room<TownState> {
         questId,
         status: result.status,
         points: result.points,
+        basePoints: result.basePoints,
+        agentMultiplier: result.agentMultiplier,
+        isAgent: player.isAgent,
+        agentTokenGateEligible: result.agentTokenGate?.eligible,
+        agentTokenGateReason: result.agentTokenGate?.reason,
+        agentTokenGateRequiredWei: result.agentTokenGate?.requiredWei,
+        agentTokenGateBalanceWei: result.agentTokenGate?.balanceWei,
         dailyTotal: result.dailyTotal,
         seasonTotal: result.seasonTotal,
         label: result.label,
       });
+      if (result.status === "agent_token_gate" && result.agentTokenGate) {
+        client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(result.agentTokenGate)));
+        return;
+      }
       if (result.status !== "awarded") return;
 
+      const agentGateNote = player.isAgent && result.agentTokenGate?.eligible
+        ? ` ${result.agentTokenGate.requiredLabel} gate met (${result.agentTokenGate.balanceLabel}).`
+        : "";
       client.send("chat", {
         sessionId: "season-0",
         name: "Season 0",
         identityType: "npc",
-        text: `Logged ${result.points} tester points for ${result.label}. Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+        text: `Logged ${result.points}${player.isAgent ? ` agent-adjusted from ${result.basePoints}` : ""} tester points for ${result.label}.${agentGateNote} Daily ${result.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${result.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
         sentAt: Date.now(),
       } satisfies ChatMessage);
     } catch (error) {
@@ -3103,7 +3306,10 @@ export class TownRoom extends Room<TownState> {
       characterId: this.persistentCharacterIds.get(sessionId) ?? null,
       identityType: player?.identityType ?? "",
       walletAddress: player?.walletAddress ?? "",
-      properties,
+      properties: {
+        ...properties,
+        isAgent: Boolean(player?.isAgent),
+      },
     });
   }
 
@@ -3283,6 +3489,11 @@ function sanitizeSupportText(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 64) : "";
 }
 
+function sanitizeAgentStatusText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, maxLength);
+}
+
 function sanitizeSupportIntegerString(value: unknown) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return /^[0-9]{1,80}$/.test(normalized) ? normalized : "";
@@ -3296,6 +3507,10 @@ function normalizeSupportTxHash(value: unknown) {
 function normalizeSupportAddress(value: unknown) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
   return /^0x[a-f0-9]{40}$/.test(normalized) ? normalized : "";
+}
+
+function isDeclaredAgentClient(options: JoinOptions | undefined) {
+  return options?.agentClient === true || options?.identityType === "agent";
 }
 
 function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
@@ -3561,6 +3776,28 @@ function normalizeTrashSellQuantity(value: unknown) {
   return clamp(Math.floor(quantity), 1, 999);
 }
 
+function getTrashSaleAwardPoints(quantity: number, isAgent: boolean) {
+  return isAgent ? getAgentTrashVendorAwardPoints(quantity) : getTrashVendorSellValue(quantity);
+}
+
+function getMaxTrashSaleQuantityForPointCapacity(
+  player: PlayerState,
+  options: {
+    itemId: TrashVendorItemId | null;
+    requestedQuantity: number;
+    pointCapacity: number;
+    isAgent: boolean;
+  },
+) {
+  const requestedQuantity = Number.isFinite(options.requestedQuantity)
+    ? Math.max(0, Math.floor(options.requestedQuantity))
+    : Number.MAX_SAFE_INTEGER;
+  const availableQuantity = getSellableTrashItemCount(player, options.itemId);
+  const upperBound = Math.min(requestedQuantity, availableQuantity);
+  if (!options.isAgent) return Math.min(upperBound, options.pointCapacity);
+  return getAgentTrashVendorPayableQuantity(upperBound, options.pointCapacity);
+}
+
 function planTrashSale(
   player: PlayerState,
   options: { itemId: TrashVendorItemId | null; maxQuantity: number },
@@ -3649,8 +3886,19 @@ function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
 }
 
+function formatTrashAwardPoints(awardedPoints: number, basePoints: number, isAgent: boolean) {
+  const awarded = formatSeasonPoints(awardedPoints);
+  if (!isAgent || awardedPoints === basePoints) return awarded;
+  return `${awarded} from ${basePoints} trash (${AGENT_TRASH_VENDOR_ITEMS_PER_POINT}:1 agent rate)`;
+}
+
 function makeTrashVendorSeasonRewardSourceId(sessionId: string) {
   return `trash-vendor:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
+}
+
+function getSellableTrashItemCount(player: PlayerState, itemId: TrashVendorItemId | null) {
+  const candidateItemIds = itemId ? [itemId] : [...TRASH_VENDOR_ITEM_IDS];
+  return candidateItemIds.reduce((total, candidateItemId) => total + getPlayerItemCount(player, candidateItemId), 0);
 }
 
 function grantDebugTrashVendorStock(player: PlayerState) {
@@ -3754,6 +4002,7 @@ function snapshotPlayers({
       characterId: persistentCharacterIds.get(sessionId) ?? "",
       name: player.name,
       identityType: player.identityType,
+      isAgent: player.isAgent,
       walletAddress: player.walletAddress,
       avatarSeed: player.avatarSeed,
       status: player.health <= 0 || deadSessionIds.has(sessionId) ? "dead" : "online",

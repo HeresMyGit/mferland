@@ -348,10 +348,13 @@ export function isQuestAvailable(player: PlayerState, questId: QuestId, now = Da
 export function makeQuestOffer(questId: QuestId, npc: NpcState) {
   const quest = QUESTS[questId];
   const dailyAssignment = questId === "mfergpt-daily-signal" ? getActiveMferGptDailyQuestAssignment() : null;
+  const turnInNpcId = getQuestTurnInNpcId(questId);
   return {
     questId,
     npcId: npc.id,
     npcName: npc.name,
+    turnInNpcId,
+    turnInNpcName: getNpcDisplayName(turnInNpcId),
     title: dailyAssignment ? dailyAssignment.title : quest.title,
     description: dailyAssignment ? `${quest.description} Today's pull: ${dailyAssignment.summary}` : quest.description,
     storyText: dailyAssignment ? dailyAssignment.summary : quest.description,
@@ -366,10 +369,13 @@ export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: Que
   const dailyAssignment = questId === "mfergpt-daily-signal"
     ? getMferGptDailyQuestAssignmentFromFlags(questState.flags)
     : null;
+  const turnInNpcId = getQuestTurnInNpcId(questId);
   return {
     questId,
     npcId: npc.id,
     npcName: npc.name,
+    turnInNpcId,
+    turnInNpcName: getNpcDisplayName(turnInNpcId),
     title: dailyAssignment ? dailyAssignment.title : quest.title,
     completionText: getQuestCompletionText(questId),
     completedTaskSummary: getCompletedTaskSummary(questId, questState),
@@ -380,7 +386,7 @@ export function makeQuestTurnIn(questId: QuestId, npc: NpcState, questState: Que
   };
 }
 
-function makeQuestStatusNotice(
+export function makeQuestStatusNotice(
   questId: QuestId,
   npc: NpcState,
   questState: QuestState,
@@ -390,10 +396,13 @@ function makeQuestStatusNotice(
   const dailyAssignment = questId === "mfergpt-daily-signal"
     ? getMferGptDailyQuestAssignmentFromFlags(questState.flags)
     : null;
+  const turnInNpcId = getQuestTurnInNpcId(questId);
   return {
     questId,
     npcId: npc.id,
     npcName: npc.name,
+    turnInNpcId,
+    turnInNpcName: getNpcDisplayName(turnInNpcId),
     title: dailyAssignment ? dailyAssignment.title : quest.title,
     statusText,
     objectiveLabel: dailyAssignment ? dailyAssignment.objectiveLabel : quest.objectiveLabel,

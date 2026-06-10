@@ -1456,7 +1456,7 @@ function getAdminHtml() {
           var selected = row.key === state.selectedPlayerKey ? " selected" : "";
           var statusClass = row.status === "offline" ? "bad" : row.status === "dead" ? "warn" : "good";
           return '<tr class="' + selected + '"><td><span class="pill ' + statusClass + '">' + esc(row.status) + '</span></td>' +
-            '<td><button class="row-button" data-player-key="' + esc(row.key) + '"><b>' + esc(row.name) + '</b><div class="muted">' + esc(row.identityType) + '</div></button></td>' +
+            '<td><button class="row-button" data-player-key="' + esc(row.key) + '"><b>' + esc(row.name) + '</b><div class="muted">' + esc(row.isAgent ? "agent wallet" : row.identityType) + '</div></button></td>' +
             '<td class="num">' + n(row.level) + '</td>' +
             '<td class="num">' + n((row.inventory || []).reduce(function(sum, item) { return sum + Number(item.count || 0); }, 0)) + '</td>' +
             '<td class="nowrap">' + n(questCounts.active) + ' / ' + n(questCounts.ready) + ' / ' + n(questCounts.completed) + '</td>' +

@@ -80,6 +80,7 @@ type TownSceneProps = {
   renderProfile?: RenderPerformanceProfile;
   lightweightRender?: boolean;
   controlsEnabled?: boolean;
+  cameraControlsEnabled?: boolean;
   idleCameraNpcId?: string | null;
   onSelectDebugPlacement?: (targetId: string | null) => void;
   onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
@@ -139,12 +140,14 @@ function TownSceneComponent({
   renderProfile,
   lightweightRender = false,
   controlsEnabled = true,
+  cameraControlsEnabled = false,
   idleCameraNpcId = null,
   onSelectDebugPlacement,
   onChangeDebugPlacement,
 }: TownSceneProps) {
   const { gl } = useThree();
   const resolvedRenderProfile = useMemo(() => renderProfile ?? getClientRenderPerformanceProfile(), [renderProfile]);
+  const pointerCameraControlsEnabled = controlsEnabled || cameraControlsEnabled;
   const keyState = useRef(new Set<string>());
   const pointerState = useRef({
     left: false,
@@ -300,7 +303,7 @@ function TownSceneComponent({
   }, [debugPlacementMode, selectedDebugPlacementId, localPlayer?.x, localPlayer?.z]);
 
   useEffect(() => {
-    if (!controlsEnabled && !debugPlacementMode) {
+    if (!pointerCameraControlsEnabled && !debugPlacementMode) {
       keyState.current.clear();
       clearMobileMoveInput(mobileMoveInputRef);
       pointerState.current.left = false;
@@ -431,7 +434,7 @@ function TownSceneComponent({
       canvas.removeEventListener("wheel", onWheel);
       canvas.removeEventListener("contextmenu", onContextMenu);
     };
-  }, [controlsEnabled, debugPlacementMode, gl, mobileMoveInputRef, sendInput]);
+  }, [controlsEnabled, pointerCameraControlsEnabled, debugPlacementMode, gl, mobileMoveInputRef, sendInput]);
 
   useFrame(({ camera }, delta) => {
     if (debugPlacementMode) {
@@ -495,11 +498,13 @@ function TownSceneComponent({
     if (!controlsEnabled) {
       keyState.current.clear();
       clearMobileMoveInput(mobileMoveInputRef);
-      pointer.left = false;
-      pointer.right = false;
+      if (!cameraControlsEnabled) {
+        pointer.left = false;
+        pointer.right = false;
+      }
       if (localPlayer) {
         facingYaw.current = localPlayer.yaw;
-        cameraYaw.current = localPlayer.yaw;
+        if (!cameraControlsEnabled) cameraYaw.current = localPlayer.yaw;
       }
     }
     const localIsDead = Boolean(localPlayer && localPlayer.health <= 0);
@@ -635,6 +640,23 @@ function TownSceneComponent({
             ? localVisualPlayer.current
             : player;
           const showNameplate = isLocalPlayer ? nameplateVisibility.localPlayer : nameplateVisibility.otherPlayers;
+          if (renderedPlayer.isAgent) {
+            return (
+              <MferGptAvatar
+                key={sessionId}
+                npc={makeAgentModelSnapshot(renderedPlayer)}
+                variant="agent"
+                appearanceTraits={renderedPlayer.appearanceTraits}
+                showNameplate={showNameplate}
+                showNameplateHealthBar={nameplateVisibility.healthBars}
+                isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
+                isDefeated={renderedPlayer.health <= 0}
+                chatBubble={chatBubbleBySessionId.get(sessionId)}
+                viewerPosition={viewerPosition}
+                onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
+              />
+            );
+          }
           return (
             <MferAvatar
               key={sessionId}
@@ -888,6 +910,33 @@ function getNpcRenderRadius(npc: NpcSnapshot, renderProfile: RenderPerformancePr
 
 function isHeavyNpcModel(model: NpcSnapshot["model"]) {
   return model === "mfer" || model === "mfergpt" || model === "training-dummy";
+}
+
+function makeAgentModelSnapshot(player: PlayerSnapshot): NpcSnapshot {
+  return {
+    id: player.sessionId,
+    name: player.name,
+    role: "wanderer",
+    model: "mfergpt",
+    portraitImage: "",
+    avatarSeed: player.avatarSeed,
+    health: player.health,
+    maxHealth: player.maxHealth,
+    isImmortal: false,
+    x: player.x,
+    y: player.y,
+    z: player.z,
+    yaw: player.yaw,
+    animation: player.animation,
+    dialogue: "",
+    questId: "",
+    defeatedAt: player.health <= 0 ? Date.now() : 0,
+    despawnAt: 0,
+    frozenUntil: player.frozenUntil,
+    slowedUntil: 0,
+    aggroTargetId: "",
+    hasLoot: false,
+  };
 }
 
 function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {

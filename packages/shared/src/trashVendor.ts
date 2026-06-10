@@ -2,6 +2,7 @@ import { ITEMS } from "./items.js";
 
 export const TRASH_VENDOR_NPC_ID = "trash-mfer";
 export const TRASH_VENDOR_SEASON_POINT_VALUE = 1;
+export const AGENT_TRASH_VENDOR_ITEMS_PER_POINT = 4;
 export const TRASH_VENDOR_ITEM_IDS = [
   "muddy-tusk",
   "small-tooth",
@@ -21,4 +22,15 @@ export function isTrashVendorItemId(value: unknown): value is TrashVendorItemId 
 export function getTrashVendorSellValue(quantity = 1) {
   const count = Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
   return count * TRASH_VENDOR_SEASON_POINT_VALUE;
+}
+
+export function getAgentTrashVendorAwardPoints(quantity = 1) {
+  const count = Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
+  return Math.floor(count / AGENT_TRASH_VENDOR_ITEMS_PER_POINT);
+}
+
+export function getAgentTrashVendorPayableQuantity(quantity = 1, pointCapacity = Number.MAX_SAFE_INTEGER) {
+  const count = Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
+  const capacity = Number.isFinite(pointCapacity) ? Math.max(0, Math.floor(pointCapacity)) : Number.MAX_SAFE_INTEGER;
+  return Math.min(getAgentTrashVendorAwardPoints(count), capacity) * AGENT_TRASH_VENDOR_ITEMS_PER_POINT;
 }

@@ -72,7 +72,7 @@ export const COMBAT = {
       description: "A casted heal for yourself or a friendly target.",
       damage: 0,
       healing: 34,
-      cooldownMs: 5000,
+      cooldownMs: 0,
       minRange: 0,
       maxRange: 24,
       manaCost: 16,

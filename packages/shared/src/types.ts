@@ -47,6 +47,8 @@ export type QuestOffer = {
   questId: QuestId;
   npcId: string;
   npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
   title: string;
   description: string;
   storyText: string;
@@ -59,6 +61,8 @@ export type QuestTurnIn = {
   questId: QuestId;
   npcId: string;
   npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
   title: string;
   completionText: string;
   completedTaskSummary: string;
@@ -72,12 +76,22 @@ export type QuestStatusNotice = {
   questId: QuestId;
   npcId: string;
   npcName: string;
+  turnInNpcId: string;
+  turnInNpcName: string;
   title: string;
   statusText: string;
   objectiveLabel: string;
   progress: number;
   required: number;
   rewardPreview: string[];
+};
+
+export type QuestCompleted = QuestTurnIn & {
+  xpReward: number;
+  nextQuestId: QuestId | "";
+  nextQuestTitle: string;
+  nextGiverNpcId: string;
+  nextGiverNpcName: string;
 };
 
 export type InventoryItemSnapshot = {
@@ -118,6 +132,7 @@ export type JoinOptions = {
   identityType?: IdentityType;
   walletAddress?: string;
   walletAuth?: WalletAuthProof;
+  agentClient?: boolean;
   avatarSeed?: number;
   createCharacter?: boolean;
   inviteCode?: string;
@@ -168,11 +183,24 @@ export type ClientEmote = {
   emoteId: EmoteId;
 };
 
+export type ClientAgentStatus = {
+  action?: string;
+  thought?: string;
+  objective?: string;
+  quest?: string;
+};
+
 export type PlayerSnapshot = {
   sessionId: string;
   name: string;
   identityType: IdentityType;
+  isAgent: boolean;
   walletAddress: string;
+  agentStatusAction: string;
+  agentStatusThought: string;
+  agentStatusObjective: string;
+  agentStatusQuest: string;
+  agentStatusUpdatedAt: number;
   avatarSeed: number;
   appearanceTraits: MferAppearanceTraits;
   level: number;
@@ -293,14 +321,14 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
 > & {
   distance: number;
 };
 
 export type AgentVisibleNpc = Pick<
   NpcSnapshot,
-  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId" | "defeatedAt" | "despawnAt"
+  "id" | "name" | "role" | "model" | "avatarSeed" | "health" | "maxHealth" | "isImmortal" | "x" | "y" | "z" | "yaw" | "animation" | "dialogue" | "questId" | "defeatedAt" | "despawnAt" | "aggroTargetId" | "hasLoot"
 > & {
   distance: number;
 };
@@ -450,5 +478,29 @@ export type AgentObservation = {
   nearbyNpcs: AgentVisibleNpc[];
   recentChat: ChatMessage[];
   bounds: typeof PLAZA_BOUNDS;
-  availableActions: Array<"move" | "look" | "jump" | "sprint" | "chat" | "interact" | CombatActionId>;
+  availableActions: Array<
+    | "move"
+    | "look"
+    | "jump"
+    | "sprint"
+    | "chat"
+    | "emote"
+    | "interact"
+    | "acceptQuest"
+    | "completeQuest"
+    | "cancelQuest"
+    | "shareQuestLink"
+    | "combatAction"
+    | "respawn"
+    | "lootCorpse"
+    | "equipItem"
+    | "unequipItem"
+    | "useItem"
+    | "selectTalent"
+    | "updateTraits"
+    | "registerChainGear"
+    | "purchasePotionShopItem"
+    | "sellTrashItems"
+    | CombatActionId
+  >;
 };

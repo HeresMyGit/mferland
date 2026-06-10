@@ -322,13 +322,20 @@ export function Hud({
     recentlyDamaged ? "recent-hit" : "",
     isDead ? "dead" : "",
   ].filter(Boolean).join(" ");
-  const trackedQuests = useMemo(
-    () => questLog.filter((quest) => quest.status !== "completed").slice(0, 2),
-    [questLog],
+  const agentFocusedQuestId = useMemo(
+    () => getAgentFocusedQuestId(localPlayer, questLog),
+    [localPlayer?.agentStatusQuest, localPlayer?.isAgent, questLog],
   );
   const activeQuest = activeQuestId
     ? questLog.find((quest) => quest.id === activeQuestId && quest.status !== "completed") ?? null
     : null;
+  const trackedQuests = useMemo(() => {
+    const active = activeQuestId
+      ? questLog.find((quest) => quest.id === activeQuestId && quest.status !== "completed") ?? null
+      : null;
+    const remaining = questLog.filter((quest) => quest.status !== "completed" && quest.id !== active?.id);
+    return active ? [active, ...remaining].slice(0, 2) : remaining.slice(0, 2);
+  }, [activeQuestId, questLog]);
   const activeQuestGuidance = getActiveQuestGuidance(activeQuest, npcs, localPlayer);
   const primaryActiveQuestTarget = getPrimaryQuestGuidanceTarget(activeQuestGuidance, localPlayer);
   const hasTrackedQuests = trackedQuests.length > 0;
@@ -349,6 +356,11 @@ export function Hud({
   }, [hudTickDelay, now]);
 
   useEffect(() => {
+    if (agentFocusedQuestId && activeQuestId !== agentFocusedQuestId) {
+      setActiveQuestId(agentFocusedQuestId);
+      return;
+    }
+
     const stillActive = activeQuestId
       ? questLog.some((quest) => quest.id === activeQuestId && quest.status !== "completed")
       : false;
@@ -358,7 +370,7 @@ export function Hud({
       ?? questLog.find((quest) => quest.status === "active")
       ?? null;
     setActiveQuestId(nextQuest?.id ?? null);
-  }, [activeQuestId, questLog]);
+  }, [activeQuestId, agentFocusedQuestId, questLog]);
 
   useEffect(() => {
     if (!isCharacterOpen) return;
@@ -2078,7 +2090,8 @@ function getQuestGuidanceTooltip(guidance: ActiveQuestGuidance | null, target: Q
 
 function getPlayerMapTooltip(player: PlayerSnapshot, isLocal: boolean) {
   const title = isLocal ? "You" : player.name;
-  return `${title}\nLevel ${player.level} ${player.identityType} mfer\nLocation: ${formatMapCoordinates(player.x, player.z)}`;
+  const identity = player.isAgent ? "agent wallet" : player.identityType;
+  return `${title}\nLevel ${player.level} ${identity} mfer\nLocation: ${formatMapCoordinates(player.x, player.z)}`;
 }
 
 function getNpcMapTooltip(npc: NpcSnapshot, questMarker: QuestMarkerType | null) {
@@ -2510,6 +2523,30 @@ function getVisibleActiveBuffs(buffs: ActiveBuffSnapshot[], now: number) {
   return buffs
     .filter((buff) => buff.expiresAt > now)
     .sort((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id));
+}
+
+function getAgentFocusedQuestId(player: PlayerSnapshot | null, questLog: PlayerSnapshot["quests"]): QuestId | null {
+  if (!player?.isAgent || !player.agentStatusQuest) return null;
+  const statusText = normalizeQuestFocusText(player.agentStatusQuest);
+  if (!statusText) return null;
+
+  return questLog.find((quest) => {
+    if (quest.status === "completed") return false;
+    const definition = QUESTS[quest.id];
+    return [
+      quest.id,
+      definition.title,
+      definition.objectiveLabel,
+      definition.turnInLabel,
+    ].some((value) => {
+      const needle = normalizeQuestFocusText(value);
+      return Boolean(needle && statusText.includes(needle));
+    });
+  })?.id ?? null;
+}
+
+function normalizeQuestFocusText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function formatBuffRemaining(buff: ActiveBuffSnapshot, now: number) {

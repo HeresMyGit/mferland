@@ -13,7 +13,14 @@ import {
 } from "./items.js";
 import { ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_WEI, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI } from "./elixirs.js";
 import { POTION_SHOP_BULK_MFERGPT_AMOUNT_WEI, getPotionShopPrice, isPotionShopItemId } from "./potionShop.js";
-import { TRASH_VENDOR_SEASON_POINT_VALUE, getTrashVendorSellValue, isTrashVendorItemId } from "./trashVendor.js";
+import {
+  AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
+  TRASH_VENDOR_SEASON_POINT_VALUE,
+  getAgentTrashVendorAwardPoints,
+  getAgentTrashVendorPayableQuantity,
+  getTrashVendorSellValue,
+  isTrashVendorItemId,
+} from "./trashVendor.js";
 
 test("maps local chain gear types to in-game gear items", () => {
   assert.equal(getChainGearItemId(1), "rusty-skate-deck");
@@ -44,6 +51,18 @@ test("marks unusable junk as trash-vendor items", () => {
   assert.equal(isTrashVendorItemId("red-juice"), false);
   assert.equal(TRASH_VENDOR_SEASON_POINT_VALUE, 1);
   assert.equal(getTrashVendorSellValue(7), 7);
+});
+
+test("agent trash-vendor rewards require complete four-item bundles", () => {
+  assert.equal(AGENT_TRASH_VENDOR_ITEMS_PER_POINT, 4);
+  assert.equal(getAgentTrashVendorAwardPoints(3), 0);
+  assert.equal(getAgentTrashVendorAwardPoints(4), 1);
+  assert.equal(getAgentTrashVendorAwardPoints(7), 1);
+  assert.equal(getAgentTrashVendorAwardPoints(8), 2);
+  assert.equal(getAgentTrashVendorPayableQuantity(3), 0);
+  assert.equal(getAgentTrashVendorPayableQuantity(7), 4);
+  assert.equal(getAgentTrashVendorPayableQuantity(10), 8);
+  assert.equal(getAgentTrashVendorPayableQuantity(20, 2), 8);
 });
 
 test("adds one-hour elixirs to the potion shop with elixir pricing", () => {
