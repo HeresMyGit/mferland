@@ -27,11 +27,21 @@ import { createWalletAuthChallenge } from "./walletAuth.js";
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
 const WEB_DIST_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
 const WEB_INDEX_PATH = resolve(WEB_DIST_DIR, "index.html");
+const MFERLAND_AGENT_SKILL_DIR = fileURLToPath(new URL("../../../skills/mferland-agent/", import.meta.url));
 const WEB_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const WEB_INDEX_CACHE_CONTROL = "no-store";
+const PUBLIC_SKILL_CACHE_CONTROL = "no-store";
 const MAX_ANALYTICS_BODY_BYTES = 8 * 1024;
 const MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES = 2 * 1024;
 const MAX_LOCAL_RPC_PROXY_BODY_BYTES = 64 * 1024;
+const MFERLAND_AGENT_SKILL_ROUTE = "/skills/mferland-agent";
+const MFERLAND_AGENT_SKILL_PUBLIC_FILES = new Set([
+  "SKILL.md",
+  "scripts/create-wallet.ts",
+  "scripts/package.json",
+  "scripts/tsconfig.json",
+  "scripts/mferland-agent-runner.ts",
+]);
 const LOCAL_RPC_PROXY_METHODS = new Set([
   "eth_blockNumber",
   "eth_call",
@@ -235,6 +245,8 @@ const server = createServer((req, res) => {
   }
 
   if (serveAdminDashboard(req, res, url)) return;
+
+  if (serveAgentSkillPackage(req, res, url)) return;
 
   if (serveWebDist(req, res, url)) return;
 
@@ -528,6 +540,54 @@ function hasPostgresErrorCode(error: unknown, code: string): boolean {
   return maybeError.code === code || hasPostgresErrorCode(maybeError.cause, code);
 }
 
+function serveAgentSkillPackage(req: IncomingMessage, res: ServerResponse, urlPath: string) {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+
+  const requestPath = normalizeRequestPath(urlPath);
+  if (
+    requestPath !== MFERLAND_AGENT_SKILL_ROUTE
+    && requestPath !== `${MFERLAND_AGENT_SKILL_ROUTE}/`
+    && !requestPath.startsWith(`${MFERLAND_AGENT_SKILL_ROUTE}/`)
+  ) {
+    return false;
+  }
+
+  const publicPath = requestPath === MFERLAND_AGENT_SKILL_ROUTE || requestPath === `${MFERLAND_AGENT_SKILL_ROUTE}/`
+    ? "SKILL.md"
+    : requestPath.slice(`${MFERLAND_AGENT_SKILL_ROUTE}/`.length);
+  if (!MFERLAND_AGENT_SKILL_PUBLIC_FILES.has(publicPath) || hasHiddenPathSegment(publicPath)) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found\n");
+    return true;
+  }
+
+  const filePath = resolve(MFERLAND_AGENT_SKILL_DIR, publicPath);
+  if (!isInsideDirectory(filePath, MFERLAND_AGENT_SKILL_DIR) || !isReadableFile(filePath)) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found\n");
+    return true;
+  }
+
+  const stat = statSync(filePath);
+  res.writeHead(200, {
+    "content-type": getContentType(filePath),
+    "content-length": stat.size,
+    "cache-control": PUBLIC_SKILL_CACHE_CONTROL,
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return true;
+  }
+
+  createReadStream(filePath)
+    .on("error", () => {
+      if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
+      res.end("unable to read skill asset\n");
+    })
+    .pipe(res);
+  return true;
+}
+
 function serveWebDist(req: IncomingMessage, res: ServerResponse, urlPath: string) {
   if (process.env.MFERLAND_SERVE_WEB_DIST !== "1") return false;
   if (req.method !== "GET" && req.method !== "HEAD") return false;
@@ -618,6 +678,10 @@ function getContentType(pathname: string) {
       return "text/css; charset=utf-8";
     case ".json":
       return "application/json; charset=utf-8";
+    case ".md":
+      return "text/markdown; charset=utf-8";
+    case ".ts":
+      return "text/typescript; charset=utf-8";
     case ".png":
       return "image/png";
     case ".jpg":

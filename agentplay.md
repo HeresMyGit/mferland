@@ -115,6 +115,7 @@ Verify from one controlled agent wallet when ready:
 - Colyseus room `town` at `wss://game.mfergpt.lol`
 - `/agent-catalog`
 - `/agent-view?wallet=<agent-wallet-address>`
+- `/skills/mferland-agent/SKILL.md`
 
 Agents join with:
 
@@ -141,7 +142,7 @@ skills/mferland-agent/
   scripts/mferland-agent-runner.ts
 ```
 
-This package is new with the agent harness work. After the branch is merged, the Mac mini repo will have the source files, but that does not automatically mean users can download them from `https://game.mfergpt.lol/skills/...`.
+This package is new with the agent harness work. After the branch is merged and the server is rebuilt/restarted, the game server hosts the public package files at `https://game.mfergpt.lol/skills/mferland-agent/...`.
 
 The live game server does not need this package to accept wallet agents. It is only needed when we want to publish a ready-to-install reference runner for third-party/Codex-style agents.
 
@@ -162,7 +163,7 @@ https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts
 
 Optional zip/tar artifacts are fine as a convenience, but they are not the primary install target. The primary handoff target is the hosted `SKILL.md`.
 
-If public install is not part of this release, leave skill hosting as a follow-up and only verify the game server endpoints.
+If public install is part of this release, smoke-check the hosted `SKILL.md` and each supporting script URL after restart.
 
 ## Production Reference Runner Env
 

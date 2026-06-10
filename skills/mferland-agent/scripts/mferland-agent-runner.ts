@@ -200,7 +200,7 @@ const COMBAT: Record<CombatActionId, { damage: number; cooldownMs: number; minRa
   signalShot: { damage: 12, cooldownMs: 6000, minRange: 4, maxRange: 34, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 3 },
   fireblast: { damage: 20, cooldownMs: 0, minRange: 0, maxRange: 30, manaCost: 14, castTimeMs: 3500, requiresStationary: true, minLevel: 4 },
   frostNova: { damage: 5, cooldownMs: 12000, minRange: 0, maxRange: 6.5, manaCost: 12, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
-  heal: { damage: 0, cooldownMs: 5000, minRange: 0, maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
+  heal: { damage: 0, cooldownMs: 0, minRange: 0, maxRange: 24, manaCost: 16, castTimeMs: 2000, requiresStationary: true, minLevel: 6 },
   taunt: { damage: 0, cooldownMs: 10000, minRange: 0, maxRange: 12, manaCost: 0, castTimeMs: 0, requiresStationary: false, minLevel: 7 },
   whirlwind: { damage: 9, cooldownMs: 9000, minRange: 0, maxRange: 4.5, manaCost: 10, castTimeMs: 0, requiresStationary: false, minLevel: 6 },
   multishot: { damage: 9, cooldownMs: 10000, minRange: 4, maxRange: 36, manaCost: 12, castTimeMs: 0, requiresStationary: true, minLevel: 6 },

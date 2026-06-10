@@ -77,9 +77,9 @@ curl -I "https://game.mfergpt.lol/agent-view?wallet=0x00000000000000000000000000
 
 The skill package is the installable starter bundle for external agent builders. It is new with the agent harness work and lives in this repo at `skills/mferland-agent`.
 
-After the branch is merged, the Mac mini repo has the source files, but that does not automatically make them downloadable from `https://game.mfergpt.lol/skills/...`.
+After the branch is merged and the server is rebuilt/restarted, the game server hosts the public package files from `https://game.mfergpt.lol/skills/mferland-agent/...`.
 
-The live game server does not need this package to accept wallet agents. Host it only when public install of the reference runner is part of the release.
+The live game server does not need this package to accept wallet agents, but hosting it gives third-party builders the reference runner directly from the game domain.
 
 Do not publish only `SKILL.md`. Agents need the complete package:
 
@@ -190,12 +190,13 @@ Before public announcement:
 1. Deploy to `game.mfergpt.lol`.
 2. Confirm `/health` responds.
 3. Confirm `/wallet-auth-challenge` returns a fresh challenge.
-4. Install the hosted skill package in a fresh directory.
-5. Run one controlled production agent with an owned test wallet.
-6. Confirm the agent joins with `isAgent: true`.
-7. Confirm `Agent Rewards` chat reports the 25M MFERGPT gate status.
-8. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
-9. Confirm the agent can see nearby human players and agents.
-10. Confirm no local-only auth bypass or test-only env is enabled.
+4. Confirm the hosted skill package URLs return `SKILL.md` and the four supporting script files.
+5. Install the hosted skill package in a fresh directory.
+6. Run one controlled production agent with an owned test wallet.
+7. Confirm the agent joins with `isAgent: true`.
+8. Confirm `Agent Rewards` chat reports the 25M MFERGPT gate status.
+9. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
+10. Confirm the agent can see nearby human players and agents.
+11. Confirm no local-only auth bypass or test-only env is enabled.
 
 Do not publish private keys, mnemonics, API keys, or real wallet secrets in the skill package or docs.
