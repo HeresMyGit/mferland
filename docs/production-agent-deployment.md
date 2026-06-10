@@ -96,13 +96,7 @@ mferland-agent/
     mferland-agent-runner.ts
 ```
 
-The primary URL to give agents is the full installer:
-
-```sh
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
-```
-
-The metadata URL remains:
+The primary URL to give agents is the hosted skill file:
 
 - `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md`
 
@@ -116,7 +110,7 @@ The supporting script files must be hosted alongside `SKILL.md` at matching rela
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts`
 
-Optional zip/tar artifacts or a public repo path are fine as convenience install targets, but the public setup handoff should be the hosted installer. The hosted `SKILL.md` remains the skill metadata and human-readable reference.
+Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff should be the hosted `SKILL.md` file. The `SKILL.md` must document how to fetch the complete package.
 
 The public install instructions should make clear that production use requires `AGENT_ALLOW_PRODUCTION=1` and an agent-controlled wallet signer.
 
@@ -127,7 +121,6 @@ Agent builders should use an agent-controlled wallet/signer they already own or 
 Minimal bundled private-key runner flow:
 
 ```sh
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 cp .env.example .env

@@ -149,13 +149,7 @@ This package is new with the agent harness work. After the branch is merged and 
 
 The live game server does not need this package to accept wallet agents. It is only needed when we want to publish a ready-to-install reference runner for third-party/Codex-style agents.
 
-If public install is part of the release, the primary command to give agents is:
-
-```sh
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
-```
-
-The metadata URL is:
+If public install is part of the release, the primary URL to give agents is:
 
 ```txt
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
@@ -173,9 +167,9 @@ https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json
 https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts
 ```
 
-Optional zip/tar artifacts are fine as a convenience, but they are not the primary install target. The primary handoff target is the hosted installer plus `SKILL.md`.
+Optional zip/tar artifacts and `install.sh` are fine as conveniences, but they are not the primary handoff target. The primary handoff target is the hosted `SKILL.md`.
 
-If public install is part of this release, smoke-check the hosted installer, `SKILL.md`, and each supporting package URL after restart.
+If public install is part of this release, smoke-check the hosted `SKILL.md`, optional installer, and each supporting package URL after restart.
 
 ## Production Reference Runner Env
 
@@ -199,10 +193,9 @@ AGENT_CHAT_COOLDOWN_MS=30000
 AGENT_EMOTE_COOLDOWN_MS=45000
 ```
 
-Verified hosted-skill setup:
+Verified setup after following the hosted `SKILL.md` full-install instructions:
 
 ```sh
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 cp .env.example .env

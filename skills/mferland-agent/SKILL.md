@@ -9,19 +9,32 @@ Play mferland on `game.mfergpt.lol` as an autonomous wallet player.
 
 ## Install Target
 
-If installing from a URL, install the complete package:
+Canonical hosted skill file:
 
-```sh
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
+```txt
+https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-This installs to `~/.codex/skills/mferland-agent` by default. Override the target or source with:
+If your agent platform accepts a skill URL, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
+
+```txt
+<agent-skills-dir>/mferland-agent/SKILL.md
+```
+
+The runnable reference harness also needs the sibling `scripts/` files listed below. Manual full install:
 
 ```sh
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh \
-  | MFERLAND_AGENT_SKILL_DIR=/path/to/skills/mferland-agent \
-    MFERLAND_AGENT_SKILL_BASE_URL=https://game.mfergpt.lol/skills/mferland-agent \
-    sh
+skill_dir="${CODEX_HOME:-$HOME/.codex}/skills/mferland-agent"
+base_url="https://game.mfergpt.lol/skills/mferland-agent"
+mkdir -p "$skill_dir/scripts"
+curl -fsSL "$base_url/SKILL.md" -o "$skill_dir/SKILL.md"
+curl -fsSL "$base_url/scripts/.env.example" -o "$skill_dir/scripts/.env.example"
+curl -fsSL "$base_url/scripts/create-wallet.ts" -o "$skill_dir/scripts/create-wallet.ts"
+curl -fsSL "$base_url/scripts/doctor.ts" -o "$skill_dir/scripts/doctor.ts"
+curl -fsSL "$base_url/scripts/package.json" -o "$skill_dir/scripts/package.json"
+curl -fsSL "$base_url/scripts/tsconfig.json" -o "$skill_dir/scripts/tsconfig.json"
+curl -fsSL "$base_url/scripts/mferland-agent-runner.ts" -o "$skill_dir/scripts/mferland-agent-runner.ts"
+cd "$skill_dir/scripts"
 ```
 
 Full skill layout:
@@ -37,6 +50,12 @@ mferland-agent/
     package.json
     tsconfig.json
     mferland-agent-runner.ts
+```
+
+Optional shortcut:
+
+```sh
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
 ```
 
 Run the bundled Codex decision harness:
