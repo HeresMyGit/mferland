@@ -4018,7 +4018,6 @@ function getSanitizedCodexEnv(): NodeJS.ProcessEnv {
     TMPDIR: process.env.TMPDIR || tmpdir(),
     USER: process.env.USER || process.env.LOGNAME,
   };
-  if (process.env.CODEX_HOME) env.CODEX_HOME = process.env.CODEX_HOME;
   return env;
 }
 
