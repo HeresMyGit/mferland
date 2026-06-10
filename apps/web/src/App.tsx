@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ArrowDownUp, Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowDownUp, Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector } from "wagmi";
 import {
@@ -314,6 +314,7 @@ function AuthGate({
   const [isSwitchingWallet, setIsSwitchingWallet] = useState(false);
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [showWalletConnectors, setShowWalletConnectors] = useState(false);
+  const [showAnonWarning, setShowAnonWarning] = useState(false);
   const [inviteCode, setInviteCode] = useState(() => getInitialInviteCode());
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
   const [isWalletAuthPending, setIsWalletAuthPending] = useState(false);
@@ -369,6 +370,7 @@ function AuthGate({
   const walletSignaturePending = isWalletAuthPending || isSignMessagePending;
   const walletPrimaryDisabled = isSwitchingWallet || isDisconnectPending || walletSignaturePending || (!canEnterWallet && !canRetryWallet);
   const walletFallbackDisabled = isSwitchingWallet || isDisconnectPending || walletSignaturePending || !canCreateAfterProfileError;
+  const anonEntryDisabled = inviteRequired && !hasInviteCode;
   const hasInjectedProvider = hasInjectedEthereumProvider();
   const availableWalletConnectorChoices = useMemo(
     () => getAvailableWalletConnectorChoices(walletConnectorChoices, { hasInjectedProvider }),
@@ -522,6 +524,43 @@ function AuthGate({
   function handleWalletCreateFallback() {
     trackEvent("wallet_profile_create_fallback", { surface: "auth" }, { local: true, identityType: "wallet", walletAddress: address ?? "" });
     void enterWallet({ forceCreate: true, allowProfileError: true });
+  }
+
+  function openAnonWarning() {
+    if (anonEntryDisabled) {
+      setWalletActionError("invite link required for anon mfer");
+      return;
+    }
+    setWalletActionError(null);
+    setShowAnonWarning(true);
+    trackEvent("auth_anon_warning_opened", {
+      inviteRequired,
+      invitePresent: hasInviteCode,
+      walletConnected: isConnected,
+    }, { local: true, identityType: "guest" });
+  }
+
+  function cancelAnonWarning() {
+    setShowAnonWarning(false);
+    trackEvent("auth_anon_warning_cancelled", {
+      inviteRequired,
+      invitePresent: hasInviteCode,
+      walletConnected: isConnected,
+    }, { local: true, identityType: "guest" });
+  }
+
+  function enterAnonMfer() {
+    if (anonEntryDisabled) return;
+    const anonName = cleanName || getStoredName();
+    rememberName(anonName);
+    rememberInviteCode(inviteCode);
+    setShowAnonWarning(false);
+    trackEvent("auth_enter_guest", {
+      inviteRequired,
+      invitePresent: hasInviteCode,
+      walletConnected: isConnected,
+    }, { local: true, identityType: "guest" });
+    onEnter(makeGuestIdentity(anonName));
   }
 
   function handleConnectWallet() {
@@ -772,11 +811,49 @@ function AuthGate({
               )}
             </>
           )}
+          <button className="secondary-btn" type="button" disabled={anonEntryDisabled} onClick={openAnonWarning}>
+            <UserRound size={18} />
+            anon mfer
+          </button>
         </div>
-        {!isConnected && <p className="wallet-action-hint">connect your wallet to load or create a mfer</p>}
+        {!isConnected && (
+          <p className="wallet-action-hint">
+            {anonEntryDisabled ? "open an invite link to enter mfertown" : "wallet saves progress; anon is temporary"}
+          </p>
+        )}
         {walletProfileError && <p className="wallet-action-error">{walletProfileError}</p>}
         {walletActionError && <p className="wallet-action-error">{walletActionError}</p>}
       </section>
+      {showAnonWarning && (
+        <div className="auth-modal-backdrop">
+          <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="anon-warning-title">
+            <header>
+              <div>
+                <span>anon mfer</span>
+                <strong id="anon-warning-title">data won't be saved</strong>
+              </div>
+              <button type="button" aria-label="close anon warning" onClick={cancelAnonWarning}>
+                <X size={18} />
+              </button>
+            </header>
+            <p>
+              Anonymous mfers are not tied to a wallet character. Quests, levels, items, traits, and rewards are not saved to a permanent profile.
+            </p>
+            <p>
+              This browser may remember your anon name and local id, but private mode, cleared site data, or another browser can lose it.
+            </p>
+            <div className="auth-modal-actions">
+              <button className="primary-btn" type="button" onClick={enterAnonMfer}>
+                <UserRound size={18} />
+                enter anon mfer
+              </button>
+              <button className="text-btn" type="button" onClick={cancelAnonWarning}>
+                cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
