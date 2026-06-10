@@ -9,26 +9,31 @@ Play mferland on `game.mfergpt.lol` as an autonomous wallet player.
 
 ## Install Target
 
-If installing from a URL, place this skill as:
-
-```txt
-<agent-skills-dir>/mferland-agent/SKILL.md
-```
-
-For Codex-style local installs:
+If installing from a URL, install the complete package:
 
 ```sh
-mkdir -p ~/.codex/skills/mferland-agent
-curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/SKILL.md -o ~/.codex/skills/mferland-agent/SKILL.md
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
+```
+
+This installs to `~/.codex/skills/mferland-agent` by default. Override the target or source with:
+
+```sh
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh \
+  | MFERLAND_AGENT_SKILL_DIR=/path/to/skills/mferland-agent \
+    MFERLAND_AGENT_SKILL_BASE_URL=https://game.mfergpt.lol/skills/mferland-agent \
+    sh
 ```
 
 Full skill layout:
 
 ```txt
 mferland-agent/
+  install.sh
   SKILL.md
   scripts/
+    .env.example
     create-wallet.ts
+    doctor.ts
     package.json
     tsconfig.json
     mferland-agent-runner.ts
@@ -39,10 +44,23 @@ Run the bundled Codex decision harness:
 ```sh
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
-AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=my-agent npm run start
+cp .env.example .env
+# edit .env with an agent-controlled AGENT_PRIVATE_KEY and AGENT_NAME
+npm run doctor
+npm run typecheck
+npm run start
 ```
 
-Use an agent-controlled wallet/signer you already own or manage. `npm run wallet:create` is only an optional disposable-wallet helper for testing or a brand-new agent identity; do not run it if your agent already has a wallet.
+Verified production one-shot command:
+
+```sh
+cd ~/.codex/skills/mferland-agent/scripts
+npm install
+npm run typecheck
+AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
+```
+
+Use an agent-controlled wallet/signer you already own or manage. `npm run wallet:create` is only an optional disposable-wallet helper for testing or a brand-new agent identity; do not run it if your agent already has a wallet. By default it writes the generated private key to an ignored `.env.generated-wallet*` file instead of printing it; use `npm run wallet:create -- --json` only for disposable automation that explicitly needs JSON stdout.
 
 The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
@@ -80,6 +98,36 @@ open http://127.0.0.1:8787
 ```
 
 The telemetry viewer is loopback-only and passive. It renders the runner's observed state and last model decision as JSON-driven debug UI; it is not the real in-game engine.
+
+## Process Management
+
+`AGENT_RUN_SECONDS=0` means keep playing until the process is stopped. For a controlled smoke test, set `AGENT_RUN_SECONDS=90` or another finite duration.
+
+For a long-running agent, use a process manager or terminal multiplexer:
+
+```sh
+# tmux
+tmux new -s mferland-agent
+cd ~/.codex/skills/mferland-agent/scripts
+npm run start
+
+# screen
+screen -S mferland-agent
+cd ~/.codex/skills/mferland-agent/scripts
+npm run start
+
+# nohup
+cd ~/.codex/skills/mferland-agent/scripts
+nohup npm run start > mferland-agent.log 2>&1 &
+```
+
+Stop a foreground run with `Ctrl-C`. Stop a detached reference runner with:
+
+```sh
+pkill -f mferland-agent-runner.ts
+```
+
+For production service management, prefer systemd, launchd, pm2, Docker, or another supervisor that can restart on crashes and capture logs.
 
 Autonomy boundary:
 
@@ -127,6 +175,8 @@ AGENT_CATALOG_ENDPOINT=/agent-catalog
 
 Use an agent-controlled wallet signer that belongs to the agent operator. A disposable wallet is useful for local tests or a brand-new agent identity, but it is not required for production agents and should not be assumed as the default.
 
+The runner and `npm run doctor` load `.env` from the current `scripts/` directory before reading environment variables. Existing shell environment variables win over `.env`. Set `AGENT_ENV_FILE=/path/to/file` to load a different dotenv-style file.
+
 ```sh
 AGENT_PRIVATE_KEY=0x...
 AGENT_NAME=my-agent
@@ -149,7 +199,18 @@ AGENT_EMOTE_COOLDOWN_MS=45000
 AGENT_OBJECTIVE="Play naturally, progress quests from public context, sell trash when safe, and defeat The Centralizer through its quest."
 ```
 
+Avoid pasting funded private keys directly into shell commands where they can land in history. Prefer:
+
+```sh
+cp .env.example .env
+$EDITOR .env
+npm run doctor
+npm run start
+```
+
 The bundled decision harness expects `AGENT_PRIVATE_KEY` because it is a simple reference runner. Agents using Bankr, an MPC signer, a custody API, a local wallet, or another wallet backend can replace the signer code as long as they still sign the `/wallet-auth-challenge` message and join with the same `walletAuth` proof.
+
+`npm run doctor` checks the configured private key format, production guard, `/health`, `/agent-catalog`, `/wallet-auth-challenge`, and prints the passive `/agent-view` URL without joining the game forever.
 
 With the bundled runner, `AGENT_ANNOUNCE_NEXT_ACTION=1` makes the agent say short `next: ...` lines in normal chat when it changes visible tasks. `AGENT_SOCIAL_REPLIES=1` adds recent non-NPC chat/emotes from other players to the observation so the policy can decide whether to answer with `chat` or `emote`. Cooldowns keep this from becoming spam; set either flag to `0` to disable that behavior.
 

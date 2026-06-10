@@ -3108,6 +3108,8 @@ class MferlandRunner {
   }
 }
 
+loadDotEnvFile();
+
 const config = readConfig();
 const runner = new MferlandRunner(config);
 await runner.start();
@@ -3274,6 +3276,37 @@ function readConfig(): AgentConfig {
     viewerHost,
     gameViewerUrl,
   };
+}
+
+function loadDotEnvFile() {
+  const configuredPath = process.env.AGENT_ENV_FILE?.trim();
+  const envPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(process.cwd(), ".env");
+  if (!existsSync(envPath)) {
+    if (configuredPath) throw new Error(`AGENT_ENV_FILE does not exist: ${envPath}`);
+    return;
+  }
+  const contents = readFileSync(envPath, "utf8");
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
+    const equalsIndex = normalized.indexOf("=");
+    if (equalsIndex <= 0) continue;
+    const key = normalized.slice(0, equalsIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] !== undefined) continue;
+    process.env[key] = parseEnvValue(normalized.slice(equalsIndex + 1));
+  }
+}
+
+function parseEnvValue(value: string) {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if ((quote === "\"" || quote === "'") && trimmed.endsWith(quote)) {
+    const inner = trimmed.slice(1, -1);
+    return quote === "\"" ? inner.replace(/\\n/g, "\n").replace(/\\"/g, "\"") : inner;
+  }
+  const hashIndex = trimmed.indexOf(" #");
+  return (hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed).trim();
 }
 
 function schemaEntries(value: unknown): Array<[string, AnyRecord]> {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "doctor": "tsx doctor.ts",
     "start": "tsx mferland-agent-runner.ts",
     "wallet:create": "tsx create-wallet.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

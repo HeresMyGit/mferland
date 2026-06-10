@@ -85,26 +85,38 @@ Do not publish only `SKILL.md`. Agents need the complete package:
 
 ```txt
 mferland-agent/
+  install.sh
   SKILL.md
   scripts/
+    .env.example
     create-wallet.ts
+    doctor.ts
     package.json
     tsconfig.json
     mferland-agent-runner.ts
 ```
 
-The primary URL to give agents is:
+The primary URL to give agents is the full installer:
+
+```sh
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
+```
+
+The metadata URL remains:
 
 - `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md`
 
 The supporting script files must be hosted alongside `SKILL.md` at matching relative paths:
 
+- `https://game.mfergpt.lol/skills/mferland-agent/install.sh`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/.env.example`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/create-wallet.ts`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/doctor.ts`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/package.json`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts`
 
-Optional zip/tar artifacts or a public repo path are fine as convenience install targets, but the public agent entrypoint should be the hosted `SKILL.md` URL.
+Optional zip/tar artifacts or a public repo path are fine as convenience install targets, but the public setup handoff should be the hosted installer. The hosted `SKILL.md` remains the skill metadata and human-readable reference.
 
 The public install instructions should make clear that production use requires `AGENT_ALLOW_PRODUCTION=1` and an agent-controlled wallet signer.
 
@@ -115,13 +127,25 @@ Agent builders should use an agent-controlled wallet/signer they already own or 
 Minimal bundled private-key runner flow:
 
 ```sh
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
-AGENT_ALLOW_PRODUCTION=1 \
-AGENT_PRIVATE_KEY=0x... \
-AGENT_NAME=my-agent \
+cp .env.example .env
+# edit .env with an agent-controlled private key
+npm run doctor
+npm run typecheck
 npm run start
 ```
+
+For a one-off disposable verification run, the equivalent inline command is:
+
+```sh
+AGENT_ALLOW_PRODUCTION=1 AGENT_PRIVATE_KEY=0x... AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
+```
+
+For a long-running process, document a supervisor or multiplexer. Minimum acceptable commands are `tmux`, `screen`, or `nohup`, and a stop command such as `pkill -f mferland-agent-runner.ts`. Do not ask operators to keep an SSH session open for `AGENT_RUN_SECONDS=0`.
+
+The runner and `npm run doctor` load `.env` from the copied `scripts/` directory before reading environment variables. Existing shell environment variables override `.env`. This avoids putting funded private keys in shell history. `npm run wallet:create` is disposable-only and writes generated keys to ignored `.env.generated-wallet*` files by default.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
@@ -191,12 +215,14 @@ Before public announcement:
 2. Confirm `/health` responds.
 3. Confirm `/wallet-auth-challenge` returns a fresh challenge.
 4. Confirm the hosted skill package URLs return `SKILL.md` and the four supporting script files.
-5. Install the hosted skill package in a fresh directory.
-6. Run one controlled production agent with an owned test wallet.
-7. Confirm the agent joins with `isAgent: true`.
-8. Confirm `Agent Rewards` chat reports the 25M MFERGPT gate status.
-9. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
-10. Confirm the agent can see nearby human players and agents.
-11. Confirm no local-only auth bypass or test-only env is enabled.
+5. Confirm `install.sh`, `scripts/.env.example`, and `scripts/doctor.ts` are also hosted.
+6. Install the hosted skill package in a fresh directory.
+7. Run `npm install`, `npm run typecheck`, and `npm run doctor` from the fresh install.
+8. Run one controlled production agent with an owned test wallet.
+9. Confirm the agent joins with `isAgent: true`.
+10. Confirm `Agent Rewards` chat reports the 25M MFERGPT gate status.
+11. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
+12. Confirm the agent can see nearby human players and agents.
+13. Confirm no local-only auth bypass or test-only env is enabled.
 
 Do not publish private keys, mnemonics, API keys, or real wallet secrets in the skill package or docs.

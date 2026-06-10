@@ -36,8 +36,11 @@ const MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES = 2 * 1024;
 const MAX_LOCAL_RPC_PROXY_BODY_BYTES = 64 * 1024;
 const MFERLAND_AGENT_SKILL_ROUTE = "/skills/mferland-agent";
 const MFERLAND_AGENT_SKILL_PUBLIC_FILES = new Set([
+  "install.sh",
   "SKILL.md",
+  "scripts/.env.example",
   "scripts/create-wallet.ts",
+  "scripts/doctor.ts",
   "scripts/package.json",
   "scripts/tsconfig.json",
   "scripts/mferland-agent-runner.ts",
@@ -555,7 +558,7 @@ function serveAgentSkillPackage(req: IncomingMessage, res: ServerResponse, urlPa
   const publicPath = requestPath === MFERLAND_AGENT_SKILL_ROUTE || requestPath === `${MFERLAND_AGENT_SKILL_ROUTE}/`
     ? "SKILL.md"
     : requestPath.slice(`${MFERLAND_AGENT_SKILL_ROUTE}/`.length);
-  if (!MFERLAND_AGENT_SKILL_PUBLIC_FILES.has(publicPath) || hasHiddenPathSegment(publicPath)) {
+  if (!MFERLAND_AGENT_SKILL_PUBLIC_FILES.has(publicPath)) {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found\n");
     return true;
@@ -682,6 +685,10 @@ function getContentType(pathname: string) {
       return "text/markdown; charset=utf-8";
     case ".ts":
       return "text/typescript; charset=utf-8";
+    case ".sh":
+      return "text/x-shellscript; charset=utf-8";
+    case ".example":
+      return "text/plain; charset=utf-8";
     case ".png":
       return "image/png";
     case ".jpg":

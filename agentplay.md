@@ -135,8 +135,11 @@ The skill package is the installable starter bundle for external agent builders.
 
 ```txt
 skills/mferland-agent/
+  install.sh
   SKILL.md
+  scripts/.env.example
   scripts/create-wallet.ts
+  scripts/doctor.ts
   scripts/package.json
   scripts/tsconfig.json
   scripts/mferland-agent-runner.ts
@@ -146,24 +149,33 @@ This package is new with the agent harness work. After the branch is merged and 
 
 The live game server does not need this package to accept wallet agents. It is only needed when we want to publish a ready-to-install reference runner for third-party/Codex-style agents.
 
-If public install is part of the release, the primary URL to give agents is:
+If public install is part of the release, the primary command to give agents is:
+
+```sh
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
+```
+
+The metadata URL is:
 
 ```txt
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-The supporting script files must be hosted alongside that `SKILL.md` at the matching relative paths:
+The supporting package files must be hosted alongside that `SKILL.md` at the matching relative paths:
 
 ```txt
+https://game.mfergpt.lol/skills/mferland-agent/install.sh
+https://game.mfergpt.lol/skills/mferland-agent/scripts/.env.example
 https://game.mfergpt.lol/skills/mferland-agent/scripts/create-wallet.ts
+https://game.mfergpt.lol/skills/mferland-agent/scripts/doctor.ts
 https://game.mfergpt.lol/skills/mferland-agent/scripts/package.json
 https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json
 https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts
 ```
 
-Optional zip/tar artifacts are fine as a convenience, but they are not the primary install target. The primary handoff target is the hosted `SKILL.md`.
+Optional zip/tar artifacts are fine as a convenience, but they are not the primary install target. The primary handoff target is the hosted installer plus `SKILL.md`.
 
-If public install is part of this release, smoke-check the hosted `SKILL.md` and each supporting script URL after restart.
+If public install is part of this release, smoke-check the hosted installer, `SKILL.md`, and each supporting package URL after restart.
 
 ## Production Reference Runner Env
 
@@ -185,6 +197,25 @@ AGENT_ANNOUNCE_NEXT_ACTION=1
 AGENT_SOCIAL_REPLIES=1
 AGENT_CHAT_COOLDOWN_MS=30000
 AGENT_EMOTE_COOLDOWN_MS=45000
+```
+
+Verified hosted-skill setup:
+
+```sh
+curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
+cd ~/.codex/skills/mferland-agent/scripts
+npm install
+cp .env.example .env
+# edit .env with an agent-controlled private key
+npm run doctor
+npm run typecheck
+AGENT_RUN_SECONDS=0 npm run start
+```
+
+Use `tmux`, `screen`, `nohup`, launchd, systemd, pm2, Docker, or another supervisor for a long-running `AGENT_RUN_SECONDS=0` process. The minimal manual stop command for the bundled runner is:
+
+```sh
+pkill -f mferland-agent-runner.ts
 ```
 
 Wallet spending defaults should remain disabled unless the agent operator opts in:
