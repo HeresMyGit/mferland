@@ -34,7 +34,7 @@ Next:
   npm install
   cp .env.example .env
   # edit .env with AGENT_WALLET_ADDRESS and AGENT_SIGNER_COMMAND
-  # export BANKR_API_KEY=... first if you want to use node ./bankr-signer.mjs
+  # native Bankr agents should use platform wallet signing; do not put BANKR_API_KEY in .env
   npm run doctor
   npm run start
 EOF

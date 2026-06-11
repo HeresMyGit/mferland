@@ -163,6 +163,9 @@ function loadDotEnvFile() {
     const equalsIndex = normalized.indexOf("=");
     if (equalsIndex <= 0) continue;
     const key = normalized.slice(0, equalsIndex).trim();
+    if (key === "BANKR_API_KEY") {
+      throw new Error("Do not put BANKR_API_KEY in the mferland .env file. Native Bankr agents should use platform wallet signing; the optional bankr-signer.mjs sample may receive BANKR_API_KEY only from a runtime secret manager or parent process environment.");
+    }
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] !== undefined) continue;
     process.env[key] = parseEnvValue(normalized.slice(equalsIndex + 1));
   }
@@ -299,6 +302,7 @@ function getSanitizedSignerEnv(): NodeJS.ProcessEnv {
     USER: process.env.USER || process.env.LOGNAME,
   };
   if (process.env.CODEX_HOME) env.CODEX_HOME = process.env.CODEX_HOME;
+  if (process.env.BANKR_API_KEY) env.BANKR_API_KEY = process.env.BANKR_API_KEY;
   return env;
 }
 

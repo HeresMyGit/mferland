@@ -142,7 +142,7 @@ For a long-running process, document a supervisor or multiplexer. Minimum accept
 
 The runner and `npm run doctor` load `.env` from the copied `scripts/` directory before reading environment variables. Existing shell environment variables override `.env`. `AGENT_PRIVATE_KEY` is rejected for non-local servers and is only for loopback smoke tests. `npm run wallet:create` is disposable-only and writes generated keys to ignored `.env.generated-wallet*` files by default.
 
-For Bankr-backed agents, the public skill bundle includes a concrete sample signer adapter at `scripts/bankr-signer.mjs`. Operators still need to provide `BANKR_API_KEY` in their runtime environment and set `AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"`.
+Native Bankr agents should use their platform wallet/signing capability and should not put a Bankr API key or wallet private key in the mferland `.env`. The public skill bundle includes `scripts/bankr-signer.mjs` only as an optional external-runner sample for operators who already choose to call Bankr's HTTP Wallet API. That sample needs `BANKR_API_KEY` from a runtime environment or secret manager and `AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"`.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 

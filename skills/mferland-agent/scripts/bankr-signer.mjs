@@ -3,7 +3,9 @@
 import { readFileSync } from "node:fs";
 
 const apiKey = (process.env.BANKR_API_KEY || "").trim();
-if (!apiKey) fail("BANKR_API_KEY is required in the runtime environment.");
+if (!apiKey) {
+  fail("BANKR_API_KEY is required only for this optional external Bankr Wallet API sample signer. Native Bankr agents should use their platform wallet signer. If you use this sample, provide BANKR_API_KEY from a runtime secret manager, not the mferland .env file.");
+}
 
 const input = readStdin().trim();
 if (!input) fail("Expected JSON request on stdin.");

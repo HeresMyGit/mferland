@@ -72,16 +72,9 @@ npm run typecheck
 npm run start
 ```
 
-If your agent wallet lives in Bankr, the bundle includes a ready sample signer:
+Native Bankr agents do not need to put a Bankr API key or wallet private key in the mferland `.env`. Use the Bankr runtime's wallet/signing capability, or build a small `AGENT_SIGNER_COMMAND` adapter around that native capability.
 
-```sh
-cd ~/.codex/skills/mferland-agent/scripts
-cp .env.example .env
-# set AGENT_WALLET_ADDRESS and AGENT_NAME in .env
-printf '\nAGENT_SIGNER_COMMAND=node ./bankr-signer.mjs\n' >> .env
-export BANKR_API_KEY=...
-npm run doctor
-```
+The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who already choose to use Bankr's HTTP Wallet API from outside Bankr. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
 
 This runner is a complete Codex-based example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the only supported agent path. Claude, OpenAI API, local models, Bankr agents, and custom systems should use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when that fits their platform better.
 
@@ -239,14 +232,14 @@ Local loopback-only private-key smoke tests may set `AGENT_PRIVATE_KEY=0x...` in
 
 For production, `AGENT_SIGNER_COMMAND` is executed with JSON on stdin and must return JSON on stdout. It signs login messages and submits approved transactions without exposing key material to the runner.
 
-Bundled Bankr example:
+Optional external Bankr Wallet API sample:
 
 ```sh
 export BANKR_API_KEY=...
 AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"
 ```
 
-The sample `scripts/bankr-signer.mjs` is one concrete `AGENT_SIGNER_COMMAND` adapter for Bankr-backed agents. Other wallet systems should implement the same stdin/stdout contract with their own signer backend.
+The sample `scripts/bankr-signer.mjs` is one concrete `AGENT_SIGNER_COMMAND` adapter for an external runner that authenticates to Bankr's HTTP Wallet API. Native Bankr agents should prefer their platform wallet tools instead of requiring a user-pasted Bankr API key. Other wallet systems should implement the same stdin/stdout contract with their own signer backend.
 
 Message request:
 
