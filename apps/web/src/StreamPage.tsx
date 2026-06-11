@@ -44,6 +44,7 @@ import {
 import { getClientRenderPerformanceProfile } from "./game/performance";
 import { DEFAULT_GAME_SETTINGS, type GameSettings } from "./game/settings";
 import { useTownRoom } from "./game/useTownRoom";
+import { canOpenStreamPage } from "./streamAccess";
 
 const STREAM_DEFAULT_SECONDS = 45;
 const STREAM_MIN_SECONDS = 30;
@@ -105,7 +106,7 @@ type StreamFocus = {
 };
 
 export function StreamPage({ overlay = false, agentView = false }: StreamPageProps) {
-  if (!isLocalStreamHost()) {
+  if (!canOpenStreamPage({ agentView, hostname: window.location.hostname })) {
     return (
       <main className="game-shell stream-shell">
         <section className="stream-status-panel" role="alert">
@@ -1046,10 +1047,6 @@ function isStreamCameraPlayer(player: PlayerSnapshot, localSessionId: string | n
 function getLinkedInviteCode() {
   const params = new URLSearchParams(window.location.search);
   return params.get("invite")?.trim() || params.get("code")?.trim() || "";
-}
-
-function isLocalStreamHost() {
-  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 
 function normalizeActionSlots(slots: ActionSlot[]) {
