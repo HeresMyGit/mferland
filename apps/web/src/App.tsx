@@ -126,6 +126,10 @@ const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["attack", null, null, null, null, null, null, null];
 const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v4";
 const GAME_SETTINGS_STORAGE_KEY = "mferland:settings:v1";
+const AGENT_SKILL_URL = "https://game.mfergpt.lol/skills/mferland/SKILL.md";
+const AUTH_ONLINE_PLAYER_LIMIT = 40;
+const AUTH_ONLINE_REFRESH_MS = 10_000;
+const STREAM_CAMERA_PLAYER_NAME = "stream cam";
 const LOCAL_DEBUG_WALLET_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 const HIDDEN_CAPTURE_NAMEPLATES = {
   localPlayer: false,
@@ -174,6 +178,28 @@ type MoveUnlockNotice = {
   buttonIndex: number | null;
 };
 type QueuedMoveUnlockNotice = Omit<MoveUnlockNotice, "id">;
+type AuthOnlineStatus = "loading" | "ready" | "error";
+type AuthOnlinePlayer = {
+  sessionId: string;
+  name: string;
+  identityType: string;
+  isAgent: boolean;
+  walletAddress: string;
+  walletShort: string;
+  status: string;
+  zone: string;
+  level: number;
+  health: number;
+  maxHealth: number;
+  currentQuestTitle: string;
+};
+type AuthOnlineSnapshot = {
+  generatedAt: string;
+  playersOnline: number;
+  agentsOnline: number;
+  humansOnline: number;
+  players: AuthOnlinePlayer[];
+};
 
 function isRealCaptureMode() {
   if (!REAL_CAPTURE_ENABLED) return false;
@@ -330,6 +356,9 @@ function AuthGate({
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
   const handleLoaderComplete = useCallback(() => setLoaderComplete(true), []);
   const showAuthLoader = !cryptoSmokeMode && (!previewReady || !loaderComplete);
+  const [onlineSnapshot, setOnlineSnapshot] = useState<AuthOnlineSnapshot | null>(null);
+  const [onlineStatus, setOnlineStatus] = useState<AuthOnlineStatus>("loading");
+  const [onlineError, setOnlineError] = useState("");
   const inviteRequired = isInviteRequired();
   const hasInviteCode = inviteCode.trim() !== "";
 
@@ -378,6 +407,21 @@ function AuthGate({
   );
   const walletConnectDisabled = isConnectPending || availableWalletConnectorChoices.length === 0;
 
+  const loadOnlineSnapshot = useCallback(async (signal?: AbortSignal) => {
+    setOnlineStatus((current) => current === "ready" ? current : "loading");
+    try {
+      const nextSnapshot = await fetchAuthOnlineSnapshot(signal);
+      if (signal?.aborted) return;
+      setOnlineSnapshot(nextSnapshot);
+      setOnlineStatus("ready");
+      setOnlineError("");
+    } catch (error) {
+      if (signal?.aborted) return;
+      setOnlineStatus("error");
+      setOnlineError(error instanceof Error ? error.message : "online roster unavailable");
+    }
+  }, []);
+
   const loadWalletProfile = useCallback(async (walletAddress: string) => {
     const requestId = walletProfileRequestRef.current + 1;
     walletProfileRequestRef.current = requestId;
@@ -423,6 +467,17 @@ function AuthGate({
       walletAddress: address ?? "",
     });
   }, [address, hasInviteCode, inviteRequired, isConnected]);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    void loadOnlineSnapshot(abortController.signal);
+    const refreshId = window.setInterval(() => void loadOnlineSnapshot(abortController.signal), AUTH_ONLINE_REFRESH_MS);
+
+    return () => {
+      abortController.abort();
+      window.clearInterval(refreshId);
+    };
+  }, [loadOnlineSnapshot]);
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -682,6 +737,11 @@ function AuthGate({
 
       <MferGptSwapMenu />
 
+      <a className="auth-agents-link" href={AGENT_SKILL_URL} target="_blank" rel="noreferrer">
+        <ExternalLink size={17} />
+        <span>agents</span>
+      </a>
+
       <section className="auth-connect-panel">
         <label className="name-field">
           <span>{existingCharacter ? "saved name" : "name"}</span>
@@ -816,6 +876,7 @@ function AuthGate({
             anon mfer
           </button>
         </div>
+        <AuthOnlinePanel snapshot={onlineSnapshot} status={onlineStatus} error={onlineError} />
         {!isConnected && (
           <p className="wallet-action-hint">
             {anonEntryDisabled ? "open an invite link to enter mfertown" : "wallet saves progress; anon is temporary"}
@@ -1088,6 +1149,58 @@ function MferGptSwapMenu({
           )}
         </div>
       </div>
+    </section>
+  );
+}
+
+function AuthOnlinePanel({
+  error,
+  snapshot,
+  status,
+}: {
+  error: string;
+  snapshot: AuthOnlineSnapshot | null;
+  status: AuthOnlineStatus;
+}) {
+  const players = snapshot?.players ?? [];
+  const playersOnline = snapshot?.playersOnline ?? players.length;
+  const agentsOnline = snapshot?.agentsOnline ?? players.filter((player) => player.isAgent).length;
+  const headerText = status === "loading" && !snapshot
+    ? "checking town"
+    : `${playersOnline} online / ${agentsOnline} agents`;
+
+  return (
+    <section className={`auth-online-panel ${status === "error" ? "stale" : ""}`} aria-label="online players">
+      <header className="auth-online-header">
+        <div>
+          <span>online now</span>
+          <strong>{headerText}</strong>
+        </div>
+        {snapshot?.generatedAt && <em>{formatAuthOnlineUpdatedAt(snapshot.generatedAt)}</em>}
+      </header>
+
+      <div className="auth-online-list" role="list">
+        {players.length > 0 ? players.map((player) => (
+          <div key={player.sessionId || `${player.walletAddress}:${player.name}`} className={`auth-online-row ${player.isAgent ? "agent" : ""}`} role="listitem">
+            <div className="auth-online-main">
+              <strong>{player.name || "mfer"}</strong>
+              <span>{formatAuthOnlinePlayerMeta(player)}</span>
+            </div>
+            {player.isAgent && (
+              <a className="auth-online-view" href={getAgentViewHref(player)} aria-label={`view ${player.name || "agent"} camera`}>
+                <ExternalLink size={13} />
+                <span>view</span>
+              </a>
+            )}
+          </div>
+        )) : (
+          <p className="auth-online-state">
+            {status === "error" ? "online list unavailable" : status === "loading" ? "checking town..." : "no mfers online"}
+          </p>
+        )}
+      </div>
+
+      {status === "error" && players.length > 0 && <p className="auth-online-state subtle">{error || "refresh failed"}</p>}
     </section>
   );
 }
@@ -2253,6 +2366,29 @@ async function fetchDebugPlacementMap(signal: AbortSignal) {
   return response.json() as Promise<unknown>;
 }
 
+async function fetchAuthOnlineSnapshot(signal?: AbortSignal) {
+  const response = await fetch(getAgentWorldUrl(), { cache: "no-store", signal });
+  const payload = await response.json().catch(() => null) as unknown;
+  if (!response.ok) throw new Error(getAuthOnlineErrorMessage(payload, response.status));
+  return normalizeAuthOnlineSnapshot(payload);
+}
+
+function getAgentWorldUrl() {
+  return `${getAgentApiHttpBase()}/agent-world?playerLimit=${AUTH_ONLINE_PLAYER_LIMIT}`;
+}
+
+function getAgentViewHref(player: AuthOnlinePlayer) {
+  const params = new URLSearchParams();
+  if (player.walletAddress) {
+    params.set("wallet", player.walletAddress);
+  } else if (player.sessionId) {
+    params.set("session", player.sessionId);
+  } else {
+    params.set("agent", player.name);
+  }
+  return `/agent-view?${params.toString()}`;
+}
+
 function getDebugPlacementMapUrl() {
   const configured = import.meta.env.VITE_SERVER_URL ? String(import.meta.env.VITE_SERVER_URL) : "";
   if (configured) {
@@ -2260,6 +2396,77 @@ function getDebugPlacementMapUrl() {
   }
   const protocol = window.location.protocol === "https:" ? "https" : "http";
   return `${protocol}://${window.location.hostname}:2567/debug-placement-map`;
+}
+
+function getAgentApiHttpBase() {
+  const configured = String(import.meta.env.VITE_SERVER_URL ?? "").trim();
+  if (configured) {
+    return configured.replace(/^ws:/, "http:").replace(/^wss:/, "https:").replace(/\/+$/, "");
+  }
+
+  if (import.meta.env.DEV) {
+    const protocol = window.location.protocol === "https:" ? "https" : "http";
+    return `${protocol}://${window.location.hostname}:2567`;
+  }
+
+  return "";
+}
+
+function normalizeAuthOnlineSnapshot(value: unknown): AuthOnlineSnapshot {
+  if (!isRecord(value) || value.ok !== true) throw new Error("online roster response was not valid");
+  const players = toArray(value.onlinePlayers)
+    .map(normalizeAuthOnlinePlayer)
+    .filter((player): player is AuthOnlinePlayer => Boolean(player))
+    .sort((left, right) => Number(right.isAgent) - Number(left.isAgent) || left.name.localeCompare(right.name))
+    .slice(0, AUTH_ONLINE_PLAYER_LIMIT);
+
+  return {
+    generatedAt: toStringValue(value.generatedAt) || new Date().toISOString(),
+    playersOnline: players.length,
+    agentsOnline: players.filter((player) => player.isAgent).length,
+    humansOnline: players.filter((player) => !player.isAgent).length,
+    players,
+  };
+}
+
+function normalizeAuthOnlinePlayer(value: unknown): AuthOnlinePlayer | null {
+  if (!isRecord(value)) return null;
+  const sessionId = toStringValue(value.sessionId);
+  const name = toStringValue(value.name) || "mfer";
+  if (name.trim().toLowerCase() === STREAM_CAMERA_PLAYER_NAME) return null;
+  if (!sessionId && !name) return null;
+  const currentQuest = isRecord(value.currentQuest) ? value.currentQuest : {};
+  return {
+    sessionId,
+    name,
+    identityType: toStringValue(value.identityType) || "guest",
+    isAgent: value.isAgent === true,
+    walletAddress: toStringValue(value.walletAddress),
+    walletShort: toStringValue(value.walletShort),
+    status: toStringValue(value.status) || "online",
+    zone: toStringValue(value.zone),
+    level: Math.max(1, toNumber(value.level) || 1),
+    health: toNumber(value.health),
+    maxHealth: toNumber(value.maxHealth),
+    currentQuestTitle: toStringValue(currentQuest.title),
+  };
+}
+
+function formatAuthOnlinePlayerMeta(player: AuthOnlinePlayer) {
+  const identity = player.isAgent ? "agent" : player.identityType === "wallet" ? "wallet" : "anon";
+  const status = player.status === "dead" ? "down" : player.zone || "town";
+  return `${identity} / lvl ${player.level} / ${status}`;
+}
+
+function formatAuthOnlineUpdatedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function getAuthOnlineErrorMessage(payload: unknown, status: number) {
+  if (isRecord(payload) && typeof payload.error === "string") return payload.error;
+  return `online roster request failed (${status})`;
 }
 
 function normalizeDebugPlacementOverrides(value: unknown): DebugPlacementOverrides {
@@ -2341,6 +2548,23 @@ function makeDebugPlacementStoredRecord(target: DebugPlacementTarget, value: Deb
 function getUnknownRecordProperty(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
   return (value as Record<string, unknown>)[key];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function toArray(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function toStringValue(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function toNumber(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function isDebugPlacementKind(value: string): value is DebugPlacementTarget["kind"] {

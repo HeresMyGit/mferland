@@ -352,6 +352,7 @@
 .death-panel button,
 .ability-slot-row button,
 .menu-tabs button,
+.auth-agents-link,
 .auth-swap-toggle,
 .auth-swap-close,
 .swap-refresh-btn,
@@ -361,6 +362,7 @@
 .secondary-btn,
 .text-btn,
 .wallet-choice-btn,
+.auth-online-view,
 .name-field input,
 .swap-amount-field > div,
 .swap-mini-field > div,
@@ -372,6 +374,10 @@
     inset 0 0 0 2px rgba(255, 248, 224, 0.06),
     0 2px 0 rgba(9, 8, 6, 0.75),
     0 7px 14px rgba(0, 0, 0, 0.2);
+}
+
+.auth-agents-link {
+  position: absolute;
 }
 
 .action-slot,
@@ -386,10 +392,12 @@
 .quest-offer-close,
 .quest-secondary-btn,
 .ability-slot-row button,
+.auth-agents-link,
 .auth-swap-toggle,
 .auth-swap-close,
 .swap-refresh-btn,
 .swap-route-row button,
+.auth-online-view,
 .menu-tabs button {
   color: var(--mfer-paper);
   background: #3b3320;
@@ -493,6 +501,7 @@
 }
 
 .primary-btn,
+.auth-agents-link,
 .auth-swap-action,
 .quest-accept-btn,
 .item-use-btn,
@@ -520,6 +529,7 @@
 }
 
 .auth-swap-toggle,
+.auth-agents-link,
 .auth-swap-action {
   color: #141007;
   background:
@@ -540,6 +550,14 @@
   background:
     linear-gradient(135deg, rgba(93, 211, 255, 0.34), rgba(183, 255, 109, 0.18)),
     rgba(37, 33, 20, 0.72);
+}
+
+.auth-online-view {
+  color: #141007;
+  background:
+    linear-gradient(135deg, rgba(182, 154, 255, 0.88), rgba(93, 211, 255, 0.34)),
+    rgba(182, 154, 255, 0.58);
+  text-shadow: 0 1px 0 rgba(255, 248, 224, 0.36);
 }
 
 .name-field input,
@@ -653,13 +671,15 @@
 .death-panel button::after,
 .ability-slot-row button::after,
 .menu-tabs button::after,
+.auth-agents-link::after,
 .auth-swap-toggle::after,
 .auth-swap-close::after,
 .swap-refresh-btn::after,
 .swap-route-row button::after,
 .auth-swap-action::after,
 .primary-btn::after,
-.secondary-btn::after {
+.secondary-btn::after,
+.auth-online-view::after {
   content: "";
   position: absolute;
   inset: 2px;
@@ -688,6 +708,7 @@
 .death-panel button > *,
 .ability-slot-row button > *,
 .menu-tabs button > :not(.tab-badge),
+.auth-agents-link > *,
 .auth-swap-toggle > *,
 .auth-swap-close > *,
 .swap-refresh-btn > *,
@@ -695,7 +716,8 @@
 .auth-swap-action > *,
 .primary-btn > *,
 .secondary-btn > *,
-.text-btn > * {
+.text-btn > *,
+.auth-online-view > * {
   position: relative;
   z-index: 1;
 }
@@ -711,6 +733,8 @@ button.inventory-slot:hover,
 .inventory-slot.consumable:hover,
 .equipment-slot:hover,
 .gear-row:hover,
+.auth-online-view:hover,
+.auth-online-view:focus-visible,
 .talent-row:not(:disabled):hover,
 .trait-options button:not(:disabled):hover,
 .trait-options button.selected {
