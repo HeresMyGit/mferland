@@ -270,14 +270,6 @@ const PUBLIC_ROUTES: Record<string, Point[]> = {
   "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
 };
 
-const AGENT_DEFAULT_TRAITS = {
-  background: "orange",
-  type: "plain",
-  eyes: "regular",
-  mouth: "smile",
-  headphones: "black",
-} as const;
-
 const DECISION_ACTIONS = [
   "wait",
   "move_to",
@@ -1357,7 +1349,7 @@ class MferlandRunner {
         "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
-        "For update_traits, choose a traits object from catalog.traits based on what you know about yourself as an agent, your intended play archetype, and your style. Declared agents render with the mferGPT agent model, so choose valid mfer trait ids as identity metadata and for supported overlays. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "For update_traits, choose a traits object from catalog.traits only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
       ],
       refs: {
         npcs: Object.fromEntries(refs),
@@ -1413,7 +1405,7 @@ class MferlandRunner {
       progression: this.catalog.progression ?? {},
       traits: this.catalog.traits ?? {
         declaredAgentModel: "mfergpt",
-        note: "Agent trait catalog unavailable. Use valid mfer trait ids if known; declared agents render with the mferGPT agent model.",
+        note: "Agent trait catalog unavailable. Use valid mfer trait ids only for strong identity/style choices. Declared agents render with the mferGPT agent model and cannot use caps, long hair, shades, or glasses.",
       },
       equipmentSlots: this.catalog.equipmentSlots ?? {},
       talentTrees: this.catalog.talentTrees ?? {},
@@ -2774,7 +2766,7 @@ class MferlandRunner {
         if (payment) this.reserveMferGptSpend(payment.amountWei);
         const traits = this.resolveAgentTraits(decision.traits);
         this.send("updateTraits", {
-          traits,
+          traits: traits ?? {},
           name: this.config.agentName,
           attemptId: `llm-skill-runner-${Date.now()}`,
           payment,
@@ -2980,15 +2972,16 @@ class MferlandRunner {
   private resolveAgentTraits(rawTraits: unknown) {
     const selected = asRecord(rawTraits);
     const allowedOptions = this.traitOptionMap();
-    const traits: Record<string, string> = { ...AGENT_DEFAULT_TRAITS };
+    const traits: Record<string, string> = {};
     for (const [categoryId, rawValue] of Object.entries(selected)) {
       const value = cleanText(rawValue, 80);
       if (!value) continue;
       const allowed = allowedOptions.get(categoryId);
       if (allowed && !allowed.has(value)) continue;
+      if (!this.isAgentTraitAllowed(categoryId, value)) continue;
       traits[categoryId] = value;
     }
-    return traits;
+    return Object.keys(traits).length > 0 ? traits : null;
   }
 
   private traitOptionMap() {
@@ -3004,6 +2997,20 @@ class MferlandRunner {
         new Set(options.map((option) => cleanText(option.id, 80)).filter(Boolean)),
       ] as const;
     }).filter(([categoryId]) => Boolean(categoryId)));
+  }
+
+  private isAgentTraitAllowed(categoryId: string, value: string) {
+    const blocked = asRecord(asRecord(this.catalog?.traits).blockedForDeclaredAgents);
+    const blockedCategories = Array.isArray(blocked.categories) ? blocked.categories.map((entry) => cleanText(entry, 80)) : [];
+    if (blockedCategories.includes(categoryId) || categoryId === "long_hair") return false;
+    const blockedOptions = asRecord(blocked.options);
+    const categoryBlockedOptions = Array.isArray(blockedOptions[categoryId])
+      ? (blockedOptions[categoryId] as unknown[]).map((entry) => cleanText(entry, 80))
+      : [];
+    if (categoryBlockedOptions.includes(value)) return false;
+    if (categoryId === "hat_under_headphones" && value.startsWith("cap_")) return false;
+    if (categoryId === "eyes" && value !== "regular") return false;
+    return true;
   }
 
   private async resolvePotionShopPayment(decision: Decision, itemId: string, quantity: number) {

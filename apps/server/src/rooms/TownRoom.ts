@@ -47,6 +47,7 @@ import {
   normalizeAgentMferAppearanceTraits,
   normalizeWalletAddress,
   parseMferAppearanceTraitsJson,
+  resolveAgentMferAppearanceTraitsForUpdate,
   resolveWorldCollision,
   serializeAgentMferAppearanceTraits,
   serializeMferAppearanceTraits,
@@ -2788,7 +2789,7 @@ export class TownRoom extends Room<TownState> {
       : parsedExistingTraits;
     const hasExistingTraits = hasExplicitMferAppearanceTraits(existingTraits);
     const nextTraits = player.isAgent
-      ? normalizeAgentMferAppearanceTraits(message?.traits, existingTraits)
+      ? resolveAgentMferAppearanceTraitsForUpdate(message?.traits, existingTraits, getAgentTraitSeed(player))
       : normalizeMferAppearanceTraits(message?.traits, existingTraits);
     const previousName = player.name;
     const previousTraitsJson = player.appearanceTraitsJson;
@@ -3917,6 +3918,10 @@ function formatTrashAwardPoints(awardedPoints: number, basePoints: number, isAge
 
 function makeTrashVendorSeasonRewardSourceId(sessionId: string) {
   return `trash-vendor:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
+}
+
+function getAgentTraitSeed(player: PlayerState) {
+  return `${player.walletAddress || "agent"}:${player.name || "mfer-agent"}:${player.avatarSeed}`;
 }
 
 function getSellableTrashItemCount(player: PlayerState, itemId: TrashVendorItemId | null) {

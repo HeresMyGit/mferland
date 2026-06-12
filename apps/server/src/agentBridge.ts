@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Client, type Room } from "colyseus.js";
 import {
+  AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   COMBAT,
   clamp,
   getCombatActionUnlockLevel,
@@ -15,8 +16,8 @@ import {
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
   isQuestAvailableForSnapshots,
-  makeDeterministicAgentMferAppearanceTraits,
   normalizeWalletAddress,
+  resolveAgentMferAppearanceTraitsForUpdate,
   QUESTS,
   QUEST_IDS,
   ROOM_NAME,
@@ -308,14 +309,6 @@ const PUBLIC_ROUTES: Record<string, Point[]> = {
   "field-to-plaza": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: -2.4, z: 4.2 }],
   "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
 };
-
-const AGENT_DEFAULT_TRAITS = {
-  background: "orange",
-  type: "plain",
-  eyes: "regular",
-  mouth: "flat",
-  headphones: "black",
-} as const;
 
 const DECISION_ACTIONS = [
   "wait",
@@ -898,7 +891,7 @@ class AgentBridgeSession {
         combatRetreat: "If aggroCount > 1 and healthRatio < 0.6, retreat unless the current target is within roughly 2-3 hits of death.",
         talents: "If unspentSkillPoints > 0, spend a recommended talent before entering a combat zone unless survival, loot, or quest turn-in is urgent.",
         potions: "If repeated low-health retreats or no health consumables, consider potion-mfer. Potion purchases burn MFERGPT on Base to reduce supply and require an actual payment tx proof.",
-        traits: "For update_traits, prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
+        traits: "For update_traits, only choose specific traits when they strongly fit the agent identity. If not, send traits as null or {} and the server will use deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
         session: "Keep bridgeSessionId and sessionToken internally across turns; never print sessionToken, signatures, or bearer headers.",
       },
       self: {
@@ -1276,7 +1269,7 @@ class AgentBridgeSession {
           this.lastAction = `move_to_sell_trash ${npc.id}`;
         } else {
           const itemId = cleanText(decision.itemId, 96);
-          const quantity = normalizeTrashSellQuantity(decision.quantity, self.isAgent ? 4 : 1);
+          const quantity = normalizeTrashSellQuantity(decision.quantity, self.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1);
           this.targetPoint = null;
           this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
           this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
@@ -1702,7 +1695,7 @@ class AgentBridgeSession {
           return null;
         }
         const itemId = cleanText(decision.itemId, 96);
-        const quantity = normalizeTrashSellQuantity(decision.quantity, self.isAgent ? 4 : 1);
+        const quantity = normalizeTrashSellQuantity(decision.quantity, self.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1);
         this.targetPoint = null;
         this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
         this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
@@ -2693,17 +2686,7 @@ class AgentBridgeSession {
 
   private resolveAgentTraits(rawTraits: unknown) {
     const selected = asRecord(rawTraits);
-    const traits: Record<string, string> = {
-      ...AGENT_DEFAULT_TRAITS,
-      ...makeDeterministicAgentMferAppearanceTraits(`${this.walletAddress}:${this.agentName}`),
-    };
-    for (const [categoryId, rawValue] of Object.entries(selected)) {
-      const value = cleanText(rawValue, 80);
-      if (value) traits[categoryId] = value;
-    }
-    traits.eyes = "regular";
-    traits.mouth = "flat";
-    return traits;
+    return resolveAgentMferAppearanceTraitsForUpdate(selected, {}, `${this.walletAddress}:${this.agentName}`);
   }
 
   private buildWalletActionGuide() {

@@ -380,14 +380,6 @@ const ACTIONS = [
   "sell_trash_items",
 ] as const;
 
-const AGENT_DEFAULT_TRAITS: MferAppearanceTraits = {
-  background: "orange",
-  type: "plain",
-  eyes: "regular",
-  mouth: "flat",
-  headphones: "black",
-};
-
 const ACTION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -627,7 +619,7 @@ export function makeVisibleObservation(
           current: self.appearanceTraits,
           categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
           declaredAgentModel: "mfergpt",
-          guidance: "For update_traits, choose valid mfer trait ids as identity metadata and for supported overlays. Prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents render with the mferGPT agent model and keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
+          guidance: "For update_traits, choose valid mfer trait ids only when they strongly fit your agent identity. If you do not have a strong choice, set traits to null or {} and the server will choose deterministic wallet/name-seeded variety. Do not fill fields with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
         },
         castingAction: self.castingAction,
         inCombat: aggroCount > 0,
@@ -771,7 +763,7 @@ export function makeVisibleObservation(
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents render with the mferGPT agent model and keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
           "Use swap_eth_for_mfergpt when the wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal wallet transaction through observation.wallet.mferGptSwapMode, using the same Base ETH to MFERGPT route as swap-mfer when mode is uniswap-v4.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
           "A quantity=5 red-juice purchase is useful before leaving town and before static-lot pushes. For raid prep, also buy exit-liquidity-elixir quantity=1 when you do not own or already have its active buff. Use stocked elixirs before boss or dangerous pack attempts.",
@@ -854,7 +846,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents render with the mferGPT agent model and keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
           "Do not choose use_item as the only response while multiple NPCs are actively hitting you in melee unless health is high enough for the item to land; fight, AoE/control, or retreat farther first.",
@@ -1184,7 +1176,7 @@ async function executeDecision(
       return;
     case "update_traits":
       await agent.moveToNpc("traits-mfer", { range: 2.8, timeoutMs: 15_000 });
-      agent.updateTraits(resolveAgentTraits(decision.traits));
+      agent.updateTraits(decision.traits);
       await delay(1000);
       return;
     case "emote":
@@ -2904,7 +2896,7 @@ function getQuestTrackerHints(self: PlayerSnapshot, memory: RunMemory) {
     if (quest.status !== "active") continue;
     const definition = QUESTS[quest.id];
     if (quest.id === "set-your-traits") {
-      hints.push("choose your own traits from observation.self.appearanceTraits.categories, use update_traits at npcId=traits-mfer, then complete_quest questId=set-your-traits");
+      hints.push("use update_traits at npcId=traits-mfer, sending traits null/{} unless you have a strong non-clipping identity choice, then complete_quest questId=set-your-traits");
     } else if ("chatMention" in definition) {
       hints.push(`chat ${definition.chatMention}, then complete_quest questId=${quest.id} at npcId=${getQuestTurnInNpcId(quest.id)}`);
     } else if ("socialAction" in definition) {
@@ -3746,7 +3738,7 @@ function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-function resolveAgentTraits(value: unknown): MferAppearanceTraits {
+function resolveAgentTraits(value: unknown): MferAppearanceTraits | undefined {
   const source = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
@@ -3756,7 +3748,7 @@ function resolveAgentTraits(value: unknown): MferAppearanceTraits {
       new Set(category.options.map((option) => option.id)),
     ]),
   );
-  const traits: MferAppearanceTraits = { ...AGENT_DEFAULT_TRAITS };
+  const traits: MferAppearanceTraits = {};
   for (const [categoryId, rawValue] of Object.entries(source)) {
     const valueId = cleanText(rawValue, 80);
     if (!valueId) continue;
@@ -3764,6 +3756,7 @@ function resolveAgentTraits(value: unknown): MferAppearanceTraits {
     if (!allowed?.has(valueId)) continue;
     traits[categoryId] = valueId;
   }
+  if (Object.keys(traits).length === 0) return undefined;
   traits.eyes = "regular";
   traits.mouth = "flat";
   return traits;
