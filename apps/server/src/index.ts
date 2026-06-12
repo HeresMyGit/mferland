@@ -7,6 +7,7 @@ import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
+import { areAgentsEnabled } from "./agentAccess.js";
 import { AgentBridgeManager } from "./agentBridge.js";
 import { buildAgentCatalog } from "./agentCatalog.js";
 import { buildAgentProfile } from "./agentProfile.js";
@@ -454,6 +455,11 @@ async function handleWalletAuthChallenge(req: IncomingMessage, res: ServerRespon
 async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
   writeCorsHeaders(res);
   writeNoStoreHeaders(res);
+  if (!areAgentsEnabled()) {
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "agent access disabled" }));
+    return;
+  }
   if (req.method !== "POST") {
     res.writeHead(405, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: false, error: "method not allowed" }));

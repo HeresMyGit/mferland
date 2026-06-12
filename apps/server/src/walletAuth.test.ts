@@ -185,6 +185,60 @@ test("TownRoom.onAuth requires declared agents to use wallet auth", async () => 
   }
 });
 
+test("TownRoom.onAuth blocks declared agents when disabled", async () => {
+  const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
+  const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;
+  const previousInviteCode = process.env.MFERLAND_INVITE_CODE;
+  const previousLocalOnly = process.env.MFERLAND_LOCAL_ONLY;
+  const previousAgentsEnabled = process.env.MFERLAND_AGENTS_ENABLED;
+  delete process.env.MFERLAND_ENABLE_INVITE_GATE;
+  delete process.env.MFERLAND_REQUIRE_INVITE;
+  delete process.env.MFERLAND_INVITE_CODE;
+  delete process.env.MFERLAND_LOCAL_ONLY;
+  process.env.MFERLAND_AGENTS_ENABLED = "0";
+
+  try {
+    const humanAccount = privateKeyToAccount(generatePrivateKey());
+    const humanChallenge = createWalletAuthChallenge(humanAccount.address, "localhost:2567");
+    const humanSignature = await humanAccount.signMessage({ message: humanChallenge.message });
+    const room = new TownRoom();
+    assert.equal(await room.onAuth({} as never, {
+      identityType: "wallet",
+      walletAddress: humanAccount.address,
+      walletAuth: {
+        nonce: humanChallenge.nonce,
+        message: humanChallenge.message,
+        signature: humanSignature,
+      },
+    }), true);
+
+    const agentAccount = privateKeyToAccount(generatePrivateKey());
+    const agentChallenge = createWalletAuthChallenge(agentAccount.address, "localhost:2567");
+    const agentSignature = await agentAccount.signMessage({ message: agentChallenge.message });
+    await assert.rejects(
+      () => room.onAuth({} as never, {
+        identityType: "wallet",
+        walletAddress: agentAccount.address,
+        agentClient: true,
+        walletAuth: {
+          nonce: agentChallenge.nonce,
+          message: agentChallenge.message,
+          signature: agentSignature,
+        },
+      }),
+      (error: unknown) => error instanceof ServerError
+        && error.code === ErrorCode.AUTH_FAILED
+        && error.message === "agent access disabled",
+    );
+  } finally {
+    restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);
+    restoreEnv("MFERLAND_REQUIRE_INVITE", previousRequireInvite);
+    restoreEnv("MFERLAND_INVITE_CODE", previousInviteCode);
+    restoreEnv("MFERLAND_LOCAL_ONLY", previousLocalOnly);
+    restoreEnv("MFERLAND_AGENTS_ENABLED", previousAgentsEnabled);
+  }
+});
+
 test("TownRoom.onAuth allows unsigned wallet joins for local-only development", async () => {
   const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
   const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;

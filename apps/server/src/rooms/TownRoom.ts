@@ -89,6 +89,7 @@ import {
 import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, QuestState, TalentState, TownState, type NpcState } from "../state.js";
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
+import { areAgentsEnabled } from "../agentAccess.js";
 import {
   getAgentSeason0MferGptGateStatus,
   makeAgentSeason0MferGptGateMessage,
@@ -555,6 +556,9 @@ export class TownRoom extends Room<TownState> {
 
   async onAuth(_client: Client, options?: JoinOptions) {
     const walletAddress = normalizeWalletAddress(options?.walletAddress);
+    if (isDeclaredAgentClient(options) && !areAgentsEnabled()) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, "agent access disabled");
+    }
     if (isDeclaredAgentClient(options) && !walletAddress) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "agent wallet required");
     }
