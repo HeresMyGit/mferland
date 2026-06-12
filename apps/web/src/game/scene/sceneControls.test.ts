@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 import type { PlayerSnapshot } from "@mferland/shared";
-import { syncLocalVisualPlayerSnapshot, updateLocalVisualPlayer } from "./sceneControls";
+import {
+  beginCameraPointerDrag,
+  resetCameraPointerState,
+  syncLocalVisualPlayerSnapshot,
+  updateCameraPointerDrag,
+  updateLocalVisualPlayer,
+  type CameraPointerState,
+} from "./sceneControls";
 
 test("syncLocalVisualPlayerSnapshot refreshes traits without snapping local movement", () => {
   const visual = makePlayer({
@@ -47,6 +54,34 @@ test("updateLocalVisualPlayer does not predict movement while frozen", () => {
   assert.equal(visual.x, 20);
   assert.equal(visual.z, 20);
   assert.equal(visual.animation, "idle");
+});
+
+test("camera pointer movement is ignored until a canvas pointer drag begins", () => {
+  const state = makeCameraPointerState({
+    lastX: 120,
+    lastY: 80,
+  });
+
+  resetCameraPointerState(state);
+  const drag = updateCameraPointerDrag(state, 11, 1, 640, 360);
+
+  assert.equal(drag, null);
+  assert.equal(state.activePointerId, null);
+  assert.equal(state.left, false);
+  assert.equal(state.right, false);
+  assert.equal(state.lastX, 120);
+  assert.equal(state.lastY, 80);
+});
+
+test("camera pointer movement uses deltas after pointer down starts tracking", () => {
+  const state = makeCameraPointerState();
+
+  beginCameraPointerDrag(state, 7, 1, 100, 100);
+  const drag = updateCameraPointerDrag(state, 7, 1, 116, 92);
+
+  assert.deepEqual(drag, { dx: 16, dy: -8, left: true, right: false });
+  assert.equal(state.lastX, 116);
+  assert.equal(state.lastY, 92);
 });
 
 function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
@@ -109,6 +144,17 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     equipment: [],
     talents: [],
     activeBuffs: [],
+    ...overrides,
+  };
+}
+
+function makeCameraPointerState(overrides: Partial<CameraPointerState> = {}): CameraPointerState {
+  return {
+    left: false,
+    right: false,
+    activePointerId: null,
+    lastX: 0,
+    lastY: 0,
     ...overrides,
   };
 }

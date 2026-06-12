@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ErrorCode, ServerError } from "colyseus";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { createWalletAuthChallenge, verifyWalletAuthProof } from "./walletAuth.js";
+import {
+  createAgentSession,
+  createWalletAuthChallenge,
+  verifyAgentSessionToken,
+  verifyWalletAuthProof,
+} from "./walletAuth.js";
 import { TownRoom } from "./rooms/TownRoom.js";
 
 test("wallet auth proof verifies a signed challenge once", async () => {
@@ -34,6 +39,29 @@ test("wallet auth proof rejects the wrong signer", async () => {
     message: challenge.message,
     signature,
   }), false);
+});
+
+test("agent session verifies a signed challenge and reuses the minted token", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const wrongWallet = privateKeyToAccount(generatePrivateKey());
+  const challenge = createWalletAuthChallenge(account.address, "localhost:2567");
+  assert.equal(challenge.ok, true);
+
+  const signature = await account.signMessage({ message: challenge.message });
+  const proof = {
+    nonce: challenge.nonce,
+    message: challenge.message,
+    signature,
+  };
+  const session = await createAgentSession(account.address, proof);
+
+  assert.equal(session.ok, true);
+  assert.equal(session.walletAddress, account.address.toLowerCase());
+  assert.match(session.sessionToken, /^[A-Za-z0-9_-]{43,}$/);
+  assert.equal(verifyAgentSessionToken(account.address, session.sessionToken), true);
+  assert.equal(verifyAgentSessionToken(account.address, session.sessionToken), true);
+  assert.equal(verifyAgentSessionToken(wrongWallet.address, session.sessionToken), false);
+  assert.equal(await verifyWalletAuthProof(account.address, proof), false);
 });
 
 test("TownRoom.onAuth requires wallet proof for wallet joins", async () => {
@@ -69,6 +97,42 @@ test("TownRoom.onAuth requires wallet proof for wallet joins", async () => {
         message: challenge.message,
         signature,
       },
+    }), true);
+  } finally {
+    restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);
+    restoreEnv("MFERLAND_REQUIRE_INVITE", previousRequireInvite);
+    restoreEnv("MFERLAND_INVITE_CODE", previousInviteCode);
+    restoreEnv("MFERLAND_LOCAL_ONLY", previousLocalOnly);
+  }
+});
+
+test("TownRoom.onAuth accepts a wallet-bound agent session token", async () => {
+  const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
+  const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;
+  const previousInviteCode = process.env.MFERLAND_INVITE_CODE;
+  const previousLocalOnly = process.env.MFERLAND_LOCAL_ONLY;
+  delete process.env.MFERLAND_ENABLE_INVITE_GATE;
+  delete process.env.MFERLAND_REQUIRE_INVITE;
+  delete process.env.MFERLAND_INVITE_CODE;
+  delete process.env.MFERLAND_LOCAL_ONLY;
+
+  try {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const challenge = createWalletAuthChallenge(account.address, "localhost:2567");
+    const signature = await account.signMessage({ message: challenge.message });
+    const session = await createAgentSession(account.address, {
+      nonce: challenge.nonce,
+      message: challenge.message,
+      signature,
+    });
+    assert.equal(session.ok, true);
+
+    const room = new TownRoom();
+    assert.equal(await room.onAuth({} as never, {
+      identityType: "wallet",
+      walletAddress: account.address,
+      agentClient: true,
+      sessionToken: session.sessionToken,
     }), true);
   } finally {
     restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);

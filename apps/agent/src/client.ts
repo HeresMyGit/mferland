@@ -5,10 +5,10 @@ import {
   AGENT,
   CHAT,
   COMBAT,
-  DEFAULT_MFER_APPEARANCE_TRAITS,
   INPUT_SEND_RATE,
   PLAZA_BOUNDS,
   ROOM_NAME,
+  makeDeterministicAgentMferAppearanceTraits,
   getNpcDisposition,
   isCombatActionUnlocked,
   getQuestTurnInNpcId,
@@ -608,9 +608,10 @@ export class MferlandAgentClient {
     return result;
   }
 
-  updateTraits(traits: MferAppearanceTraits = DEFAULT_MFER_APPEARANCE_TRAITS, options: TraitUpdateOptions = {}) {
+  updateTraits(traits?: MferAppearanceTraits, options: TraitUpdateOptions = {}) {
+    const nextTraits = traits ?? makeDeterministicAgentMferAppearanceTraits(`${this.account.address}:${this.name}:${this.avatarSeed}`);
     this.room?.send("updateTraits", {
-      traits,
+      traits: nextTraits,
       name: options.name ?? this.name,
       attemptId: options.attemptId ?? `agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       payment: options.payment,

@@ -13,6 +13,8 @@ import {
   TRASH_VENDOR_ITEM_IDS,
   TRASH_VENDOR_NPC_ID,
   MFER_APPEARANCE_TRAIT_CATEGORIES,
+  AGENT_MFER_APPEARANCE_FORCED_TRAITS,
+  AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE,
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BASE_RPC_URL,
   TRAIT_CHANGE_BURN_ADDRESS,
@@ -172,7 +174,9 @@ export function buildAgentCatalog() {
     traits: {
       categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
       declaredAgentModel: "mfergpt",
-      note: "Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose accessories and style from the agent's identity or play archetype.",
+      forcedForDeclaredAgents: AGENT_MFER_APPEARANCE_FORCED_TRAITS,
+      selectionGuidance: AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE,
+      note: `Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose accessories and style from the agent's identity or play archetype. Declared agents keep the robot face, so saved agent traits force regular eyes and flat mouth. ${AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE}`,
     },
     payments: {
       mferGpt: {

@@ -29,13 +29,19 @@ import {
 } from "./debugPlacement";
 import { type NameplateVisibility } from "./settings";
 import {
+  beginCameraPointerDrag,
   clamp,
+  endCameraPointerDrag,
   getNextEnemyTarget,
   isGameKey,
   isTargetSelected,
   isTypingTarget,
   isVisibleNpc,
+  resetCameraPointerState,
+  syncCameraPointerButtons,
   syncLocalVisualPlayerSnapshot,
+  type CameraPointerState,
+  updateCameraPointerDrag,
   updateLocalVisualPlayer,
   wrapAngle,
 } from "./scene/sceneControls";
@@ -149,9 +155,10 @@ function TownSceneComponent({
   const resolvedRenderProfile = useMemo(() => renderProfile ?? getClientRenderPerformanceProfile(), [renderProfile]);
   const pointerCameraControlsEnabled = controlsEnabled || cameraControlsEnabled;
   const keyState = useRef(new Set<string>());
-  const pointerState = useRef({
+  const pointerState = useRef<CameraPointerState>({
     left: false,
     right: false,
+    activePointerId: null,
     lastX: 0,
     lastY: 0,
   });
@@ -238,13 +245,13 @@ function TownSceneComponent({
   }, [controlsEnabled]);
 
   useEffect(() => {
-    if (!controlsEnabled) return;
+    if (!controlsEnabled && !cameraControlsEnabled) return;
 
     const resetControls = () => {
+      resetCameraPointerState(pointerState.current);
+      if (!controlsEnabled) return;
       keyState.current.clear();
       clearMobileMoveInput(mobileMoveInputRef);
-      pointerState.current.left = false;
-      pointerState.current.right = false;
       inputTimer.current = 0;
       sendInput({
         seq: ++seqRef.current,
@@ -265,7 +272,7 @@ function TownSceneComponent({
       window.removeEventListener("blur", resetControls);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [controlsEnabled, mobileMoveInputRef, sendInput]);
+  }, [cameraControlsEnabled, controlsEnabled, mobileMoveInputRef, sendInput]);
 
   useEffect(() => {
     if (!debugTravelView) return;
@@ -306,8 +313,7 @@ function TownSceneComponent({
     if (!pointerCameraControlsEnabled && !debugPlacementMode) {
       keyState.current.clear();
       clearMobileMoveInput(mobileMoveInputRef);
-      pointerState.current.left = false;
-      pointerState.current.right = false;
+      resetCameraPointerState(pointerState.current);
       inputTimer.current = 0;
       return;
     }
@@ -316,8 +322,7 @@ function TownSceneComponent({
       const canvas = gl.domElement;
       keyState.current.clear();
       clearMobileMoveInput(mobileMoveInputRef);
-      pointerState.current.left = false;
-      pointerState.current.right = false;
+      resetCameraPointerState(pointerState.current);
       inputTimer.current = 0;
       sendInput({
         seq: ++seqRef.current,
@@ -350,18 +355,11 @@ function TownSceneComponent({
     const canvas = gl.domElement;
     const state = pointerState.current;
 
-    const syncMouseButtons = (event: PointerEvent | MouseEvent) => {
-      state.left = (event.buttons & 1) === 1;
-      state.right = (event.buttons & 2) === 2;
-    };
-
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0 && event.button !== 2) return;
       event.preventDefault();
       blurActiveTextField();
-      syncMouseButtons(event);
-      state.lastX = event.clientX;
-      state.lastY = event.clientY;
+      beginCameraPointerDrag(state, event.pointerId, event.buttons, event.clientX, event.clientY);
       try {
         canvas.setPointerCapture(event.pointerId);
       } catch {
@@ -370,21 +368,17 @@ function TownSceneComponent({
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      syncMouseButtons(event);
-      if (!state.left && !state.right) return;
+      const drag = updateCameraPointerDrag(state, event.pointerId, event.buttons, event.clientX, event.clientY);
+      if (!drag) return;
       event.preventDefault();
-      const dx = event.clientX - state.lastX;
-      const dy = event.clientY - state.lastY;
-      state.lastX = event.clientX;
-      state.lastY = event.clientY;
 
-      cameraYaw.current = wrapAngle(cameraYaw.current - dx * 0.0042);
-      cameraPitch.current = clamp(cameraPitch.current + dy * 0.0032, -0.08, 1.08);
-      if (state.right || event.pointerType === "touch") facingYaw.current = cameraYaw.current;
+      cameraYaw.current = wrapAngle(cameraYaw.current - drag.dx * 0.0042);
+      cameraPitch.current = clamp(cameraPitch.current + drag.dy * 0.0032, -0.08, 1.08);
+      if (drag.right || event.pointerType === "touch") facingYaw.current = cameraYaw.current;
     };
 
     const onPointerUp = (event: PointerEvent) => {
-      syncMouseButtons(event);
+      endCameraPointerDrag(state, event.pointerId, event.buttons, event.clientX, event.clientY);
       try {
         canvas.releasePointerCapture(event.pointerId);
       } catch {
@@ -393,20 +387,24 @@ function TownSceneComponent({
     };
 
     const onPointerCancel = () => {
-      state.left = false;
-      state.right = false;
+      resetCameraPointerState(state);
     };
 
     const onMouseDown = (event: MouseEvent) => {
       if (event.button !== 0 && event.button !== 2) return;
+      if (state.activePointerId === null) return;
       event.preventDefault();
-      syncMouseButtons(event);
+      syncCameraPointerButtons(state, event.buttons);
       state.lastX = event.clientX;
       state.lastY = event.clientY;
     };
 
     const onMouseUp = (event: MouseEvent) => {
-      syncMouseButtons(event);
+      if (state.activePointerId === null) return;
+      syncCameraPointerButtons(state, event.buttons);
+      if (!state.left && !state.right) state.activePointerId = null;
+      state.lastX = event.clientX;
+      state.lastY = event.clientY;
     };
 
     const onWheel = (event: WheelEvent) => {
@@ -791,6 +789,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.renderProfile === next.renderProfile
     && previous.lightweightRender === next.lightweightRender
     && previous.controlsEnabled === next.controlsEnabled
+    && previous.cameraControlsEnabled === next.cameraControlsEnabled
     && previous.idleCameraNpcId === next.idleCameraNpcId
     && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
     && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;

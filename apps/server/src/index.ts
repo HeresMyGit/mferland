@@ -7,7 +7,10 @@ import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
 import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
+import { AgentBridgeManager } from "./agentBridge.js";
 import { buildAgentCatalog } from "./agentCatalog.js";
+import { buildAgentProfile } from "./agentProfile.js";
+import { buildAgentMilestones, buildAgentPlayer, buildAgentWorld } from "./agentWorld.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
@@ -22,30 +25,58 @@ import {
   readDebugPlacementMap,
   TownRoom,
 } from "./rooms/TownRoom.js";
-import { createWalletAuthChallenge } from "./walletAuth.js";
+import { createAgentSession, createWalletAuthChallenge } from "./walletAuth.js";
 
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
 const WEB_DIST_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
 const WEB_INDEX_PATH = resolve(WEB_DIST_DIR, "index.html");
-const MFERLAND_AGENT_SKILL_DIR = fileURLToPath(new URL("../../../skills/mferland-agent/", import.meta.url));
+const PUBLIC_SKILL_DIRS = {
+  mferland: fileURLToPath(new URL("../../../skills/mferland/", import.meta.url)),
+  mferlandAgent: fileURLToPath(new URL("../../../skills/mferland-agent/", import.meta.url)),
+  mferlandBankr: fileURLToPath(new URL("../../../skills/mferland-bankr/", import.meta.url)),
+  mferlandLocalModel: fileURLToPath(new URL("../../../skills/mferland-local-model/", import.meta.url)),
+} as const;
 const WEB_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const WEB_INDEX_CACHE_CONTROL = "no-store";
 const PUBLIC_SKILL_CACHE_CONTROL = "no-store";
 const MAX_ANALYTICS_BODY_BYTES = 8 * 1024;
 const MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES = 2 * 1024;
+const MAX_AGENT_SESSION_BODY_BYTES = 4 * 1024;
 const MAX_LOCAL_RPC_PROXY_BODY_BYTES = 64 * 1024;
-const MFERLAND_AGENT_SKILL_ROUTE = "/skills/mferland-agent";
-const MFERLAND_AGENT_SKILL_PUBLIC_FILES = new Set([
-  "install.sh",
-  "SKILL.md",
-  "scripts/.env.example",
-  "scripts/bankr-signer.mjs",
-  "scripts/create-wallet.ts",
-  "scripts/doctor.ts",
-  "scripts/package.json",
-  "scripts/tsconfig.json",
-  "scripts/mferland-agent-runner.ts",
-]);
+const PUBLIC_SKILL_PACKAGES = [
+  {
+    route: "/skills/mferland",
+    dir: PUBLIC_SKILL_DIRS.mferland,
+    files: new Set(["SKILL.md"]),
+  },
+  {
+    route: "/skills/mferland-bankr",
+    dir: PUBLIC_SKILL_DIRS.mferlandBankr,
+    files: new Set(["SKILL.md"]),
+  },
+  {
+    route: "/skills/mferland-local-model",
+    dir: PUBLIC_SKILL_DIRS.mferlandLocalModel,
+    files: new Set(["SKILL.md"]),
+  },
+  {
+    route: "/skills/mferland-agent",
+    dir: PUBLIC_SKILL_DIRS.mferlandAgent,
+    files: new Set([
+      "install.sh",
+      "SKILL.md",
+      "scripts/.env.example",
+      "scripts/bankr-signer.mjs",
+      "scripts/create-wallet.ts",
+      "scripts/doctor.ts",
+      "scripts/generated-wallet-signer.mjs",
+      "scripts/package.json",
+      "scripts/tsconfig.json",
+      "scripts/mferland-agent-runner.ts",
+      "scripts/ollama-local-policy.ts",
+    ]),
+  },
+] as const;
 const LOCAL_RPC_PROXY_METHODS = new Set([
   "eth_blockNumber",
   "eth_call",
@@ -98,6 +129,9 @@ assertLocalOnlyRuntimeSafety();
 
 const port = Number(process.env.PORT ?? 2567);
 const host = process.env.HOST ?? "0.0.0.0";
+const agentBridge = new AgentBridgeManager({
+  roomServer: getAgentBridgeRoomServer(port),
+});
 const server = createServer((req, res) => {
   const requestUrl = new URL(req.url ?? "/", "http://localhost");
   const url = requestUrl.pathname;
@@ -179,6 +213,26 @@ const server = createServer((req, res) => {
 
   if (url === "/wallet-auth-challenge") {
     void handleWalletAuthChallenge(req, res);
+    return;
+  }
+
+  if (url === "/agent-session") {
+    void handleAgentSession(req, res);
+    return;
+  }
+
+  if (url === "/agent-start" || url === "/agent-observe" || url === "/agent-action" || url === "/agent-stop") {
+    void agentBridge.handle(req, requestUrl, res);
+    return;
+  }
+
+  if (url === "/agent-profile") {
+    void handleAgentProfile(req, requestUrl, res);
+    return;
+  }
+
+  if (url === "/agent-world" || url === "/agent-player" || url === "/agent-milestones") {
+    void handleAgentReadOnlyState(req, requestUrl, res);
     return;
   }
 
@@ -280,6 +334,7 @@ server.listen(port, host, () => {
 
 async function shutdown() {
   stopMarketQuotePoller();
+  agentBridge.shutdown();
   await closeDatabase();
   server.close(() => process.exit(0));
 }
@@ -396,6 +451,121 @@ async function handleWalletAuthChallenge(req: IncomingMessage, res: ServerRespon
   res.end(JSON.stringify(challenge));
 }
 
+async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "POST") {
+    res.writeHead(405, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  let payload: Partial<AgentSessionPayload> | null = null;
+  try {
+    payload = await readJsonBody<Partial<AgentSessionPayload>>(req, MAX_AGENT_SESSION_BODY_BYTES);
+  } catch (error) {
+    const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: status === 413 ? "payload too large" : "invalid json" }));
+    return;
+  }
+
+  const walletAddress = typeof payload?.walletAddress === "string"
+    ? payload.walletAddress
+    : typeof payload?.wallet === "string"
+      ? payload.wallet
+      : "";
+  const proof = normalizeAgentSessionProof(payload);
+  const session = await createAgentSession(walletAddress, proof);
+  res.writeHead(session.ok ? 200 : 400, { "content-type": "application/json" });
+  res.end(JSON.stringify(session));
+}
+
+async function handleAgentProfile(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "allow": "GET, HEAD", "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  try {
+    const profile = await buildAgentProfile(requestUrl.searchParams.get("wallet") ?? requestUrl.searchParams.get("walletAddress") ?? "");
+    const body = JSON.stringify(profile.body);
+    res.writeHead(profile.status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  } catch (error) {
+    console.error("Failed to load agent profile", error);
+    const status = error instanceof PersistenceUnavailableError ? 503 : 500;
+    const body = JSON.stringify({
+      ok: false,
+      exists: false,
+      error: status === 503 ? "wallet persistence unavailable" : "unable to load agent profile",
+    });
+    res.writeHead(status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  }
+}
+
+async function handleAgentReadOnlyState(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "allow": "GET, HEAD", "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  try {
+    const payload = requestUrl.pathname === "/agent-world"
+      ? await buildAgentWorld({ searchParams: requestUrl.searchParams })
+      : requestUrl.pathname === "/agent-player"
+        ? await buildAgentPlayer({ searchParams: requestUrl.searchParams })
+        : await buildAgentMilestones({ searchParams: requestUrl.searchParams });
+    const body = JSON.stringify(payload.body);
+    res.writeHead(payload.status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  } catch (error) {
+    console.error("Failed to load agent read-only state", error);
+    const status = error instanceof PersistenceUnavailableError ? 503 : 500;
+    const body = JSON.stringify({
+      ok: false,
+      error: status === 503 ? "wallet persistence unavailable" : "unable to load agent read-only state",
+    });
+    res.writeHead(status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  }
+}
+
 async function handleLocalRpcProxy(req: IncomingMessage, res: ServerResponse) {
   writeCorsHeaders(res);
   if (!isLocalRpcProxyEnabled()) {
@@ -455,6 +625,27 @@ type PublicAnalyticsPayload = {
 type WalletAuthChallengePayload = {
   walletAddress: string;
 };
+
+type AgentSessionPayload = {
+  wallet?: string;
+  walletAddress?: string;
+  nonce?: string;
+  message?: string;
+  signature?: string;
+  walletAuth?: {
+    nonce?: string;
+    message?: string;
+    signature?: string;
+  };
+};
+
+function normalizeAgentSessionProof(payload: Partial<AgentSessionPayload> | null) {
+  const proof = payload?.walletAuth && typeof payload.walletAuth === "object" ? payload.walletAuth : payload;
+  const nonce = typeof proof?.nonce === "string" ? proof.nonce : "";
+  const message = typeof proof?.message === "string" ? proof.message : "";
+  const signature = typeof proof?.signature === "string" ? proof.signature : "";
+  return { nonce, message, signature };
+}
 
 class RequestBodyTooLargeError extends Error {}
 
@@ -521,10 +712,14 @@ function getSingleHeader(value: string | string[] | undefined) {
   return value ?? "";
 }
 
+function getAgentBridgeRoomServer(serverPort: number) {
+  return (process.env.MFERLAND_AGENT_BRIDGE_ROOM_SERVER ?? `ws://127.0.0.1:${serverPort}`).trim();
+}
+
 function writeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type");
+  res.setHeader("access-control-allow-headers", "authorization,content-type");
 }
 
 function writeNoStoreHeaders(res: ServerResponse) {
@@ -548,48 +743,52 @@ function serveAgentSkillPackage(req: IncomingMessage, res: ServerResponse, urlPa
   if (req.method !== "GET" && req.method !== "HEAD") return false;
 
   const requestPath = normalizeRequestPath(urlPath);
-  if (
-    requestPath !== MFERLAND_AGENT_SKILL_ROUTE
-    && requestPath !== `${MFERLAND_AGENT_SKILL_ROUTE}/`
-    && !requestPath.startsWith(`${MFERLAND_AGENT_SKILL_ROUTE}/`)
-  ) {
-    return false;
-  }
+  for (const skillPackage of PUBLIC_SKILL_PACKAGES) {
+    if (
+      requestPath !== skillPackage.route
+      && requestPath !== `${skillPackage.route}/`
+      && !requestPath.startsWith(`${skillPackage.route}/`)
+    ) {
+      continue;
+    }
 
-  const publicPath = requestPath === MFERLAND_AGENT_SKILL_ROUTE || requestPath === `${MFERLAND_AGENT_SKILL_ROUTE}/`
-    ? "SKILL.md"
-    : requestPath.slice(`${MFERLAND_AGENT_SKILL_ROUTE}/`.length);
-  if (!MFERLAND_AGENT_SKILL_PUBLIC_FILES.has(publicPath)) {
-    res.writeHead(404, { "content-type": "text/plain" });
-    res.end("not found\n");
+    const publicPath = requestPath === skillPackage.route || requestPath === `${skillPackage.route}/`
+      ? "SKILL.md"
+      : requestPath.slice(`${skillPackage.route}/`.length);
+    if (!skillPackage.files.has(publicPath)) {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found\n");
+      return true;
+    }
+
+    const filePath = resolve(skillPackage.dir, publicPath);
+    if (!isInsideDirectory(filePath, skillPackage.dir) || !isReadableFile(filePath)) {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found\n");
+      return true;
+    }
+
+    const stat = statSync(filePath);
+    res.writeHead(200, {
+      "content-type": getContentType(filePath),
+      "content-length": stat.size,
+      "cache-control": PUBLIC_SKILL_CACHE_CONTROL,
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return true;
+    }
+
+    createReadStream(filePath)
+      .on("error", () => {
+        if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
+        res.end("unable to read skill asset\n");
+      })
+      .pipe(res);
     return true;
   }
 
-  const filePath = resolve(MFERLAND_AGENT_SKILL_DIR, publicPath);
-  if (!isInsideDirectory(filePath, MFERLAND_AGENT_SKILL_DIR) || !isReadableFile(filePath)) {
-    res.writeHead(404, { "content-type": "text/plain" });
-    res.end("not found\n");
-    return true;
-  }
-
-  const stat = statSync(filePath);
-  res.writeHead(200, {
-    "content-type": getContentType(filePath),
-    "content-length": stat.size,
-    "cache-control": PUBLIC_SKILL_CACHE_CONTROL,
-  });
-  if (req.method === "HEAD") {
-    res.end();
-    return true;
-  }
-
-  createReadStream(filePath)
-    .on("error", () => {
-      if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
-      res.end("unable to read skill asset\n");
-    })
-    .pipe(res);
-  return true;
+  return false;
 }
 
 function serveWebDist(req: IncomingMessage, res: ServerResponse, urlPath: string) {

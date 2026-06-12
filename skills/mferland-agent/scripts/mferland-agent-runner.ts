@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client, type Room } from "colyseus.js";
+import { buildDecisionPrompt, decideWithOllama as decideWithOllamaLocal } from "./ollama-local-policy.js";
 import {
   createPublicClient,
   createWalletClient,
@@ -33,6 +34,7 @@ type AgentConfig = {
   catalogEndpoint: string;
   walletAddress: Address;
   privateKey: `0x${string}` | "";
+  sessionToken: string;
   signerCommand: string;
   signerTimeoutMs: number;
   agentName: string;
@@ -40,7 +42,11 @@ type AgentConfig = {
   createCharacter: boolean;
   allowProduction: boolean;
   runSeconds: number;
+  decisionProvider: "codex" | "ollama";
   decisionModel: string;
+  ollamaHost: string;
+  ollamaNumCtx: number;
+  ollamaNumPredict: number;
   decisionTimeoutMs: number;
   decisionIntervalMs: number;
   objective: string;
@@ -780,7 +786,7 @@ class MferGptWalletTools {
 
 class MferlandRunner {
   private readonly config: AgentConfig;
-  private readonly signer: AgentSigner;
+  private readonly signer: AgentSigner | null;
   private readonly client: Client;
   private room: Room | null = null;
   private players = new Map<string, RuntimePlayer>();
@@ -824,6 +830,11 @@ class MferlandRunner {
   private decisionTimer: ReturnType<typeof setInterval> | null = null;
   private viewerServer: Server | null = null;
   private lastDecision: Decision | null = null;
+  private lastLocalInteractNpcId = "";
+  private localInteractRepeatCount = 0;
+  private localFriendlyNoProgressCount = 0;
+  private localExplorationRouteCursor = 0;
+  private localQuestNpcBypassUntil = 0;
   private readonly walletTools: MferGptWalletTools | null;
   private walletSnapshot: WalletToolSnapshot | null = null;
   private mferGptSpendSubmittedWei = 0n;
@@ -833,7 +844,7 @@ class MferlandRunner {
     this.config = config;
     this.signer = createAgentSigner(config);
     this.client = new Client(config.roomServer);
-    this.walletTools = MferGptWalletTools.fromEnv(this.signer, config);
+    this.walletTools = this.signer ? MferGptWalletTools.fromEnv(this.signer, config) : null;
   }
 
   async start() {
@@ -874,26 +885,35 @@ class MferlandRunner {
   }
 
   private async connect() {
-    const challenge = await this.requestChallenge();
-    const signature = await this.signer.signMessage(challenge.message);
-    const room = await this.client.joinOrCreate(this.config.roomName, {
+    const joinOptions: AnyRecord = {
       name: this.config.agentName,
       identityType: "wallet",
-      walletAddress: this.signer.address,
+      walletAddress: this.config.walletAddress,
       createCharacter: this.config.createCharacter,
       inviteCode: this.config.inviteCode,
       agentClient: true,
-      walletAuth: {
+    };
+    let authLabel = "session token";
+    if (this.config.sessionToken) {
+      joinOptions.sessionToken = this.config.sessionToken;
+    } else {
+      if (!this.signer) throw new Error("AGENT_SIGNER_COMMAND or AGENT_PRIVATE_KEY is required when AGENT_SESSION_TOKEN is not set.");
+      const challenge = await this.requestChallenge();
+      const signature = await this.signer.signMessage(challenge.message);
+      joinOptions.walletAuth = {
         nonce: challenge.nonce,
         message: challenge.message,
         signature,
-      },
-    });
+      };
+      authLabel = `${this.signer.kind} signer`;
+    }
+
+    const room = await this.client.joinOrCreate(this.config.roomName, joinOptions);
     this.room = room;
     this.installHandlers(room);
-    this.log(`joined ${this.config.roomName} as ${this.config.agentName} ${shortAddress(this.signer.address)} via ${this.signer.kind} signer`);
+    this.log(`joined ${this.config.roomName} as ${this.config.agentName} ${shortAddress(this.config.walletAddress)} via ${authLabel}`);
     if (this.config.gameViewerUrl) {
-      this.log(`game viewer ${makeAgentGameViewerUrl(this.config.gameViewerUrl, this.signer.address)}`);
+      this.log(`game viewer ${makeAgentGameViewerUrl(this.config.gameViewerUrl, this.config.walletAddress)}`);
     }
   }
 
@@ -902,7 +922,7 @@ class MferlandRunner {
     const response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress: this.signer.address }),
+      body: JSON.stringify({ walletAddress: this.config.walletAddress }),
     });
     const payload = await response.json().catch(() => null) as { ok?: boolean; nonce?: string; message?: string; error?: string } | null;
     if (!response.ok || !payload?.ok || !payload.nonce || !payload.message) {
@@ -1040,13 +1060,15 @@ class MferlandRunner {
     try {
       await this.refreshWalletSnapshot();
       const observation = this.buildObservation(self);
-      const decision = await decideWithCodex(this.config, observation);
+      const rawDecision = await decideWithModel(this.config, observation);
+      const freshSelf = this.self() ?? self;
+      const decision = this.adaptLocalModelDecision(freshSelf, rawDecision);
       this.lastDecision = decision;
       this.updateFocusedQuestFromDecision(decision);
       this.log(`decision ${decision.action}: ${decision.reason}`);
       await this.executeDecision(decision);
-      this.maybeAnnounceNextAction(self, decision);
-      this.publishAgentStatus(self, true);
+      this.maybeAnnounceNextAction(freshSelf, decision);
+      this.publishAgentStatus(freshSelf, true);
     } catch (error) {
       const message = errorMessage(error);
       if (isDecisionProviderBackoffError(message)) {
@@ -1211,7 +1233,7 @@ class MferlandRunner {
     return {
       objective: this.config.objective,
       wallet: {
-        address: this.signer.address,
+        address: this.config.walletAddress,
         agentClient: true,
         maxMferGptSpendWei: this.config.maxMferGptSpendWei,
         mferGptSpendSubmittedWei: this.mferGptSpendSubmittedWei.toString(),
@@ -1799,7 +1821,7 @@ class MferlandRunner {
       roomName: this.config.roomName,
       objective: this.config.objective,
       wallet: {
-        address: this.signer.address,
+        address: this.config.walletAddress,
         agentClient: true,
       },
       self: self
@@ -1845,6 +1867,646 @@ class MferlandRunner {
       },
       now,
     };
+  }
+
+  private adaptLocalModelDecision(self: RuntimePlayer, decision: Decision): Decision {
+    if (this.config.decisionProvider !== "ollama") return decision;
+
+    let adapted = decision;
+
+    if (decision.action === "travel_route") {
+      adapted = this.adaptLocalTravelRouteDecision(self, decision);
+    }
+
+    if (decision.action === "move_near_npc") {
+      const npc = this.resolveNpc(decision.npcRef);
+      if (!npc || isAttackable(npc) || distance2d(self, npc) > INTERACT_SEND_RANGE) {
+        return this.redirectRepeatedLocalInteraction(self, adapted);
+      }
+      adapted = {
+        ...decision,
+        action: "interact_npc",
+        reason: decision.reason && decision.reason !== "move_near_npc"
+          ? decision.reason
+          : `already near ${npc.name || npc.id}; interact instead of moving closer`,
+      };
+    }
+
+    if (decision.action === "move_to") {
+      const x = readFiniteNumber(decision.x);
+      const z = readFiniteNumber(decision.z);
+      if (x === undefined || z === undefined) return this.redirectRepeatedLocalInteraction(self, adapted);
+      const target = { x, z };
+      if (!this.hasLocalActiveQuest(self) && distance2d(self, target) <= 1.2) {
+        const routeId = this.chooseLocalExplorationRoute(self);
+        if (routeId) {
+          adapted = {
+            ...decision,
+            action: "travel_route",
+            text: routeId,
+            x: null,
+            z: null,
+            reason: `move_to targets current position; explore public route ${routeId}`,
+          };
+        }
+      }
+      const nearbyIntentNpc = this.inferNearbyFriendlyNpcForLocalMove(self, decision, target);
+      if (adapted.action === "move_to" && nearbyIntentNpc) {
+        adapted = {
+          ...decision,
+          action: "interact_npc",
+          npcRef: nearbyIntentNpc.id,
+          x: null,
+          z: null,
+          reason: decision.reason && decision.reason !== "move_to"
+            ? decision.reason
+            : `already at target; interact with ${nearbyIntentNpc.name || nearbyIntentNpc.id}`,
+        };
+      } else if (adapted.action === "move_to") {
+        const npc = this.inferFriendlyNpcForLocalMove(self, decision, target);
+        if (npc) {
+          const alreadyNear = distance2d(self, npc) <= INTERACT_SEND_RANGE;
+          adapted = {
+            ...decision,
+            action: alreadyNear ? "interact_npc" : "move_near_npc",
+            npcRef: npc.id,
+            x: null,
+            z: null,
+            reason: decision.reason && decision.reason !== "move_to"
+              ? decision.reason
+              : `${alreadyNear ? "interact with" : "move near"} ${npc.name || npc.id}`,
+          };
+        }
+      }
+    }
+
+    adapted = this.redirectCompletedQuestReference(self, adapted);
+    adapted = this.redirectPendingLocalQuestAction(self, adapted);
+    adapted = this.redirectNearbyQuestContextNpc(self, adapted);
+    adapted = this.redirectUnsafeLocalTravel(self, adapted);
+    adapted = this.redirectRepeatedLocalInteraction(self, adapted);
+
+    return this.escapeLocalFriendlyInteractionLoop(self, adapted);
+  }
+
+  private adaptLocalTravelRouteDecision(self: RuntimePlayer, decision: Decision): Decision {
+    const activeRoute = this.currentLocalTravelRouteId();
+    if (activeRoute && this.routeQueue.length > 0 && !this.movementTrouble) {
+      return {
+        ...decision,
+        text: activeRoute,
+        reason: `continue active public route ${activeRoute}`,
+      };
+    }
+
+    const arrivalFriendly = this.localArrivalFriendly(self);
+    if (arrivalFriendly) {
+      return {
+        ...decision,
+        action: "interact_npc",
+        npcRef: arrivalFriendly.id,
+        text: null,
+        x: null,
+        z: null,
+        reason: `arrived after route; interact with nearby ${arrivalFriendly.name || arrivalFriendly.id}`,
+      };
+    }
+
+    const requested = this.resolveLocalRouteText(cleanText(decision.text, 80));
+    if (requested) {
+      return this.retargetLocalCurrentRoute(self, { ...decision, text: requested });
+    }
+
+    const inferred = this.resolveLocalRouteText(decision.reason) ?? this.chooseLocalExplorationRoute(self);
+    if (!inferred) return decision;
+    return this.retargetLocalCurrentRoute(self, {
+      ...decision,
+      text: inferred,
+      reason: decision.reason && decision.reason !== "travel_route"
+        ? decision.reason
+        : `explore public route ${inferred}`,
+    });
+  }
+
+  private retargetLocalCurrentRoute(self: RuntimePlayer, decision: Decision): Decision {
+    const routeText = cleanText(decision.text, 80);
+    if (!routeText || this.hasLocalActiveQuest(self) || !this.isLocalRouteAtCurrentPosition(self, routeText)) return decision;
+
+    const nearbyFriendly = this.findLocalFriendlyInteractionAlternative(self, "");
+    if (nearbyFriendly && distance2d(self, nearbyFriendly) <= INTERACT_SEND_RANGE) {
+      return {
+        ...decision,
+        action: "interact_npc",
+        npcRef: nearbyFriendly.id,
+        text: null,
+        x: null,
+        z: null,
+        reason: `already at ${routeText}; interact with nearby ${nearbyFriendly.name || nearbyFriendly.id}`,
+      };
+    }
+
+    const nextRoute = this.chooseLocalExplorationRoute(self);
+    if (!nextRoute || nextRoute === routeText) return decision;
+    return {
+      ...decision,
+      text: nextRoute,
+      reason: `already at ${routeText}; continue exploring public route ${nextRoute}`,
+    };
+  }
+
+  private isLocalRouteAtCurrentPosition(self: RuntimePlayer, routeText: string) {
+    const route = resolveRoute(routeText);
+    if (!route || route.length === 0) return false;
+    const end = route[route.length - 1];
+    return distance2d(self, end) <= 5;
+  }
+
+  private resolveLocalRouteText(value: string) {
+    const routeId = normalizeRouteId(value);
+    if (!routeId) return null;
+    if (PUBLIC_ROUTES[routeId]) return routeId;
+    const routeEntry = Object.entries(PUBLIC_ROUTES)
+      .find(([id]) => normalizeRouteId(id) === routeId || routeId.includes(normalizeRouteId(id)));
+    if (routeEntry) return routeEntry[0];
+    if (PUBLIC_LANDMARKS[routeId]) return routeId;
+    const landmarkEntry = Object.entries(PUBLIC_LANDMARKS)
+      .find(([id]) => routeId.includes(normalizeRouteId(id)));
+    return landmarkEntry?.[0] ?? null;
+  }
+
+  private currentLocalTravelRouteId() {
+    const match = /^travel_route\s+(.+)$/.exec(this.lastAction);
+    if (!match) return null;
+    return this.resolveLocalRouteText(match[1]);
+  }
+
+  private localArrivalFriendly(self: RuntimePlayer) {
+    if (this.hasLocalActiveQuest(self) || this.routeQueue.length > 0 || !this.lastAction.startsWith("travel_route ")) return null;
+    const npc = this.findLocalFriendlyInteractionAlternative(self, "");
+    return npc && distance2d(self, npc) <= INTERACT_SEND_RANGE ? npc : null;
+  }
+
+  private hasLocalActiveQuest(self: RuntimePlayer) {
+    return self.quests.some((quest) => {
+      const status = getString(asRecord(quest).status);
+      return status && status !== "completed";
+    });
+  }
+
+  private redirectNearbyQuestContextNpc(self: RuntimePlayer, decision: Decision): Decision {
+    if (Date.now() < this.localQuestNpcBypassUntil) return decision;
+    if (!["travel_route", "move_to", "wait", "chat", "emote"].includes(decision.action)) return decision;
+
+    const npc = this.findLocalQuestContextNpc(self);
+    if (!npc) return decision;
+
+    this.routeQueue = [];
+    this.targetPoint = null;
+    return {
+      ...decision,
+      action: "interact_npc",
+      npcRef: npc.id,
+      x: null,
+      z: null,
+      text: null,
+      reason: `nearby quest/context NPC ${npc.name || npc.id} is in range; interact before walking past`,
+    };
+  }
+
+  private findLocalQuestContextNpc(self: RuntimePlayer) {
+    return [...this.npcs.values()]
+      .filter((npc) => {
+        if (npc.health <= 0 || npc.defeatedAt > 0 || isAttackable(npc) || distance2d(self, npc) > INTERACT_SEND_RANGE) return false;
+        const questId = npc.questId.toLowerCase();
+        const hasActiveQuestHint = Boolean(questId && !this.isCompletedQuestId(self, questId));
+        return hasActiveQuestHint || Boolean(npc.dialogue);
+      })
+      .map((npc) => {
+        const questId = npc.questId.toLowerCase();
+        const hasActiveQuestHint = Boolean(questId && !this.isCompletedQuestId(self, questId));
+        return {
+          npc,
+          score: distance2d(self, npc)
+            - (hasActiveQuestHint ? 18 : 0)
+            - (npc.dialogue ? 5 : 0),
+        };
+      })
+      .sort((a, b) => a.score - b.score)[0]?.npc ?? null;
+  }
+
+  private isCompletedQuestId(self: RuntimePlayer, questId: string) {
+    const key = questId.toLowerCase();
+    return self.quests.some((quest) => getString(asRecord(quest).id).toLowerCase() === key && getString(asRecord(quest).status) === "completed");
+  }
+
+  private redirectPendingLocalQuestAction(self: RuntimePlayer, decision: Decision): Decision {
+    if (this.isActionMoreUrgentThanPendingQuest(decision.action)) return decision;
+
+    const pending = this.findPendingLocalQuestAction(self);
+    if (!pending) return decision;
+
+    this.routeQueue = [];
+    this.targetPoint = null;
+    this.localFriendlyNoProgressCount = 0;
+    this.lastLocalInteractNpcId = "";
+    this.localInteractRepeatCount = 0;
+    return {
+      ...decision,
+      action: pending.action,
+      questId: pending.quest.questId,
+      npcRef: pending.npc.id,
+      x: null,
+      z: null,
+      text: null,
+      reason: pending.action === "accept_quest"
+        ? `recent quest offer observed from ${pending.npc.name || pending.npc.id}; accept ${pending.quest.title || pending.quest.questId}`
+        : `quest turn-in observed at ${pending.npc.name || pending.npc.id}; complete ${pending.quest.title || pending.quest.questId}`,
+    };
+  }
+
+  private isActionMoreUrgentThanPendingQuest(action: string) {
+    return [
+      "accept_quest",
+      "complete_quest",
+      "respawn",
+      "fight_npc",
+      "loot",
+      "use_ability",
+      "use_item",
+      "equip_item",
+      "unequip_item",
+      "select_talent",
+      "purchase_potion_shop_item",
+      "sell_trash_items",
+      "swap_eth_for_mfergpt",
+      "register_chain_gear",
+      "update_traits",
+    ].includes(action);
+  }
+
+  private findPendingLocalQuestAction(self: RuntimePlayer) {
+    const recent = [...this.questMemory.values()]
+      .filter((quest) => Date.now() - quest.observedAt <= 120_000)
+      .sort((a, b) => b.observedAt - a.observedAt);
+
+    for (const quest of recent) {
+      if (quest.kind !== "turnIn") continue;
+      if (this.isCompletedQuestId(self, quest.questId)) continue;
+      const npc = this.resolveNpc(quest.turnInNpcId || quest.npcId);
+      if (!npc || isAttackable(npc) || npc.health <= 0 || npc.defeatedAt > 0) continue;
+      return { action: "complete_quest", quest, npc };
+    }
+
+    for (const quest of recent) {
+      if (quest.kind !== "offer") continue;
+      if (this.isCompletedQuestId(self, quest.questId)) continue;
+      if (this.hasLocalQuestInLog(self, quest.questId)) continue;
+      const npc = this.resolveNpc(quest.npcId);
+      if (!npc || isAttackable(npc) || npc.health <= 0 || npc.defeatedAt > 0) continue;
+      if (!this.hasRecentQuestOffer(quest.questId, npc.id)) continue;
+      return { action: "accept_quest", quest, npc };
+    }
+
+    return null;
+  }
+
+  private hasLocalQuestInLog(self: RuntimePlayer, questId: string) {
+    const key = questId.toLowerCase();
+    return self.quests.some((quest) => {
+      const record = asRecord(quest);
+      const id = getString(record.id).toLowerCase();
+      const status = getString(record.status);
+      return id === key && status && status !== "completed";
+    });
+  }
+
+  private redirectUnsafeLocalTravel(self: RuntimePlayer, decision: Decision): Decision {
+    if (!this.movementTrouble || !["move_to", "travel_route", "wait"].includes(decision.action)) return decision;
+
+    const lootable = this.findLocalLootableCorpse(self);
+    if (lootable) {
+      return {
+        ...decision,
+        action: "loot",
+        npcRef: lootable.id,
+        x: null,
+        z: null,
+        text: null,
+        reason: `travel path is unsafe; loot nearby ${lootable.name || lootable.id} instead`,
+      };
+    }
+
+    const target = this.findLocalSafeHostile(self);
+    if (!target) return decision;
+    return {
+      ...decision,
+      action: "fight_npc",
+      npcRef: target.id,
+      x: null,
+      z: null,
+      text: null,
+      reason: `travel path is unsafe; fight nearby safe target ${target.name || target.id}`,
+    };
+  }
+
+  private findLocalLootableCorpse(self: RuntimePlayer) {
+    return [...this.npcs.values()]
+      .filter((npc) => npc.hasLoot && distance2d(self, npc) <= 35)
+      .sort((a, b) => distance2d(self, a) - distance2d(self, b))[0] ?? null;
+  }
+
+  private findLocalSafeHostile(self: RuntimePlayer) {
+    return [...this.npcs.values()]
+      .filter((npc) => (
+        npc.health > 0
+        && npc.defeatedAt <= 0
+        && !npc.isImmortal
+        && isHostile(npc)
+        && distance2d(self, npc) <= 38
+        && this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS, npc.id) <= 2
+      ))
+      .map((npc) => ({
+        npc,
+        score: distance2d(self, npc)
+          + (npc.health / Math.max(1, self.maxHealth)) * 20
+          + this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS, npc.id) * 12,
+      }))
+      .sort((a, b) => a.score - b.score)[0]?.npc ?? null;
+  }
+
+  private redirectCompletedQuestReference(self: RuntimePlayer, decision: Decision): Decision {
+    const completedQuestIds = new Set(self.quests
+      .map((quest) => ({ id: getString(asRecord(quest).id), status: getString(asRecord(quest).status) }))
+      .filter((quest) => quest.id && quest.status === "completed")
+      .map((quest) => quest.id.toLowerCase()));
+    if (completedQuestIds.size === 0) return decision;
+
+    const decisionText = [decision.reason, decision.questId].filter(Boolean).join(" ").toLowerCase();
+    const completedQuestId = [...completedQuestIds].find((questId) => decisionText.includes(questId));
+    if (!completedQuestId) return decision;
+
+    const activeQuest = self.quests
+      .map((quest) => asRecord(quest))
+      .find((quest) => {
+        const id = getString(quest.id);
+        const status = getString(quest.status);
+        return id && status && status !== "completed";
+      });
+    if (activeQuest) {
+      const id = getString(activeQuest.id);
+      const status = getString(activeQuest.status);
+      if (/ready|turn.?in|complete/i.test(status)) {
+        return {
+          ...decision,
+          action: "complete_quest",
+          questId: id,
+          npcRef: null,
+          x: null,
+          z: null,
+          reason: `completed ${completedQuestId} is history; turn in active quest ${id}`,
+        };
+      }
+      if (/offer|available/i.test(status)) {
+        return {
+          ...decision,
+          action: "accept_quest",
+          questId: id,
+          npcRef: null,
+          x: null,
+          z: null,
+          reason: `completed ${completedQuestId} is history; accept available quest ${id}`,
+        };
+      }
+    }
+
+    const nextNpc = [...this.questMemory.values()]
+      .filter((quest) => quest.questId.toLowerCase() === completedQuestId && quest.nextGiverNpcId)
+      .sort((a, b) => b.observedAt - a.observedAt)
+      .map((quest) => this.resolveNpc(quest.nextGiverNpcId))
+      .find((npc): npc is RuntimeNpc => Boolean(npc && npc.health > 0 && npc.defeatedAt <= 0 && !isAttackable(npc)));
+    if (nextNpc) {
+      const alreadyNear = distance2d(self, nextNpc) <= INTERACT_SEND_RANGE;
+      return {
+        ...decision,
+        action: alreadyNear ? "interact_npc" : "move_near_npc",
+        npcRef: nextNpc.id,
+        x: null,
+        z: null,
+        reason: `completed ${completedQuestId} is history; follow its next quest giver ${nextNpc.name || nextNpc.id}`,
+      };
+    }
+
+    const excludedNpc = this.resolveNpc(decision.npcRef);
+    const alternate = this.findLocalFriendlyInteractionAlternative(self, excludedNpc?.id ?? "");
+    if (!alternate) return decision;
+    const alreadyNear = distance2d(self, alternate) <= INTERACT_SEND_RANGE;
+    return {
+      ...decision,
+      action: alreadyNear ? "interact_npc" : "move_near_npc",
+      npcRef: alternate.id,
+      questId: null,
+      x: null,
+      z: null,
+      reason: `completed ${completedQuestId} is history; explore ${alternate.name || alternate.id}`,
+    };
+  }
+
+  private redirectRepeatedLocalInteraction(self: RuntimePlayer, decision: Decision): Decision {
+    if (decision.action !== "interact_npc") {
+      this.lastLocalInteractNpcId = "";
+      this.localInteractRepeatCount = 0;
+      return decision;
+    }
+
+    const npc = this.resolveNpc(decision.npcRef);
+    if (!npc || isAttackable(npc) || npc.health <= 0 || npc.defeatedAt > 0) {
+      this.lastLocalInteractNpcId = "";
+      this.localInteractRepeatCount = 0;
+      return decision;
+    }
+
+    if (npc.id === this.lastLocalInteractNpcId) {
+      this.localInteractRepeatCount += 1;
+    } else {
+      this.lastLocalInteractNpcId = npc.id;
+      this.localInteractRepeatCount = 1;
+    }
+
+    if (this.localInteractRepeatCount < 3) return decision;
+
+    const alternate = this.findLocalFriendlyInteractionAlternative(self, npc.id);
+    if (!alternate) return decision;
+
+    this.lastLocalInteractNpcId = alternate.id;
+    this.localInteractRepeatCount = 1;
+    const alreadyNear = distance2d(self, alternate) <= INTERACT_SEND_RANGE;
+    return {
+      ...decision,
+      action: alreadyNear ? "interact_npc" : "move_near_npc",
+      npcRef: alternate.id,
+      x: null,
+      z: null,
+      reason: `same friendly NPC did not change state after repeated interactions; try ${alternate.name || alternate.id}`,
+    };
+  }
+
+  private findLocalFriendlyInteractionAlternative(self: RuntimePlayer, excludeNpcId: string) {
+    return [...this.npcs.values()]
+      .filter((npc) => (
+        npc.id !== excludeNpcId
+        && npc.health > 0
+        && npc.defeatedAt <= 0
+        && !isAttackable(npc)
+        && distance2d(self, npc) <= 35
+      ))
+      .map((npc) => ({
+        npc,
+        score: distance2d(self, npc)
+          - (npc.questId ? 6 : 0)
+          - (npc.dialogue ? 2 : 0)
+          + (npc.shopId ? 2 : 0),
+      }))
+      .sort((a, b) => a.score - b.score)[0]?.npc ?? null;
+  }
+
+  private escapeLocalFriendlyInteractionLoop(self: RuntimePlayer, decision: Decision): Decision {
+    if (this.hasLocalActiveQuest(self)) {
+      this.localFriendlyNoProgressCount = 0;
+      return decision;
+    }
+
+    let countsAsNoProgress = false;
+    if (decision.action === "interact_npc") {
+      const npc = this.resolveNpc(decision.npcRef);
+      countsAsNoProgress = Boolean(npc && !isAttackable(npc) && npc.health > 0 && npc.defeatedAt <= 0);
+    } else if (decision.action === "move_near_npc") {
+      const npc = this.resolveNpc(decision.npcRef);
+      countsAsNoProgress = Boolean(npc && !isAttackable(npc) && npc.health > 0 && npc.defeatedAt <= 0);
+    } else if (decision.action === "wait" || decision.action === "chat" || decision.action === "emote") {
+      countsAsNoProgress = true;
+    } else if (decision.action === "travel_route" && cleanText(decision.text, 80) && this.isLocalRouteAtCurrentPosition(self, cleanText(decision.text, 80))) {
+      countsAsNoProgress = true;
+    }
+
+    if (!countsAsNoProgress) {
+      this.localFriendlyNoProgressCount = 0;
+      return decision;
+    }
+
+    this.localFriendlyNoProgressCount += 1;
+    if (this.localFriendlyNoProgressCount < 5) return decision;
+
+    const lootable = this.findLocalLootableCorpse(self);
+    if (lootable) {
+      this.localFriendlyNoProgressCount = 0;
+      this.lastLocalInteractNpcId = "";
+      this.localInteractRepeatCount = 0;
+      return {
+        ...decision,
+        action: "loot",
+        npcRef: lootable.id,
+        x: null,
+        z: null,
+        text: null,
+        reason: `friendly NPC interactions produced no new quest state; loot nearby ${lootable.name || lootable.id}`,
+      };
+    }
+
+    const target = this.findLocalSafeHostile(self);
+    if (target) {
+      this.localFriendlyNoProgressCount = 0;
+      this.lastLocalInteractNpcId = "";
+      this.localInteractRepeatCount = 0;
+      return {
+        ...decision,
+        action: "fight_npc",
+        npcRef: target.id,
+        x: null,
+        z: null,
+        text: null,
+        reason: `friendly NPC interactions produced no new quest state; fight nearby safe target ${target.name || target.id}`,
+      };
+    }
+
+    const routeId = this.chooseLocalExplorationRoute(self);
+    if (!routeId) return decision;
+
+    this.localFriendlyNoProgressCount = 0;
+    this.lastLocalInteractNpcId = "";
+    this.localInteractRepeatCount = 0;
+    this.localQuestNpcBypassUntil = Date.now() + 15_000;
+    return {
+      ...decision,
+      action: "travel_route",
+      text: routeId,
+      npcRef: null,
+      x: null,
+      z: null,
+      reason: `friendly NPC interactions produced no new quest state; explore public route ${routeId}`,
+    };
+  }
+
+  private chooseLocalExplorationRoute(self: RuntimePlayer) {
+    const candidates = Object.entries(PUBLIC_ROUTES)
+      .filter(([, route]) => route.length > 0)
+      .map(([id, route]) => {
+        const start = route[0];
+        const end = route[route.length - 1];
+        const startDistance = distance2d(self, start);
+        const endDistance = distance2d(self, end);
+        return {
+          id,
+          startDistance,
+          score: startDistance
+            + (endDistance < 35 ? 100 : 0)
+            + (id.endsWith("-to-plaza") ? 100 : 0),
+        };
+      })
+      .filter((route) => route.startDistance <= 50)
+      .sort((a, b) => a.score - b.score);
+    if (candidates.length === 0) return null;
+    const route = candidates[this.localExplorationRouteCursor % Math.min(candidates.length, 3)];
+    this.localExplorationRouteCursor += 1;
+    return route.id;
+  }
+
+  private inferNearbyFriendlyNpcForLocalMove(self: RuntimePlayer, decision: Decision, target: Point) {
+    const reason = decision.reason.toLowerCase();
+    const hasInteractionIntent = /\b(interact|talk|quest|npc|check|progress|objective)\b/i.test(reason);
+    if (!hasInteractionIntent || distance2d(self, target) > 1.8) return null;
+    return [...this.npcs.values()]
+      .filter((npc) => (
+        npc.health > 0
+        && npc.defeatedAt <= 0
+        && !isAttackable(npc)
+        && distance2d(self, npc) <= INTERACT_SEND_RANGE
+      ))
+      .sort((a, b) => distance2d(self, a) - distance2d(self, b))[0] ?? null;
+  }
+
+  private inferFriendlyNpcForLocalMove(self: RuntimePlayer, decision: Decision, target: Point) {
+    const reason = normalizeRouteId(decision.reason);
+    const candidates = [...this.npcs.values()]
+      .filter((npc) => (
+        npc.health > 0
+        && npc.defeatedAt <= 0
+        && !isAttackable(npc)
+        && (distance2d(self, npc) <= 60 || distance2d(target, npc) <= 12)
+      ));
+
+    const mentioned = candidates
+      .filter((npc) => {
+        const id = normalizeRouteId(npc.id);
+        const name = normalizeRouteId(npc.name);
+        return Boolean(reason && ((id && reason.includes(id)) || (name && reason.includes(name))));
+      })
+      .sort((a, b) => distance2d(target, a) - distance2d(target, b))[0];
+    if (mentioned) return mentioned;
+
+    return candidates
+      .map((npc) => ({ npc, distance: distance2d(target, npc) }))
+      .filter(({ distance }) => distance <= 4.5)
+      .sort((a, b) => a.distance - b.distance)[0]?.npc ?? null;
   }
 
   private async executeDecision(decision: Decision) {
@@ -1899,6 +2561,7 @@ class MferlandRunner {
           return;
         }
         this.clearEngagement();
+        this.routeQueue = [];
         if (decision.action === "move_near_npc" || distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_near_npc ${npc.id}`;
@@ -2931,15 +3594,19 @@ class MferlandRunner {
   }
 
   private describeCurrentQuest(self: RuntimePlayer) {
+    const focusedCompleted = this.focusedQuestId
+      ? self.quests.some((entry) => getString(entry.id) === this.focusedQuestId && getString(entry.status) === "completed")
+      : false;
+    if (focusedCompleted) this.focusedQuestId = "";
+
     const focusedQuest = this.focusedQuestId
       ? self.quests.find((entry) => getString(entry.id) === this.focusedQuestId && getString(entry.status) !== "completed")
       : null;
     const quest = focusedQuest
       ?? self.quests.find((entry) => getString(entry.status) === "ready")
       ?? self.quests.find((entry) => getString(entry.status) === "active")
-      ?? self.quests.find((entry) => getString(entry.status) !== "completed")
-      ?? self.quests[0];
-    if (!quest) return "";
+      ?? self.quests.find((entry) => getString(entry.status) !== "completed");
+    if (!quest) return "exploring: no active quest";
     const questId = getString(quest.id);
     this.focusedQuestId = questId;
     const memory = this.questMemory.get(questId);
@@ -2952,6 +3619,9 @@ class MferlandRunner {
   private updateFocusedQuestFromDecision(decision: Decision) {
     const questId = cleanText(decision.questId, 96);
     if (questId) {
+      const self = this.self();
+      const quest = self?.quests.find((entry) => getString(entry.id) === questId);
+      if (quest && getString(quest.status) === "completed") return;
       this.focusedQuestId = questId;
       return;
     }
@@ -3205,6 +3875,11 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
+async function decideWithModel(config: AgentConfig, observation: unknown): Promise<Decision> {
+  if (config.decisionProvider === "ollama") return normalizeDecision(await decideWithOllamaLocal(config, observation, DECISION_ACTIONS));
+  return decideWithCodex(config, observation);
+}
+
 async function decideWithCodex(config: AgentConfig, observation: unknown): Promise<Decision> {
   const tempDir = await mkdtemp(join(tmpdir(), "mferland-agent-decision-"));
   const schemaPath = join(tempDir, "decision.schema.json");
@@ -3224,19 +3899,6 @@ async function decideWithCodex(config: AgentConfig, observation: unknown): Promi
   return normalizeDecision(JSON.parse(raw));
 }
 
-function buildDecisionPrompt(objective: string, observation: unknown) {
-  return [
-    "You are controlling one mferland wallet character as a normal player agent.",
-    "Return exactly one JSON object matching the supplied schema. Use null for fields that do not apply.",
-    "Do not run commands, inspect files, browse, ask for hidden server state, use debug messages, teleport, boost, or request database access.",
-    "Make your own gameplay decision from public in-game context: current room state, quest offers/status/turn-ins, NPC dialogue, visible players, public map landmarks, inventory, cooldowns, combat state, and recent chat.",
-    "There is no quest script. Discover the game by exploring, interacting, accepting quests, reading objective text, completing objectives, looting, grouping, and turning in ready quests.",
-    "Active and ready quests are choices, not a locked script. If a quest is marked group suggested or raid suggested and the observation says needsHelp, switch focus, level/gear/shop, chat for help, wait for allies, or cancel optional daily raid content instead of repeatedly soloing it.",
-    "Work toward the objective, but preserve normal gameplay: stay alive, avoid overpulls, loot when safe, and coordinate with visible players.",
-    "",
-    JSON.stringify({ objective, observation }),
-  ].join("\n");
-}
 
 function runCodexExec({
   model,
@@ -3320,6 +3982,7 @@ function readConfig(): AgentConfig {
   const roomServer = cleanEnv("ROOM_SERVER") || "wss://game.mfergpt.lol";
   const httpServer = cleanEnv("HTTP_SERVER") || toHttpServer(roomServer);
   const privateKey = cleanEnv("AGENT_PRIVATE_KEY");
+  const sessionToken = cleanEnv("AGENT_SESSION_TOKEN");
   const signerCommand = cleanEnv("AGENT_SIGNER_COMMAND");
   const configuredWalletAddress = asAddress(cleanEnv("AGENT_WALLET_ADDRESS"));
   const localRun = isLoopbackUrl(roomServer) || isLoopbackUrl(httpServer) || cleanEnv("MFERLAND_AGENT_LOCAL_ONLY") === "1";
@@ -3327,7 +3990,7 @@ function readConfig(): AgentConfig {
   if (privateKey) {
     if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) throw new Error("AGENT_PRIVATE_KEY must be a 0x-prefixed 32-byte private key.");
     if (!localRun) {
-      throw new Error("AGENT_PRIVATE_KEY is only allowed for local/loopback testing. For production, use AGENT_WALLET_ADDRESS plus AGENT_SIGNER_COMMAND.");
+      throw new Error("AGENT_PRIVATE_KEY is only allowed for local/loopback testing. For production, use AGENT_WALLET_ADDRESS plus AGENT_SIGNER_COMMAND or AGENT_SESSION_TOKEN.");
     }
     const derivedAddress = privateKeyToAccount(privateKey as `0x${string}`).address;
     if (walletAddress && walletAddress.toLowerCase() !== derivedAddress.toLowerCase()) {
@@ -3336,10 +3999,10 @@ function readConfig(): AgentConfig {
     walletAddress = derivedAddress;
   }
   if (!walletAddress) {
-    throw new Error("Set AGENT_WALLET_ADDRESS for production signing, or AGENT_PRIVATE_KEY for local loopback testing.");
+    throw new Error("Set AGENT_WALLET_ADDRESS for production auth, or AGENT_PRIVATE_KEY for local loopback testing.");
   }
-  if (!privateKey && !signerCommand) {
-    throw new Error("Set AGENT_SIGNER_COMMAND so the agent wallet can sign auth messages and transactions.");
+  if (!privateKey && !signerCommand && !sessionToken) {
+    throw new Error("Set AGENT_SESSION_TOKEN for pre-signed auth, AGENT_SIGNER_COMMAND for wallet signing, or AGENT_PRIVATE_KEY for local loopback testing.");
   }
   const allowProduction = cleanEnv("AGENT_ALLOW_PRODUCTION") === "1";
   if (/game\.mfergpt\.lol/i.test(roomServer) && !allowProduction) {
@@ -3359,6 +4022,7 @@ function readConfig(): AgentConfig {
     catalogEndpoint: cleanEnv("AGENT_CATALOG_ENDPOINT") || "/agent-catalog",
     walletAddress,
     privateKey: privateKey as `0x${string}` | "",
+    sessionToken,
     signerCommand,
     signerTimeoutMs: readNumberEnv("AGENT_SIGNER_TIMEOUT_MS") || 120_000,
     agentName: cleanEnv("AGENT_NAME") || "mfer-agent",
@@ -3366,7 +4030,11 @@ function readConfig(): AgentConfig {
     createCharacter: cleanEnv("AGENT_CREATE_CHARACTER") !== "0",
     allowProduction,
     runSeconds: readNumberEnv("AGENT_RUN_SECONDS"),
+    decisionProvider: readDecisionProvider(),
     decisionModel: cleanEnv("AGENT_DECISION_MODEL") || cleanEnv("CODEX_LLM_MODEL"),
+    ollamaHost: cleanEnv("OLLAMA_HOST") || "http://127.0.0.1:11434",
+    ollamaNumCtx: readNumberEnv("AGENT_OLLAMA_NUM_CTX") || 8192,
+    ollamaNumPredict: readNumberEnv("AGENT_OLLAMA_NUM_PREDICT") || 1024,
     decisionTimeoutMs: readNumberEnv("AGENT_DECISION_TIMEOUT_MS") || 60_000,
     decisionIntervalMs: readNumberEnv("AGENT_DECISION_INTERVAL_MS") || 1200,
     objective: cleanEnv("AGENT_OBJECTIVE") || "Play mferland naturally. Progress the main questline from public quest context, cooperate with players, loot, sell trash to trash-mfer when safe, survive, and eventually defeat The Centralizer through its quest.",
@@ -3382,8 +4050,9 @@ function readConfig(): AgentConfig {
   };
 }
 
-function createAgentSigner(config: AgentConfig): AgentSigner {
+function createAgentSigner(config: AgentConfig): AgentSigner | null {
   if (config.privateKey) return new PrivateKeyAgentSigner(config.privateKey);
+  if (!config.signerCommand) return null;
   return new CommandAgentSigner(config.walletAddress, config.signerCommand, config.signerTimeoutMs);
 }
 
@@ -3652,6 +4321,10 @@ function asRecord(value: unknown): AnyRecord {
   return value && typeof value === "object" ? value as AnyRecord : {};
 }
 
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function getString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
@@ -3694,6 +4367,13 @@ function readPortEnv(name: string) {
   if (!port) return 0;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${name} must be a TCP port from 1 to 65535.`);
   return port;
+}
+
+function readDecisionProvider(): AgentConfig["decisionProvider"] {
+  const provider = cleanEnv("AGENT_DECISION_PROVIDER").toLowerCase();
+  if (!provider) return "codex";
+  if (provider === "codex" || provider === "ollama") return provider;
+  throw new Error("AGENT_DECISION_PROVIDER must be codex or ollama.");
 }
 
 function isLoopbackHost(host: string) {
@@ -3931,6 +4611,12 @@ function toHttpServer(roomServer: string) {
   if (roomServer.startsWith("wss://")) return `https://${roomServer.slice("wss://".length)}`;
   if (roomServer.startsWith("ws://")) return `http://${roomServer.slice("ws://".length)}`;
   return roomServer;
+}
+
+function joinUrl(baseUrl: string, path: string) {
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+  return new URL(normalizedPath, base).toString();
 }
 
 function makeChain(chainId: number, rpcUrl: string) {

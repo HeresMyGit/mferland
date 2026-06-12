@@ -19,6 +19,7 @@ const httpServer = cleanEnv("HTTP_SERVER") || toHttpServer(roomServer);
 const authEndpoint = cleanEnv("AUTH_ENDPOINT") || "/wallet-auth-challenge";
 const catalogEndpoint = cleanEnv("AGENT_CATALOG_ENDPOINT") || "/agent-catalog";
 const privateKey = cleanEnv("AGENT_PRIVATE_KEY");
+const sessionToken = cleanEnv("AGENT_SESSION_TOKEN");
 const signerCommand = cleanEnv("AGENT_SIGNER_COMMAND");
 const signerTimeoutMs = readNumberEnv("AGENT_SIGNER_TIMEOUT_MS") || 120_000;
 const configuredWalletAddress = normalizeAddress(cleanEnv("AGENT_WALLET_ADDRESS"));
@@ -59,7 +60,7 @@ if (privateKey && !/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
   checks.push({
     ok: false,
     name: "private key",
-    detail: "AGENT_PRIVATE_KEY is local-test only; use AGENT_WALLET_ADDRESS plus AGENT_SIGNER_COMMAND for production",
+    detail: "AGENT_PRIVATE_KEY is local-test only; use AGENT_WALLET_ADDRESS plus AGENT_SIGNER_COMMAND or AGENT_SESSION_TOKEN for production",
   });
 } else if (privateKey) {
   privateKeySigner = privateKeyToAccount(privateKey as `0x${string}`);
@@ -80,15 +81,23 @@ if (privateKey && !/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
   checks.push({
     ok: false,
     name: "wallet address",
-    detail: "set AGENT_WALLET_ADDRESS for production signing, or AGENT_PRIVATE_KEY for local loopback testing",
+    detail: "set AGENT_WALLET_ADDRESS for production auth, or AGENT_PRIVATE_KEY for local loopback testing",
   });
 }
 
-if (!privateKey && !signerCommand) {
+if (sessionToken) {
+  checks.push({
+    ok: /^[A-Za-z0-9_-]{43,128}$/.test(sessionToken),
+    name: "session token",
+    detail: "AGENT_SESSION_TOKEN configured for pre-signed auth",
+  });
+}
+
+if (!privateKey && !signerCommand && !sessionToken) {
   checks.push({
     ok: false,
-    name: "signer command",
-    detail: "set AGENT_SIGNER_COMMAND so the wallet can sign auth messages and transactions",
+    name: "auth method",
+    detail: "set AGENT_SESSION_TOKEN for pre-signed auth or AGENT_SIGNER_COMMAND so the wallet can sign auth messages",
   });
 } else if (signerCommand) {
   checks.push({
@@ -125,7 +134,7 @@ if (walletAddress) {
     name: "wallet auth challenge",
     detail: challenge.ok ? `challenge returned for ${walletAddress}` : challenge.error,
   });
-  if (challenge.ok && typeof challenge.body?.message === "string") {
+  if (challenge.ok && typeof challenge.body?.message === "string" && !sessionToken) {
     const signCheck = await signChallengeForDoctor({
       message: challenge.body.message,
       walletAddress,
@@ -134,6 +143,12 @@ if (walletAddress) {
       signerTimeoutMs,
     });
     checks.push(signCheck);
+  } else if (challenge.ok && sessionToken) {
+    checks.push({
+      ok: true,
+      name: "wallet signer",
+      detail: "skipped; AGENT_SESSION_TOKEN will be checked by room auth on join",
+    });
   }
 }
 

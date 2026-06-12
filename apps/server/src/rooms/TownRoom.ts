@@ -44,9 +44,11 @@ import {
   normalizeChainTokenId,
   normalizeChainGearTier,
   normalizeMferAppearanceTraits,
+  normalizeAgentMferAppearanceTraits,
   normalizeWalletAddress,
   parseMferAppearanceTraitsJson,
   resolveWorldCollision,
+  serializeAgentMferAppearanceTraits,
   serializeMferAppearanceTraits,
   setWorldCollisionPlacementOverrides,
   stableHash,
@@ -161,7 +163,7 @@ import {
   updateNpcs,
 } from "../systems/npcs.js";
 import { applyFrostNova, applyMultishot, applyWhirlwind } from "../systems/playerCombatAbilities.js";
-import { verifyWalletAuthProof } from "../walletAuth.js";
+import { verifyAgentSessionToken, verifyWalletAuthProof } from "../walletAuth.js";
 import {
   completeQuest,
   cancelQuest,
@@ -263,6 +265,11 @@ function isWalletAuthBypassAllowed(walletAddress: string) {
   return isLocalOnlyWalletAuthBypassEnabled()
     || isCryptoSmokeWalletAuthBypassAllowed(walletAddress)
     || isLocalDebugWalletAllowed(walletAddress);
+}
+
+async function verifyWalletJoinAuth(walletAddress: string, options: JoinOptions | undefined) {
+  if (verifyAgentSessionToken(walletAddress, options?.sessionToken)) return true;
+  return verifyWalletAuthProof(walletAddress, options?.walletAuth);
 }
 
 function shouldSeedDebugTrashVendorStock() {
@@ -554,7 +561,7 @@ export class TownRoom extends Room<TownState> {
     if (
       (options?.identityType === "wallet" || walletAddress)
       && !isWalletAuthBypassAllowed(walletAddress)
-      && !await verifyWalletAuthProof(walletAddress, options?.walletAuth)
+      && !await verifyWalletJoinAuth(walletAddress, options)
     ) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");
     }
@@ -869,7 +876,9 @@ export class TownRoom extends Room<TownState> {
     player.isAgent = identityType === "wallet" && isDeclaredAgentClient(options);
     player.walletAddress = walletAddress;
     player.avatarSeed = persistedCharacter?.avatarSeed ?? avatarSeed;
-    player.appearanceTraitsJson = JSON.stringify(persistedCharacter?.appearanceTraits ?? {});
+    player.appearanceTraitsJson = player.isAgent
+      ? JSON.stringify(normalizeAgentMferAppearanceTraits(persistedCharacter?.appearanceTraits ?? {}, {}))
+      : JSON.stringify(persistedCharacter?.appearanceTraits ?? {});
     player.level = persistedCharacter?.level ?? 1;
     player.xp = persistedCharacter?.xp ?? 0;
     player.talentPoints = persistedCharacter?.talentPoints ?? 0;
@@ -2610,6 +2619,7 @@ export class TownRoom extends Room<TownState> {
       nextQuestId: nextQuestId ?? "",
     });
     recordMferlandQuestCompleted({
+      characterName: player.name,
       questId,
       questTitle: QUESTS[questId].title,
       level: player.level,
@@ -2768,9 +2778,14 @@ export class TownRoom extends Room<TownState> {
 
     const traitsNpc = this.state.npcs.get(TRAITS_MFER_NPC_ID);
     const traitQuest = player.quests.get("set-your-traits");
-    const existingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+    const parsedExistingTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
+    const existingTraits = player.isAgent
+      ? normalizeAgentMferAppearanceTraits(parsedExistingTraits, {})
+      : parsedExistingTraits;
     const hasExistingTraits = hasExplicitMferAppearanceTraits(existingTraits);
-    const nextTraits = normalizeMferAppearanceTraits(message?.traits, existingTraits);
+    const nextTraits = player.isAgent
+      ? normalizeAgentMferAppearanceTraits(message?.traits, existingTraits)
+      : normalizeMferAppearanceTraits(message?.traits, existingTraits);
     const previousName = player.name;
     const previousTraitsJson = player.appearanceTraitsJson;
     const nextName = sanitizePlayerName(message?.name, player.name || "mfer");
@@ -2849,7 +2864,9 @@ export class TownRoom extends Room<TownState> {
       }
     }
 
-    player.appearanceTraitsJson = serializeMferAppearanceTraits(nextTraits);
+    player.appearanceTraitsJson = player.isAgent
+      ? serializeAgentMferAppearanceTraits(nextTraits)
+      : serializeMferAppearanceTraits(nextTraits);
     player.name = nextName;
     const progressedQuest = free && traitQuest ? progressTraitQuest(player) : false;
     this.recordPlayerAnalyticsEvent("traits_updated", client.sessionId, player, {
@@ -3252,6 +3269,8 @@ export class TownRoom extends Room<TownState> {
     }
     if (isBossNpc || isTemporaryNpc) {
       recordMferlandNpcDefeated({
+        sourceName: sourcePlayer?.name ?? "mfer",
+        sourceLevel: sourcePlayer?.level ?? 1,
         npcName: npc.name,
         label: isBossNpc ? "boss" : "temporary npc",
         creditedPlayers: creditedSessionIds.size,
@@ -3958,7 +3977,9 @@ function makePersistableCharacterState(characterId: string, player: PlayerState)
     characterId,
     name: player.name,
     avatarSeed: player.avatarSeed,
-    appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
+    appearanceTraits: player.isAgent
+      ? normalizeAgentMferAppearanceTraits(parseMferAppearanceTraitsJson(player.appearanceTraitsJson), {})
+      : parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,
     xp: player.xp,
     talentPoints: player.talentPoints,

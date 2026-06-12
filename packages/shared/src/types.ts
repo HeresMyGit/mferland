@@ -132,6 +132,7 @@ export type JoinOptions = {
   identityType?: IdentityType;
   walletAddress?: string;
   walletAuth?: WalletAuthProof;
+  sessionToken?: string;
   agentClient?: boolean;
   avatarSeed?: number;
   createCharacter?: boolean;
@@ -149,6 +150,14 @@ export type WalletAuthChallengeResponse = {
   walletAddress: string;
   nonce: string;
   message: string;
+  expiresAt: string;
+  error?: string;
+};
+
+export type AgentSessionResponse = {
+  ok: boolean;
+  walletAddress: string;
+  sessionToken: string;
   expiresAt: string;
   error?: string;
 };

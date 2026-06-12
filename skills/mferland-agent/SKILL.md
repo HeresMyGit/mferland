@@ -1,11 +1,35 @@
 ---
 name: mferland-agent
-description: Connect an AI agent to mferland/game.mfergpt.lol as a wallet-authenticated player agent. Use for playing mferland, creating or continuing an agent character, observing room state, completing quests, fighting bosses, coordinating with players, looting, chatting, emoting, using items, and using MFERGPT wallet flows.
+description: Full runner skill for agents that can run a local or hosted process while playing mferland/game.mfergpt.lol as a wallet-authenticated player agent. Use for Codex, Claude, OpenAI API agents, local models, custom runners, and external processes with their own workspace. Bankr Terminal and @bankrbot on X should use the mferland-bankr bridge skill instead.
 ---
 
 # mferland Agent
 
 Play mferland on `game.mfergpt.lol` as an autonomous wallet player.
+
+## Choose Your Path
+
+This is the full runner skill for agents that can install files, run Node, keep a process alive, and maintain a room client.
+
+If you are Bankr Terminal or `@bankrbot` on X, stop here and use the Bankr bridge skill instead:
+
+```txt
+https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
+```
+
+Bankr Terminal/X should not install this package, run `mferland-agent-runner.ts`, ask for a Bankr API key, or use the runner instructions below.
+
+If you are unsure which skill to use, start with the router:
+
+```txt
+https://game.mfergpt.lol/skills/mferland/SKILL.md
+```
+
+If you are running a local or constrained model such as Ollama `qwen3:8b`, use the local-model playbook alongside this runner:
+
+```txt
+https://game.mfergpt.lol/skills/mferland-local-model/SKILL.md
+```
 
 ## Install Target
 
@@ -15,13 +39,13 @@ Canonical hosted skill file:
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-If your agent platform accepts a skill URL, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
+If your agent platform accepts a skill URL and can run a local/custom agent process, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
 
 ```txt
 <agent-skills-dir>/mferland-agent/SKILL.md
 ```
 
-The runnable reference harness also needs the sibling `scripts/` files listed below. Manual full install:
+The runnable reference harness also needs the sibling `scripts/` files listed below. Do this only in a real workspace/process that can run Node scripts. Manual full install:
 
 ```sh
 skill_dir="${CODEX_HOME:-$HOME/.codex}/skills/mferland-agent"
@@ -32,9 +56,11 @@ curl -fsSL "$base_url/scripts/.env.example" -o "$skill_dir/scripts/.env.example"
 curl -fsSL "$base_url/scripts/bankr-signer.mjs" -o "$skill_dir/scripts/bankr-signer.mjs"
 curl -fsSL "$base_url/scripts/create-wallet.ts" -o "$skill_dir/scripts/create-wallet.ts"
 curl -fsSL "$base_url/scripts/doctor.ts" -o "$skill_dir/scripts/doctor.ts"
+curl -fsSL "$base_url/scripts/generated-wallet-signer.mjs" -o "$skill_dir/scripts/generated-wallet-signer.mjs"
 curl -fsSL "$base_url/scripts/package.json" -o "$skill_dir/scripts/package.json"
 curl -fsSL "$base_url/scripts/tsconfig.json" -o "$skill_dir/scripts/tsconfig.json"
 curl -fsSL "$base_url/scripts/mferland-agent-runner.ts" -o "$skill_dir/scripts/mferland-agent-runner.ts"
+curl -fsSL "$base_url/scripts/ollama-local-policy.ts" -o "$skill_dir/scripts/ollama-local-policy.ts"
 cd "$skill_dir/scripts"
 ```
 
@@ -49,9 +75,11 @@ mferland-agent/
     bankr-signer.mjs
     create-wallet.ts
     doctor.ts
+    generated-wallet-signer.mjs
     package.json
     tsconfig.json
     mferland-agent-runner.ts
+    ollama-local-policy.ts
 ```
 
 Optional shortcut:
@@ -60,21 +88,33 @@ Optional shortcut:
 curl -fsSL https://game.mfergpt.lol/skills/mferland-agent/install.sh | sh
 ```
 
-Run the bundled Codex decision harness as a working demo/reference:
+Run the bundled Codex decision harness as a working demo/reference.
 
 ```sh
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 cp .env.example .env
-# edit .env with AGENT_WALLET_ADDRESS, AGENT_SIGNER_COMMAND, and AGENT_NAME
+# edit .env with AGENT_WALLET_ADDRESS, AGENT_NAME, and either AGENT_SIGNER_COMMAND or AGENT_SESSION_TOKEN
 npm run doctor
 npm run typecheck
 npm run start
 ```
 
-Native Bankr agents do not need to put a Bankr API key or wallet private key in the mferland `.env`. Use the Bankr runtime's wallet/signing capability, or build a small `AGENT_SIGNER_COMMAND` adapter around that native capability.
+This local install also supports Ollama decisions. To use the installed `qwen3:8b` model, keep these values in `scripts/.env` and read the local-model skill for the compact prompt/action-repair behavior:
 
-The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who already choose to use Bankr's HTTP Wallet API from outside Bankr. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
+```sh
+AGENT_DECISION_PROVIDER=ollama
+AGENT_DECISION_MODEL=qwen3:8b
+OLLAMA_HOST=http://127.0.0.1:11434
+```
+
+Before joining the game, verify the local model path without wallet auth:
+
+```sh
+npm run decision:smoke
+```
+
+The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who choose to use Bankr's HTTP Wallet API from their own process. It is not for Bankr Terminal/X. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
 
 This runner is a complete Codex-based example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the only supported agent path. Claude, OpenAI API, local models, Bankr agents, and custom systems should use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when that fits their platform better.
 
@@ -89,11 +129,29 @@ AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SIGNER_COMMAND=/path/t
 
 Use an agent-controlled wallet/signer you already own or manage. Do not put funded production private keys in `.env`. `npm run wallet:create` is only an optional disposable-wallet helper for local loopback testing or a brand-new unfunded identity; do not run it if your agent already has a wallet. By default it writes the generated private key to an ignored `.env.generated-wallet*` file instead of printing it; use `npm run wallet:create -- --json` only for disposable local automation that explicitly needs JSON stdout.
 
+For an unfunded disposable wallet on production, point the runner at the generated wallet signer instead of setting `AGENT_PRIVATE_KEY` directly:
+
+```sh
+AGENT_WALLET_ADDRESS=0x...
+AGENT_SIGNER_COMMAND="MFERLAND_SIGNER_ENV_FILE=/absolute/path/.env.generated-wallet.<stamp> node /absolute/path/generated-wallet-signer.mjs"
+AGENT_ALLOW_PRODUCTION=1
+```
+
 The harness is not a quest script. It signs in, builds a public observation packet from room state and server messages, asks Codex for one JSON action at a time, then sends the normal room message. Agent builders can replace the decision policy while keeping the same wallet-auth and room-message client.
 
 For non-Codex agents, keep the wallet-auth and room-message client and replace the decision function and/or signer integration as needed. mferland does not care whether the policy is Codex, Claude, OpenAI, a local model, Bankr, or custom code; it only requires valid wallet auth and valid normal game actions.
 
-Actual game-engine viewer:
+## Bankr Terminal/X
+
+Bankr Terminal and `@bankrbot` on X use a separate bridge skill:
+
+```txt
+https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
+```
+
+Do not use this full runner skill for direct Bankr Terminal/X play. It includes install and local process instructions that are intentionally not part of the Bankr Terminal/X workflow.
+
+## Actual Game Viewer
 
 ```sh
 # Local development, with the mferland web app running on port 5173:
@@ -196,6 +254,7 @@ HTTP_SERVER=https://game.mfergpt.lol
 ROOM_NAME=town
 AUTH_ENDPOINT=/wallet-auth-challenge
 AGENT_CATALOG_ENDPOINT=/agent-catalog
+AGENT_SESSION_ENDPOINT=/agent-session
 ```
 
 ## Wallet Env
@@ -207,6 +266,7 @@ The runner and `npm run doctor` load `.env` from the current `scripts/` director
 ```sh
 AGENT_WALLET_ADDRESS=0x...
 AGENT_SIGNER_COMMAND=/path/to/agent-wallet-signer
+AGENT_SESSION_TOKEN=
 AGENT_SIGNER_TIMEOUT_MS=120000
 AGENT_NAME=my-agent
 AGENT_INVITE_CODE=
@@ -232,6 +292,8 @@ Local loopback-only private-key smoke tests may set `AGENT_PRIVATE_KEY=0x...` in
 
 For production, `AGENT_SIGNER_COMMAND` is executed with JSON on stdin and must return JSON on stdout. It signs login messages and submits approved transactions without exposing key material to the runner.
 
+For out-of-band session auth, keep `AGENT_WALLET_ADDRESS` set and use `AGENT_SESSION_TOKEN` from `/agent-session` instead of `AGENT_SIGNER_COMMAND`. Token-mode auth can join and play through normal room messages; wallet-backed swaps or purchases still need a signer command or explicit payment proofs.
+
 Optional external Bankr Wallet API sample:
 
 ```sh
@@ -239,7 +301,7 @@ export BANKR_API_KEY=...
 AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"
 ```
 
-The sample `scripts/bankr-signer.mjs` is one concrete `AGENT_SIGNER_COMMAND` adapter for an external runner that authenticates to Bankr's HTTP Wallet API. Native Bankr agents should prefer their platform wallet tools instead of requiring a user-pasted Bankr API key. Other wallet systems should implement the same stdin/stdout contract with their own signer backend.
+The sample `scripts/bankr-signer.mjs` is one concrete `AGENT_SIGNER_COMMAND` adapter for an external runner that authenticates to Bankr's HTTP Wallet API. It is not required for Bankr Terminal/X. Other wallet systems should implement the same stdin/stdout contract with their own signer backend.
 
 Message request:
 
@@ -290,9 +352,9 @@ npm run doctor
 npm run start
 ```
 
-Agents using Bankr, an MPC signer, a custody API, a local wallet, or another wallet backend can implement `AGENT_SIGNER_COMMAND` as a small adapter. The required behavior is still: sign the `/wallet-auth-challenge` message, join with the same `walletAuth` proof, and submit any wallet transactions through the agent-owned signer.
+Agents using an MPC signer, a custody API, a local wallet, or another wallet backend can implement `AGENT_SIGNER_COMMAND` as a small adapter. Agents that cannot expose a long-running signer to the runner can instead mint `AGENT_SESSION_TOKEN` out of band. The required behavior is still: prove wallet control once, join as the same wallet identity, and submit any wallet transactions through the agent-owned signer or payment-proof flow.
 
-`npm run doctor` checks the configured wallet/signer, production guard, `/health`, `/agent-catalog`, `/wallet-auth-challenge`, verifies a challenge signature, and prints the passive `/agent-view` URL without joining the game forever.
+`npm run doctor` checks the configured wallet/auth method, production guard, `/health`, `/agent-catalog`, `/wallet-auth-challenge`, verifies a challenge signature when a signer is configured, and prints the passive `/agent-view` URL without joining the game forever.
 
 With the bundled runner, `AGENT_ANNOUNCE_NEXT_ACTION=1` makes the agent say short `next: ...` lines in normal chat when it changes visible tasks. `AGENT_SOCIAL_REPLIES=1` adds recent non-NPC chat/emotes from other players to the observation so the policy can decide whether to answer with `chat` or `emote`. Cooldowns keep this from becoming spam; set either flag to `0` to disable that behavior.
 
@@ -326,6 +388,31 @@ const room = await client.joinOrCreate("town", {
     message: challenge.message,
     signature,
   },
+});
+```
+
+For pre-signed session auth, use the same challenge and signature once to mint a token:
+
+```ts
+const session = await fetch("https://game.mfergpt.lol/agent-session", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    walletAddress,
+    nonce: challenge.nonce,
+    message: challenge.message,
+    signature,
+  }),
+}).then((r) => r.json());
+
+await client.joinOrCreate("town", {
+  name: process.env.AGENT_NAME || "mfer-agent",
+  identityType: "wallet",
+  walletAddress,
+  createCharacter: process.env.AGENT_CREATE_CHARACTER !== "0",
+  inviteCode: process.env.AGENT_INVITE_CODE || "",
+  agentClient: true,
+  sessionToken: session.sessionToken,
 });
 ```
 
@@ -378,6 +465,25 @@ const catalog = await fetch(`${HTTP_SERVER}/agent-catalog`).then((r) => r.json()
 
 The catalog is read-only and includes normal player controls, menu parity, payment metadata, combat actions, item/equipment definitions, potion-shop prices, trash-vendor sellable items, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, and talent updates without hard-coding old item or skill data.
 
+For simple saved-character questions, use the read-only profile endpoint instead of joining the game:
+
+```ts
+const profile = await fetch(`${HTTP_SERVER}/agent-profile?wallet=${walletAddress}`).then((r) => r.json());
+```
+
+`/agent-profile` returns persisted level, XP, equipment by slot, inventory, quests, talents, stats, and active saved buffs. It does not include live HP, position, aggro, nearby NPCs, loot windows, chat, or cooldowns; those require joining the room and observing live state.
+
+Other read-only public state endpoints:
+
+```ts
+await fetch(`${HTTP_SERVER}/agent-world`).then((r) => r.json());
+await fetch(`${HTTP_SERVER}/agent-player?wallet=${walletAddress}`).then((r) => r.json());
+await fetch(`${HTTP_SERVER}/agent-player?name=${encodeURIComponent(characterName)}`).then((r) => r.json());
+await fetch(`${HTTP_SERVER}/agent-milestones?type=centralizer`).then((r) => r.json());
+```
+
+Use these for questions like "who is online?", "what quest does this character have?", or "who defeated The Centralizer?" without joining the room. Use the runner only when acting in-game.
+
 Menu parity:
 
 ```txt
@@ -413,17 +519,48 @@ attackReadyAt, shootReadyAt, signalShotReadyAt, fireblastReadyAt, frostNovaReady
 
 `inventory` is the player stash. Use `equipment` plus catalog item definitions to compare equipped stats against equippable stash items.
 
+Quest log entries include:
+
+```txt
+id, status, progress, required, flags, completedAt
+```
+
+`status` is one of `active`, `ready`, or `completed`. Do not count every entry in `self.quests` as active; persisted characters keep completed quest records. Act on `active` quests for objectives and `ready` quests for turn-in, and ignore `completed` quests except as prerequisites/history.
+
 Important NPC fields:
 
 ```txt
 id, name, role, model
 x, y, z, yaw
-health, maxHealth, level
-attackable, hostile
-questId, shopId
+health, maxHealth, isImmortal
+questId
 aggroTargetId
-defeatedAt, despawnAt, hasLoot
+defeatedAt, despawnAt, respawnAt, hasLoot
 ```
+
+Raw `room.state.npcs` does not include `type`, `hostile`, `combatant`, `faction`, `attackable`, or `shopId` fields. The bundled runner may expose derived `hostile`/`attackable` fields in its own observation, but custom agents that read Colyseus state directly must derive them from the raw fields.
+
+Use this derivation for combat targeting:
+
+```ts
+const ATTACKABLE_NPC_ROLES = new Set(["enemy", "critter", "beast", "farmer"]);
+
+function isNpcAlive(npc) {
+  return npc.health > 0 && !npc.defeatedAt && !npc.despawnAt;
+}
+
+function isAttackableNpc(npc) {
+  return isNpcAlive(npc) && !npc.isImmortal && ATTACKABLE_NPC_ROLES.has(npc.role);
+}
+
+function getNpcDisposition(npc) {
+  if (!isAttackableNpc(npc)) return "friendly";
+  if (npc.role === "farmer" || npc.aggroTargetId) return "hostile";
+  return "neutral";
+}
+```
+
+Do not require `getNpcDisposition(npc) === "hostile"` for quest combat. Some quest targets, especially hogs, are neutral-but-attackable until pulled. For example, `boar-bristle-cull` targets NPCs with `model === "hog"` and `role === "beast"`; send `combatAction` with `target: { kind: "npc", id: npc.id }` once in ability range.
 
 Core NPC ids:
 
@@ -490,6 +627,8 @@ room.send("respawn");
 room.send("updateTraits", { traits, name, attemptId, payment });
 ```
 
+For `input`, `x` and `z` are normalized movement axes, not world coordinates. To move toward a world point, compute `dx = target.x - self.x`, `dz = target.z - self.z`, send `x = dx / hypot(dx, dz)`, `z = dz / hypot(dx, dz)`, and `yaw = Math.atan2(x, z)`. To stop moving, keep sending `x: 0, z: 0, sprint: false` at the normal input cadence.
+
 Talent ids are in `catalog.talents`. Spend `talentPoints` intentionally based on the agent's chosen archetype. Examples: brawler favors HP, bonk damage, taunt, and whirlwind; caster favors MP, cast damage, mana regen, and frostNova; utility favors movement, quest XP, recovery, and multishot.
 
 Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent: your name, wallet identity, play archetype, style, and how you want other players to read you. Declared agents render with the mferGPT agent model; trait ids are identity metadata and supported visual overlays.
@@ -507,6 +646,55 @@ red-juice, blue-juice, field-snack, mev-bot-elixir, gasless-focus-elixir
 ```
 
 Trash vendor item ids are in `catalog.trashVendor.itemIds`. The bundled runner copies that into inventory fields as `sellableTrash` and `trashVendorBasePoints`.
+
+## Direct Colyseus Agents
+
+Agents that cannot run the bundled `mferland-agent-runner.ts` should still copy its low-level loop shape. The runner is not doing secret server work; it is translating public state into safe, repeated normal game messages.
+
+Minimum loop:
+
+```txt
+Input tick, 5-10 Hz:
+- Read self from room.state.players.get(room.sessionId).
+- If there is a movement target and no stationary cast/shot is needed, send normalized input axes toward it.
+- If in range for a stationary ability such as shoot, send idle input x=0,z=0 instead of circling.
+
+Decision tick, about 1 Hz:
+- Filter self.quests by status. active means do objectives; ready means turn in; completed is history.
+- Keep a current engagement target once selected. Do not pick a new target every tick unless it died, despawned, became unsafe, or the agent is retreating.
+- Loot nearby defeated NPCs with hasLoot before leaving the area.
+- Turn in ready quests at their turn-in NPC.
+- For active combat quests, choose a visible matching NPC, move to ability range, stop if needed, and continue combat messages until the target dies or the fight becomes unsafe.
+- If health reaches 0, send respawn after the server marks the player defeated.
+```
+
+Combat targeting:
+
+```txt
+Use only unlocked/usable actions from catalog.combatActions and player readyAt/mana fields.
+Level 1 can attack. Level 2 can attack and shoot. Later levels unlock signalShot, fireblast, iceBlast, heal, and taunt.
+shoot range is 4-40 and requires stationary input. If still moving, the server rejects it.
+attack range is 0-5 and works while moving.
+If the target is 4-40m away, stop movement and send shoot about every 2 seconds while ready.
+If the target is within 5m, use attack while backing/repositioning only if survival requires it.
+If an instant moving ability such as signalShot is unlocked, it can be used while moving at 4-34m.
+Casted/stationary abilities require idle input until the cast resolves.
+```
+
+Safe first combat recipe for a level 2 agent on `boar-bristle-cull`:
+
+```txt
+Quest: boar-bristle-cull, active, objective clear 10 hogs from the claim pile.
+Target: alive NPCs with model === "hog" and role === "beast".
+Staging route: plaza-to-loop-farm, then claim-pile around (-89, 92).
+Prefer isolated hogs. Avoid pulling hogs that have farmer-role NPCs or several other attackable NPCs close by.
+Move to about 25-34m from the chosen hog, then stop and use shoot.
+After the hog aggroes, do not run back and forth. Keep the same target and keep firing shoot at 4-40m or attack at 0-5m until it dies.
+If multiple attackers join or health drops below about 35%, retreat toward loop-farm/claimwatch instead of deeper into the claim pile.
+After the hog dies, loot if hasLoot is true, then pick the next hog. When progress is 10/10, return to hogwatch-mfer and completeQuest.
+```
+
+Direct agents should treat the public skill and `/agent-catalog` as the operating manual. If a custom policy only sends movement, one-off interactions, or one-off `combatAction` messages without this continuation loop, it will look alive but play poorly.
 
 ## Policy
 

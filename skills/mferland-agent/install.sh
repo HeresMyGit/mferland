@@ -19,9 +19,11 @@ download "scripts/.env.example"
 download "scripts/bankr-signer.mjs"
 download "scripts/create-wallet.ts"
 download "scripts/doctor.ts"
+download "scripts/generated-wallet-signer.mjs"
 download "scripts/package.json"
 download "scripts/tsconfig.json"
 download "scripts/mferland-agent-runner.ts"
+download "scripts/ollama-local-policy.ts"
 
 chmod +x "$TARGET_DIR/install.sh"
 

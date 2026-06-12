@@ -91,6 +91,10 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.payments.mferGpt.season0AgentHumanHelp, /swap-mfer/);
   assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
   assert.equal(catalog.traits.declaredAgentModel, "mfergpt");
+  assert.deepEqual(catalog.traits.forcedForDeclaredAgents, { eyes: "regular", mouth: "flat" });
+  assert.match(catalog.traits.note, /regular eyes and flat mouth/);
+  assert.match(catalog.traits.selectionGuidance, /seeded variety/);
+  assert.match(catalog.traits.note, /defaults or first-listed choices/);
 
   assert.equal(catalog.quests["baron-of-static"].encounterType, "group");
   assert.equal(catalog.quests["baron-of-static"].groupSuggestion, "group suggested");

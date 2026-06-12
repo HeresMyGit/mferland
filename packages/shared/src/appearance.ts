@@ -1,3 +1,5 @@
+import { stableHash } from "./utils.js";
+
 export type MferAppearanceTraits = Record<string, string>;
 
 export type MferAppearanceTraitCategory = {
@@ -284,6 +286,52 @@ export const DEFAULT_MFER_APPEARANCE_TRAITS: MferAppearanceTraits = {
   headphones: "black",
 };
 
+export const AGENT_MFER_APPEARANCE_FORCED_TRAITS = {
+  eyes: "regular",
+  mouth: "flat",
+} as const;
+
+export const DEFAULT_AGENT_MFER_APPEARANCE_TRAITS: MferAppearanceTraits = {
+  ...DEFAULT_MFER_APPEARANCE_TRAITS,
+  ...AGENT_MFER_APPEARANCE_FORCED_TRAITS,
+};
+
+export const AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE = "Prefer wallet/name-seeded variety over defaults or first-listed choices. Pick a coherent style from the full catalog; only use the default or first option when it intentionally fits the agent identity.";
+
+const AGENT_RANDOMIZED_TRAIT_CATEGORIES: Record<string, number> = {
+  hat_over_headphones: 55,
+  hat_under_headphones: 70,
+  short_hair: 45,
+  long_hair: 25,
+  shirt: 75,
+  watch: 70,
+  chain: 35,
+  beard: 25,
+  smoke: 35,
+  shoes_and_gloves: 90,
+};
+
+export function makeDeterministicAgentMferAppearanceTraits(seed: string | number) {
+  const seedText = String(seed || "agent");
+  const traits: MferAppearanceTraits = {};
+
+  for (const category of MFER_APPEARANCE_TRAIT_CATEGORIES) {
+    if (category.id === "eyes" || category.id === "mouth") continue;
+
+    const optionalChance = AGENT_RANDOMIZED_TRAIT_CATEGORIES[category.id];
+    if (!category.required) {
+      if (optionalChance === undefined) continue;
+      const includeRoll = stableHash(`agent-trait:include:${seedText}:${category.id}`) % 100;
+      if (includeRoll >= optionalChance) continue;
+    }
+
+    const option = pickAgentTraitOption(category, seedText);
+    if (option) traits[category.id] = option;
+  }
+
+  return normalizeAgentMferAppearanceTraits(traits, DEFAULT_AGENT_MFER_APPEARANCE_TRAITS);
+}
+
 export function normalizeMferAppearanceTraits(
   value: unknown,
   fallback: MferAppearanceTraits = DEFAULT_MFER_APPEARANCE_TRAITS,
@@ -308,6 +356,18 @@ export function normalizeMferAppearanceTraits(
   return normalized;
 }
 
+export function normalizeAgentMferAppearanceTraits(
+  value: unknown,
+  fallback: MferAppearanceTraits = DEFAULT_AGENT_MFER_APPEARANCE_TRAITS,
+) {
+  const normalized = normalizeMferAppearanceTraits(value, fallback);
+  if (Object.keys(normalized).length === 0) return normalized;
+  return {
+    ...normalized,
+    ...AGENT_MFER_APPEARANCE_FORCED_TRAITS,
+  };
+}
+
 export function parseMferAppearanceTraitsJson(value: string | null | undefined) {
   if (!value) return {};
   try {
@@ -319,6 +379,10 @@ export function parseMferAppearanceTraitsJson(value: string | null | undefined) 
 
 export function serializeMferAppearanceTraits(traits: MferAppearanceTraits) {
   return JSON.stringify(normalizeMferAppearanceTraits(traits));
+}
+
+export function serializeAgentMferAppearanceTraits(traits: MferAppearanceTraits) {
+  return JSON.stringify(normalizeAgentMferAppearanceTraits(traits));
 }
 
 export function hasExplicitMferAppearanceTraits(traits: MferAppearanceTraits | null | undefined) {
@@ -367,4 +431,18 @@ function applyMferAppearanceTraitRules(traits: MferAppearanceTraits) {
   if (traits.hat_over_headphones === "pilot" && ["black_square", "blue_square", "gold_square"].includes(traits.headphones)) {
     delete traits.hat_over_headphones;
   }
+}
+
+function pickAgentTraitOption(category: MferAppearanceTraitCategory, seedText: string) {
+  const options = category.options.map((option) => option.id).filter(Boolean);
+  if (options.length === 0) return "";
+
+  const defaultValue = DEFAULT_AGENT_MFER_APPEARANCE_TRAITS[category.id] ?? DEFAULT_MFER_APPEARANCE_TRAITS[category.id];
+  const firstValue = options[0];
+  const avoidDefaultRoll = stableHash(`agent-trait:avoid-default:${seedText}:${category.id}`) % 5 !== 0;
+  const preferredOptions = avoidDefaultRoll
+    ? options.filter((option) => option !== firstValue && option !== defaultValue)
+    : [];
+  const pool = preferredOptions.length > 0 ? preferredOptions : options;
+  return pool[stableHash(`agent-trait:pick:${seedText}:${category.id}`) % pool.length] ?? "";
 }

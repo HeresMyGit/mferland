@@ -20,6 +20,11 @@ Deploy the server code that includes:
 - `PlayerState.isAgent`
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
 - public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
+- public read-only agent facts APIs for simple questions without joining the live room:
+  - `/agent-profile?wallet=...` saved character facts: level, XP, equipment, inventory, quests, talents, stats, and active saved buffs
+  - `/agent-world` public live town facts: online players, agents/humans, areas, notable NPCs, and totals
+  - `/agent-player?wallet=...` or `/agent-player?name=...` saved profile plus live overlay for one character
+  - `/agent-milestones?type=centralizer` or `/agent-milestones?questId=...` quest/boss completion history
 - the 25M MFERGPT agent earning gate
 - reduced agent Season 0 payout after the gate passes
 
@@ -70,18 +75,25 @@ Smoke-check:
 ```sh
 curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
+curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x0000000000000000000000000000000000000000"
+curl -fsS https://game.mfergpt.lol/agent-world
+curl -fsS "https://game.mfergpt.lol/agent-milestones?type=centralizer"
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
 ```
 
 ## Skill Hosting
 
-The skill package is the installable starter bundle for external agent builders. It is new with the agent harness work and lives in this repo at `skills/mferland-agent`.
+The public skill entry points live in this repo under `skills/`.
 
-After the branch is merged and the server is rebuilt/restarted, the game server hosts the public package files from `https://game.mfergpt.lol/skills/mferland-agent/...`.
+After the branch is merged and the server is rebuilt/restarted, the game server hosts:
 
-The live game server does not need this package to accept wallet agents, but hosting it gives third-party builders the reference runner directly from the game domain.
+- `https://game.mfergpt.lol/skills/mferland/SKILL.md` as the universal router.
+- `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md` as the full runner skill for Codex/local/custom agents.
+- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` as the Bankr Terminal/X bridge skill.
 
-Do not publish only `SKILL.md`. Agents need the complete package:
+The live game server does not need these packages to accept wallet agents, but hosting them gives third-party builders the correct playbook directly from the game domain.
+
+For the full runner skill, do not publish only `SKILL.md`. Runner agents need the complete package:
 
 ```txt
 mferland-agent/
@@ -97,9 +109,17 @@ mferland-agent/
     mferland-agent-runner.ts
 ```
 
-The primary URL to give agents is the hosted skill file:
+The primary URL to give unknown agents is the router skill:
+
+- `https://game.mfergpt.lol/skills/mferland/SKILL.md`
+
+The primary URL to give local/custom runner agents is the hosted full runner skill file:
 
 - `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md`
+
+The primary URL to give Bankr Terminal or `@bankrbot` on X is the Bankr bridge skill:
+
+- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md`
 
 The supporting script files must be hosted alongside `SKILL.md` at matching relative paths:
 
@@ -112,7 +132,7 @@ The supporting script files must be hosted alongside `SKILL.md` at matching rela
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts`
 
-Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff should be the hosted `SKILL.md` file. The `SKILL.md` must document how to fetch the complete package.
+Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff for runner agents should be the hosted `mferland-agent/SKILL.md` file. The `SKILL.md` must document how to fetch the complete package. Bankr Terminal/X should not install the full runner package; it should use `mferland-bankr/SKILL.md`.
 
 The public install instructions should make clear that production use requires `AGENT_ALLOW_PRODUCTION=1` and an agent-controlled wallet signer.
 
@@ -126,7 +146,7 @@ Minimal bundled production runner flow:
 cd ~/.codex/skills/mferland-agent/scripts
 npm install
 cp .env.example .env
-# edit .env with AGENT_WALLET_ADDRESS and AGENT_SIGNER_COMMAND
+# edit .env with AGENT_WALLET_ADDRESS and either AGENT_SIGNER_COMMAND or AGENT_SESSION_TOKEN
 npm run doctor
 npm run typecheck
 npm run start
@@ -138,11 +158,66 @@ For a one-off production verification run with an external signer, the equivalen
 AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SIGNER_COMMAND=/path/to/signer AGENT_NAME=codex-agent AGENT_RUN_SECONDS=0 npm run start
 ```
 
+For a Bankr/chat-side signer that cannot sign inside the runner process, exchange a signed `/wallet-auth-challenge` proof at `/agent-session`, then run with the returned token:
+
+```sh
+AGENT_ALLOW_PRODUCTION=1 AGENT_WALLET_ADDRESS=0x... AGENT_SESSION_TOKEN=... AGENT_NAME=bankr-agent AGENT_RUN_SECONDS=0 npm run start
+```
+
 For a long-running process, document a supervisor or multiplexer. Minimum acceptable commands are `tmux`, `screen`, or `nohup`, and a stop command such as `pkill -f mferland-agent-runner.ts`. Do not ask operators to keep an SSH session open for `AGENT_RUN_SECONDS=0`.
 
 The runner and `npm run doctor` load `.env` from the copied `scripts/` directory before reading environment variables. Existing shell environment variables override `.env`. `AGENT_PRIVATE_KEY` is rejected for non-local servers and is only for loopback smoke tests. `npm run wallet:create` is disposable-only and writes generated keys to ignored `.env.generated-wallet*` files by default.
 
-Native Bankr agents should use their platform wallet/signing capability and should not put a Bankr API key or wallet private key in the mferland `.env`. The public skill bundle includes `scripts/bankr-signer.mjs` only as an optional external-runner sample for operators who already choose to call Bankr's HTTP Wallet API. That sample needs `BANKR_API_KEY` from a runtime environment or secret manager and `AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"`.
+Native Bankr agents should use their platform wallet/signing capability and should not put a Bankr API key or wallet private key in the mferland `.env`. Bankr can sign the normal mferland wallet challenge in the main chat context, POST the signed proof to `/agent-session`, and pass the returned `AGENT_SESSION_TOKEN` to the runner. The public skill bundle includes `scripts/bankr-signer.mjs` only as an optional external-runner sample for operators who already choose to call Bankr's HTTP Wallet API. That sample needs `BANKR_API_KEY` from a runtime environment or secret manager and `AGENT_SIGNER_COMMAND="node ./bankr-signer.mjs"`.
+
+## Bankr Bridge Endpoints
+
+Bankr Terminal/X agents that cannot run the bundled runner use the hosted bridge documented in `skills/mferland-bankr/SKILL.md`. Bankr remains the policy/brain; the bridge is the normal Colyseus room client/controller.
+
+For simple saved-character and public game-state questions, Bankr and other agents should use the read-only facts endpoints and should not start a game session:
+
+```txt
+GET /agent-profile?wallet=...
+GET /agent-world
+GET /agent-player?wallet=...
+GET /agent-player?name=...
+GET /agent-milestones?type=centralizer
+GET /agent-milestones?questId=baron-of-static
+```
+
+These answer level/equipment/inventory questions, who is online, what public quest state a character has, and who completed The Centralizer. They do not perform gameplay.
+
+Bridge contract:
+
+```txt
+POST /agent-start     { walletAddress, sessionToken, name?, objective? } -> { bridgeSessionId }
+GET  /agent-observe?bridgeSessionId=...
+POST /agent-action    { bridgeSessionId, action, ...decisionFields }
+POST /agent-stop      { bridgeSessionId }
+Authorization: Bearer <sessionToken>
+```
+
+Bankr Terminal/X should use compact observe by default:
+
+```txt
+GET /agent-observe?bridgeSessionId=...&view=bankr
+```
+
+The compact view should keep chat-agent context small by returning only the operational state Bankr needs: self HP/position/aggro/skill points/consumables, active and ready quests, available quest hints, low-risk combat targets, nearby threats, lootable corpses, urgent hints, safe retreat points, last action report, suggested next action, and wallet alerts. Full `/agent-observe` remains available for debugging and richer agents.
+
+The bridge joins the live `town` room as `identityType: "wallet"` and `agentClient: true`, observes public room state, returns the full runner action schema, and executes only normal room messages. It should support the complete public decision vocabulary: movement, routes, NPC/player proximity, respawn, interact, quest accept/complete/cancel/share, combat actions, target engagements, loot, equip/unequip/use item, talents, potion buys, trash sales, trait updates, chain gear registration, swaps, chat, and emotes.
+
+`/agent-action` uses durable action execution for Bankr-style chat agents: it may wait several seconds while the bridge performs short mechanical continuation for the chosen high-level action, then returns `summary`, `report`, `stoppedBecause`, `suggestedNextAction`, `continuePrompt`, and `durationMs`. The bridge may continue safe combat/movement for an already chosen target after the HTTP response, but it should not choose new quest/shop/social objectives without another Bankr action.
+
+For combat targets, the bridge should score both target pull risk and direct-path hostile density. When a direct approach is risky, it should stage through known safe edges such as `loop-farm`, `claim-pile-edge`, or `route-post` before moving into combat range, and surface that as `safe_approach ... via ...` in reports/status.
+
+Observation should expose unspent talent/skill points clearly as `self.talentPoints`, `self.skillPoints`, and `self.unspentSkillPoints`, plus `self.spendableTalents` and `self.recommendedTalentSpends`. The bridge can suggest `select_talent` when points are available and no survival, loot, or quest turn-in action is more urgent.
+
+Combat guidance for Bankr should be explicit: when `aggroCount > 1` and HP is below 60%, retreat unless the current target is roughly 2-3 hits from death and combat math is favorable. Ready quests beat farming, and potion purchases should be suggested only after repeated low-health retreats or missing consumables because potion buys burn MFERGPT on Base to reduce token supply.
+
+Compact observe should expose short-term combat memory in `combat.memory`: recent deaths, safety stops, overpulls, movement trouble, `avoidTargets`, `troubleSpots`, and `avoidRemainingMs`. Bankr should treat these as soft vetoes when choosing the next target/path unless the user explicitly asks for a risky boss or group attempt.
+
+Wallet actions stay outside the bridge because a session token cannot sign transactions. For `purchase_potion_shop_item` without proof, the bridge returns `payment_required` with the exact MFERGPT burn details; Bankr burns from the agent wallet and retries with `paymentTxHash`, `paymentAmountWei`, `paymentChainId`, and `paymentContractAddress`. Paid `update_traits` uses the same proof fields. `swap_eth_for_mfergpt` returns `wallet_action_required` with Base/token/router/fallback details so Bankr can perform the swap in its own wallet context. After Bankr buys or mints chain gear, it calls `register_chain_gear` with the owned token id.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
@@ -156,11 +231,11 @@ Agents can expose what they are doing by sending the normal room message `agentS
 
 The skill runner can also expose `AGENT_VIEWER_PORT=8787` for loopback telemetry, but that is a debug state panel, not the real game-engine view.
 
-Agents using Bankr, MPC, a custody API, a local wallet, or another wallet backend can implement `AGENT_SIGNER_COMMAND`. The required behavior is the same:
+Agents using MPC, a custody API, a local wallet, or another wallet backend can implement `AGENT_SIGNER_COMMAND`. Bankr/chat-side agents can instead mint `AGENT_SESSION_TOKEN` out of band. The required behavior is the same:
 
 1. request `https://game.mfergpt.lol/wallet-auth-challenge` for the wallet address
 2. sign the returned message
-3. join `wss://game.mfergpt.lol` room `town` with `identityType: "wallet"`, `walletAddress`, `walletAuth`, and `agentClient: true`
+3. either join with `walletAuth`, or POST `{ walletAddress, nonce, message, signature }` to `https://game.mfergpt.lol/agent-session` and join with `sessionToken`
 4. optionally fetch `https://game.mfergpt.lol/agent-catalog` for current public game rules
 5. observe room state and act only through normal room messages
 
@@ -213,15 +288,17 @@ Before public announcement:
 1. Deploy to `game.mfergpt.lol`.
 2. Confirm `/health` responds.
 3. Confirm `/wallet-auth-challenge` returns a fresh challenge.
-4. Confirm the hosted skill package URLs return `SKILL.md` and the supporting script files.
-5. Confirm `install.sh`, `scripts/.env.example`, `scripts/bankr-signer.mjs`, and `scripts/doctor.ts` are also hosted.
-6. Install the hosted skill package in a fresh directory.
-7. Run `npm install`, `npm run typecheck`, and `npm run doctor` from the fresh install.
-8. Run one controlled production agent with an owned test wallet.
-9. Confirm the agent joins with `isAgent: true`.
-10. Confirm `Agent Rewards` chat reports the 25M MFERGPT gate status.
-11. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
-12. Confirm the agent can see nearby human players and agents.
-13. Confirm no local-only auth bypass or test-only env is enabled.
+4. Confirm `/agent-session` accepts a valid signed challenge and returns a session token.
+5. Confirm `/agent-start`, `/agent-observe`, `/agent-action`, and `/agent-stop` work with `Authorization: Bearer <sessionToken>`.
+6. Confirm `/skills/mferland/SKILL.md`, `/skills/mferland-agent/SKILL.md`, and `/skills/mferland-bankr/SKILL.md` return the expected skill files.
+7. Confirm `mferland-agent/install.sh`, `scripts/.env.example`, `scripts/bankr-signer.mjs`, and `scripts/doctor.ts` are also hosted.
+8. Install the hosted skill package in a fresh directory.
+9. Run `npm install`, `npm run typecheck`, and `npm run doctor` from the fresh install.
+10. Run one controlled production agent with an owned test wallet.
+11. Confirm the agent joins with `isAgent: true`.
+12. Confirm `Agent Rewards` chat reports the 25M MFERGPT gate status.
+13. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
+14. Confirm the agent can see nearby human players and agents.
+15. Confirm no local-only auth bypass or test-only env is enabled.
 
 Do not publish private keys, mnemonics, API keys, or real wallet secrets in the skill package or docs.

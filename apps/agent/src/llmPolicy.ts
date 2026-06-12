@@ -384,7 +384,7 @@ const AGENT_DEFAULT_TRAITS: MferAppearanceTraits = {
   background: "orange",
   type: "plain",
   eyes: "regular",
-  mouth: "smile",
+  mouth: "flat",
   headphones: "black",
 };
 
@@ -627,7 +627,7 @@ export function makeVisibleObservation(
           current: self.appearanceTraits,
           categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
           declaredAgentModel: "mfergpt",
-          guidance: "For update_traits, choose valid mfer trait ids as identity metadata and for supported overlays. Declared agents render with the mferGPT agent model.",
+          guidance: "For update_traits, choose valid mfer trait ids as identity metadata and for supported overlays. Prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents render with the mferGPT agent model and keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
         },
         castingAction: self.castingAction,
         inCombat: aggroCount > 0,
@@ -771,7 +771,7 @@ export function makeVisibleObservation(
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents render with the mferGPT agent model and keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
           "Use swap_eth_for_mfergpt when the wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal wallet transaction through observation.wallet.mferGptSwapMode, using the same Base ETH to MFERGPT route as swap-mfer when mode is uniswap-v4.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
           "A quantity=5 red-juice purchase is useful before leaving town and before static-lot pushes. For raid prep, also buy exit-liquidity-elixir quantity=1 when you do not own or already have its active buff. Use stocked elixirs before boss or dangerous pack attempts.",
@@ -854,7 +854,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents render with the mferGPT agent model and keep the robot face, so eyes are forced to regular and mouth is forced to flat.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
           "Do not choose use_item as the only response while multiple NPCs are actively hitting you in melee unless health is high enough for the item to land; fight, AoE/control, or retreat farther first.",
@@ -3764,6 +3764,8 @@ function resolveAgentTraits(value: unknown): MferAppearanceTraits {
     if (!allowed?.has(valueId)) continue;
     traits[categoryId] = valueId;
   }
+  traits.eyes = "regular";
+  traits.mouth = "flat";
   return traits;
 }
 

@@ -31,6 +31,83 @@ export function wrapAngle(value: number) {
   return Math.atan2(Math.sin(value), Math.cos(value));
 }
 
+export type CameraPointerState = {
+  left: boolean;
+  right: boolean;
+  activePointerId: number | null;
+  lastX: number;
+  lastY: number;
+};
+
+export type CameraPointerDelta = {
+  dx: number;
+  dy: number;
+  left: boolean;
+  right: boolean;
+};
+
+export function resetCameraPointerState(state: CameraPointerState) {
+  state.left = false;
+  state.right = false;
+  state.activePointerId = null;
+}
+
+export function syncCameraPointerButtons(state: CameraPointerState, buttons: number) {
+  state.left = (buttons & 1) === 1;
+  state.right = (buttons & 2) === 2;
+}
+
+export function beginCameraPointerDrag(
+  state: CameraPointerState,
+  pointerId: number,
+  buttons: number,
+  clientX: number,
+  clientY: number,
+) {
+  state.activePointerId = pointerId;
+  syncCameraPointerButtons(state, buttons);
+  state.lastX = clientX;
+  state.lastY = clientY;
+}
+
+export function updateCameraPointerDrag(
+  state: CameraPointerState,
+  pointerId: number,
+  buttons: number,
+  clientX: number,
+  clientY: number,
+): CameraPointerDelta | null {
+  if (state.activePointerId !== pointerId) return null;
+
+  syncCameraPointerButtons(state, buttons);
+  if (!state.left && !state.right) {
+    state.activePointerId = null;
+    state.lastX = clientX;
+    state.lastY = clientY;
+    return null;
+  }
+
+  const dx = clientX - state.lastX;
+  const dy = clientY - state.lastY;
+  state.lastX = clientX;
+  state.lastY = clientY;
+  return { dx, dy, left: state.left, right: state.right };
+}
+
+export function endCameraPointerDrag(
+  state: CameraPointerState,
+  pointerId: number,
+  buttons: number,
+  clientX: number,
+  clientY: number,
+) {
+  if (state.activePointerId !== pointerId) return;
+  syncCameraPointerButtons(state, buttons);
+  if (!state.left && !state.right) state.activePointerId = null;
+  state.lastX = clientX;
+  state.lastY = clientY;
+}
+
 export function updateLocalVisualPlayer(
   visual: PlayerSnapshot,
   authoritative: PlayerSnapshot,

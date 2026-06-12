@@ -89,12 +89,14 @@ export function recordMferlandMferGptCommand({
 }
 
 export function recordMferlandQuestCompleted({
+  characterName,
   questId,
   questTitle,
   level,
   nextQuestId,
   nextQuestTitle,
 }: {
+  characterName: string;
   questId: QuestId;
   questTitle: string;
   level: number;
@@ -102,19 +104,25 @@ export function recordMferlandQuestCompleted({
   nextQuestTitle?: string;
 }) {
   const next = nextQuestId && nextQuestTitle ? ` next: ${nextQuestTitle}` : "";
-  addLiveEvent(`quest completed: ${questTitle} (${questId}) at level ${level}.${next}`);
+  addLiveEvent(`quest completed: ${sanitizeLiveText(characterName)} finished ${questTitle} (${questId}) at level ${level}.${next}`);
 }
 
 export function recordMferlandNpcDefeated({
+  sourceName,
+  sourceLevel,
   npcName,
   label,
   creditedPlayers,
 }: {
+  sourceName: string;
+  sourceLevel: number;
   npcName: string;
   label: "boss" | "temporary npc";
   creditedPlayers: number;
 }) {
-  addLiveEvent(`${label} defeated: ${sanitizeLiveText(npcName)} by ${clampCount(creditedPlayers)} credited player(s)`);
+  addLiveEvent(
+    `${label} defeated: ${sanitizeLiveText(npcName)} by ${sanitizeLiveText(sourceName)} at level ${Math.max(1, Math.floor(sourceLevel))} with ${clampCount(creditedPlayers)} credited player(s)`
+  );
 }
 
 function addLiveEvent(text: string) {
