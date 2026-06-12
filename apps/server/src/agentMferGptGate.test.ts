@@ -45,6 +45,10 @@ test("agent MFERGPT earning gate accepts balances at or above threshold", async 
   assert.equal(status.reason, "eligible");
   assert.equal(status.balanceLabel, "25M MFERGPT");
   assert.match(makeAgentSeason0MferGptGateMessage(status), /rewards active/);
+  assert.match(
+    makeAgentSeason0MferGptGateMessage(status, { MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER: "0.5" }),
+    /agent x0\.5/,
+  );
 });
 
 test("agent MFERGPT earning gate fails closed for invalid wallets and unavailable checks", async () => {

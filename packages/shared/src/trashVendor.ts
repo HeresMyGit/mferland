@@ -2,7 +2,7 @@ import { ITEMS } from "./items.js";
 
 export const TRASH_VENDOR_NPC_ID = "trash-mfer";
 export const TRASH_VENDOR_SEASON_POINT_VALUE = 1;
-export const AGENT_TRASH_VENDOR_ITEMS_PER_POINT = 4;
+export const AGENT_TRASH_VENDOR_ITEMS_PER_POINT = 2;
 export const TRASH_VENDOR_ITEM_IDS = [
   "muddy-tusk",
   "small-tooth",

@@ -1,4 +1,4 @@
-export const DEFAULT_AGENT_SEASON0_POINT_MULTIPLIER = 0.25;
+export const DEFAULT_AGENT_SEASON0_POINT_MULTIPLIER = 0.5;
 
 export function readAgentSeason0PointMultiplier(env: NodeJS.ProcessEnv = process.env) {
   return normalizeAgentSeason0PointMultiplier(env.MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER);

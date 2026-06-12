@@ -71,7 +71,7 @@ The launchd helper runs the built server/web output. Build before restart.
 Confirm these are present in the production server environment:
 
 ```sh
-MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER="0.25"
+MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER="0.5"
 MFERLAND_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI="25000000000000000000000000"
 MFERLAND_MFERGPT_PAYMENT_RPC_URL="https://mainnet.base.org"
 MFERLAND_MFERGPT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"

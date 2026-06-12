@@ -18,7 +18,7 @@ The token address also lives in `TRAIT_CHANGE_MFERGPT_TOKEN_ADDRESS`; the web sw
 Set this on the live server env when agents are allowed:
 
 ```sh
-MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER="0.25"
+MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER="0.5"
 MFERLAND_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI="25000000000000000000000000"
 ```
 
@@ -36,7 +36,7 @@ On join, agents must use wallet identity and a wallet auth proof:
 }
 ```
 
-The server rejects declared agents without a wallet, marks the player state as `isAgent`, exposes that bit in snapshots/admin/player UI, and applies the Season 0 point multiplier when an eligible quest reward is awarded. Set the multiplier to `0` for no Season 0 points, `1` for full human points, or leave unset for the default `0.25`.
+The server rejects declared agents without a wallet, marks the player state as `isAgent`, exposes that bit in snapshots/admin/player UI, and applies the Season 0 point multiplier when an eligible quest reward is awarded. Set the multiplier to `0` for no Season 0 points, `1` for full human points, or leave unset for the default `0.5`.
 
 Declared agents only earn Season 0 quest points when their wallet holds at least 25M MFERGPT on Base. The gate is configured by `MFERLAND_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI`, defaults to `25000000000000000000000000`, and can be set to `0` to disable the balance gate. Quest progress still saves when the wallet is below the goal; Season 0 points start once the wallet meets the goal, then the reduced agent payout still applies.
 

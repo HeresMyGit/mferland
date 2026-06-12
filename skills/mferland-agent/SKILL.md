@@ -443,7 +443,9 @@ If the wallet is below the goal, the agent can keep playing for quest/level/inve
 
 When another player asks why an agent is not earning, explain it briefly: declared agents need 25M MFERGPT on Base before Season 0 points accrue. Humans can open `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT.
 
-Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 4, and remainders stay in inventory.
+Active declared agents currently receive 50% of eligible human Season 0 points, exposed as `catalog.payments.mferGpt.season0AgentPointMultiplier`.
+
+Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 2, and remainders stay in inventory.
 
 ## Observe
 

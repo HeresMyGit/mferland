@@ -2760,7 +2760,7 @@ class MferlandRunner {
         }
         const itemId = cleanText(decision.itemId, 96);
         const trashVendor = asRecord(this.catalog?.trashVendor);
-        const agentItemsPerPoint = readInteger(trashVendor.agentItemsPerPoint) || 4;
+        const agentItemsPerPoint = readInteger(trashVendor.agentItemsPerPoint) || 2;
         const defaultQuantity = itemId && self.isAgent ? agentItemsPerPoint : 1;
         const quantity = normalizeTrashSellQuantity(decision.quantity, defaultQuantity);
         this.targetPoint = null;

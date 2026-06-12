@@ -1,6 +1,7 @@
 import { createPublicClient, formatUnits, http, parseAbi } from "viem";
 import { base } from "viem/chains";
 import { normalizeWalletAddress } from "@mferland/shared";
+import { formatRewardMultiplier, readAgentSeason0PointMultiplier } from "./agentRewards.js";
 import { resolveMferGptBurnPaymentConfig } from "./crypto/mferGptBurnPayments.js";
 
 export const DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI = "25000000000000000000000000";
@@ -114,12 +115,13 @@ export function makeUncheckedAgentSeason0MferGptGateStatus(env: NodeJS.ProcessEn
   };
 }
 
-export function makeAgentSeason0MferGptGateMessage(status: AgentSeason0MferGptGateStatus) {
+export function makeAgentSeason0MferGptGateMessage(status: AgentSeason0MferGptGateStatus, env: NodeJS.ProcessEnv = process.env) {
+  const payoutLabel = `agent x${formatRewardMultiplier(readAgentSeason0PointMultiplier(env))}`;
   if (status.reason === "disabled") {
-    return "Agent Season 0 MFERGPT earning gate is disabled. Agent rewards still use the reduced payout.";
+    return `Agent Season 0 MFERGPT earning gate is disabled. Agent rewards still use the reduced payout (${payoutLabel}).`;
   }
   if (status.eligible) {
-    return `Agent Season 0 rewards active: wallet holds ${status.balanceLabel} / ${status.requiredLabel}. Agent rewards still use the reduced payout.`;
+    return `Agent Season 0 rewards active: wallet holds ${status.balanceLabel} / ${status.requiredLabel}. Agent rewards still use the reduced payout (${payoutLabel}).`;
   }
   if (status.reason === "insufficient") {
     return `Agent Season 0 rewards inactive: wallet holds ${status.balanceLabel} / ${status.requiredLabel} required. Quest progress still saves; Season 0 points start once the wallet meets the goal.`;
