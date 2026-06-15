@@ -290,6 +290,7 @@
     .crypto-store-panel,
     .potion-shop-panel,
     .trash-vendor-panel,
+    .respec-panel,
     .traits-panel,
   .settings-panel {
     width: calc(100vw - 24px);
@@ -344,6 +345,11 @@
     bottom: auto;
   }
 
+  .floating-menu-overlay.respec-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
   .swap-anchor .auth-swap-panel {
     position: static;
     width: min(318px, calc(100vw - 28px));
@@ -354,6 +360,7 @@
   }
 
   .crypto-store-overview,
+  .respec-panel .crypto-store-overview,
   .crypto-store-shop-layout,
   .crypto-store-menu,
   .crypto-store-flow-grid,
@@ -363,8 +370,10 @@
   .crypto-store-config,
   .potion-shop-layout,
   .trash-vendor-layout,
+  .respec-layout,
   .potion-shop-items,
   .trash-vendor-items,
+  .respec-items,
   .potion-shop-packs,
   .crypto-store-balance-grid,
   .crypto-store-currency-bar,
@@ -376,6 +385,8 @@
   .crypto-store-actions,
   .potion-shop-actions,
   .trash-vendor-actions,
+  .respec-actions,
+  .respec-rules,
   .crypto-pass-actions,
   .crypto-upgrade-row,
   .traits-layout,

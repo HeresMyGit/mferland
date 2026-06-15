@@ -38,6 +38,31 @@ export function rankPlayerTalent(player: PlayerState, talentId: TalentId) {
   return true;
 }
 
+export function respecPlayerTalents(player: PlayerState) {
+  normalizePlayerTalents(player);
+  const spentRanks = getPlayerTalentRanks(player).reduce((total, talent) => total + talent.rank, 0);
+  if (spentRanks <= 0) return 0;
+
+  player.talents.clear();
+  player.talentPoints = Math.max(0, Math.floor(player.talentPoints)) + spentRanks;
+  return spentRanks;
+}
+
+export function restorePlayerTalentRanks(player: PlayerState, ranks: TalentRankSnapshot[], talentPoints: number) {
+  player.talents.clear();
+  for (const rank of ranks) {
+    if (!isTalentId(rank.id) || rank.rank <= 0) continue;
+    const definition = TALENTS[rank.id];
+    const talent = new TalentState();
+    talent.id = rank.id;
+    talent.tree = definition.tree;
+    talent.nodeId = definition.nodeId;
+    talent.rank = Math.min(Math.floor(rank.rank), definition.maxRank);
+    player.talents.set(rank.id, talent);
+  }
+  player.talentPoints = Math.max(0, Math.floor(talentPoints));
+}
+
 export function normalizePlayerTalents(player: PlayerState) {
   let refundedRanks = 0;
 

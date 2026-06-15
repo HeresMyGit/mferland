@@ -6,6 +6,8 @@ import {
   POTION_SHOP_NPC_ID,
   POTION_SHOP_PURCHASE_QUANTITIES,
   QUESTS,
+  RESPEC_MFER_NPC_ID,
+  TALENT_RESPEC_MFERGPT_AMOUNT_LABEL,
   getPotionShopPrice,
 } from "@mferland/shared";
 
@@ -28,6 +30,7 @@ export function getGameAgentHandbook() {
       { place: "drip shop", x: -18, z: 11, npcId: "wearables-mfer", note: "wearables NPC, not a shop merchant" },
       { place: "traits mirror", x: -3.7, z: 25.4, npcId: "traits-mfer", note: "free first trait set and paid MFERGPT trait changes" },
       { place: "potion shop", x: 7.4, z: 25.4, npcId: POTION_SHOP_NPC_ID, note: "merchant selling potions and elixirs for burned MFERGPT" },
+      { place: "respec mfer", x: 14.8, z: 25.4, npcId: RESPEC_MFER_NPC_ID, note: "merchant for paid talent point resets" },
       { place: "crypto store", x: 3.7, z: 25.4, npcId: "crypto-mfer", note: "merchant for launch pass and chain gear purchases" },
       { place: "swap mfer", x: 0, z: 25.4, npcId: "swap-mfer", note: "merchant for swapping ETH to MFERGPT; Base runs use the same Uniswap v4 route as the web swap menu" },
       { place: "daily signal camp", x: -69.4, z: -55.6, npcId: "mfergpt-daily-boss", note: "mferGPT daily boss area southwest of town" },
@@ -266,6 +269,12 @@ export function getGameAgentHandbook() {
         kind: "traits",
         payment: "first trait save is free; later paid trait saves burn MFERGPT",
         note: "Use update_traits for the normal free trait quest. Paid trait changes require a burn receipt.",
+      },
+      {
+        npcId: RESPEC_MFER_NPC_ID,
+        kind: "talent respec",
+        payment: `${TALENT_RESPEC_MFERGPT_AMOUNT_LABEL} burn receipt`,
+        note: "Use respecTalents after a burn proof when you want to refund spent talent ranks back into talentPoints.",
       },
       {
         npcId: "swap-mfer",

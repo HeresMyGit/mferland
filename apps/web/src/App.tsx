@@ -9,6 +9,7 @@ import {
   ITEMS,
   LOOT,
   POTION_SHOP_NPC_ID,
+  RESPEC_MFER_NPC_ID,
   SWAP_MFER_NPC_ID,
   TRAITS_MFER_NPC_ID,
   TRASH_VENDOR_NPC_ID,
@@ -32,6 +33,7 @@ import {
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
+  type ClientRespecTalents,
   type ClientSelectTalent,
   type ClientSellTrashItems,
   type ClientUpdateTraits,
@@ -84,6 +86,7 @@ import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferPortrait } from "./components/MferPortrait";
 import { PotionShopPanel } from "./components/PotionShopPanel";
+import { RespecPanel } from "./components/RespecPanel";
 import { TrashVendorPanel } from "./components/TrashVendorPanel";
 import { TraitsPanel } from "./components/TraitsPanel";
 import { LeaderboardPage } from "./LeaderboardPage";
@@ -143,6 +146,7 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "crypto", label: "Crypto", x: 3.8, z: 22, yaw: 0 },
   { id: "potion", label: "Potion", x: 7.4, z: 24, yaw: 0 },
   { id: "trash", label: "Trash", x: 11.1, z: 24, yaw: 0 },
+  { id: "respec", label: "Respec", x: 14.8, z: 24, yaw: 0 },
   { id: "traits", label: "Traits", x: -3.7, z: 24, yaw: 0 },
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
@@ -224,6 +228,10 @@ function isPotionShopNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsho
 
 function isTrashVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return npc?.id === TRASH_VENDOR_NPC_ID;
+}
+
+function isRespecMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return npc?.id === RESPEC_MFER_NPC_ID;
 }
 
 export function App() {
@@ -1161,6 +1169,7 @@ function GameShell({
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
   const [potionShopNpcId, setPotionShopNpcId] = useState<string | null>(null);
   const [trashVendorNpcId, setTrashVendorNpcId] = useState<string | null>(null);
+  const [respecNpcId, setRespecNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
@@ -1231,6 +1240,10 @@ function GameShell({
   const trashVendorNpc = useMemo(
     () => trashVendorNpcId ? room.npcs.get(trashVendorNpcId) ?? null : null,
     [trashVendorNpcId, room.npcs, room.snapshotRevision],
+  );
+  const respecNpc = useMemo(
+    () => respecNpcId ? room.npcs.get(respecNpcId) ?? null : null,
+    [respecNpcId, room.npcs, room.snapshotRevision],
   );
   const swapNpc = useMemo(
     () => swapNpcId ? room.npcs.get(swapNpcId) ?? null : null,
@@ -1318,6 +1331,11 @@ function GameShell({
     trackEvent("trash_vendor_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("trash_vendor_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openRespecPanel = useCallback((npc: NpcSnapshot) => {
+    setRespecNpcId(npc.id);
+    trackEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const openSwapMfer = useCallback((npc: NpcSnapshot) => {
     setSwapNpcId(npc.id);
     trackEvent("mfergpt_swap_panel_opened", { surface: "swap_mfer", npcId: npc.id, npcRole: npc.role }, { local: true });
@@ -1336,11 +1354,12 @@ function GameShell({
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
       if (isPotionShopNpc(selectedNpc)) openPotionShop(selectedNpc);
       if (isTrashVendorNpc(selectedNpc)) openTrashVendor(selectedNpc);
+      if (isRespecMferNpc(selectedNpc)) openRespecPanel(selectedNpc);
       if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
       if (isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1351,10 +1370,11 @@ function GameShell({
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
     if (isPotionShopNpc(nearestNpc)) openPotionShop(nearestNpc);
     if (isTrashVendorNpc(nearestNpc)) openTrashVendor(nearestNpc);
+    if (isRespecMferNpc(nearestNpc)) openRespecPanel(nearestNpc);
     if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
     if (isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1443,6 +1463,10 @@ function GameShell({
     audio.play("inventoryLoot");
     room.sendSellTrashItems(message);
   }, [audio, room.sendSellTrashItems]);
+  const respecTalents = useCallback((message: ClientRespecTalents) => {
+    audio.play("uiConfirm");
+    room.sendRespecTalents(message);
+  }, [audio, room.sendRespecTalents]);
   const selectTalent = useCallback((message: ClientSelectTalent) => {
     audio.play("uiConfirm");
     room.sendSelectTalent(message);
@@ -1878,6 +1902,18 @@ function GameShell({
                 result={room.trashVendorSellResult}
                 onClose={() => setTrashVendorNpcId(null)}
                 onSellTrashItems={sellTrashItems}
+                onAnalyticsEvent={room.sendAnalyticsEvent}
+              />
+            </section>
+          )}
+          {respecNpc && (
+            <section className="floating-menu-overlay respec-anchor" role="dialog" aria-label="respec">
+              <RespecPanel
+                npc={respecNpc}
+                player={localPlayer ?? null}
+                result={room.talentRespecResult}
+                onClose={() => setRespecNpcId(null)}
+                onRespecTalents={respecTalents}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </section>

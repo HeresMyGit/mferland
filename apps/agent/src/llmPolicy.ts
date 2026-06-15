@@ -3529,6 +3529,15 @@ const PUBLIC_STORES = [
     status: "trash-vendor status is computed from sellable inventory",
     supportedActions: ["move_near_npc", "interact_npc", "sell_trash_items"],
   },
+  {
+    npcId: "respec-mfer",
+    name: "respec mfer",
+    kind: "talent respec",
+    position: { x: 14.8, z: 25.4 },
+    payment: "burn MFERGPT through the same 25M payment proof as trait changes, then submit the normal respecTalents message",
+    status: "respec status is computed from spent talent ranks and wallet payment config",
+    supportedActions: ["move_near_npc", "interact_npc"],
+  },
 ] as const;
 
 function parseModelJson(payload: unknown) {

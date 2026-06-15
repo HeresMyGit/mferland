@@ -937,6 +937,11 @@
   top: 92px;
 }
 
+.respec-anchor {
+  right: 108px;
+  top: 92px;
+}
+
 .world-map-panel {
   width: min(760px, calc(100vw - 48px));
   padding: 14px;
@@ -1980,11 +1985,88 @@
   width: min(520px, calc(100vw - 148px));
 }
 
+.respec-panel {
+  width: min(390px, calc(100vw - 148px));
+}
+
 .potion-shop-layout,
 .trash-vendor-layout {
   display: grid;
   gap: 12px;
   min-width: 0;
+}
+
+.respec-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.respec-simple {
+  display: grid;
+  gap: 12px;
+}
+
+.respec-simple-head {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.respec-simple-head .item-icon {
+  width: 38px;
+  height: 38px;
+}
+
+.respec-simple-head strong {
+  display: block;
+  color: #fff8e0;
+  font-size: 16px;
+  font-weight: 1000;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.respec-simple-head span:not(.item-icon) {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.respec-simple-cost,
+.respec-simple-change {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.respec-simple-cost span,
+.respec-simple-change span {
+  color: rgba(255, 248, 224, 0.62);
+  font-size: 11px;
+  font-weight: 1000;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.respec-simple-cost strong,
+.respec-simple-change strong {
+  color: #fff8e0;
+  font-size: 13px;
+  font-weight: 1000;
+  line-height: 1.1;
+  text-align: right;
+  text-transform: uppercase;
 }
 
 .potion-shop-items {
@@ -1997,8 +2079,48 @@
   overflow: auto;
 }
 
+.respec-items {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
 .crypto-store-collection.trash-vendor-items .trash-vendor-item {
   min-height: 74px;
+}
+
+.crypto-store-collection.respec-items .respec-item {
+  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  min-height: 92px;
+  border-color: rgba(118, 190, 255, 0.42);
+  background:
+    linear-gradient(135deg, rgba(118, 190, 255, 0.18), rgba(255, 255, 255, 0.03)),
+    rgba(0, 0, 0, 0.48);
+}
+
+.crypto-store-collection.respec-items .respec-item .item-icon {
+  grid-row: 1 / span 2;
+  width: 36px;
+  height: 36px;
+}
+
+.crypto-store-collection.respec-items .respec-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff8e0;
+  font-size: 12px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+.crypto-store-collection.respec-items .respec-item small {
+  color: rgba(118, 190, 255, 0.95);
+  font-size: 10px;
+  font-weight: 1000;
+  text-transform: uppercase;
 }
 
 .crypto-store-collection.trash-vendor-items .trash-vendor-item.selected {
@@ -2076,16 +2198,95 @@
   color: #c4cad3;
 }
 
+.respec-flow .crypto-store-flow-head svg {
+  color: #76beff;
+}
+
+.respec-receipt {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(118, 190, 255, 0.24);
+  border-radius: 7px;
+  background: rgba(5, 16, 30, 0.44);
+}
+
+.respec-receipt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.respec-receipt-row span {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(255, 248, 224, 0.66);
+  font-size: 10px;
+  font-weight: 1000;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.respec-receipt-row strong {
+  color: #fff8e0;
+  font-size: 13px;
+  font-weight: 1000;
+  line-height: 1.1;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.respec-receipt-row.highlight {
+  padding: 7px 8px;
+  border: 1px solid rgba(118, 190, 255, 0.34);
+  border-radius: 6px;
+  background: rgba(118, 190, 255, 0.12);
+}
+
+.respec-receipt-row.highlight strong {
+  color: #b8ddff;
+}
+
+.respec-rules {
+  display: grid;
+  gap: 6px;
+}
+
+.respec-rules span {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 248, 224, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  font-weight: 1000;
+  line-height: 1.15;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
 .potion-shop-actions {
   grid-template-columns: minmax(0, 1fr) 82px;
   max-width: 260px;
+}
+
+.respec-actions {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: none;
 }
 
 .trash-vendor-actions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.potion-shop-actions a {
+.potion-shop-actions a,
+.respec-actions a {
   display: inline-flex;
   gap: 7px;
   align-items: center;
@@ -2099,6 +2300,13 @@
   font-size: 12px;
   font-weight: 1000;
   text-decoration: none;
+}
+
+.respec-panel .crypto-store-status a {
+  color: #b8ddff;
+  font-weight: 1000;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .settings-section {
