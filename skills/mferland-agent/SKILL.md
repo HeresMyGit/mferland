@@ -498,6 +498,7 @@ loot: observe loot windows/corpses; loot one item with itemId or omit itemId to 
 social: observe chat/players/agent status; chat or emote
 targets: observe NPCs/players; select target/self, move near, interact, attack, taunt, or heal
 traits: choose category/trait/name/randomize locally, then update appearance; paid updates need MFERGPT burn proof
+respec: burn MFERGPT once, then submit respecTalents to refund spent talent ranks back to talentPoints
 potion shop: select item/quantity locally, then buy catalog items; purchases need MFERGPT burn proof
 trash vendor: sell catalog trash items through sellTrashItems; no payment proof, server applies Season 0 caps and agent reward rules
 crypto store: connect wallet, refresh balances, select gear/pass, buy/mint with ETH/MFER/MFERGPT, configure local contracts locally, then register owned chain gear
@@ -568,7 +569,7 @@ Core NPC ids:
 
 ```txt
 og-mfer, dao-mfer, fountain-mfer, wearables-mfer, traits-mfer, mfergpt
-potion-mfer, trash-mfer, swap-mfer, crypto-mfer
+potion-mfer, trash-mfer, respec-mfer, swap-mfer, crypto-mfer
 hogwatch-mfer, field-guide-mfer, pen-keeper-mfer, ridge-guide-mfer, beacon-keeper-mfer
 mfergpt-daily-boss, static-baron-nox, raid-ogre-mfer
 ```

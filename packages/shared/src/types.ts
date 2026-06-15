@@ -438,6 +438,20 @@ export type TraitUpdateResult = {
   error?: string;
 };
 
+export type ClientRespecTalents = {
+  payment?: MferGptPaymentProof;
+};
+
+export type TalentRespecResult = {
+  ok: boolean;
+  refundedTalentPoints: number;
+  talentPoints: number;
+  paymentAmountWei: string;
+  chainId: number;
+  txHash?: string;
+  error?: string;
+};
+
 export type ClientPurchasePotionShopItem = {
   itemId: PotionShopItemId;
   quantity?: PotionShopPurchaseQuantity;
@@ -513,6 +527,7 @@ export type AgentObservation = {
     | "useItem"
     | "selectTalent"
     | "updateTraits"
+    | "respecTalents"
     | "registerChainGear"
     | "purchasePotionShopItem"
     | "sellTrashItems"

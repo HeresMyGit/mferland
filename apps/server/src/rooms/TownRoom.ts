@@ -17,11 +17,14 @@ import {
   PROGRESSION,
   QUESTS,
   RECONNECT_GRACE_PERIOD_SECONDS,
+  RESPEC_MFER_NPC_ID,
   ROOM_NAME,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_TOTAL_POINT_CAP,
   SERVER_TICK_RATE,
   TALENTS,
+  TALENT_RESPEC_MFERGPT_AMOUNT_WEI,
+  TALENT_RESPEC_PRODUCT_ID,
   TRAITS_MFER_NPC_ID,
   AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   TRASH_VENDOR_ITEM_IDS,
@@ -69,6 +72,7 @@ import {
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
+  type ClientRespecTalents,
   type ClientSelectTalent,
   type ClientSellTrashItems,
   type ClientShareQuestLink,
@@ -83,6 +87,7 @@ import {
   type JoinOptions,
   type PotionShopPurchaseResult,
   type QuestId,
+  type TalentRespecResult,
   type TrashVendorItemId,
   type TrashVendorSellResult,
   type TrashVendorSoldItem,
@@ -99,6 +104,7 @@ import {
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
+import { verifyTalentRespecPaymentProof, type VerifiedTalentRespecPayment } from "../crypto/talentRespecPayments.js";
 import { verifyTraitPaymentProof, type VerifiedTraitPayment } from "../crypto/traitPayments.js";
 import {
   loadOrCreateWalletCharacter,
@@ -195,6 +201,8 @@ import {
   normalizePlayerTalents,
   normalizeTalentId,
   rankPlayerTalent,
+  respecPlayerTalents,
+  restorePlayerTalentRanks,
 } from "../systems/talents.js";
 import {
   getDefaultName,
@@ -648,6 +656,10 @@ export class TownRoom extends Room<TownState> {
       this.handleSelectTalent(client, message);
     });
 
+    this.onMessage("respecTalents", (client, message: Partial<ClientRespecTalents> = {}) => {
+      void this.handleRespecTalents(client, message);
+    });
+
     this.onMessage("updateTraits", (client, message: Partial<ClientUpdateTraits>) => {
       void this.handleUpdateTraits(client, message).catch((error) => {
         const player = this.state.players.get(client.sessionId);
@@ -909,6 +921,8 @@ export class TownRoom extends Room<TownState> {
     if (shouldSeedDebugTrashVendorStock()) grantDebugTrashVendorStock(player);
     player.health = player.maxHealth;
     player.mana = player.maxMana;
+    const debugBoost = useLocalDebugWallet ? getLocalDebugAutoBoostMessage() : null;
+    if (debugBoost) applyDebugBoostPlayer(player, debugBoost);
 
     this.state.players.set(client.sessionId, player);
     this.sessionJoinedAt.set(client.sessionId, Date.now());
@@ -1307,47 +1321,7 @@ export class TownRoom extends Room<TownState> {
   private handleDebugBoostPlayer(client: Client, message: DebugBoostPlayerMessage) {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
-
-    const requestedLevel = Number(message.level);
-    player.level = Number.isFinite(requestedLevel) ? clamp(Math.round(requestedLevel), 1, 40) : 12;
-    player.xp = Math.max(player.xp, 0);
-    player.talentPoints = 0;
-
-    if (message.maxTalents !== false) {
-      player.talents.clear();
-      for (const [talentId, definition] of Object.entries(TALENTS)) {
-        const talent = new TalentState();
-        talent.id = talentId as keyof typeof TALENTS;
-        talent.tree = definition.tree;
-        talent.nodeId = definition.nodeId;
-        talent.rank = definition.maxRank;
-        player.talents.set(talent.id, talent);
-      }
-    }
-
-    normalizePlayerTalents(player);
-    recalculatePlayerStats(player);
-    player.maxHealth = Math.max(player.maxHealth, 1800);
-    player.maxMana = Math.max(player.maxMana, 260);
-    player.strength = Math.max(player.strength, 44);
-    player.dexterity = Math.max(player.dexterity, 44);
-    player.magic = Math.max(player.magic, 44);
-    player.walkSpeed = Math.max(player.walkSpeed, PLAYER.walkSpeed + 0.8);
-    player.runSpeed = Math.max(player.runSpeed, PLAYER.runSpeed + 1.2);
-    player.health = player.maxHealth;
-    player.mana = player.maxMana;
-    player.attackReadyAt = 0;
-    player.shootReadyAt = 0;
-    player.signalShotReadyAt = 0;
-    player.fireblastReadyAt = 0;
-    player.frostNovaReadyAt = 0;
-    player.healReadyAt = 0;
-    player.tauntReadyAt = 0;
-    player.whirlwindReadyAt = 0;
-    player.multishotReadyAt = 0;
-    player.iceBlastReadyAt = 0;
-    player.frozenUntil = 0;
-    clearPlayerCast(player);
+    applyDebugBoostPlayer(player, message);
   }
 
   private handleDebugSetupNpc(message: DebugNpcSetupMessage) {
@@ -2393,6 +2367,135 @@ export class TownRoom extends Room<TownState> {
       points: awardedPoints,
       season0Points: savedAwardResult.seasonTotal,
       season0DailyPoints: savedAwardResult.dailyTotal,
+    });
+  }
+
+  private async handleRespecTalents(client: Client, message: Partial<ClientRespecTalents>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: Partial<TalentRespecResult> & Pick<TalentRespecResult, "ok">) => {
+      client.send("talentRespecResult", {
+        ok: result.ok,
+        refundedTalentPoints: result.refundedTalentPoints ?? 0,
+        talentPoints: result.talentPoints ?? player?.talentPoints ?? 0,
+        paymentAmountWei: result.paymentAmountWei ?? TALENT_RESPEC_MFERGPT_AMOUNT_WEI,
+        chainId: result.chainId ?? 0,
+        txHash: result.txHash,
+        error: result.error,
+      } satisfies TalentRespecResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    const useLocalDebugWallet = isLocalDebugWalletAllowed(player.walletAddress);
+    if (player.identityType !== "wallet" || !player.walletAddress || (!characterId && !useLocalDebugWallet)) {
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    normalizePlayerTalents(player);
+    const previousTalents = getPlayerTalentRanks(player);
+    const previousTalentPoints = player.talentPoints;
+    const spentTalentPoints = previousTalents.reduce((total, talent) => total + talent.rank, 0);
+    if (spentTalentPoints <= 0) {
+      sendResult({ ok: false, error: "no spent talents to reset", talentPoints: player.talentPoints });
+      return;
+    }
+
+    const npc = this.state.npcs.get(RESPEC_MFER_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? RESPEC_MFER_NPC_ID,
+      npcName: npc?.name ?? "respec mfer",
+      npcDistance,
+    };
+
+    this.recordPlayerAnalyticsEvent("talent_respec_attempted", client.sessionId, player, {
+      supportKind: "talent_respec",
+      ...npcAnalytics,
+      spentTalentPoints,
+      expectedPaymentAmountWei: TALENT_RESPEC_MFERGPT_AMOUNT_WEI,
+      ...summarizeMferGptPaymentProof(message?.payment),
+    });
+
+    let verifiedPayment: VerifiedTalentRespecPayment;
+    try {
+      verifiedPayment = await verifyTalentRespecPaymentProof(message?.payment, player.walletAddress);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "payment verification failed";
+      this.recordPlayerAnalyticsEvent("talent_respec_failed", client.sessionId, player, {
+        supportKind: "talent_respec",
+        ...npcAnalytics,
+        spentTalentPoints,
+        stage: "payment_verification",
+        error: errorMessage,
+        ...summarizeMferGptPaymentProof(message?.payment),
+      });
+      sendResult({ ok: false, error: errorMessage, talentPoints: player.talentPoints });
+      return;
+    }
+
+    const refundedTalentPoints = respecPlayerTalents(player);
+    recalculatePlayerStats(player);
+    const persisted = characterId
+      ? await this.queueCharacterSave(
+        client.sessionId,
+        characterId,
+        makePersistableCharacterState(characterId, player),
+        undefined,
+        (state) => saveCharacterProgressWithCryptoPurchase(state, {
+          ...verifiedPayment,
+          productId: TALENT_RESPEC_PRODUCT_ID,
+          tokenId: "talents",
+          paymentToken: "MFERGPT",
+          note: `respec mfer refunded ${refundedTalentPoints} talent points`,
+        }),
+      )
+      : true;
+
+    if (!persisted) {
+      restorePlayerTalentRanks(player, previousTalents, previousTalentPoints);
+      recalculatePlayerStats(player);
+      this.recordPlayerAnalyticsEvent("talent_respec_failed", client.sessionId, player, {
+        supportKind: "talent_respec",
+        ...npcAnalytics,
+        spentTalentPoints,
+        refundedTalentPoints,
+        stage: "save",
+        error: "wallet progress failed to save",
+        ...summarizeVerifiedMferGptPayment(verifiedPayment),
+      });
+      sendResult({
+        ok: false,
+        refundedTalentPoints,
+        talentPoints: player.talentPoints,
+        error: "wallet progress failed to save; retry before reloading",
+        paymentAmountWei: verifiedPayment.amountWei,
+        chainId: verifiedPayment.chainId,
+        txHash: verifiedPayment.txHash,
+      });
+      return;
+    }
+
+    this.recordPlayerAnalyticsEvent("talent_respec_confirmed", client.sessionId, player, {
+      supportKind: "talent_respec",
+      ...npcAnalytics,
+      spentTalentPoints,
+      refundedTalentPoints,
+      talentPoints: player.talentPoints,
+      productId: TALENT_RESPEC_PRODUCT_ID,
+      ...summarizeVerifiedMferGptPayment(verifiedPayment),
+    });
+    sendResult({
+      ok: true,
+      refundedTalentPoints,
+      talentPoints: player.talentPoints,
+      paymentAmountWei: verifiedPayment.amountWei,
+      chainId: verifiedPayment.chainId,
+      txHash: verifiedPayment.txHash,
     });
   }
 
@@ -3543,6 +3646,61 @@ function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
     ? 38
     : PROGRESSION.nearbyCreditRadius;
   return Math.hypot(player.x - npc.x, player.z - npc.z) <= radius;
+}
+
+function getLocalDebugAutoBoostMessage(): DebugBoostPlayerMessage | null {
+  if (process.env.NODE_ENV !== "development") return null;
+  const requestedLevel = process.env.MFERLAND_DEBUG_BOOST_LEVEL;
+  if (!requestedLevel) return null;
+
+  return {
+    level: requestedLevel,
+    maxTalents: process.env.MFERLAND_DEBUG_BOOST_MAX_TALENTS !== "0",
+  };
+}
+
+function applyDebugBoostPlayer(player: PlayerState, message: DebugBoostPlayerMessage) {
+  const requestedLevel = Number(message.level);
+  player.level = Number.isFinite(requestedLevel) ? clamp(Math.round(requestedLevel), 1, 40) : 12;
+  player.xp = Math.max(player.xp, 0);
+  const debugTalentPoints = Math.max(0, player.level - 1);
+  player.talentPoints = message.maxTalents === false ? debugTalentPoints : 0;
+  player.talents.clear();
+
+  if (message.maxTalents !== false) {
+    for (const [talentId, definition] of Object.entries(TALENTS)) {
+      const talent = new TalentState();
+      talent.id = talentId as keyof typeof TALENTS;
+      talent.tree = definition.tree;
+      talent.nodeId = definition.nodeId;
+      talent.rank = definition.maxRank;
+      player.talents.set(talent.id, talent);
+    }
+  }
+
+  normalizePlayerTalents(player);
+  recalculatePlayerStats(player);
+  player.maxHealth = Math.max(player.maxHealth, 1800);
+  player.maxMana = Math.max(player.maxMana, 260);
+  player.strength = Math.max(player.strength, 44);
+  player.dexterity = Math.max(player.dexterity, 44);
+  player.magic = Math.max(player.magic, 44);
+  player.walkSpeed = Math.max(player.walkSpeed, PLAYER.walkSpeed + 0.8);
+  player.runSpeed = Math.max(player.runSpeed, PLAYER.runSpeed + 1.2);
+  player.health = player.maxHealth;
+  player.mana = player.maxMana;
+  player.attackReadyAt = 0;
+  player.shootReadyAt = 0;
+  player.signalShotReadyAt = 0;
+  player.fireblastReadyAt = 0;
+  player.frostNovaReadyAt = 0;
+  player.healReadyAt = 0;
+  player.tauntReadyAt = 0;
+  player.whirlwindReadyAt = 0;
+  player.multishotReadyAt = 0;
+  player.iceBlastReadyAt = 0;
+  player.frozenUntil = 0;
+  clearPlayerCast(player);
 }
 
 async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number, createIfMissing: boolean) {
