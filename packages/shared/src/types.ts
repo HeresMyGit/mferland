@@ -152,6 +152,9 @@ export type WalletAuthChallengeResponse = {
   message: string;
   expiresAt: string;
   error?: string;
+  code?: string;
+  recovery?: string;
+  requestId?: string;
 };
 
 export type AgentSessionResponse = {
@@ -160,6 +163,9 @@ export type AgentSessionResponse = {
   sessionToken: string;
   expiresAt: string;
   error?: string;
+  code?: string;
+  recovery?: string;
+  requestId?: string;
 };
 
 export type WalletCharacterPreview = {
