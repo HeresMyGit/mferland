@@ -169,6 +169,8 @@ export type AgentSessionResponse = {
   requestId?: string;
 };
 
+export type WalletClientKind = "human" | "agent";
+
 export type WalletCharacterPreview = {
   name: string;
   avatarSeed: number;
@@ -179,11 +181,13 @@ export type WalletCharacterPreview = {
   createdAt: string;
   updatedAt: string;
   nameLocked: boolean;
+  registeredClientKind: WalletClientKind | "";
 };
 
 export type WalletCharacterProfileResponse = {
   exists: boolean;
   character: WalletCharacterPreview | null;
+  registeredClientKind?: WalletClientKind | "";
 };
 
 export type ClientInput = {

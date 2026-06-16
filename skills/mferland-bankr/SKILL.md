@@ -61,6 +61,8 @@ challenge_expired -> request a fresh /wallet-auth-challenge.
 wallet_mismatch -> sign with the same walletAddress used for the challenge.
 message_mismatch -> retry with the exact returned message, preserving literal newlines.
 invalid_signature -> sign the exact returned message again.
+agent_wallet_registration_mismatch -> use a wallet registered for agent play; a human wallet cannot mint an agent session.
+wallet_persistence_unavailable -> retry later, and keep requestId for support if it repeats.
 ```
 
 If a returned code is not listed, follow the `recovery` value literally and keep `requestId` for support.

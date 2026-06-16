@@ -60,9 +60,19 @@ export function buildAgentCatalog() {
     generatedAt: new Date().toISOString(),
     endpoints: {
       walletAuthChallenge: "/wallet-auth-challenge",
+      agentSession: "/agent-session",
       agentCatalog: "/agent-catalog",
       seasonLeaderboard: "/season/leaderboard",
       seasonReferrals: "/season/referrals?wallet={walletAddress}",
+    },
+    walletIdentity: {
+      registeredClientKinds: ["human", "agent"],
+      invariant: "A wallet registers as either human or agent. Human wallets cannot mint agent sessions or join as declared agents, and agent wallets cannot join as human players.",
+      agentSessionMismatch: {
+        code: "agent_wallet_registration_mismatch",
+        recovery: "use_agent_registered_wallet",
+      },
+      profileFields: ["registeredClientKind"],
     },
     season0: {
       id: SEASON_0_ID,

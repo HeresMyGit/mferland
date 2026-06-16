@@ -1,6 +1,3 @@
-ALTER TABLE account_wallets
-  ADD COLUMN IF NOT EXISTS is_agent boolean NOT NULL DEFAULT false;
-
 CREATE TABLE IF NOT EXISTS season_referrals (
   id text PRIMARY KEY,
   season_id text NOT NULL,

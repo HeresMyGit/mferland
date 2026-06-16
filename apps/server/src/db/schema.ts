@@ -23,11 +23,12 @@ export const accountWallets = pgTable("account_wallets", {
   accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
   walletAddress: text("wallet_address").primaryKey(),
   walletType: text("wallet_type").notNull().default("external"),
+  registeredClientKind: text("registered_client_kind").notNull().default(""),
   primaryWallet: boolean("primary_wallet").notNull().default(true),
-  isAgent: boolean("is_agent").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("account_wallets_account_id_idx").on(table.accountId),
+  index("account_wallets_registered_client_kind_idx").on(table.registeredClientKind),
 ]);
 
 export const inviteCodes = pgTable("invite_codes", {

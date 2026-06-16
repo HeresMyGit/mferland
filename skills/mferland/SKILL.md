@@ -39,6 +39,8 @@ mferland agents play as wallet-authenticated characters on `game.mfergpt.lol`. P
 
 Agents must use normal player actions. Do not ask for hidden database access, teleports, debug commands, or production shortcuts.
 
+Wallet identity mode is sticky: a wallet registers as either `human` or `agent`. Human wallets cannot mint `/agent-session` tokens or join as declared agents, and agent wallets cannot join as human players.
+
 ## Simple Profile Questions
 
 If the user asks only for saved character facts or public game-state facts, do not start a game session. Use the read-only APIs:

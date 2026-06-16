@@ -35,6 +35,7 @@ import {
   type QuestStatus,
   type SeasonRewardSourceType,
   type TalentRankSnapshot,
+  type WalletClientKind,
   type WalletCharacterPreview,
 } from "@mferland/shared";
 import { getDatabase } from "./db/client.js";
@@ -81,6 +82,7 @@ type SeasonReferralBonusAward = {
 export type PersistedCharacter = {
   accountId: string;
   characterId: string;
+  registeredClientKind: WalletClientKind | "";
   name: string;
   avatarSeed: number;
   createdAt: Date;
@@ -146,6 +148,7 @@ export type SeasonLeaderboardEntry = {
   rank: number;
   walletAddress: string;
   characterName: string;
+  clientKind: WalletClientKind | "";
   avatarSeed: number;
   appearanceTraits: MferAppearanceTraits;
   level: number;
@@ -238,6 +241,16 @@ export class PersistenceUnavailableError extends Error {
   }
 }
 
+export class WalletClientKindMismatchError extends Error {
+  constructor(
+    readonly registeredKind: WalletClientKind,
+    readonly requestedKind: WalletClientKind,
+  ) {
+    super(getWalletClientKindMismatchMessage(registeredKind, requestedKind));
+    this.name = "WalletClientKindMismatchError";
+  }
+}
+
 export type WalletInviteAccessResult = {
   ok: boolean;
   reason: "claimed" | "valid_code" | "missing_code" | "invalid_code" | "used_code" | "no_database";
@@ -304,13 +317,14 @@ export async function getWalletCharacterProfile(walletAddress: string): Promise<
 
   const wallet = await findAccountWalletByNormalizedAddress(db, normalizedWallet);
   if (!wallet) return null;
+  const registeredClientKind = getRegisteredWalletClientKind(wallet);
 
   const character = await db.query.characters.findFirst({
     where: eq(characters.accountId, wallet.accountId),
   });
   if (!character) return null;
 
-  return toWalletCharacterPreview(character);
+  return toWalletCharacterPreview(character, registeredClientKind);
 }
 
 export async function loadOrCreateWalletCharacter({
@@ -319,18 +333,21 @@ export async function loadOrCreateWalletCharacter({
   avatarSeed,
   createIfMissing = false,
   referralWalletAddress = "",
-  isAgentClient = false,
+  clientKind = "",
+  claimClientKind = false,
 }: {
   walletAddress: string;
   displayName: string;
   avatarSeed: number;
   createIfMissing?: boolean;
   referralWalletAddress?: string;
-  isAgentClient?: boolean;
+  clientKind?: WalletClientKind | "";
+  claimClientKind?: boolean;
 }): Promise<PersistedCharacter | null> {
   const normalizedWallet = normalizeWalletAddress(walletAddress);
   if (!normalizedWallet) return null;
   const normalizedReferralWallet = normalizeWalletAddress(referralWalletAddress);
+  const requestedClientKind = normalizeWalletClientKind(clientKind);
   const db = getRequiredDatabase();
   const persistedAvatarSeed = normalizeAvatarSeed(avatarSeed);
   return db.transaction(async (tx) => {
@@ -338,6 +355,9 @@ export async function loadOrCreateWalletCharacter({
 
     const now = new Date();
     const existingWallet = await findAccountWalletByNormalizedAddress(tx, normalizedWallet);
+    const existingClientKind = getRegisteredWalletClientKind(existingWallet);
+    if (requestedClientKind) assertWalletClientKindMatches(existingClientKind, requestedClientKind);
+    const effectiveClientKind = requestedClientKind || existingClientKind || "human";
 
     let accountId = existingWallet?.accountId;
     if (!accountId) {
@@ -352,15 +372,18 @@ export async function loadOrCreateWalletCharacter({
       await tx.insert(accountWallets).values({
         accountId,
         walletAddress: normalizedWallet,
-        walletType: "external",
+        walletType: effectiveClientKind === "agent" ? "agent" : "external",
+        registeredClientKind: effectiveClientKind,
         primaryWallet: true,
-        isAgent: isAgentClient,
         createdAt: now,
       });
     } else {
-      if (existingWallet && isAgentClient && !existingWallet.isAgent) {
+      if (claimClientKind && requestedClientKind && existingWallet && !existingClientKind) {
         await tx.update(accountWallets)
-          .set({ isAgent: true })
+          .set({
+            registeredClientKind: requestedClientKind,
+            walletType: requestedClientKind === "agent" ? "agent" : existingWallet.walletType,
+          })
           .where(sql`lower(${accountWallets.walletAddress}) = ${normalizedWallet}`);
       }
       if (createIfMissing) {
@@ -393,7 +416,7 @@ export async function loadOrCreateWalletCharacter({
         })
         .returning();
       character = created;
-      if (!isAgentClient && normalizedReferralWallet) {
+      if (effectiveClientKind === "human" && normalizedReferralWallet) {
         await createSeasonReferralForNewCharacter(tx, {
           referrerWalletAddress: normalizedReferralWallet,
           refereeWalletAddress: normalizedWallet,
@@ -446,6 +469,7 @@ export async function loadOrCreateWalletCharacter({
     return {
       accountId,
       characterId: character.id,
+      registeredClientKind: effectiveClientKind,
       name: character.name,
       avatarSeed: character.avatarSeed,
       appearanceTraits: normalizeMferAppearanceTraits(character.appearanceTraits, {}),
@@ -489,6 +513,48 @@ export async function loadOrCreateWalletCharacter({
         }),
     };
   });
+}
+
+export async function getWalletClientKindMismatchForWallet(walletAddress: string, requestedKind: WalletClientKind) {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return "";
+  const normalizedRequestedKind = normalizeWalletClientKind(requestedKind);
+  if (!normalizedRequestedKind) return "";
+  const db = getDatabase();
+  if (!db) return "";
+
+  const wallet = await findAccountWalletByNormalizedAddress(db, normalizedWallet);
+  return getWalletClientKindMismatchMessage(getRegisteredWalletClientKind(wallet), normalizedRequestedKind);
+}
+
+export function getWalletClientKindMismatchMessage(
+  registeredKind: WalletClientKind | "",
+  requestedKind: WalletClientKind | "",
+) {
+  const normalizedRegisteredKind = normalizeWalletClientKind(registeredKind);
+  const normalizedRequestedKind = normalizeWalletClientKind(requestedKind);
+  if (!normalizedRegisteredKind || !normalizedRequestedKind || normalizedRegisteredKind === normalizedRequestedKind) return "";
+  return normalizedRegisteredKind === "agent"
+    ? "wallet already registered for an agent"
+    : "wallet already registered for a human";
+}
+
+export function normalizeWalletClientKind(value: unknown): WalletClientKind | "" {
+  return value === "human" || value === "agent" ? value : "";
+}
+
+function assertWalletClientKindMatches(registeredKind: WalletClientKind | "", requestedKind: WalletClientKind) {
+  const mismatchMessage = getWalletClientKindMismatchMessage(registeredKind, requestedKind);
+  if (mismatchMessage) {
+    throw new WalletClientKindMismatchError(registeredKind as WalletClientKind, requestedKind);
+  }
+}
+
+function getRegisteredWalletClientKind(wallet: typeof accountWallets.$inferSelect | null | undefined): WalletClientKind | "" {
+  if (!wallet) return "";
+  return normalizeWalletClientKind(wallet.registeredClientKind)
+    || (wallet.walletType === "agent" ? "agent" : "")
+    || (wallet.walletType === "human" ? "human" : "");
 }
 
 function findAccountWalletByNormalizedAddress(
@@ -560,7 +626,7 @@ async function createSeasonReferralForNewCharacter(
     refereeWalletAddress: normalizedReferee,
     existingRefereeReferral: Boolean(existingReferee),
     referrerExists: Boolean(referrerWallet && referrerCharacter),
-    referrerIsAgent: Boolean(referrerWallet?.isAgent),
+    referrerIsAgent: getRegisteredWalletClientKind(referrerWallet) === "agent",
     referrerReferralCount: Number(countRow?.total ?? 0),
   });
   if (!finalDecision.ok || !referrerWallet || !referrerCharacter) return;
@@ -1035,13 +1101,23 @@ export async function getSeason0Leaderboard({
 		      FROM season_referrals sr
 		      JOIN account_wallets referrer_wallet
 		        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
-		       AND referrer_wallet.is_agent = false
+		       AND CASE
+		        WHEN referrer_wallet.registered_client_kind IN ('human', 'agent') THEN referrer_wallet.registered_client_kind
+		        WHEN referrer_wallet.wallet_type = 'agent' THEN 'agent'
+		        ELSE 'human'
+		       END = 'human'
 		      WHERE sr.season_id = ${SEASON_0_ID}
 		      GROUP BY sr.referrer_wallet_address
 		    )
 	    SELECT
 	      ranked.rank,
 	      ranked.wallet_address,
+	      CASE
+	        WHEN account_wallets.registered_client_kind IN ('human', 'agent') THEN account_wallets.registered_client_kind
+	        WHEN account_wallets.wallet_type = 'agent' THEN 'agent'
+	        WHEN account_wallets.wallet_type = 'human' THEN 'human'
+	        ELSE ''
+	      END AS client_kind,
       coalesce(account_character.name, event_character.name, accounts.display_name, 'mfer') AS character_name,
       coalesce(account_character.avatar_seed, event_character.avatar_seed, 1)::int AS avatar_seed,
       coalesce(account_character.appearance_traits, event_character.appearance_traits, '{}'::jsonb) AS appearance_traits,
@@ -1117,7 +1193,11 @@ export async function getSeasonReferralSummary({
 	      FROM season_referrals sr
 	      JOIN account_wallets referrer_wallet
 	        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
-	       AND referrer_wallet.is_agent = false
+	       AND CASE
+	        WHEN referrer_wallet.registered_client_kind IN ('human', 'agent') THEN referrer_wallet.registered_client_kind
+	        WHEN referrer_wallet.wallet_type = 'agent' THEN 'agent'
+	        ELSE 'human'
+	       END = 'human'
 	      JOIN characters c ON c.id = sr.referee_character_id
 	      LEFT JOIN LATERAL (
         SELECT coalesce(sum(sre.points), 0)::int AS total
@@ -1142,10 +1222,18 @@ export async function getSeasonReferralSummary({
 	      FROM season_referrals sr
 	      JOIN account_wallets referee_wallet
 	        ON lower(referee_wallet.wallet_address) = sr.referee_wallet_address
-	       AND referee_wallet.is_agent = false
+	       AND CASE
+	        WHEN referee_wallet.registered_client_kind IN ('human', 'agent') THEN referee_wallet.registered_client_kind
+	        WHEN referee_wallet.wallet_type = 'agent' THEN 'agent'
+	        ELSE 'human'
+	       END = 'human'
 	      JOIN account_wallets referrer_wallet
 	        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
-	       AND referrer_wallet.is_agent = false
+	       AND CASE
+	        WHEN referrer_wallet.registered_client_kind IN ('human', 'agent') THEN referrer_wallet.registered_client_kind
+	        WHEN referrer_wallet.wallet_type = 'agent' THEN 'agent'
+	        ELSE 'human'
+	       END = 'human'
 	      JOIN characters c ON c.id = sr.referrer_character_id
       LEFT JOIN LATERAL (
         SELECT coalesce(sum(sre.points), 0)::int AS total
@@ -1374,7 +1462,7 @@ async function getSeasonEligibleBasePointTotal(tx: DatabaseTransaction, walletAd
 
 async function isWalletMarkedAgent(tx: DatabaseTransaction, walletAddress: string) {
   const wallet = await findAccountWalletByNormalizedAddress(tx, walletAddress);
-  return Boolean(wallet?.isAgent);
+  return getRegisteredWalletClientKind(wallet) === "agent";
 }
 
 async function processSeasonReferralBaseAward(
@@ -1521,6 +1609,7 @@ function shortWalletForNote(walletAddress: string) {
 type SeasonLeaderboardQueryRow = {
   rank?: unknown;
   wallet_address?: unknown;
+  client_kind?: unknown;
   character_name?: unknown;
   avatar_seed?: unknown;
   appearance_traits?: unknown;
@@ -1563,6 +1652,7 @@ function mapSeasonLeaderboardEntry(row: SeasonLeaderboardQueryRow): SeasonLeader
     rank: toLeaderboardNumber(row.rank),
     walletAddress: toLeaderboardString(row.wallet_address),
     characterName: toLeaderboardString(row.character_name) || "mfer",
+    clientKind: normalizeWalletClientKind(row.client_kind),
     avatarSeed: normalizeAvatarSeed(toLeaderboardNumber(row.avatar_seed) || 1),
     appearanceTraits: normalizeMferAppearanceTraits(row.appearance_traits, {}),
     level: toLeaderboardNumber(row.level) || 1,
@@ -1661,7 +1751,10 @@ function toTalentSnapshot(tree: string, nodeId: string, rank: number): TalentRan
   };
 }
 
-function toWalletCharacterPreview(character: typeof characters.$inferSelect): WalletCharacterPreview {
+function toWalletCharacterPreview(
+  character: typeof characters.$inferSelect,
+  registeredClientKind: WalletClientKind | "",
+): WalletCharacterPreview {
   return {
     name: character.name,
     avatarSeed: character.avatarSeed,
@@ -1672,5 +1765,6 @@ function toWalletCharacterPreview(character: typeof characters.$inferSelect): Wa
     createdAt: character.createdAt.toISOString(),
     updatedAt: character.updatedAt.toISOString(),
     nameLocked: Boolean(character.nameLockedAt),
+    registeredClientKind,
   };
 }

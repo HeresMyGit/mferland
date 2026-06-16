@@ -111,6 +111,7 @@ import { verifyTraitPaymentProof, type VerifiedTraitPayment } from "../crypto/tr
 import {
   loadOrCreateWalletCharacter,
   awardSeason0QuestReward,
+  getWalletClientKindMismatchForWallet,
   getWalletInviteAccess,
   recordWalletInviteUsage,
   removeSeasonReferral,
@@ -119,6 +120,7 @@ import {
   saveCharacterProgressWithSeason0Reward,
   saveCharacterProgressWithTraitPayment,
   PersistenceUnavailableError,
+  WalletClientKindMismatchError,
   type PersistableCharacterState,
   type PersistedCharacter,
   type SeasonRewardAwardResult,
@@ -320,6 +322,20 @@ async function assertInviteAllowed(options: JoinOptions | undefined, walletAddre
   if (access.reason === "used_code") throw new ServerError(ErrorCode.AUTH_FAILED, "invite already used");
   if (access.reason === "no_database") throw new ServerError(ErrorCode.AUTH_FAILED, "invite database unavailable");
   throw new ServerError(ErrorCode.AUTH_FAILED, "invalid invite");
+}
+
+async function assertWalletClientKindAllowed(options: JoinOptions | undefined, walletAddress: string) {
+  const requestedClientKind = getRequestedWalletClientKind(options, walletAddress);
+  if (!requestedClientKind || isWalletAuthBypassAllowed(walletAddress)) return;
+
+  try {
+    const mismatch = await getWalletClientKindMismatchForWallet(walletAddress, requestedClientKind);
+    if (mismatch) throw new ServerError(ErrorCode.AUTH_FAILED, mismatch);
+  } catch (error) {
+    if (error instanceof ServerError) throw error;
+    console.error(`Failed to check wallet client registration for ${walletAddress}`, error);
+    throw new ServerError(ErrorCode.AUTH_FAILED, "wallet persistence failed");
+  }
 }
 
 type DebugTeleportMessage = {
@@ -581,6 +597,7 @@ export class TownRoom extends Room<TownState> {
     ) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet signature required");
     }
+    await assertWalletClientKindAllowed(options, walletAddress);
     await assertInviteAllowed(options, walletAddress);
     return true;
   }
@@ -879,6 +896,7 @@ export class TownRoom extends Room<TownState> {
       : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
     const avatarSeed = normalizeAvatarSeed(requestedAvatarSeed);
     const declaredAgent = identityType === "wallet" && isDeclaredAgentClient(options);
+    const requestedClientKind = getRequestedWalletClientKind(options, walletAddress) || "human";
     const useLocalDebugWallet = identityType === "wallet" && isLocalDebugWalletAllowed(walletAddress);
     let replacementHandoff = identityType === "wallet" && walletAddress
       ? await this.replaceExistingWalletSession(client, walletAddress)
@@ -887,7 +905,7 @@ export class TownRoom extends Room<TownState> {
       ? await loadPersistedCharacter(walletAddress, name, avatarSeed, {
         createIfMissing: Boolean(options?.createCharacter),
         referralWalletAddress: options?.referralWalletAddress ?? "",
-        isAgentClient: declaredAgent,
+        clientKind: requestedClientKind,
       })
       : null;
     if (identityType === "wallet" && !persistedCharacter && !useLocalDebugWallet) {
@@ -899,7 +917,7 @@ export class TownRoom extends Room<TownState> {
         persistedCharacter = await loadPersistedCharacter(walletAddress, name, avatarSeed, {
           createIfMissing: Boolean(options?.createCharacter),
           referralWalletAddress: options?.referralWalletAddress ?? "",
-          isAgentClient: declaredAgent,
+          clientKind: requestedClientKind,
         });
       }
     }
@@ -3750,6 +3768,11 @@ function isDeclaredAgentClient(options: JoinOptions | undefined) {
   return options?.agentClient === true || options?.identityType === "agent";
 }
 
+function getRequestedWalletClientKind(options: JoinOptions | undefined, walletAddress: string) {
+  if (!walletAddress) return "";
+  return isDeclaredAgentClient(options) ? "agent" : "human";
+}
+
 function isEligibleForDefeatCredit(player: PlayerState, npc: NpcState) {
   if (player.health <= 0) return false;
   const radius = npc.id === "raid-ogre-mfer" || npc.id === MFERGPT_DAILY_BOSS_NPC_ID
@@ -3820,7 +3843,7 @@ async function loadPersistedCharacter(
   options: {
     createIfMissing: boolean;
     referralWalletAddress: string;
-    isAgentClient: boolean;
+    clientKind: "human" | "agent";
   },
 ) {
   try {
@@ -3830,9 +3853,13 @@ async function loadPersistedCharacter(
       avatarSeed,
       createIfMissing: options.createIfMissing,
       referralWalletAddress: options.referralWalletAddress,
-      isAgentClient: options.isAgentClient,
+      clientKind: options.clientKind,
+      claimClientKind: true,
     });
   } catch (error) {
+    if (error instanceof WalletClientKindMismatchError) {
+      throw new ServerError(ErrorCode.AUTH_FAILED, error.message);
+    }
     console.error(`Failed to load persisted character for ${walletAddress}`, error);
     if (error instanceof PersistenceUnavailableError) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "wallet persistence unavailable");

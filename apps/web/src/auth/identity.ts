@@ -129,6 +129,9 @@ export async function fetchWalletCharacterProfile(walletAddress: string): Promis
   return {
     exists: Boolean(payload?.exists && payload.character),
     character: payload?.character ?? null,
+    registeredClientKind: payload?.registeredClientKind === "human" || payload?.registeredClientKind === "agent"
+      ? payload.registeredClientKind
+      : payload?.character?.registeredClientKind ?? "",
   };
 }
 

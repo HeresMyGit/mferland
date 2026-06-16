@@ -18,6 +18,7 @@ Deploy the server code that includes:
 - wallet-auth verification during Colyseus join
 - `agentClient: true` support in join options
 - `PlayerState.isAgent`
+- sticky wallet identity mode through `account_wallets.registered_client_kind` (`human` or `agent`); `/agent-session` returns `agent_wallet_registration_mismatch` when a human-registered wallet tries to mint an agent token
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
 - public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
 - public read-only agent facts APIs for simple questions without joining the live room:

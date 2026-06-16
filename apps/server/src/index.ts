@@ -17,7 +17,13 @@ import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
 import { closeDatabase } from "./db/client.js";
-import { getSeason0Leaderboard, getSeasonReferralSummary, getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
+import {
+  getSeason0Leaderboard,
+  getSeasonReferralSummary,
+  getWalletCharacterProfile,
+  getWalletClientKindMismatchForWallet,
+  PersistenceUnavailableError,
+} from "./persistence.js";
 import { assertLocalOnlyRuntimeSafety } from "./localSafety.js";
 import {
   areDebugMessagesEnabled,
@@ -201,6 +207,7 @@ const server = createServer((req, res) => {
         res.end(JSON.stringify({
           exists: Boolean(character),
           character,
+          registeredClientKind: character?.registeredClientKind ?? "",
         }));
       })
       .catch((error) => {
@@ -563,6 +570,48 @@ async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
       recovery: session.recovery,
       diagnostics: session.diagnostics,
     });
+  } else {
+    try {
+      const mismatch = await getWalletClientKindMismatchForWallet(session.walletAddress, "agent");
+      if (mismatch) {
+        const code = "agent_wallet_registration_mismatch";
+        const recovery = "use_agent_registered_wallet";
+        console.warn("[agent-session] wallet registration blocked", {
+          requestId,
+          walletAddress: session.walletAddress,
+          code,
+          recovery,
+        });
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          ok: false,
+          walletAddress: session.walletAddress,
+          sessionToken: "",
+          expiresAt: "",
+          error: mismatch,
+          code,
+          recovery,
+          requestId,
+        }));
+        return;
+      }
+    } catch (error) {
+      const code = "wallet_persistence_unavailable";
+      const recovery = "retry_or_report_request_id";
+      console.error("Failed to check agent wallet registration", error);
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        ok: false,
+        walletAddress: session.walletAddress,
+        sessionToken: "",
+        expiresAt: "",
+        error: "wallet persistence unavailable",
+        code,
+        recovery,
+        requestId,
+      }));
+      return;
+    }
   }
   res.writeHead(session.ok ? 200 : 400, { "content-type": "application/json" });
   res.end(JSON.stringify(toPublicAgentSessionResponse(session, requestId)));
