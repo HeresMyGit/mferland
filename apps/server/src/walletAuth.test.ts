@@ -6,7 +6,9 @@ import {
   createAgentSession,
   createWalletAuthChallenge,
   verifyAgentSessionToken,
+  verifyAgentSessionTokenDetailed,
   verifyWalletAuthProof,
+  verifyWalletAuthProofDetailed,
 } from "./walletAuth.js";
 import { TownRoom } from "./rooms/TownRoom.js";
 
@@ -41,6 +43,56 @@ test("wallet auth proof rejects the wrong signer", async () => {
   }), false);
 });
 
+test("wallet auth proof reports message mismatch without consuming the challenge", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const challenge = createWalletAuthChallenge(account.address, "localhost:2567");
+  assert.equal(challenge.ok, true);
+
+  const signature = await account.signMessage({ message: challenge.message });
+  const mismatch = await verifyWalletAuthProofDetailed(account.address, {
+    nonce: challenge.nonce,
+    message: challenge.message.replaceAll("\n", "\\n"),
+    signature,
+  });
+
+  assert.equal(mismatch.ok, false);
+  if (mismatch.ok) assert.fail("expected message mismatch");
+  assert.equal(mismatch.code, "message_mismatch");
+  assert.equal(mismatch.recovery, "retry_with_exact_challenge_message");
+
+  assert.equal(await verifyWalletAuthProof(account.address, {
+    nonce: challenge.nonce,
+    message: challenge.message,
+    signature,
+  }), true);
+});
+
+test("agent session reports invalid signature without consuming the challenge", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const wrongWallet = privateKeyToAccount(generatePrivateKey());
+  const challenge = createWalletAuthChallenge(account.address, "localhost:2567");
+  assert.equal(challenge.ok, true);
+
+  const wrongSignature = await wrongWallet.signMessage({ message: challenge.message });
+  const failedSession = await createAgentSession(account.address, {
+    nonce: challenge.nonce,
+    message: challenge.message,
+    signature: wrongSignature,
+  });
+
+  assert.equal(failedSession.ok, false);
+  assert.equal(failedSession.code, "invalid_signature");
+  assert.equal(failedSession.recovery, "retry_with_valid_signature");
+
+  const signature = await account.signMessage({ message: challenge.message });
+  const session = await createAgentSession(account.address, {
+    nonce: challenge.nonce,
+    message: challenge.message,
+    signature,
+  });
+  assert.equal(session.ok, true);
+});
+
 test("agent session verifies a signed challenge and reuses the minted token", async () => {
   const account = privateKeyToAccount(generatePrivateKey());
   const wrongWallet = privateKeyToAccount(generatePrivateKey());
@@ -62,6 +114,37 @@ test("agent session verifies a signed challenge and reuses the minted token", as
   assert.equal(verifyAgentSessionToken(account.address, session.sessionToken), true);
   assert.equal(verifyAgentSessionToken(wrongWallet.address, session.sessionToken), false);
   assert.equal(await verifyWalletAuthProof(account.address, proof), false);
+});
+
+test("agent session token verification reports actionable failures", async () => {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const wrongWallet = privateKeyToAccount(generatePrivateKey());
+  const challenge = createWalletAuthChallenge(account.address, "localhost:2567");
+  assert.equal(challenge.ok, true);
+
+  const signature = await account.signMessage({ message: challenge.message });
+  const session = await createAgentSession(account.address, {
+    nonce: challenge.nonce,
+    message: challenge.message,
+    signature,
+  });
+  assert.equal(session.ok, true);
+
+  assert.deepEqual(verifyAgentSessionTokenDetailed(account.address, ""), {
+    ok: false,
+    code: "missing_session_token",
+    recovery: "request_fresh_challenge",
+  });
+  assert.deepEqual(verifyAgentSessionTokenDetailed(account.address, "not a session token"), {
+    ok: false,
+    code: "malformed_session_token",
+    recovery: "request_fresh_challenge",
+  });
+  assert.deepEqual(verifyAgentSessionTokenDetailed(wrongWallet.address, session.sessionToken), {
+    ok: false,
+    code: "agent_session_wallet_mismatch",
+    recovery: "use_matching_session_token",
+  });
 });
 
 test("TownRoom.onAuth requires wallet proof for wallet joins", async () => {

@@ -31,7 +31,7 @@ import {
   type TalentRankLike,
 } from "@mferland/shared";
 import { buildAgentCatalog } from "./agentCatalog.js";
-import { verifyAgentSessionToken } from "./walletAuth.js";
+import { verifyAgentSessionTokenDetailed } from "./walletAuth.js";
 
 type AnyRecord = Record<string, unknown>;
 type Point = { x: number; z: number };
@@ -3157,6 +3157,7 @@ export class AgentBridgeManager {
   async handle(req: IncomingMessage, requestUrl: URL, res: ServerResponse): Promise<boolean> {
     const path = requestUrl.pathname;
     if (!["/agent-start", "/agent-observe", "/agent-action", "/agent-stop"].includes(path)) return false;
+    const requestId = randomUUID();
 
     writeBridgeCorsHeaders(res);
     writeBridgeNoStoreHeaders(res);
@@ -3173,7 +3174,7 @@ export class AgentBridgeManager {
       else if (path === "/agent-action") await this.handleAction(req, res);
       else if (path === "/agent-stop") await this.handleStop(req, res);
     } catch (error) {
-      writeBridgeError(res, error);
+      writeBridgeError(res, error, requestId);
     }
     return true;
   }
@@ -3192,12 +3193,21 @@ export class AgentBridgeManager {
     const walletAddress = normalizeWalletAddress(payload.walletAddress || payload.wallet || "");
     const sessionToken = cleanText(payload.sessionToken, 160) || readBearerToken(req);
     if (!walletAddress) {
-      writeBridgeJson(res, 400, { ok: false, error: "valid walletAddress required" });
-      return;
+      throw new BridgeHttpError(
+        400,
+        "valid walletAddress required",
+        "valid_wallet_address_required",
+        "send_valid_wallet_address",
+      );
     }
-    if (!verifyAgentSessionToken(walletAddress, sessionToken)) {
-      writeBridgeJson(res, 401, { ok: false, error: "valid agent session bearer token required" });
-      return;
+    const tokenVerification = verifyAgentSessionTokenDetailed(walletAddress, sessionToken);
+    if (!tokenVerification.ok) {
+      throw new BridgeHttpError(
+        401,
+        "valid agent session bearer token required",
+        tokenVerification.code,
+        tokenVerification.recovery,
+      );
     }
 
     for (const [id, existing] of this.sessions) {
@@ -3279,10 +3289,47 @@ export class AgentBridgeManager {
   private requireSession(req: IncomingMessage, id: string | null | undefined) {
     const sessionId = cleanText(id, 80);
     const session = sessionId ? this.sessions.get(sessionId) : null;
-    if (!session) throw new BridgeHttpError(404, "bridge session not found");
+    if (!sessionId) {
+      throw new BridgeHttpError(
+        400,
+        "bridgeSessionId required",
+        "bridge_session_id_required",
+        "call_agent_start_with_valid_session_token",
+      );
+    }
+    if (!session) {
+      throw new BridgeHttpError(
+        404,
+        "bridge session not found",
+        "bridge_session_not_found",
+        "call_agent_start_with_existing_session_token",
+      );
+    }
     const bearer = readBearerToken(req);
-    if (bearer !== session.sessionToken || !verifyAgentSessionToken(session.walletAddress, bearer)) {
-      throw new BridgeHttpError(401, "valid bearer token required for bridge session");
+    if (!bearer) {
+      throw new BridgeHttpError(
+        401,
+        "valid bearer token required for bridge session",
+        "missing_bearer_token",
+        "reuse_original_session_token",
+      );
+    }
+    if (bearer !== session.sessionToken) {
+      throw new BridgeHttpError(
+        401,
+        "valid bearer token required for bridge session",
+        "bridge_bearer_mismatch",
+        "reuse_original_session_token",
+      );
+    }
+    const tokenVerification = verifyAgentSessionTokenDetailed(session.walletAddress, bearer);
+    if (!tokenVerification.ok) {
+      throw new BridgeHttpError(
+        401,
+        "valid bearer token required for bridge session",
+        tokenVerification.code,
+        tokenVerification.recovery,
+      );
     }
     return session;
   }
@@ -3297,17 +3344,47 @@ export class AgentBridgeManager {
 }
 
 class BridgeHttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly code?: string,
+    readonly recovery?: string,
+  ) {
     super(message);
   }
 }
 
-export function writeBridgeError(res: ServerResponse, error: unknown) {
+export function writeBridgeError(res: ServerResponse, error: unknown, requestId = randomUUID()) {
   if (error instanceof BridgeHttpError) {
-    writeBridgeJson(res, error.status, { ok: false, error: error.message });
+    const body = {
+      ok: false,
+      error: error.message,
+      code: error.code,
+      recovery: error.recovery,
+      requestId,
+    };
+    console.warn("[agent-bridge] request failed", {
+      requestId,
+      status: error.status,
+      error: error.message,
+      code: error.code,
+      recovery: error.recovery,
+    });
+    writeBridgeJson(res, error.status, body);
     return;
   }
-  writeBridgeJson(res, 500, { ok: false, error: errorMessage(error) });
+  console.warn("[agent-bridge] request failed", {
+    requestId,
+    status: 500,
+    error: errorMessage(error),
+  });
+  writeBridgeJson(res, 500, {
+    ok: false,
+    error: errorMessage(error),
+    code: "internal_bridge_error",
+    recovery: "retry_or_report_request_id",
+    requestId,
+  });
 }
 
 function readBridgeJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<T> {
