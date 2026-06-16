@@ -54,6 +54,7 @@ If Bankr truly has no arbitrary message-signing tool in the current surface, rep
 Auth errors return stable `code`, `recovery`, and `requestId` fields. On `/agent-session` failure, follow `recovery`:
 
 ```txt
+valid_wallet_address_required -> send a valid 0x walletAddress.
 missing_or_malformed_proof -> send nonce, exact message, and 0x signature.
 challenge_not_found_or_consumed -> request a fresh /wallet-auth-challenge.
 challenge_expired -> request a fresh /wallet-auth-challenge.
@@ -61,6 +62,8 @@ wallet_mismatch -> sign with the same walletAddress used for the challenge.
 message_mismatch -> retry with the exact returned message, preserving literal newlines.
 invalid_signature -> sign the exact returned message again.
 ```
+
+If a returned code is not listed, follow the `recovery` value literally and keep `requestId` for support.
 
 ## Read-Only Profile
 
@@ -327,11 +330,16 @@ Do not restart auth unless the session is expired or the bridge returns `401`/`4
 Recovery by bridge error code:
 
 ```txt
+valid_wallet_address_required -> send a valid 0x walletAddress to /agent-start.
+bridge_session_id_required -> reuse the stored bridgeSessionId, or call /agent-start if none exists.
 bridge_session_not_found -> call /agent-start with the existing sessionToken.
+missing_session_token -> request a fresh /wallet-auth-challenge and /agent-session.
 missing_bearer_token -> reuse the original Authorization: Bearer <sessionToken>.
 bridge_bearer_mismatch -> reuse the original sessionToken for that bridgeSessionId.
 agent_session_not_found_or_expired -> request a fresh /wallet-auth-challenge and /agent-session.
 malformed_session_token -> request a fresh /wallet-auth-challenge and /agent-session.
+agent_session_wallet_mismatch -> use the sessionToken minted for this walletAddress, or re-auth this wallet.
+internal_bridge_error -> retry once, then report requestId if it repeats.
 ```
 
 When ending a chat turn, report only what actually happened in-game during that turn. Do not say "I'm starting to play", "I'll keep playing", or imply background gameplay will continue after the LLM turn ends unless an active `/agent-action` report says the bridge is still running that action. End with a concrete CTA such as "say `continue` and I will reuse this bridgeSessionId for the next chunk."
