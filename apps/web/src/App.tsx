@@ -52,11 +52,15 @@ import {
 import {
   fetchWalletAuthChallenge,
   fetchWalletCharacterProfile,
+  getReferralWalletAddressFromSearch,
   getStoredInviteCode,
+  getStoredReferralWalletAddress,
   getStoredName,
   makeGuestIdentity,
+  makeReferralInviteUrl,
   makeWalletIdentity,
   rememberInviteCode,
+  rememberReferralWalletAddress,
   rememberName,
 } from "./auth/identity";
 import {
@@ -80,6 +84,7 @@ import { initializeAnalytics, trackEvent, type AnalyticsProperties } from "./ana
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
+import { copyTextToClipboard } from "./clipboard";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { MobileControls } from "./components/MobileControls";
@@ -198,8 +203,17 @@ function getLinkedInviteCode() {
   return params.get("invite")?.trim() || params.get("code")?.trim() || "";
 }
 
+function getLinkedReferralWalletAddress() {
+  if (typeof window === "undefined") return "";
+  return getReferralWalletAddressFromSearch(window.location.search);
+}
+
 function getInitialInviteCode() {
   return getLinkedInviteCode() || getStoredInviteCode();
+}
+
+function getInitialReferralWalletAddress() {
+  return getLinkedReferralWalletAddress() || getStoredReferralWalletAddress();
 }
 
 function isCryptoStoreEnabled() {
@@ -323,6 +337,8 @@ function AuthGate({
   const [walletActionError, setWalletActionError] = useState<string | null>(null);
   const [showWalletConnectors, setShowWalletConnectors] = useState(false);
   const [inviteCode, setInviteCode] = useState(() => getInitialInviteCode());
+  const [referralWalletAddress, setReferralWalletAddress] = useState(() => getInitialReferralWalletAddress());
+  const [authReferralCopyStatus, setAuthReferralCopyStatus] = useState("");
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
   const [isWalletAuthPending, setIsWalletAuthPending] = useState(false);
   const walletProfileRequestRef = useRef(0);
@@ -346,6 +362,7 @@ function AuthGate({
   const walletProfileLoading = isWalletProfilePending(isConnected, walletProfile);
   const walletProfileError = walletProfile.status === "error" ? walletProfile.message : null;
   const walletNeedsCreation = isConnected && walletProfile.status === "new";
+  const connectedReferralInviteUrl = useMemo(() => address ? makeReferralInviteUrl(address) : "", [address]);
   const canCreateAfterProfileError = canCreateWalletCharacterAfterProfileError({
     hasAddress: Boolean(address),
     profilePending: walletProfileLoading,
@@ -417,6 +434,13 @@ function AuthGate({
   }, []);
 
   useEffect(() => {
+    const linkedReferral = getLinkedReferralWalletAddress();
+    if (!linkedReferral) return;
+    rememberReferralWalletAddress(linkedReferral);
+    setReferralWalletAddress(linkedReferral);
+  }, []);
+
+  useEffect(() => {
     if (trackedMainMenuRef.current) return;
     trackedMainMenuRef.current = true;
     trackEvent("main_menu_viewed", {
@@ -446,6 +470,10 @@ function AuthGate({
   useEffect(() => {
     if (isConnected) setShowWalletConnectors(false);
   }, [isConnected]);
+
+  useEffect(() => {
+    setAuthReferralCopyStatus("");
+  }, [connectedReferralInviteUrl]);
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -508,6 +536,7 @@ function AuthGate({
           message: challenge.message,
           signature,
         },
+        referralWalletAddress,
       ));
     } catch (error) {
       if (!isUserRejectedWalletRequest(error)) {
@@ -577,6 +606,12 @@ function AuthGate({
     });
   }
 
+  async function copyConnectedReferralInviteUrl() {
+    if (!connectedReferralInviteUrl) return;
+    const copied = await copyTextToClipboard(connectedReferralInviteUrl);
+    setAuthReferralCopyStatus(copied ? "copied" : "copy failed");
+  }
+
   function enterLocalDebugWallet() {
     const debugName = cleanName || "debug mfer";
     rememberName(debugName);
@@ -591,6 +626,8 @@ function AuthGate({
       LOCAL_DEBUG_WALLET_ADDRESS,
       stableHash(`${LOCAL_DEBUG_WALLET_ADDRESS}:${debugName}`),
       true,
+      undefined,
+      "",
     ));
   }
 
@@ -666,6 +703,19 @@ function AuthGate({
           <div className="connected-wallet-card" title={address}>
             <span>connected wallet</span>
             <code>{address}</code>
+          </div>
+        )}
+
+        {isConnected && connectedReferralInviteUrl && (
+          <div className="auth-referral-card" title={connectedReferralInviteUrl}>
+            <div>
+              <span>referral link</span>
+              <code>{connectedReferralInviteUrl}</code>
+            </div>
+            <button type="button" aria-label="copy referral link" onClick={() => void copyConnectedReferralInviteUrl()}>
+              {authReferralCopyStatus === "copied" ? <Check size={15} /> : <Copy size={15} />}
+              {authReferralCopyStatus || "copy"}
+            </button>
           </div>
         )}
 
@@ -1859,6 +1909,8 @@ function GameShell({
             onRegisterChainGear={registerChainGear}
             onCryptoStoreAnalytics={room.sendAnalyticsEvent}
             onSelectTalent={selectTalent}
+            seasonReferralRemoveResult={room.seasonReferralRemoveResult}
+            onRemoveSeasonReferral={room.sendRemoveSeasonReferral}
             onCloseLootWindow={room.closeLootWindow}
             onCloseCryptoStore={() => setCryptoStoreNpcId(null)}
             onSendChat={sendChat}

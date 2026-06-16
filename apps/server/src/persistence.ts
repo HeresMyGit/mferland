@@ -8,6 +8,9 @@ import {
   TRAIT_CHANGE_PRODUCT_ID,
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_ID,
+  SEASON_0_REFERRAL_ACTIVATION_POINTS,
+  SEASON_0_REFERRAL_MAX_BONUS_POINTS,
+  SEASON_0_REFERRAL_MAX_REFEREES,
   SEASON_0_TOTAL_POINT_CAP,
   TALENTS,
   isElixirBuffId,
@@ -47,6 +50,7 @@ import {
   cryptoPurchaseEvents,
   inviteCodes,
   seasonRewardEvents,
+  seasonReferrals,
 } from "./db/schema.js";
 import {
   adjustSeason0QuestPointsForAgent,
@@ -57,8 +61,22 @@ import {
   makeUncheckedAgentSeason0MferGptGateStatus,
   type AgentSeason0MferGptGateStatus,
 } from "./agentMferGptGate.js";
+import {
+  getSeasonReferralBonusDelta,
+  getSeasonReferralCreateDecision,
+  getSeasonReferralProgressUpdate,
+  isSeasonReferralEligibleBaseAward,
+  type SeasonReferralStatus,
+} from "./seasonReferralRules.js";
 
 type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
+type SeasonReferralBonusAward = {
+  referralId: string;
+  referrerWalletAddress: string;
+  referrerCharacterId: string;
+  referrerPoints: number;
+  refereePoints: number;
+};
 
 export type PersistedCharacter = {
   accountId: string;
@@ -121,6 +139,7 @@ export type SeasonRewardAwardResult = {
   seasonTotal: number;
   label: string;
   agentTokenGate?: AgentSeason0MferGptGateStatus;
+  referralBonus?: SeasonReferralBonusAward;
 };
 
 export type SeasonLeaderboardEntry = {
@@ -138,6 +157,9 @@ export type SeasonLeaderboardEntry = {
   distributedPoints: number;
   events: number;
   lastEventAt: string;
+  referralCount: number;
+  activatedReferralCount: number;
+  referralBonusPoints: number;
 };
 
 export type SeasonLeaderboardSnapshot = {
@@ -147,6 +169,60 @@ export type SeasonLeaderboardSnapshot = {
   dailyPointCap: typeof SEASON_0_DAILY_POINT_CAP;
   totalPointCap: typeof SEASON_0_TOTAL_POINT_CAP;
   entries: SeasonLeaderboardEntry[];
+};
+
+export type SeasonReferralSummary = {
+  ok: true;
+  seasonId: typeof SEASON_0_ID;
+  walletAddress: string;
+  generatedAt: string;
+  inviteUrl: string;
+  limits: {
+    activationPoints: typeof SEASON_0_REFERRAL_ACTIVATION_POINTS;
+    bonusRatePercent: 20;
+    maxBonusPoints: typeof SEASON_0_REFERRAL_MAX_BONUS_POINTS;
+    maxReferees: typeof SEASON_0_REFERRAL_MAX_REFEREES;
+  };
+  referredBy: {
+    walletAddress: string;
+    characterName: string;
+    status: SeasonReferralStatus;
+    activatedAt: string;
+    activationProgressPoints: number;
+    refereeBonusPoints: number;
+  } | null;
+  referralCount: number;
+  activatedReferralCount: number;
+  referrerBonusPoints: number;
+  refereeBonusPoints: number;
+  referrals: SeasonReferralSummaryRow[];
+};
+
+export type SeasonReferralSummaryRow = {
+  refereeWalletAddress: string;
+  characterName: string;
+  status: SeasonReferralStatus;
+  activatedAt: string;
+  activationProgressPoints: number;
+  postActivationBasePoints: number;
+  referrerBonusPoints: number;
+  refereeBonusPoints: number;
+};
+
+export type SeasonReferralRemovePersistenceResult = {
+  ok: boolean;
+  status: "removed" | "invalid_wallet" | "not_found" | "no_database";
+  referrerWalletAddress: string;
+  refereeWalletAddress: string;
+  removedReferrerBonusPoints: number;
+  removedReferrerDailyPoints: number;
+  removedRefereeBonusPoints: number;
+  removedRefereeDailyPoints: number;
+  referrerSeason0Points: number;
+  referrerSeason0DailyPoints: number;
+  refereeSeason0Points: number;
+  refereeSeason0DailyPoints: number;
+  error?: string;
 };
 
 function getRequiredDatabase() {
@@ -242,14 +318,19 @@ export async function loadOrCreateWalletCharacter({
   displayName,
   avatarSeed,
   createIfMissing = false,
+  referralWalletAddress = "",
+  isAgentClient = false,
 }: {
   walletAddress: string;
   displayName: string;
   avatarSeed: number;
   createIfMissing?: boolean;
+  referralWalletAddress?: string;
+  isAgentClient?: boolean;
 }): Promise<PersistedCharacter | null> {
   const normalizedWallet = normalizeWalletAddress(walletAddress);
   if (!normalizedWallet) return null;
+  const normalizedReferralWallet = normalizeWalletAddress(referralWalletAddress);
   const db = getRequiredDatabase();
   const persistedAvatarSeed = normalizeAvatarSeed(avatarSeed);
   return db.transaction(async (tx) => {
@@ -273,9 +354,15 @@ export async function loadOrCreateWalletCharacter({
         walletAddress: normalizedWallet,
         walletType: "external",
         primaryWallet: true,
+        isAgent: isAgentClient,
         createdAt: now,
       });
     } else {
+      if (existingWallet && isAgentClient && !existingWallet.isAgent) {
+        await tx.update(accountWallets)
+          .set({ isAgent: true })
+          .where(sql`lower(${accountWallets.walletAddress}) = ${normalizedWallet}`);
+      }
       if (createIfMissing) {
         await tx.update(accounts)
           .set({ displayName, updatedAt: now })
@@ -306,6 +393,14 @@ export async function loadOrCreateWalletCharacter({
         })
         .returning();
       character = created;
+      if (!isAgentClient && normalizedReferralWallet) {
+        await createSeasonReferralForNewCharacter(tx, {
+          referrerWalletAddress: normalizedReferralWallet,
+          refereeWalletAddress: normalizedWallet,
+          refereeCharacterId: character.id,
+          now,
+        });
+      }
     } else if (!character.nameLockedAt) {
       const [updated] = await tx.update(characters)
         .set({ nameLockedAt: character.createdAt ?? now })
@@ -403,6 +498,90 @@ function findAccountWalletByNormalizedAddress(
   return db.query.accountWallets.findFirst({
     where: sql`lower(${accountWallets.walletAddress}) = ${normalizedWallet}`,
   });
+}
+
+async function findLatestCharacterForAccount(
+  db: Pick<NonNullable<ReturnType<typeof getDatabase>>, "query">,
+  accountId: string,
+) {
+  return db.query.characters.findFirst({
+    where: eq(characters.accountId, accountId),
+    orderBy: (table, { desc }) => [desc(table.updatedAt)],
+  });
+}
+
+async function createSeasonReferralForNewCharacter(
+  tx: DatabaseTransaction,
+  {
+    referrerWalletAddress,
+    refereeWalletAddress,
+    refereeCharacterId,
+    now,
+  }: {
+    referrerWalletAddress: string;
+    refereeWalletAddress: string;
+    refereeCharacterId: string;
+    now: Date;
+  },
+) {
+  const initialDecision = getSeasonReferralCreateDecision({
+    referrerWalletAddress,
+    refereeWalletAddress,
+  });
+  if (!initialDecision.ok) return;
+  const normalizedReferrer = initialDecision.referrerWalletAddress;
+  const normalizedReferee = initialDecision.refereeWalletAddress;
+
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:referrer:${normalizedReferrer}`}), 0)`);
+
+  const [existingReferee] = await tx.select({ id: seasonReferrals.id })
+    .from(seasonReferrals)
+    .where(and(
+      eq(seasonReferrals.seasonId, SEASON_0_ID),
+      eq(seasonReferrals.refereeWalletAddress, normalizedReferee),
+    ))
+    .limit(1);
+
+  const referrerWallet = await findAccountWalletByNormalizedAddress(tx, normalizedReferrer);
+  const referrerCharacter = referrerWallet
+    ? await findLatestCharacterForAccount(tx, referrerWallet.accountId)
+    : null;
+
+  const [countRow] = await tx.select({
+    total: sql<number>`count(*)::int`,
+  })
+    .from(seasonReferrals)
+    .where(and(
+      eq(seasonReferrals.seasonId, SEASON_0_ID),
+      eq(seasonReferrals.referrerWalletAddress, normalizedReferrer),
+    ));
+  const finalDecision = getSeasonReferralCreateDecision({
+    referrerWalletAddress: normalizedReferrer,
+    refereeWalletAddress: normalizedReferee,
+    existingRefereeReferral: Boolean(existingReferee),
+    referrerExists: Boolean(referrerWallet && referrerCharacter),
+    referrerIsAgent: Boolean(referrerWallet?.isAgent),
+    referrerReferralCount: Number(countRow?.total ?? 0),
+  });
+  if (!finalDecision.ok || !referrerWallet || !referrerCharacter) return;
+
+  await tx.insert(seasonReferrals)
+    .values({
+      id: randomUUID(),
+      seasonId: SEASON_0_ID,
+      referrerWalletAddress: normalizedReferrer,
+      referrerCharacterId: referrerCharacter.id,
+      refereeWalletAddress: normalizedReferee,
+      refereeCharacterId,
+      status: "active",
+      postActivationBasePoints: 0,
+      referrerBonusPoints: 0,
+      refereeBonusPoints: 0,
+      activatedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
 }
 
 export async function saveCharacterProgress(state: PersistableCharacterState) {
@@ -589,7 +768,7 @@ export async function awardSeason0QuestReward({
     return { status: "no_database", points: 0, basePoints: reward.points, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: reward.label };
   }
 
-  const normalizedWallet = walletAddress.toLowerCase();
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
   if (!normalizedWallet) {
     return { status: "ineligible", points: 0, basePoints: reward.points, agentMultiplier, dailyTotal: 0, seasonTotal: 0, label: reward.label };
   }
@@ -672,16 +851,28 @@ export async function awardSeason0QuestReward({
       note: getAgentSeason0RewardNote(reward.label, isAgent, agentMultiplier),
       createdAt: now,
     });
+    const referralBonus = await processSeasonReferralBaseAward(tx, {
+      refereeWalletAddress: normalizedWallet,
+      refereeCharacterId: characterId,
+      sourceType: "quest",
+      awardedPoints: points,
+      isAgent,
+      now,
+    });
+    const finalTotals = referralBonus
+      ? await getSeasonRewardTotals(tx, normalizedWallet, now)
+      : { dailyTotal: totals.dailyTotal + points, seasonTotal: totals.seasonTotal + points };
 
     return {
       status: "awarded",
       points,
       basePoints: reward.points,
       agentMultiplier,
-      dailyTotal: totals.dailyTotal + points,
-      seasonTotal: totals.seasonTotal + points,
+      dailyTotal: finalTotals.dailyTotal,
+      seasonTotal: finalTotals.seasonTotal,
       label: reward.label,
       agentTokenGate: effectiveAgentTokenGate,
+      referralBonus,
     };
   });
 }
@@ -696,6 +887,7 @@ export async function saveCharacterProgressWithSeason0Reward(
     basePoints?: number;
     agentMultiplier?: number;
     agentTokenGate?: AgentSeason0MferGptGateStatus;
+    isAgent?: boolean;
     label: string;
     now?: Date;
   },
@@ -743,7 +935,8 @@ export async function saveCharacterProgressWithSeason0Reward(
 
     const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - totals.dailyTotal);
     const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - totals.seasonTotal);
-    if (pointsRequested > remainingDaily || pointsRequested > remainingSeason) {
+    const points = Math.min(pointsRequested, remainingDaily, remainingSeason);
+    if (points <= 0) {
       return {
         status: "capped",
         points: 0,
@@ -763,23 +956,35 @@ export async function saveCharacterProgressWithSeason0Reward(
       walletAddress: normalizedWallet,
       sourceType: reward.sourceType,
       sourceId,
-      points: pointsRequested,
+      points,
       status: "pending",
       note: label,
       createdAt: now,
     });
 
     await saveCharacterProgressRows(tx, state);
+    const referralBonus = await processSeasonReferralBaseAward(tx, {
+      refereeWalletAddress: normalizedWallet,
+      refereeCharacterId: state.characterId,
+      sourceType: reward.sourceType,
+      awardedPoints: points,
+      isAgent: Boolean(reward.isAgent),
+      now,
+    });
+    const finalTotals = referralBonus
+      ? await getSeasonRewardTotals(tx, normalizedWallet, now)
+      : { dailyTotal: totals.dailyTotal + points, seasonTotal: totals.seasonTotal + points };
 
     return {
       status: "awarded",
-      points: pointsRequested,
+      points,
       basePoints,
       agentMultiplier,
-      dailyTotal: totals.dailyTotal + pointsRequested,
-      seasonTotal: totals.seasonTotal + pointsRequested,
+      dailyTotal: finalTotals.dailyTotal,
+      seasonTotal: finalTotals.seasonTotal,
       label,
       agentTokenGate: reward.agentTokenGate,
+      referralBonus,
     };
   });
 }
@@ -793,7 +998,7 @@ export async function getSeason0Leaderboard({
 } = {}): Promise<SeasonLeaderboardSnapshot> {
   const db = getRequiredDatabase();
   const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 250);
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayStart = getSeasonDayStart(now);
   const dayStartIso = dayStart.toISOString();
   const rows = await db.execute<SeasonLeaderboardQueryRow>(sql`
     WITH totals AS (
@@ -812,18 +1017,31 @@ export async function getSeason0Leaderboard({
       WHERE sre.season_id = ${SEASON_0_ID}
       GROUP BY lower(nullif(sre.wallet_address, ''))
     ),
-    ranked AS (
-      SELECT
-        totals.*,
-        rank() OVER (
-          ORDER BY totals.season_points DESC, totals.last_event_at ASC NULLS LAST, totals.wallet_address ASC
-        )::int AS rank
-      FROM totals
-      WHERE totals.wallet_address IS NOT NULL AND totals.season_points > 0
-    )
-    SELECT
-      ranked.rank,
-      ranked.wallet_address,
+	    ranked AS (
+	      SELECT
+	        totals.*,
+	        rank() OVER (
+	          ORDER BY totals.season_points DESC, totals.last_event_at ASC NULLS LAST, totals.wallet_address ASC
+	        )::int AS rank
+	      FROM totals
+	      WHERE totals.wallet_address IS NOT NULL AND totals.season_points > 0
+	    ),
+	    referral_totals AS (
+		      SELECT
+		        sr.referrer_wallet_address AS wallet_address,
+		        count(*)::int AS referral_count,
+		        count(*) FILTER (WHERE sr.status = 'active' OR ${SEASON_0_REFERRAL_ACTIVATION_POINTS} <= 0)::int AS activated_referral_count,
+		        coalesce(sum(sr.referrer_bonus_points), 0)::int AS referral_bonus_points
+		      FROM season_referrals sr
+		      JOIN account_wallets referrer_wallet
+		        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
+		       AND referrer_wallet.is_agent = false
+		      WHERE sr.season_id = ${SEASON_0_ID}
+		      GROUP BY sr.referrer_wallet_address
+		    )
+	    SELECT
+	      ranked.rank,
+	      ranked.wallet_address,
       coalesce(account_character.name, event_character.name, accounts.display_name, 'mfer') AS character_name,
       coalesce(account_character.avatar_seed, event_character.avatar_seed, 1)::int AS avatar_seed,
       coalesce(account_character.appearance_traits, event_character.appearance_traits, '{}'::jsonb) AS appearance_traits,
@@ -831,14 +1049,18 @@ export async function getSeason0Leaderboard({
       coalesce(account_character.xp, event_character.xp, 0)::int AS xp,
       ranked.season_points,
       ranked.daily_points,
-      ranked.pending_points,
-      ranked.approved_points,
-      ranked.distributed_points,
-      ranked.events,
-      ranked.last_event_at
-    FROM ranked
-    LEFT JOIN account_wallets ON lower(account_wallets.wallet_address) = ranked.wallet_address
-    LEFT JOIN accounts ON accounts.id = account_wallets.account_id
+	      ranked.pending_points,
+	      ranked.approved_points,
+	      ranked.distributed_points,
+	      ranked.events,
+	      ranked.last_event_at,
+	      coalesce(referral_totals.referral_count, 0)::int AS referral_count,
+	      coalesce(referral_totals.activated_referral_count, 0)::int AS activated_referral_count,
+	      coalesce(referral_totals.referral_bonus_points, 0)::int AS referral_bonus_points
+	    FROM ranked
+	    LEFT JOIN account_wallets ON lower(account_wallets.wallet_address) = ranked.wallet_address
+	    LEFT JOIN accounts ON accounts.id = account_wallets.account_id
+	    LEFT JOIN referral_totals ON referral_totals.wallet_address = ranked.wallet_address
     LEFT JOIN LATERAL (
       SELECT c.name, c.avatar_seed, c.appearance_traits, c.level, c.xp
       FROM characters c
@@ -869,12 +1091,213 @@ export async function getSeason0Leaderboard({
   };
 }
 
+export async function getSeasonReferralSummary({
+  walletAddress,
+  publicOrigin = "https://game.mfergpt.lol",
+  now = new Date(),
+}: {
+  walletAddress: string;
+  publicOrigin?: string;
+  now?: Date;
+}): Promise<SeasonReferralSummary> {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) throw new Error("valid wallet required");
+  const db = getRequiredDatabase();
+  const [referralRows, referredByRows] = await Promise.all([
+    db.execute<SeasonReferralSummaryQueryRow>(sql`
+      SELECT
+        sr.referee_wallet_address,
+        c.name AS character_name,
+        sr.status,
+        sr.activated_at,
+        sr.post_activation_base_points,
+        sr.referrer_bonus_points,
+        sr.referee_bonus_points,
+        coalesce(base.total, 0)::int AS activation_progress_points
+	      FROM season_referrals sr
+	      JOIN account_wallets referrer_wallet
+	        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
+	       AND referrer_wallet.is_agent = false
+	      JOIN characters c ON c.id = sr.referee_character_id
+	      LEFT JOIN LATERAL (
+        SELECT coalesce(sum(sre.points), 0)::int AS total
+        FROM season_reward_events sre
+        WHERE sre.season_id = ${SEASON_0_ID}
+          AND lower(sre.wallet_address) = sr.referee_wallet_address
+          AND sre.source_type IN ('quest', 'event')
+          AND sre.status IN ('pending', 'approved', 'distributed')
+      ) base ON true
+      WHERE sr.season_id = ${SEASON_0_ID}
+        AND sr.referrer_wallet_address = ${normalizedWallet}
+      ORDER BY sr.created_at ASC
+    `),
+    db.execute<SeasonReferralReferredByQueryRow>(sql`
+      SELECT
+        sr.referrer_wallet_address,
+        c.name AS character_name,
+        sr.status,
+        sr.activated_at,
+        sr.referee_bonus_points,
+        coalesce(base.total, 0)::int AS activation_progress_points
+	      FROM season_referrals sr
+	      JOIN account_wallets referee_wallet
+	        ON lower(referee_wallet.wallet_address) = sr.referee_wallet_address
+	       AND referee_wallet.is_agent = false
+	      JOIN account_wallets referrer_wallet
+	        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
+	       AND referrer_wallet.is_agent = false
+	      JOIN characters c ON c.id = sr.referrer_character_id
+      LEFT JOIN LATERAL (
+        SELECT coalesce(sum(sre.points), 0)::int AS total
+        FROM season_reward_events sre
+        WHERE sre.season_id = ${SEASON_0_ID}
+          AND lower(sre.wallet_address) = sr.referee_wallet_address
+          AND sre.source_type IN ('quest', 'event')
+          AND sre.status IN ('pending', 'approved', 'distributed')
+      ) base ON true
+      WHERE sr.season_id = ${SEASON_0_ID}
+        AND sr.referee_wallet_address = ${normalizedWallet}
+      LIMIT 1
+    `),
+  ]);
+  const referrals = Array.from(referralRows).map(mapSeasonReferralSummaryRow);
+  const referredByRow = Array.from(referredByRows)[0];
+  const referredBy = referredByRow
+    ? {
+      walletAddress: toLeaderboardString(referredByRow.referrer_wallet_address),
+      characterName: toLeaderboardString(referredByRow.character_name) || "mfer",
+      status: toReferralStatus(referredByRow.status),
+      activatedAt: toLeaderboardIsoString(referredByRow.activated_at),
+      activationProgressPoints: Math.min(SEASON_0_REFERRAL_ACTIVATION_POINTS, toLeaderboardNumber(referredByRow.activation_progress_points)),
+      refereeBonusPoints: toLeaderboardNumber(referredByRow.referee_bonus_points),
+    }
+    : null;
+
+  return {
+    ok: true,
+    seasonId: SEASON_0_ID,
+    walletAddress: normalizedWallet,
+    generatedAt: now.toISOString(),
+    inviteUrl: makeSeasonReferralInviteUrl(publicOrigin, normalizedWallet),
+    limits: {
+      activationPoints: SEASON_0_REFERRAL_ACTIVATION_POINTS,
+      bonusRatePercent: 20,
+      maxBonusPoints: SEASON_0_REFERRAL_MAX_BONUS_POINTS,
+      maxReferees: SEASON_0_REFERRAL_MAX_REFEREES,
+    },
+    referredBy,
+    referralCount: referrals.length,
+    activatedReferralCount: referrals.filter((row) => row.status === "active").length,
+    referrerBonusPoints: referrals.reduce((sum, row) => sum + row.referrerBonusPoints, 0),
+    refereeBonusPoints: referredBy?.refereeBonusPoints ?? 0,
+    referrals,
+  };
+}
+
+export async function removeSeasonReferral({
+  referrerWalletAddress,
+  refereeWalletAddress,
+  now = new Date(),
+}: {
+  referrerWalletAddress: string;
+  refereeWalletAddress: string;
+  now?: Date;
+}): Promise<SeasonReferralRemovePersistenceResult> {
+  const normalizedReferrer = normalizeWalletAddress(referrerWalletAddress);
+  const normalizedReferee = normalizeWalletAddress(refereeWalletAddress);
+  const base = {
+    referrerWalletAddress: normalizedReferrer,
+    refereeWalletAddress: normalizedReferee,
+  };
+  if (!normalizedReferrer || !normalizedReferee) {
+    return makeSeasonReferralRemoveResult("invalid_wallet", base);
+  }
+
+  const db = getDatabase();
+  if (!db) return makeSeasonReferralRemoveResult("no_database", base, "referral database unavailable");
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:${normalizedReferrer}`}), 0)`);
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:${normalizedReferee}`}), 0)`);
+
+    const referral = await tx.query.seasonReferrals.findFirst({
+      where: and(
+        eq(seasonReferrals.seasonId, SEASON_0_ID),
+        eq(seasonReferrals.referrerWalletAddress, normalizedReferrer),
+        eq(seasonReferrals.refereeWalletAddress, normalizedReferee),
+      ),
+    });
+    if (!referral) return makeSeasonReferralRemoveResult("not_found", base, "referral not found");
+
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:referral:${referral.id}`}), 0)`);
+
+    const bonusEvents = await tx.select({
+      walletAddress: seasonRewardEvents.walletAddress,
+      points: seasonRewardEvents.points,
+      status: seasonRewardEvents.status,
+      createdAt: seasonRewardEvents.createdAt,
+    })
+      .from(seasonRewardEvents)
+      .where(and(
+        eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+        eq(seasonRewardEvents.sourceType, "referral"),
+        sql`${seasonRewardEvents.sourceId} LIKE ${`${referral.id}:bonus:%`}`,
+      ));
+
+    await tx.delete(seasonRewardEvents)
+      .where(and(
+        eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+        eq(seasonRewardEvents.sourceType, "referral"),
+        sql`${seasonRewardEvents.sourceId} LIKE ${`${referral.id}:bonus:%`}`,
+      ));
+    await tx.delete(seasonReferrals).where(eq(seasonReferrals.id, referral.id));
+
+    const dayStart = getSeasonDayStart(now);
+    const countedStatuses = new Set(["pending", "approved", "distributed"]);
+    let removedReferrerBonusPoints = 0;
+    let removedReferrerDailyPoints = 0;
+    let removedRefereeBonusPoints = 0;
+    let removedRefereeDailyPoints = 0;
+    for (const event of bonusEvents) {
+      if (!countedStatuses.has(event.status)) continue;
+      const walletAddress = normalizeWalletAddress(event.walletAddress);
+      const points = Math.max(0, Math.floor(Number(event.points ?? 0)));
+      const isToday = event.createdAt >= dayStart;
+      if (walletAddress === normalizedReferrer) {
+        removedReferrerBonusPoints += points;
+        if (isToday) removedReferrerDailyPoints += points;
+      } else if (walletAddress === normalizedReferee) {
+        removedRefereeBonusPoints += points;
+        if (isToday) removedRefereeDailyPoints += points;
+      }
+    }
+
+    const [referrerTotals, refereeTotals] = await Promise.all([
+      getSeasonRewardTotals(tx, normalizedReferrer, now),
+      getSeasonRewardTotals(tx, normalizedReferee, now),
+    ]);
+    return {
+      ok: true,
+      status: "removed",
+      ...base,
+      removedReferrerBonusPoints,
+      removedReferrerDailyPoints,
+      removedRefereeBonusPoints,
+      removedRefereeDailyPoints,
+      referrerSeason0Points: referrerTotals.seasonTotal,
+      referrerSeason0DailyPoints: referrerTotals.dailyTotal,
+      refereeSeason0Points: refereeTotals.seasonTotal,
+      refereeSeason0DailyPoints: refereeTotals.dailyTotal,
+    };
+  });
+}
+
 async function getSeasonRewardTotals(
   tx: DatabaseTransaction,
   walletAddress: string,
   now: Date,
 ) {
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayStart = getSeasonDayStart(now);
   const countedStatuses = ["pending", "approved", "distributed"];
   const [dailyRow] = await tx.select({
     total: sql<number>`coalesce(sum(${seasonRewardEvents.points}), 0)::int`,
@@ -902,6 +1325,199 @@ async function getSeasonRewardTotals(
   };
 }
 
+function makeSeasonReferralRemoveResult(
+  status: SeasonReferralRemovePersistenceResult["status"],
+  {
+    referrerWalletAddress,
+    refereeWalletAddress,
+  }: {
+    referrerWalletAddress: string;
+    refereeWalletAddress: string;
+  },
+  error?: string,
+): SeasonReferralRemovePersistenceResult {
+  return {
+    ok: false,
+    status,
+    referrerWalletAddress,
+    refereeWalletAddress,
+    removedReferrerBonusPoints: 0,
+    removedReferrerDailyPoints: 0,
+    removedRefereeBonusPoints: 0,
+    removedRefereeDailyPoints: 0,
+    referrerSeason0Points: 0,
+    referrerSeason0DailyPoints: 0,
+    refereeSeason0Points: 0,
+    refereeSeason0DailyPoints: 0,
+    error,
+  };
+}
+
+function getSeasonDayStart(now: Date) {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+async function getSeasonEligibleBasePointTotal(tx: DatabaseTransaction, walletAddress: string) {
+  const countedStatuses = ["pending", "approved", "distributed"];
+  const [row] = await tx.select({
+    total: sql<number>`coalesce(sum(${seasonRewardEvents.points}), 0)::int`,
+  })
+    .from(seasonRewardEvents)
+    .where(and(
+      eq(seasonRewardEvents.seasonId, SEASON_0_ID),
+      eq(seasonRewardEvents.walletAddress, walletAddress),
+      inArray(seasonRewardEvents.sourceType, ["quest", "event"]),
+      inArray(seasonRewardEvents.status, countedStatuses),
+    ));
+  return Number(row?.total ?? 0);
+}
+
+async function isWalletMarkedAgent(tx: DatabaseTransaction, walletAddress: string) {
+  const wallet = await findAccountWalletByNormalizedAddress(tx, walletAddress);
+  return Boolean(wallet?.isAgent);
+}
+
+async function processSeasonReferralBaseAward(
+  tx: DatabaseTransaction,
+  {
+    refereeWalletAddress,
+    refereeCharacterId,
+    sourceType,
+    awardedPoints,
+    isAgent,
+    now,
+  }: {
+    refereeWalletAddress: string;
+    refereeCharacterId: string;
+    sourceType: SeasonRewardSourceType;
+    awardedPoints: number;
+    isAgent: boolean;
+    now: Date;
+  },
+): Promise<SeasonReferralBonusAward | undefined> {
+  const normalizedReferee = normalizeWalletAddress(refereeWalletAddress);
+  const points = Math.max(0, Math.floor(awardedPoints));
+  if (!normalizedReferee) return undefined;
+  const walletIsAgent = await isWalletMarkedAgent(tx, normalizedReferee);
+  if (!isSeasonReferralEligibleBaseAward({ sourceType, isAgent, walletIsAgent, awardedPoints: points })) return undefined;
+
+  const referral = await tx.query.seasonReferrals.findFirst({
+    where: and(
+      eq(seasonReferrals.seasonId, SEASON_0_ID),
+      eq(seasonReferrals.refereeWalletAddress, normalizedReferee),
+    ),
+  });
+  if (!referral || await isWalletMarkedAgent(tx, referral.referrerWalletAddress)) return undefined;
+
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:referral:${referral.id}`}), 0)`);
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${SEASON_0_ID}:${referral.referrerWalletAddress}`}), 0)`);
+
+  const totalEligibleBasePoints = await getSeasonEligibleBasePointTotal(tx, normalizedReferee);
+  const progressUpdate = getSeasonReferralProgressUpdate({
+    status: toReferralStatus(referral.status),
+    activatedAt: referral.activatedAt,
+    postActivationBasePoints: referral.postActivationBasePoints,
+    totalEligibleBasePoints,
+    awardedPoints: points,
+    now,
+  });
+  const nextStatus = progressUpdate.nextStatus;
+  const nextActivatedAt = progressUpdate.nextActivatedAt;
+  const nextPostActivationBasePoints = progressUpdate.nextPostActivationBasePoints;
+
+  if (
+    nextStatus !== referral.status
+    || nextActivatedAt !== referral.activatedAt
+    || nextPostActivationBasePoints !== referral.postActivationBasePoints
+  ) {
+    await tx.update(seasonReferrals)
+      .set({
+        status: nextStatus,
+        activatedAt: nextActivatedAt,
+        postActivationBasePoints: nextPostActivationBasePoints,
+        updatedAt: now,
+      })
+      .where(eq(seasonReferrals.id, referral.id));
+  }
+
+  if (nextStatus !== "active" || !progressUpdate.shouldCountAward) return undefined;
+
+  const [referrerTotals, refereeTotals] = await Promise.all([
+    getSeasonRewardTotals(tx, referral.referrerWalletAddress, now),
+    getSeasonRewardTotals(tx, normalizedReferee, now),
+  ]);
+  const referrerCapacity = Math.min(
+    Math.max(0, SEASON_0_DAILY_POINT_CAP - referrerTotals.dailyTotal),
+    Math.max(0, SEASON_0_TOTAL_POINT_CAP - referrerTotals.seasonTotal),
+    Math.max(0, SEASON_0_REFERRAL_MAX_BONUS_POINTS - referral.referrerBonusPoints),
+  );
+  const refereeCapacity = Math.min(
+    Math.max(0, SEASON_0_DAILY_POINT_CAP - refereeTotals.dailyTotal),
+    Math.max(0, SEASON_0_TOTAL_POINT_CAP - refereeTotals.seasonTotal),
+    Math.max(0, SEASON_0_REFERRAL_MAX_BONUS_POINTS - referral.refereeBonusPoints),
+  );
+  const bonusPoints = getSeasonReferralBonusDelta({
+    postActivationBasePoints: nextPostActivationBasePoints,
+    referrerBonusPoints: referral.referrerBonusPoints,
+    refereeBonusPoints: referral.refereeBonusPoints,
+    referrerCapacity,
+    refereeCapacity,
+  });
+  if (bonusPoints <= 0) return undefined;
+
+  const nextReferrerBonusPoints = referral.referrerBonusPoints + bonusPoints;
+  const nextRefereeBonusPoints = referral.refereeBonusPoints + bonusPoints;
+  const sourceId = `${referral.id}:bonus:${nextRefereeBonusPoints}`;
+  await tx.insert(seasonRewardEvents).values([
+    {
+      id: randomUUID(),
+      seasonId: SEASON_0_ID,
+      characterId: referral.referrerCharacterId,
+      walletAddress: referral.referrerWalletAddress,
+      sourceType: "referral",
+      sourceId,
+      points: bonusPoints,
+      status: "pending",
+      note: `referral bonus from ${shortWalletForNote(normalizedReferee)}`,
+      createdAt: now,
+    },
+    {
+      id: randomUUID(),
+      seasonId: SEASON_0_ID,
+      characterId: refereeCharacterId || referral.refereeCharacterId,
+      walletAddress: normalizedReferee,
+      sourceType: "referral",
+      sourceId,
+      points: bonusPoints,
+      status: "pending",
+      note: `referral bonus with ${shortWalletForNote(referral.referrerWalletAddress)}`,
+      createdAt: now,
+    },
+  ]);
+
+  await tx.update(seasonReferrals)
+    .set({
+      referrerBonusPoints: nextReferrerBonusPoints,
+      refereeBonusPoints: nextRefereeBonusPoints,
+      updatedAt: now,
+    })
+    .where(eq(seasonReferrals.id, referral.id));
+
+  return {
+    referralId: referral.id,
+    referrerWalletAddress: referral.referrerWalletAddress,
+    referrerCharacterId: referral.referrerCharacterId,
+    referrerPoints: bonusPoints,
+    refereePoints: bonusPoints,
+  };
+}
+
+function shortWalletForNote(walletAddress: string) {
+  return walletAddress.length > 12
+    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+    : walletAddress;
+}
+
 type SeasonLeaderboardQueryRow = {
   rank?: unknown;
   wallet_address?: unknown;
@@ -917,6 +1533,29 @@ type SeasonLeaderboardQueryRow = {
   distributed_points?: unknown;
   events?: unknown;
   last_event_at?: unknown;
+  referral_count?: unknown;
+  activated_referral_count?: unknown;
+  referral_bonus_points?: unknown;
+};
+
+type SeasonReferralSummaryQueryRow = {
+  referee_wallet_address?: unknown;
+  character_name?: unknown;
+  status?: unknown;
+  activated_at?: unknown;
+  post_activation_base_points?: unknown;
+  referrer_bonus_points?: unknown;
+  referee_bonus_points?: unknown;
+  activation_progress_points?: unknown;
+};
+
+type SeasonReferralReferredByQueryRow = {
+  referrer_wallet_address?: unknown;
+  character_name?: unknown;
+  status?: unknown;
+  activated_at?: unknown;
+  referee_bonus_points?: unknown;
+  activation_progress_points?: unknown;
 };
 
 function mapSeasonLeaderboardEntry(row: SeasonLeaderboardQueryRow): SeasonLeaderboardEntry {
@@ -935,7 +1574,33 @@ function mapSeasonLeaderboardEntry(row: SeasonLeaderboardQueryRow): SeasonLeader
     distributedPoints: toLeaderboardNumber(row.distributed_points),
     events: toLeaderboardNumber(row.events),
     lastEventAt: toLeaderboardIsoString(row.last_event_at),
+    referralCount: toLeaderboardNumber(row.referral_count),
+    activatedReferralCount: toLeaderboardNumber(row.activated_referral_count),
+    referralBonusPoints: toLeaderboardNumber(row.referral_bonus_points),
   };
+}
+
+function mapSeasonReferralSummaryRow(row: SeasonReferralSummaryQueryRow): SeasonReferralSummaryRow {
+  return {
+    refereeWalletAddress: toLeaderboardString(row.referee_wallet_address),
+    characterName: toLeaderboardString(row.character_name) || "mfer",
+    status: toReferralStatus(row.status),
+    activatedAt: toLeaderboardIsoString(row.activated_at),
+    activationProgressPoints: Math.min(SEASON_0_REFERRAL_ACTIVATION_POINTS, toLeaderboardNumber(row.activation_progress_points)),
+    postActivationBasePoints: toLeaderboardNumber(row.post_activation_base_points),
+    referrerBonusPoints: toLeaderboardNumber(row.referrer_bonus_points),
+    refereeBonusPoints: toLeaderboardNumber(row.referee_bonus_points),
+  };
+}
+
+function toReferralStatus(value: unknown): SeasonReferralStatus {
+  if (SEASON_0_REFERRAL_ACTIVATION_POINTS <= 0) return "active";
+  return value === "active" ? "active" : "pending";
+}
+
+function makeSeasonReferralInviteUrl(publicOrigin: string, walletAddress: string) {
+  const origin = publicOrigin.trim().replace(/\/+$/, "") || "https://game.mfergpt.lol";
+  return `${origin}/?referral=${encodeURIComponent(walletAddress)}`;
 }
 
 function toLeaderboardNumber(value: unknown) {

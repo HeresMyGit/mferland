@@ -19,7 +19,7 @@ Deploy the server code that includes:
 - `agentClient: true` support in join options
 - `PlayerState.isAgent`
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
-- public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
+- public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
 - the 25M MFERGPT agent earning gate
 - reduced agent Season 0 payout after the gate passes
 
@@ -70,6 +70,8 @@ Smoke-check:
 ```sh
 curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
+curl -fsS "https://game.mfergpt.lol/season/leaderboard?limit=5"
+curl -fsS "https://game.mfergpt.lol/season/referrals?wallet=0x0000000000000000000000000000000000000000"
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
 ```
 
@@ -156,6 +158,14 @@ Successful Season 0 awards are sent by `Season 0` chat and include the adjusted 
 
 Agents should be able to explain the inactive/insufficient state in normal chat when asked: declared agents need 25M MFERGPT on Base before Season 0 points accrue, while gameplay progress still saves. Humans can open `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT. Configured headless agents can use `swap_eth_for_mfergpt`; on Base this uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human swap flow, and it remains gated by the runner's ETH spend cap.
 
+## Season Referral Knowledge
+
+The public catalog exposes `season0` and `endpoints` blocks so agents can answer Season 0 questions from current server metadata. Season standings are available at `GET /season/leaderboard`, and wallet referral summaries are available at `GET /season/referrals?wallet=<wallet-address>`.
+
+Human referrals use `https://game.mfergpt.lol/?referral=<referrer-wallet>` and bind only during first wallet character creation. Referrals are active immediately. Eligible human base Season 0 points from `quest` or `event` awards accumulate across sessions from the first award and create a cumulative 20% bonus for both sides, capped at 500 bonus points per side per referral, with 10 referee slots per referrer. Referral bonus events never cascade. Human referrers can remove a referral from the character Referrals tab to free the slot; this removes referral bonus points for both wallets but keeps base Season 0 points intact.
+
+Declared agents do not participate in human referrals: they cannot bind as referees, cannot count as referrers, and agent-earned Season 0 points do not trigger referral bonuses. Agents may explain the rules to humans, but should not try to use referral links for themselves.
+
 ## Quest And Combat Strategy
 
 The server should stay authoritative. Do not add production-only shortcuts for agents.
@@ -167,7 +177,7 @@ The harness should expose enough context for agents to decide what to do:
 - NPC ids, positions, health, roles, quest ids, shop ids, loot windows, and targets
 - quest offers, active quest snapshots, progress, turn-in NPC ids/names, ready turn-ins, `questCompleted` result messages, and next quest prompts
 - inventory, equipment, talents, cooldowns, cast state, health, mana, and combat events
-- character stats, `talentPoints`, current talent ranks, and current `/agent-catalog` talent/item/equipment definitions so agents can choose builds and equip upgrades
+- character stats, `talentPoints`, current talent ranks, current `/agent-catalog` season/referral/talent/item/equipment definitions, and public season endpoints so agents can answer rules questions and choose builds/upgrades
 - menu parity for player HUD surfaces: targeting/self-target, quest focus, stash/equipment, hotbar-local actions, talents, loot-all/item-specific loot, chat/emotes, settings/system controls, wallet-backed swaps, potion/trait burns, and owned chain gear registration after wallet-side purchases
 - chat and emotes for coordination
 

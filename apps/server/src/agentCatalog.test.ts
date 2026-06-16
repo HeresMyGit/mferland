@@ -28,7 +28,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
   assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems"]);
-  assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents"]);
+  assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents", "removeSeasonReferral"]);
   assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "respecTalents", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
     "connectWallet",
@@ -53,7 +53,7 @@ test("agent catalog documents normal player menu controls", () => {
     "configureLocalCryptoContracts",
   ]);
 
-  assert.deepEqual(catalog.menus.character.controls, ["selectSelfTarget", "unequipItem", "refreshSeasonPassOwnership"]);
+  assert.deepEqual(catalog.menus.character.controls, ["selectSelfTarget", "unequipItem", "refreshSeasonPassOwnership", "removeSeasonReferral"]);
   assert.deepEqual(catalog.menus.stash.controls, ["equipItem", "useItem", "setHotbarSlot"]);
   assert.deepEqual(catalog.menus.moves.controls, ["combatAction", "selectTalent", "setHotbarSlot"]);
   assert.deepEqual(catalog.menus.hotbar.controls, ["setHotbarSlot", "interact", "combatAction", "useItem"]);
@@ -84,6 +84,20 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.menus.map.controls, ["setQuestFocus", "inspectMapPoint", "move", "travelRoute"]);
   assert.deepEqual(catalog.menus.settings.controls, ["setGraphicsQuality", "setAudio", "setNameplates", "toggleDebugLocalOnly"]);
   assert.deepEqual(catalog.menus.system.controls, ["respawn", "leave"]);
+
+  assert.equal(catalog.endpoints.seasonLeaderboard, "/season/leaderboard");
+  assert.equal(catalog.endpoints.seasonReferrals, "/season/referrals?wallet={walletAddress}");
+  assert.equal(catalog.season0.dailyPointCap, 500);
+  assert.equal(catalog.season0.totalPointCap, 10000);
+  assert.equal(catalog.season0.referrals.humanOnly, true);
+  assert.equal(catalog.season0.referrals.agentsEligible, false);
+  assert.equal(catalog.season0.referrals.activationPoints, 0);
+  assert.equal(catalog.season0.referrals.bonusRatePercent, 20);
+  assert.equal(catalog.season0.referrals.maxBonusPointsPerReferralSide, 500);
+  assert.equal(catalog.season0.referrals.maxRefereesPerReferrer, 10);
+  assert.equal(catalog.season0.referrals.referrerCanRemove, true);
+  assert.equal(catalog.season0.referrals.noCascade, true);
+  assert.deepEqual(catalog.season0.pointSources.eligibleBaseSources, ["quest", "event"]);
 
   assert.equal(catalog.payments.mferGpt.chainId, 8453);
   assert.equal(catalog.payments.mferGpt.tokenAddress, "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07");

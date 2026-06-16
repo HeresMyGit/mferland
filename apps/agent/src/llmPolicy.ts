@@ -15,6 +15,13 @@ import {
   TALENTS,
   QUESTS,
   QUEST_IDS,
+  SEASON_0_DAILY_POINT_CAP,
+  SEASON_0_REFERRAL_ACTIVATION_POINTS,
+  SEASON_0_REFERRAL_BONUS_DENOMINATOR,
+  SEASON_0_REFERRAL_BONUS_NUMERATOR,
+  SEASON_0_REFERRAL_MAX_BONUS_POINTS,
+  SEASON_0_REFERRAL_MAX_REFEREES,
+  SEASON_0_TOTAL_POINT_CAP,
   TRASH_VENDOR_ITEM_IDS,
   TRASH_VENDOR_NPC_ID,
   getTalentRankStatus,
@@ -117,6 +124,25 @@ type VisibleObservation = {
     canceledQuestIds: string[];
     mferGptSwapTxHashes: string[];
     recentActions: string[];
+  };
+  season0: {
+    dailyPointCap: number;
+    totalPointCap: number;
+    endpoints: {
+      leaderboard: string;
+      referrals: string;
+    };
+    referrals: {
+      humanOnly: boolean;
+      agentsEligible: boolean;
+      inviteUrlFormat: string;
+      bindTiming: string;
+      activationPoints: number;
+      bonusRatePercent: number;
+      maxBonusPointsPerReferralSide: number;
+      maxRefereesPerReferrer: number;
+      noCascade: boolean;
+    };
   };
   questProgress: {
     totalQuestCount: number;
@@ -614,6 +640,25 @@ export function makeVisibleObservation(
         mferGptSwapTxHashes: memory.mferGptSwapTxHashes.slice(-4),
         recentActions: memory.recentActions.slice(-8),
       },
+      season0: {
+        dailyPointCap: SEASON_0_DAILY_POINT_CAP,
+        totalPointCap: SEASON_0_TOTAL_POINT_CAP,
+        endpoints: {
+          leaderboard: "/season/leaderboard",
+          referrals: "/season/referrals?wallet=<wallet-address>",
+        },
+        referrals: {
+          humanOnly: true,
+          agentsEligible: false,
+          inviteUrlFormat: "https://game.mfergpt.lol/?referral=<referrer-wallet>",
+          bindTiming: "first wallet character creation only",
+          activationPoints: SEASON_0_REFERRAL_ACTIVATION_POINTS,
+          bonusRatePercent: (SEASON_0_REFERRAL_BONUS_NUMERATOR / SEASON_0_REFERRAL_BONUS_DENOMINATOR) * 100,
+          maxBonusPointsPerReferralSide: SEASON_0_REFERRAL_MAX_BONUS_POINTS,
+          maxRefereesPerReferrer: SEASON_0_REFERRAL_MAX_REFEREES,
+          noCascade: true,
+        },
+      },
       questProgress: getQuestProgress(self.quests, memory),
       self: {
         name: self.name,
@@ -771,6 +816,8 @@ export function makeVisibleObservation(
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
+          "Season point caps, referral rules, and season endpoints are in observation.season0. Agents do not bind, count, or earn human referral bonuses.",
+          "If a human asks about referrals, explain the human-only wallet link format, immediate referral earning from eligible human base Season 0 quest/event points, cumulative 20% bonus, 500 bonus cap per side, 10-referral limit, no cascade, that human referrers can remove a referral from the Referrals tab to reclaim the slot and remove referral bonus points, and the /season/leaderboard and /season/referrals?wallet=... endpoints.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "Use swap_eth_for_mfergpt when the wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal wallet transaction through observation.wallet.mferGptSwapMode, using the same Base ETH to MFERGPT route as swap-mfer when mode is uniswap-v4.",
           "Use buy_potion_shop_item only when observation.wallet.mferGptPaymentConfigured is true and observation.stores says potion-mfer can sell through the normal MFERGPT burn flow.",
@@ -854,6 +901,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
+          "Use observation.season0 for Season 0 point caps, referral rules, and public season endpoints. Agents can explain human referral rules but do not participate in referral binding, counts, or bonuses.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories based on what you know about yourself as an agent, your style, and intended play archetype. Declared agents render with the mferGPT agent model, so traits are identity metadata and supported overlays.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
           "Do not choose wait while an NPC is targeting you; wait is a 5-second safe recovery pause when you are not being attacked.",
