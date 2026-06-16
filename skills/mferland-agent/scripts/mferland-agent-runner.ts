@@ -1339,6 +1339,8 @@ class MferlandRunner {
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
         "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
         "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
+        "Season point caps, referral rules, and public season endpoints are in catalog.season0 and catalog.endpoints. Agents do not bind, count, or earn human referral bonuses.",
+        "If a human asks about referrals, explain the human-only wallet link format, immediate referral earning from eligible human base Season 0 quest/event points, cumulative 20% bonus, 500 bonus cap per side, 10-referral limit, no cascade, that human referrers can remove a referral from the Referrals tab to reclaim the slot and remove referral bonus points, and the /season/leaderboard and /season/referrals?wallet=... endpoints.",
         "Do not chase a perfect pull forever. If only the current target is attacking, health is not critical, and self.combatMath says the fight is favorable, keep attacking instead of repeatedly retreating.",
         "Retreat when health is critical, multiple adds make the combat math unfavorable, or the route would run deeper into a pack.",
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
@@ -1399,6 +1401,8 @@ class MferlandRunner {
     const itemDefinitions = Object.values(items).map(asRecord);
     return {
       source: "agent-catalog",
+      endpoints: this.catalog.endpoints ?? {},
+      season0: this.catalog.season0 ?? {},
       controls: this.catalog.controls ?? {},
       menus: this.catalog.menus ?? {},
       payments: this.catalog.payments ?? {},

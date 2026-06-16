@@ -17,7 +17,7 @@ import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
 import { closeDatabase } from "./db/client.js";
-import { getSeason0Leaderboard, getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
+import { getSeason0Leaderboard, getSeasonReferralSummary, getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
 import { assertLocalOnlyRuntimeSafety } from "./localSafety.js";
 import {
   areDebugMessagesEnabled,
@@ -184,6 +184,11 @@ const server = createServer((req, res) => {
 
   if (url === "/season/leaderboard") {
     void handleSeasonLeaderboard(req, requestUrl, res);
+    return;
+  }
+
+  if (url === "/season/referrals") {
+    void handleSeasonReferrals(req, requestUrl, res);
     return;
   }
 
@@ -378,6 +383,53 @@ async function handleSeasonLeaderboard(req: IncomingMessage, requestUrl: URL, re
       ok: false,
       error: status === 503 ? "wallet persistence unavailable" : "unable to load leaderboard",
       entries: [],
+    });
+    res.writeHead(status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  }
+}
+
+async function handleSeasonReferrals(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "allow": "GET, HEAD", "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  try {
+    const payload = await getSeasonReferralSummary({
+      walletAddress: requestUrl.searchParams.get("wallet") ?? "",
+    });
+    const body = JSON.stringify(payload);
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  } catch (error) {
+    console.error("Failed to load season referrals", error);
+    const status = error instanceof Error && error.message === "valid wallet required"
+      ? 400
+      : error instanceof PersistenceUnavailableError ? 503 : 500;
+    const body = JSON.stringify({
+      ok: false,
+      error: status === 400
+        ? "valid wallet required"
+        : status === 503 ? "wallet persistence unavailable" : "unable to load referrals",
+      referrals: [],
     });
     res.writeHead(status, {
       "content-type": "application/json",

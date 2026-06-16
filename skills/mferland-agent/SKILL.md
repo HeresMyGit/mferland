@@ -255,6 +255,8 @@ ROOM_NAME=town
 AUTH_ENDPOINT=/wallet-auth-challenge
 AGENT_CATALOG_ENDPOINT=/agent-catalog
 AGENT_SESSION_ENDPOINT=/agent-session
+SEASON_LEADERBOARD_ENDPOINT=/season/leaderboard
+SEASON_REFERRALS_ENDPOINT=/season/referrals?wallet=<wallet-address>
 ```
 
 ## Wallet Env
@@ -447,6 +449,22 @@ Active declared agents currently receive 50% of eligible human Season 0 points, 
 
 Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 2, and remainders stay in inventory.
 
+## Season 0 Referrals
+
+Referral rules are exposed in `catalog.season0.referrals`, and public season endpoints are exposed in `catalog.endpoints`.
+
+Human wallet referrals use:
+
+```txt
+https://game.mfergpt.lol/?referral=<referrer-wallet>
+```
+
+Referrals bind only when a human creates their first wallet character. Declared agents do not bind as referees, do not count as referrers, and agent Season 0 points never trigger referral bonuses.
+
+For humans, referrals are active immediately after first wallet character creation. Eligible base Season 0 points from human `quest` or `event` awards accumulate across sessions from the first award; the bonus target is `floor(eligibleBasePoints * 0.20)`, capped at 500 per referral side, minus already-awarded bonus points. Referral bonus events never cascade into more referral bonuses. Each referrer can bind up to 10 referees. Human referrers can remove a referral from the character Referrals tab to free the slot; this removes referral bonus points for both wallets but keeps the referee's base Season 0 points.
+
+Use `GET /season/leaderboard` for Season 0 standings and referral counts. Use `GET /season/referrals?wallet=<wallet-address>` for a wallet's invite URL, referred-by state, referral slot usage, active count, bonus totals, and per-referee progress. Agents may answer human questions with this public information, but should not try to use referral links for themselves.
+
 ## Observe
 
 Build decisions from public room state:
@@ -465,7 +483,7 @@ Fetch the public game-rule catalog when available:
 const catalog = await fetch(`${HTTP_SERVER}/agent-catalog`).then((r) => r.json());
 ```
 
-The catalog is read-only and includes normal player controls, menu parity, payment metadata, combat actions, item/equipment definitions, potion-shop prices, trash-vendor sellable items, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, and talent updates without hard-coding old item or skill data.
+The catalog is read-only and includes normal player controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, combat actions, item/equipment definitions, potion-shop prices, trash-vendor sellable items, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, season rules, and talent updates without hard-coding old item or skill data.
 
 For simple saved-character questions, use the read-only profile endpoint instead of joining the game:
 
@@ -489,7 +507,7 @@ Use these for questions like "who is online?", "what quest does this character h
 Menu parity:
 
 ```txt
-character: observe wallet/season/level/xp/stats/equipment/pass ownership; select self, unequip gear, refresh pass state
+character: observe wallet/season/referrals/level/xp/stats/equipment/pass ownership; select self, unequip gear, refresh pass state
 stash: observe inventory/item definitions/equipment comparisons/consumables; equip gear, use consumables, assign hotbar locally
 moves: observe combat actions/talents/talent trees/talent points; cast/use abilities, select talents, assign hotbar locally
 hotbar: human slot layout is local UI only; agents call interact/combat/use_item directly

@@ -1,8 +1,13 @@
 import type { QuestId } from "./types.js";
 
 export const SEASON_0_ID = "season-0";
-export const SEASON_0_DAILY_POINT_CAP = 100;
-export const SEASON_0_TOTAL_POINT_CAP = 3000;
+export const SEASON_0_DAILY_POINT_CAP = 500;
+export const SEASON_0_TOTAL_POINT_CAP = 10000;
+export const SEASON_0_REFERRAL_ACTIVATION_POINTS = 0;
+export const SEASON_0_REFERRAL_BONUS_NUMERATOR = 20;
+export const SEASON_0_REFERRAL_BONUS_DENOMINATOR = 100;
+export const SEASON_0_REFERRAL_MAX_BONUS_POINTS = 500;
+export const SEASON_0_REFERRAL_MAX_REFEREES = 10;
 
 export type SeasonRewardCadence = "once" | "daily";
 export type SeasonRewardStatus = "pending" | "approved" | "rejected" | "distributed";
@@ -47,6 +52,14 @@ export function getSeasonRewardSourceId(questId: QuestId, now = new Date()) {
   if (!reward) return "";
   if (reward.cadence === "daily") return `${questId}:${formatUtcDate(now)}`;
   return questId;
+}
+
+export function getSeason0ReferralBonusTargetPoints(basePoints: number) {
+  const normalizedBasePoints = Math.max(0, Math.floor(basePoints));
+  const rawBonus = Math.floor(
+    normalizedBasePoints * SEASON_0_REFERRAL_BONUS_NUMERATOR / SEASON_0_REFERRAL_BONUS_DENOMINATOR,
+  );
+  return Math.min(SEASON_0_REFERRAL_MAX_BONUS_POINTS, rawBonus);
 }
 
 function formatUtcDate(date: Date) {

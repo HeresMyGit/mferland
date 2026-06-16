@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Dumbbell, ExternalLink, Gift, Hand, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -36,6 +36,7 @@ import {
   type ClientCompleteQuest,
   type ClientEquipItem,
   type ClientLootCorpse,
+  type ClientRemoveSeasonReferral,
   type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientShareQuestLink,
@@ -52,6 +53,7 @@ import {
   type QuestMarkerType,
   type QuestStatusNotice,
   type QuestTurnIn,
+  type SeasonReferralRemoveResult,
   type TargetSelection,
 } from "@mferland/shared";
 import { colorFromSeed } from "../game/random";
@@ -69,6 +71,8 @@ import { TargetFrame } from "./hud/TargetFrame";
 import { type ActionSlot, type DragState, isItemActionSlot, makeItemActionSlot } from "./hud/types";
 import { CryptoStorePanel } from "./CryptoStorePanel";
 import { MferPortrait } from "./MferPortrait";
+import { fetchSeasonReferralSummary, type SeasonReferralSummary } from "../seasonReferrals";
+import { copyTextToClipboard } from "../clipboard";
 import {
   MINIMAP_HUBS,
   MINIMAP_LANDMARKS,
@@ -104,10 +108,16 @@ const BASE_CHAIN_ID = TRAIT_CHANGE_BASE_CHAIN_ID;
 const BASE_CHAIN_RPC_URL = TRAIT_CHANGE_BASE_RPC_URL;
 const IS_PRODUCTION_BUILD = Boolean(import.meta.env?.PROD);
 const SEASON_PASS_OWNERSHIP_REFRESH_MS = 60_000;
+const REFERRALS_BADGE_SEEN_KEY = "mferland.referralsBadgeSeen:v1";
 const BALANCE_OF_SELECTOR = "0x70a08231";
 const EMPTY_SEASON_PASS_OWNERSHIP: SeasonPassOwnershipState = {
   state: "idle",
   label: "--",
+  error: "",
+};
+const EMPTY_REFERRAL_SUMMARY: SeasonReferralSummaryState = {
+  state: "idle",
+  summary: null,
   error: "",
 };
 const EMOTE_OPTIONS: Array<{ id: EmoteId; Icon: LucideIcon }> = [
@@ -124,11 +134,22 @@ type HudTooltipState = {
   x: number;
   y: number;
 };
+type PendingReferralRemoval = {
+  refereeWalletAddress: string;
+  characterName: string;
+};
 type CryptoStoreAnalyticsProperties = Record<string, string | number | boolean | null>;
 
 type SeasonPassOwnershipState = {
   state: "idle" | "loading" | "ready" | "error";
   label: string;
+  error: string;
+};
+
+type CharacterPanelTab = "gear" | "referrals";
+type SeasonReferralSummaryState = {
+  state: "idle" | "loading" | "ready" | "error";
+  summary: SeasonReferralSummary | null;
   error: string;
 };
 
@@ -193,6 +214,8 @@ type HudProps = {
   onRegisterChainGear: (message: ClientRegisterChainGear) => void;
   onCryptoStoreAnalytics: (eventType: string, properties?: CryptoStoreAnalyticsProperties) => void;
   onSelectTalent: (message: ClientSelectTalent) => void;
+  seasonReferralRemoveResult?: SeasonReferralRemoveResult | null;
+  onRemoveSeasonReferral?: (message: ClientRemoveSeasonReferral) => void;
   onCloseLootWindow: () => void;
   onCloseCryptoStore: () => void;
   onSendChat: (text: string) => void;
@@ -244,6 +267,8 @@ export function Hud({
   onRegisterChainGear,
   onCryptoStoreAnalytics,
   onSelectTalent,
+  seasonReferralRemoveResult = null,
+  onRemoveSeasonReferral = () => undefined,
   onCloseLootWindow,
   onCloseCryptoStore,
   onSendChat,
@@ -271,7 +296,13 @@ export function Hud({
   const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
+  const [characterPanelTab, setCharacterPanelTab] = useState<CharacterPanelTab>("gear");
   const [seasonPassOwnership, setSeasonPassOwnership] = useState<SeasonPassOwnershipState>(EMPTY_SEASON_PASS_OWNERSHIP);
+  const [seasonReferralSummary, setSeasonReferralSummary] = useState<SeasonReferralSummaryState>(EMPTY_REFERRAL_SUMMARY);
+  const [referralCopyStatus, setReferralCopyStatus] = useState("");
+  const [pendingReferralRemoval, setPendingReferralRemoval] = useState<PendingReferralRemoval | null>(null);
+  const [isReferralInfoOpen, setIsReferralInfoOpen] = useState(false);
+  const [hasSeenReferralsBadge, setHasSeenReferralsBadge] = useState(() => readReferralsBadgeSeen());
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
   const [isEmotesOpen, setIsEmotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -311,6 +342,8 @@ export function Hud({
   const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const showSeasonPoints = localPlayer?.identityType === "wallet";
+  const effectiveCharacterPanelTab: CharacterPanelTab = characterWalletAddress ? characterPanelTab : "gear";
+  const showReferralsBadge = Boolean(characterWalletAddress && !hasSeenReferralsBadge);
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
   const healthPercent = percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100);
   const lowHealth = Boolean(localPlayer && localPlayer.health > 0 && healthPercent <= LOW_HEALTH_PERCENT);
@@ -416,8 +449,91 @@ export function Hud({
   }, [characterWalletAddress, isCharacterOpen]);
 
   useEffect(() => {
+    if (!isCharacterOpen) return;
+    if (!isAddress(characterWalletAddress)) {
+      setSeasonReferralSummary(EMPTY_REFERRAL_SUMMARY);
+      return;
+    }
+
+    let disposed = false;
+    setSeasonReferralSummary((current) => ({
+      ...current,
+      state: current.state === "idle" ? "loading" : current.state,
+      error: "",
+    }));
+    void fetchSeasonReferralSummary(characterWalletAddress)
+      .then((summary) => {
+        if (disposed) return;
+        setSeasonReferralSummary({ state: "ready", summary, error: "" });
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setSeasonReferralSummary({
+          state: "error",
+          summary: null,
+          error: error instanceof Error ? error.message : "referrals unavailable",
+        });
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [
+    characterWalletAddress,
+    isCharacterOpen,
+    localPlayer?.season0DailyPoints,
+    localPlayer?.season0Points,
+    seasonReferralRemoveResult?.refereeWalletAddress,
+    seasonReferralRemoveResult?.status,
+  ]);
+
+  useEffect(() => {
     carriedSlotRef.current = carriedSlot;
   }, [carriedSlot]);
+
+  async function copyReferralInviteUrl(url: string) {
+    if (!url) return;
+    const copied = await copyTextToClipboard(url);
+    setReferralCopyStatus(copied ? "copied" : "copy failed");
+  }
+
+  function requestRemoveReferral(refereeWalletAddress: string, characterName: string) {
+    setPendingReferralRemoval({
+      refereeWalletAddress,
+      characterName,
+    });
+  }
+
+  function cancelReferralRemoval() {
+    setPendingReferralRemoval(null);
+  }
+
+  function confirmReferralRemoval() {
+    if (!pendingReferralRemoval) return;
+    onRemoveSeasonReferral({ refereeWalletAddress: pendingReferralRemoval.refereeWalletAddress });
+    setPendingReferralRemoval(null);
+  }
+
+  function markReferralsBadgeSeen() {
+    if (hasSeenReferralsBadge) return;
+    writeReferralsBadgeSeen();
+    setHasSeenReferralsBadge(true);
+  }
+
+  function openReferralsTab() {
+    setCharacterPanelTab("referrals");
+    markReferralsBadgeSeen();
+  }
+
+  function toggleCharacterPanel() {
+    if (showReferralsBadge) {
+      setCharacterPanelTab("referrals");
+      setIsCharacterOpen(true);
+      markReferralsBadgeSeen();
+      return;
+    }
+    setIsCharacterOpen((open) => !open);
+  }
 
   useEffect(() => {
     if (!localPlayer || !isMapOpen) return;
@@ -506,7 +622,7 @@ export function Hud({
       if (!["m", "c", "b", "i", "l", "n"].includes(key)) return;
       event.preventDefault();
       if (key === "m") setIsMapOpen((open) => !open);
-      else if (key === "c") setIsCharacterOpen((open) => !open);
+      else if (key === "c") toggleCharacterPanel();
       else if (key === "b" || key === "i") setIsInventoryOpen((open) => !open);
       else if (key === "l") setIsQuestLogOpen((open) => !open);
       else setIsAbilitiesOpen((open) => !open);
@@ -530,6 +646,8 @@ export function Hud({
     onDismissQuestOffer,
     onDismissQuestTurnIn,
     onDismissQuestStatus,
+    hasSeenReferralsBadge,
+    showReferralsBadge,
   ]);
 
   function closeTopOverlay() {
@@ -1225,80 +1343,176 @@ export function Hud({
               </button>
             </div>
 
-            <div className="character-layout">
-              <section className="character-summary">
-                <div className="character-portrait" style={{ "--accent": accent } as CSSProperties}>
-                  <MferPortrait traits={playerPortraitTraits} variant="full" title="your mfer portrait" />
-                </div>
-                <div className="character-stats">
-                  {characterWalletAddress && (
-                    <div className="character-stat character-wallet-stat" title={characterWalletAddress}>
-                      <span>wallet</span>
-                      <code>{formatShortAddress(characterWalletAddress)}</code>
-                    </div>
-                  )}
-                  {showSeasonPoints && (
-                    <>
-                      <div className="character-stat">
-                        <span>Season Points</span>
-                        <strong>{localPlayer?.season0Points ?? 0}/{SEASON_0_TOTAL_POINT_CAP}</strong>
-                      </div>
-                      <div className="character-stat">
-                        <span>Points Today</span>
-                        <strong>{localPlayer?.season0DailyPoints ?? 0}/{SEASON_0_DAILY_POINT_CAP}</strong>
-                      </div>
-                    </>
-                  )}
-                  {characterWalletAddress && (
-                    <div className="character-stat" title={seasonPassOwnership.error || undefined}>
-                      <span>Season Pass</span>
-                      <strong>{seasonPassOwnership.label}</strong>
-                    </div>
-                  )}
-                  {getCharacterStatRows(localPlayer).map((stat) => (
-                    <div key={stat.label} className="character-stat">
-                      <span>{stat.label}</span>
-                      <strong>{stat.value}</strong>
-                    </div>
-                  ))}
-                </div>
-              </section>
+            {characterWalletAddress && (
+              <div className="character-tabs" role="tablist" aria-label="Character views">
+                <button
+                  type="button"
+                  className={effectiveCharacterPanelTab === "gear" ? "active" : ""}
+                  role="tab"
+                  aria-selected={effectiveCharacterPanelTab === "gear"}
+                  onClick={() => setCharacterPanelTab("gear")}
+                >
+                  <UserRound size={15} />
+                  mfer
+                </button>
+                <button
+                  type="button"
+                  className={effectiveCharacterPanelTab === "referrals" ? "active" : ""}
+                  role="tab"
+                  aria-selected={effectiveCharacterPanelTab === "referrals"}
+                  onClick={openReferralsTab}
+                >
+                  <Gift size={15} />
+                  referrals
+                  {showReferralsBadge && <em className="tab-badge referral" aria-hidden="true">!</em>}
+                </button>
+              </div>
+            )}
 
-              <section className="equipment-grid">
-                {EQUIPMENT_SLOT_IDS.map((slotId) => {
-                  const slot = getEquippedSlot(localPlayer, slotId);
-                  const itemId = slot?.itemId ?? "";
-                  const item = itemId ? ITEMS[itemId] : null;
-                  const chainLabel = slot ? formatChainGearLabel(slot) : "";
-                  const title = itemId && item
-                    ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier, localPlayer?.level)}\n${formatItemUtility(itemId)}\nClick to unequip`
-                    : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
-                  return (
-                    <button
-                      key={slotId}
-                      type="button"
-                      className={itemId ? "menu-tile equipment-slot filled" : "menu-tile equipment-slot"}
-                      data-tooltip={title}
-                      aria-label={formatTooltipLabel(title)}
-                      onClick={() => itemId && onUnequipItem({ slot: slotId })}
-                    >
-                      <span className="tile-badge">{EQUIPMENT_SLOTS[slotId]}</span>
-                      {itemId ? (
-                        <>
-                          <ItemIcon itemId={itemId} />
-                          <strong>{item?.name}</strong>
-                          {chainLabel ? <em>{chainLabel}</em> : null}
-                        </>
-                      ) : (
-                        <>
-                          <EquipmentSlotIcon slotId={slotId} />
-                          <strong>{EQUIPMENT_SLOTS[slotId]}</strong>
-                        </>
-                      )}
-                    </button>
-                  );
-                })}
-              </section>
+            {effectiveCharacterPanelTab === "referrals" ? (
+              <ReferralPanel
+                state={seasonReferralSummary}
+                copyStatus={referralCopyStatus}
+                removeResult={seasonReferralRemoveResult}
+                onCopyInvite={copyReferralInviteUrl}
+                onOpenInfo={() => setIsReferralInfoOpen(true)}
+                onRemoveReferral={requestRemoveReferral}
+              />
+            ) : (
+              <div className="character-layout">
+                <section className="character-summary">
+                  <div className="character-portrait" style={{ "--accent": accent } as CSSProperties}>
+                    <MferPortrait traits={playerPortraitTraits} variant="full" title="your mfer portrait" />
+                  </div>
+                  <div className="character-stats">
+                    {characterWalletAddress && (
+                      <div className="character-stat character-wallet-stat" title={characterWalletAddress}>
+                        <span>wallet</span>
+                        <code>{formatShortAddress(characterWalletAddress)}</code>
+                      </div>
+                    )}
+                    {showSeasonPoints && (
+                      <>
+                        <div className="character-stat">
+                          <span>Season Points</span>
+                          <strong>{localPlayer?.season0Points ?? 0}/{SEASON_0_TOTAL_POINT_CAP}</strong>
+                        </div>
+                        <div className="character-stat">
+                          <span>Points Today</span>
+                          <strong>{localPlayer?.season0DailyPoints ?? 0}/{SEASON_0_DAILY_POINT_CAP}</strong>
+                        </div>
+                      </>
+                    )}
+                    {characterWalletAddress && (
+                      <div className="character-stat" title={seasonPassOwnership.error || undefined}>
+                        <span>Season Pass</span>
+                        <strong>{seasonPassOwnership.label}</strong>
+                      </div>
+                    )}
+                    {getCharacterStatRows(localPlayer).map((stat) => (
+                      <div key={stat.label} className="character-stat">
+                        <span>{stat.label}</span>
+                        <strong>{stat.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="equipment-grid">
+                  {EQUIPMENT_SLOT_IDS.map((slotId) => {
+                    const slot = getEquippedSlot(localPlayer, slotId);
+                    const itemId = slot?.itemId ?? "";
+                    const item = itemId ? ITEMS[itemId] : null;
+                    const chainLabel = slot ? formatChainGearLabel(slot) : "";
+                    const title = itemId && item
+                      ? `${EQUIPMENT_SLOTS[slotId]}\n${item.name}\n${item.description}\n${chainLabel}\n${formatItemStats(itemId, slot?.chainTier, localPlayer?.level)}\n${formatItemUtility(itemId)}\nClick to unequip`
+                      : `${EQUIPMENT_SLOTS[slotId]}\nEmpty`;
+                    return (
+                      <button
+                        key={slotId}
+                        type="button"
+                        className={itemId ? "menu-tile equipment-slot filled" : "menu-tile equipment-slot"}
+                        data-tooltip={title}
+                        aria-label={formatTooltipLabel(title)}
+                        onClick={() => itemId && onUnequipItem({ slot: slotId })}
+                      >
+                        <span className="tile-badge">{EQUIPMENT_SLOTS[slotId]}</span>
+                        {itemId ? (
+                          <>
+                            <ItemIcon itemId={itemId} />
+                            <strong>{item?.name}</strong>
+                            {chainLabel ? <em>{chainLabel}</em> : null}
+                          </>
+                        ) : (
+                          <>
+                            <EquipmentSlotIcon slotId={slotId} />
+                            <strong>{EQUIPMENT_SLOTS[slotId]}</strong>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })}
+                </section>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {isReferralInfoOpen && (
+        <section className="hud-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Referral details">
+          <div className="hud-confirm-dialog referral-info-dialog">
+            <div className="world-map-header">
+              <div>
+                <strong>referrals</strong>
+                <span>how bonus points work</span>
+              </div>
+              <button type="button" title="Close referral details" aria-label="Close referral details" onClick={() => setIsReferralInfoOpen(false)}>
+                <X size={22} />
+              </button>
+            </div>
+            <p>
+              Share your invite link with human players. The link is tied to your wallet, and the referral is locked in when the new player creates their wallet character.
+            </p>
+            <ul>
+              <li>Each wallet can have up to 10 referred players.</li>
+              <li>Referred players start earning referral bonus immediately.</li>
+              <li>When a referred human earns base Season Points from play, both wallets get an extra 20%.</li>
+              <li>Referral bonus is capped at 500 Season Points for each side of each referral.</li>
+              <li>Agent wallets do not create, count toward, or earn referral bonuses.</li>
+            </ul>
+            <p>
+              Removing a referral frees the slot and removes referral bonus points from both wallets. Base Season Points earned by playing stay untouched.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {pendingReferralRemoval && (
+        <section className="hud-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Remove referral">
+          <div className="hud-confirm-dialog referral-confirm-dialog">
+            <div className="world-map-header">
+              <div>
+                <strong>remove referral</strong>
+                <span>free this slot</span>
+              </div>
+              <button type="button" title="Keep referral" aria-label="Keep referral" onClick={cancelReferralRemoval}>
+                <X size={22} />
+              </button>
+            </div>
+            <p>
+              Remove {pendingReferralRemoval.characterName || formatShortAddress(pendingReferralRemoval.refereeWalletAddress)} as a referral?
+            </p>
+            <p>
+              This frees one referral slot. Any referral bonus Season Points earned from this link are removed from both wallets. The referred player keeps their base Season Points.
+            </p>
+            <div className="hud-confirm-actions">
+              <button type="button" className="secondary-btn" onClick={cancelReferralRemoval}>
+                keep referral
+              </button>
+              <button type="button" className="primary-btn danger" onClick={confirmReferralRemoval}>
+                remove referral
+              </button>
             </div>
           </div>
         </section>
@@ -1494,9 +1708,10 @@ export function Hud({
       )}
 
       <section className="menu-dock">
-        <button type="button" title="Character (C)" onClick={() => setIsCharacterOpen((open) => !open)}>
+        <button type="button" title="Character (C)" onClick={toggleCharacterPanel}>
           <UserRound size={25} />
           <span>Character</span>
+          {showReferralsBadge && <em className="dock-badge referral" aria-hidden="true">!</em>}
         </button>
         <button type="button" title="stash (B/I)" onClick={() => setIsInventoryOpen((open) => !open)}>
           <Package size={25} />
@@ -2302,6 +2517,123 @@ function QuestStatusPanel({
   );
 }
 
+function ReferralPanel({
+  state,
+  copyStatus,
+  removeResult,
+  onCopyInvite,
+  onOpenInfo,
+  onRemoveReferral,
+}: {
+  state: SeasonReferralSummaryState;
+  copyStatus: string;
+  removeResult: SeasonReferralRemoveResult | null;
+  onCopyInvite: (url: string) => void;
+  onOpenInfo: () => void;
+  onRemoveReferral: (refereeWalletAddress: string, characterName: string) => void;
+}) {
+  const summary = state.summary;
+  if (state.state === "loading" && !summary) {
+    return <div className="referrals-panel state">loading referrals</div>;
+  }
+  if (state.state === "error" && !summary) {
+    return <div className="referrals-panel state">{state.error || "referrals unavailable"}</div>;
+  }
+  if (!summary) {
+    return <div className="referrals-panel state">no referral data</div>;
+  }
+
+  const slotLabel = `${summary.referralCount}/${summary.limits.maxReferees}`;
+  return (
+    <section className="referrals-panel" aria-label="Referrals">
+      <div className="referrals-panel-header">
+        <div>
+          <strong>referrals</strong>
+          <span>human wallet invites</span>
+        </div>
+        <button type="button" className="referral-info-btn" onClick={onOpenInfo} title="Referral details" aria-label="Referral details">
+          <Info size={15} />
+        </button>
+      </div>
+
+      <div className="referral-invite-row">
+        <div>
+          <span>invite</span>
+          <code>{summary.inviteUrl}</code>
+        </div>
+        <button type="button" onClick={() => onCopyInvite(summary.inviteUrl)} title="Copy referral link" aria-label="Copy referral link">
+          <Copy size={16} />
+          <span>{copyStatus || "copy"}</span>
+        </button>
+      </div>
+
+      <div className="referral-stat-grid">
+        <div className="character-stat">
+          <span>slots</span>
+          <strong>{slotLabel}</strong>
+        </div>
+        <div className="character-stat">
+          <span>active</span>
+          <strong>{summary.activatedReferralCount}</strong>
+        </div>
+        <div className="character-stat">
+          <span>bonus</span>
+          <strong>{summary.referrerBonusPoints}/{summary.limits.maxBonusPoints * Math.max(summary.referralCount, 1)}</strong>
+        </div>
+      </div>
+
+      {summary.referredBy && (
+        <div className="referral-linked">
+          <span>referred by</span>
+          <strong>{summary.referredBy.characterName}</strong>
+          <code>{formatShortAddress(summary.referredBy.walletAddress)}</code>
+          <em>
+            {summary.referredBy.status === "active"
+              ? `${summary.referredBy.refereeBonusPoints}/${summary.limits.maxBonusPoints} bonus`
+              : `${summary.referredBy.activationProgressPoints}/${summary.limits.activationPoints} active`}
+          </em>
+        </div>
+      )}
+
+      <div className="referral-list">
+        {summary.referrals.length > 0 ? summary.referrals.map((referral) => (
+          <div key={referral.refereeWalletAddress} className="referral-row">
+            <div>
+              <strong>{referral.characterName}</strong>
+              <code>{formatShortAddress(referral.refereeWalletAddress)}</code>
+            </div>
+            <span>{referral.status}</span>
+            <em>
+              {referral.status === "active"
+                ? `${referral.referrerBonusPoints}/${summary.limits.maxBonusPoints} bonus`
+                : `${referral.activationProgressPoints}/${summary.limits.activationPoints} active`}
+            </em>
+            <button
+              type="button"
+              className="referral-remove-btn"
+              onClick={() => onRemoveReferral(referral.refereeWalletAddress, referral.characterName)}
+              title="Remove referral"
+              aria-label={`Remove ${referral.characterName} referral`}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )) : (
+          <p>no referrals yet</p>
+        )}
+      </div>
+
+      {removeResult && (
+        <p className={removeResult.ok ? "referral-remove-status ok" : "referral-remove-status error"}>
+          {removeResult.ok
+            ? `removed referral, freed 1 slot${removeResult.removedReferrerBonusPoints > 0 ? `, -${removeResult.removedReferrerBonusPoints} bonus` : ""}`
+            : removeResult.error || "referral removal failed"}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function QuestRewardList({ rewards }: { rewards: string[] }) {
   return (
     <div className="quest-dialogue-rewards">
@@ -2378,6 +2710,24 @@ function isLoopbackRpcUrl(value: string) {
 function isLoopbackHost(hostname: string) {
   const normalized = hostname.trim().toLowerCase();
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1" || normalized === "[::1]";
+}
+
+function readReferralsBadgeSeen() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(REFERRALS_BADGE_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeReferralsBadgeSeen() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REFERRALS_BADGE_SEEN_KEY, "1");
+  } catch {
+    // Ignore blocked storage. The badge is cosmetic.
+  }
 }
 
 async function requestHudJsonRpc(rpcUrl: string, method: string, params: unknown[]) {

@@ -72,6 +72,7 @@ import {
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
+  type ClientRemoveSeasonReferral,
   type ClientRespecTalents,
   type ClientSelectTalent,
   type ClientSellTrashItems,
@@ -87,6 +88,7 @@ import {
   type JoinOptions,
   type PotionShopPurchaseResult,
   type QuestId,
+  type SeasonReferralRemoveResult,
   type TalentRespecResult,
   type TrashVendorItemId,
   type TrashVendorSellResult,
@@ -111,6 +113,7 @@ import {
   awardSeason0QuestReward,
   getWalletInviteAccess,
   recordWalletInviteUsage,
+  removeSeasonReferral,
   saveCharacterProgress,
   saveCharacterProgressWithCryptoPurchase,
   saveCharacterProgressWithSeason0Reward,
@@ -652,6 +655,10 @@ export class TownRoom extends Room<TownState> {
       void this.handleSellTrashItems(client, message);
     });
 
+    this.onMessage("removeSeasonReferral", (client, message: Partial<ClientRemoveSeasonReferral> = {}) => {
+      void this.handleRemoveSeasonReferral(client, message);
+    });
+
     this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
       this.handleSelectTalent(client, message);
     });
@@ -871,12 +878,17 @@ export class TownRoom extends Room<TownState> {
       ? Number(options?.avatarSeed)
       : stableHash(`${client.sessionId}:${name}:${walletAddress}`);
     const avatarSeed = normalizeAvatarSeed(requestedAvatarSeed);
+    const declaredAgent = identityType === "wallet" && isDeclaredAgentClient(options);
     const useLocalDebugWallet = identityType === "wallet" && isLocalDebugWalletAllowed(walletAddress);
     let replacementHandoff = identityType === "wallet" && walletAddress
       ? await this.replaceExistingWalletSession(client, walletAddress)
       : null;
-    let persistedCharacter = identityType === "wallet" && walletAddress && !useLocalDebugWallet
-      ? await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter))
+    let persistedCharacter = identityType === "wallet" && walletAddress
+      ? await loadPersistedCharacter(walletAddress, name, avatarSeed, {
+        createIfMissing: Boolean(options?.createCharacter),
+        referralWalletAddress: options?.referralWalletAddress ?? "",
+        isAgentClient: declaredAgent,
+      })
       : null;
     if (identityType === "wallet" && !persistedCharacter && !useLocalDebugWallet) {
       throw new ServerError(ErrorCode.AUTH_FAILED, "character creation required");
@@ -884,13 +896,17 @@ export class TownRoom extends Room<TownState> {
     if (persistedCharacter && !replacementHandoff) {
       replacementHandoff = await this.replaceExistingCharacterSession(client, persistedCharacter.characterId);
       if (replacementHandoff) {
-        persistedCharacter = await loadPersistedCharacter(walletAddress, name, avatarSeed, Boolean(options?.createCharacter));
+        persistedCharacter = await loadPersistedCharacter(walletAddress, name, avatarSeed, {
+          createIfMissing: Boolean(options?.createCharacter),
+          referralWalletAddress: options?.referralWalletAddress ?? "",
+          isAgentClient: declaredAgent,
+        });
       }
     }
 
     player.name = persistedCharacter?.name ?? name;
     player.identityType = identityType;
-    player.isAgent = identityType === "wallet" && isDeclaredAgentClient(options);
+    player.isAgent = declaredAgent;
     player.walletAddress = walletAddress;
     player.avatarSeed = persistedCharacter?.avatarSeed ?? avatarSeed;
     player.appearanceTraitsJson = player.isAgent
@@ -2306,6 +2322,7 @@ export class TownRoom extends Room<TownState> {
           basePoints: sale.points,
           agentMultiplier: player.isAgent ? 1 / AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
           agentTokenGate,
+          isAgent: player.isAgent,
           label: player.isAgent
             ? `trash mfer sale: ${soldLabel} (agent ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT}:1 trash bundle)`
             : `trash mfer sale: ${soldLabel}`,
@@ -2341,13 +2358,14 @@ export class TownRoom extends Room<TownState> {
 
     player.season0Points = savedAwardResult.seasonTotal;
     player.season0DailyPoints = savedAwardResult.dailyTotal;
+    this.applyReferralBonusToOnlineReferrer(savedAwardResult);
     this.recordPlayerAnalyticsEvent("trash_vendor_sell_confirmed", client.sessionId, player, {
       supportKind: "trash_vendor_sell",
       ...npcAnalytics,
       itemId: selectedItemId ?? "",
       sellAll,
       quantity: sale.quantity,
-      points: awardedPoints,
+      points: savedAwardResult.points,
       basePoints: sale.points,
       agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
       isAgent: player.isAgent,
@@ -2358,16 +2376,83 @@ export class TownRoom extends Room<TownState> {
     });
     client.send("chat", makeSystemChat(
       "Season points",
-      `Sold ${soldLabel} for ${formatTrashAwardPoints(awardedPoints, sale.points, player.isAgent)}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
+      `Sold ${soldLabel} for ${formatTrashAwardPoints(savedAwardResult.points, sale.points, player.isAgent)}. Daily ${savedAwardResult.dailyTotal}/${SEASON_0_DAILY_POINT_CAP}, season ${savedAwardResult.seasonTotal}/${SEASON_0_TOTAL_POINT_CAP}.`,
     ));
     sendResult({
       ok: true,
       sold: sale.sold,
       quantity: sale.quantity,
-      points: awardedPoints,
+      points: savedAwardResult.points,
       season0Points: savedAwardResult.seasonTotal,
       season0DailyPoints: savedAwardResult.dailyTotal,
     });
+  }
+
+  private async handleRemoveSeasonReferral(client: Client, message: Partial<ClientRemoveSeasonReferral>) {
+    const player = this.state.players.get(client.sessionId);
+    const referrerWalletAddress = normalizeWalletAddress(player?.walletAddress);
+    const refereeWalletAddress = normalizeWalletAddress(message?.refereeWalletAddress);
+    const sendResult = (result: SeasonReferralRemoveResult) => {
+      client.send("seasonReferralRemoveResult", result);
+    };
+    const makeResult = (
+      status: SeasonReferralRemoveResult["status"],
+      error: string,
+      ok = false,
+    ): SeasonReferralRemoveResult => ({
+      ok,
+      status,
+      referrerWalletAddress,
+      refereeWalletAddress,
+      removedReferrerBonusPoints: 0,
+      removedReferrerDailyPoints: 0,
+      removedRefereeBonusPoints: 0,
+      removedRefereeDailyPoints: 0,
+      referrerSeason0Points: player?.season0Points ?? 0,
+      referrerSeason0DailyPoints: player?.season0DailyPoints ?? 0,
+      refereeSeason0Points: 0,
+      refereeSeason0DailyPoints: 0,
+      error,
+    });
+
+    if (!player || player.identityType !== "wallet" || !referrerWalletAddress) {
+      sendResult(makeResult("wallet_required", "wallet character required"));
+      return;
+    }
+    if (!refereeWalletAddress) {
+      sendResult(makeResult("invalid_wallet", "valid referee wallet required"));
+      return;
+    }
+
+    try {
+      const result = await removeSeasonReferral({
+        referrerWalletAddress,
+        refereeWalletAddress,
+      });
+      const response: SeasonReferralRemoveResult = {
+        ...result,
+        status: result.status,
+      };
+      if (!response.ok) {
+        sendResult({
+          ...response,
+          status: response.status === "no_database" ? "no_database" : response.status,
+          error: response.error || (response.status === "not_found" ? "referral not found" : "unable to remove referral"),
+        });
+        return;
+      }
+
+      this.applySeasonReferralRemovalToOnlinePlayers(response);
+      const removedBonus = response.removedReferrerBonusPoints + response.removedRefereeBonusPoints;
+      client.send("chat", makeSystemChat(
+        "Season 0",
+        `Removed referral ${shortWalletForChat(refereeWalletAddress)}. Freed 1 slot${removedBonus > 0 ? ` and removed ${removedBonus} referral bonus point${removedBonus === 1 ? "" : "s"}` : ""}.`,
+      ));
+      sendResult(response);
+    } catch (error) {
+      console.error(`Failed to remove season referral for ${referrerWalletAddress}`, error);
+      sendResult(makeResult("error", "unable to remove referral"));
+    }
   }
 
   private async handleRespecTalents(client: Client, message: Partial<ClientRespecTalents>) {
@@ -3093,6 +3178,7 @@ export class TownRoom extends Room<TownState> {
       });
       player.season0Points = result.seasonTotal;
       player.season0DailyPoints = result.dailyTotal;
+      this.applyReferralBonusToOnlineReferrer(result);
       this.recordPlayerAnalyticsEvent("season_points_awarded", client.sessionId, player, {
         questId,
         status: result.status,
@@ -3126,6 +3212,30 @@ export class TownRoom extends Room<TownState> {
       } satisfies ChatMessage);
     } catch (error) {
       console.error(`Failed to award season points for ${player.walletAddress}`, error);
+    }
+  }
+
+  private applyReferralBonusToOnlineReferrer(result: SeasonRewardAwardResult) {
+    const bonus = result.referralBonus;
+    if (!bonus || bonus.referrerPoints <= 0) return;
+    for (const onlinePlayer of this.state.players.values()) {
+      if (normalizeWalletAddress(onlinePlayer.walletAddress) !== bonus.referrerWalletAddress) continue;
+      onlinePlayer.season0Points += bonus.referrerPoints;
+      onlinePlayer.season0DailyPoints += bonus.referrerPoints;
+    }
+  }
+
+  private applySeasonReferralRemovalToOnlinePlayers(result: SeasonReferralRemoveResult) {
+    if (!result.ok) return;
+    for (const onlinePlayer of this.state.players.values()) {
+      const walletAddress = normalizeWalletAddress(onlinePlayer.walletAddress);
+      if (walletAddress === result.referrerWalletAddress) {
+        onlinePlayer.season0Points = result.referrerSeason0Points;
+        onlinePlayer.season0DailyPoints = result.referrerSeason0DailyPoints;
+      } else if (walletAddress === result.refereeWalletAddress) {
+        onlinePlayer.season0Points = result.refereeSeason0Points;
+        onlinePlayer.season0DailyPoints = result.refereeSeason0DailyPoints;
+      }
     }
   }
 
@@ -3703,13 +3813,24 @@ function applyDebugBoostPlayer(player: PlayerState, message: DebugBoostPlayerMes
   clearPlayerCast(player);
 }
 
-async function loadPersistedCharacter(walletAddress: string, name: string, avatarSeed: number, createIfMissing: boolean) {
+async function loadPersistedCharacter(
+  walletAddress: string,
+  name: string,
+  avatarSeed: number,
+  options: {
+    createIfMissing: boolean;
+    referralWalletAddress: string;
+    isAgentClient: boolean;
+  },
+) {
   try {
     return await loadOrCreateWalletCharacter({
       walletAddress,
       displayName: name,
       avatarSeed,
-      createIfMissing,
+      createIfMissing: options.createIfMissing,
+      referralWalletAddress: options.referralWalletAddress,
+      isAgentClient: options.isAgentClient,
     });
   } catch (error) {
     console.error(`Failed to load persisted character for ${walletAddress}`, error);
@@ -4066,6 +4187,12 @@ function formatTrashSoldSummary(sold: TrashVendorSoldItem[]) {
 
 function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
+}
+
+function shortWalletForChat(walletAddress: string) {
+  return walletAddress.length > 12
+    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+    : walletAddress;
 }
 
 function formatTrashAwardPoints(awardedPoints: number, basePoints: number, isAgent: boolean) {
