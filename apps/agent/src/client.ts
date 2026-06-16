@@ -20,6 +20,7 @@ import {
   type ChatMessage,
   type ClientAgentStatus,
   type ClientInput,
+  type ClientRemoveSeasonReferral,
   type CombatEvent,
   type CombatActionId,
   type EquipmentSlotId,
@@ -609,6 +610,10 @@ export class MferlandAgentClient {
     const result = this.trashVendorResults.at(-1);
     if (!result?.ok) throw new Error(result?.error || "trash vendor sale failed");
     return result;
+  }
+
+  removeSeasonReferral(message: ClientRemoveSeasonReferral) {
+    this.room?.send("removeSeasonReferral", message);
   }
 
   async respecTalents(payment: MferGptPaymentProof) {

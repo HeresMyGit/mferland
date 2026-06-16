@@ -27,6 +27,12 @@ Use this local-model path when:
 
 Do not use this skill for Bankr Terminal or `@bankrbot` on X. Use `mferland-bankr` there.
 
+## Season And Paid Menus
+
+Keep Season 0 and referral facts catalog-driven. `/agent-catalog` exposes current caps, referral rules, and public season endpoints; `/season/leaderboard` and `/season/referrals?wallet=<wallet-address>` answer read-only human referral questions. Declared agents do not bind as referees, count as referrers, or trigger referral bonuses.
+
+`respec_talents` is a paid action. Small models should avoid it unless the observation shows spent talent ranks, wallet payment tools or an explicit proof are available, and there is a concrete build/survival reason to reset talents. Do not burn MFERGPT just because talent data is present.
+
 ## Local Runner Shape
 
 The local runner should keep the normal mferland protocol:

@@ -97,6 +97,8 @@ GET /agent-player?wallet=<walletAddress>
 GET /agent-player?name=<characterName>
 GET /agent-milestones?type=centralizer
 GET /agent-milestones?questId=baron-of-static
+GET /season/leaderboard
+GET /season/referrals?wallet=<walletAddress>
 ```
 
 Examples:
@@ -105,9 +107,12 @@ Examples:
 who is online right now? -> /agent-world
 what quest does heresmy.eth have? -> /agent-player?name=heresmy.eth
 who killed The Centralizer? -> /agent-milestones?type=centralizer
+what is my referral link? -> /season/referrals?wallet=<walletAddress>
 ```
 
 These endpoints are read-only and do not perform gameplay. If the user asks a question, answer from these APIs. If the user asks you to act in-game, use the bridge play loop below.
+
+Season referral questions are read-only. Human referral links use `https://game.mfergpt.lol/?referral=<referrer-wallet>` during first wallet character creation. Declared agents do not bind as referees, count as referrers, or trigger referral bonuses.
 
 ## Start
 
@@ -204,7 +209,7 @@ catalog
 hints
 ```
 
-Use those fields when uncertain. `catalog` carries current game metadata such as quests, items, talents, shops, routes, combat actions, swap/payment details, and reward gates. `questStateGuide` explains how to interpret accepted quests, available quest hints, and quest offers.
+Use those fields when uncertain. `catalog` carries current game metadata such as quests, items, talents, shops, routes, combat actions, swap/payment details, Season 0 referral rules/endpoints, and reward gates. `questStateGuide` explains how to interpret accepted quests, available quest hints, and quest offers.
 
 Quest status rules:
 
@@ -229,6 +234,7 @@ use_ability, fight_npc, loot,
 equip_item, unequip_item, use_item, select_talent,
 swap_eth_for_mfergpt, register_chain_gear,
 purchase_potion_shop_item, sell_trash_items, update_traits,
+respec_talents,
 emote, chat, share_quest_link
 ```
 
@@ -248,6 +254,8 @@ Priority order:
 8. Equip upgrades, use consumables, sell trash, and use shops when safe and affordable.
 9. Chat or emote briefly when useful; survival and quest progress come first.
 10. For `update_traits`, prefer wallet/name-seeded variety over defaults or first-listed choices. Declared agents keep the robot face, so saved traits force `eyes: "regular"` and `mouth: "flat"`.
+11. Use `respec_talents` only when spent talent ranks should be reset for a concrete build or survival reason and the wallet can provide a real MFERGPT burn proof.
+12. Agents may explain human referral rules from `/season/referrals` and `/season/leaderboard`, but they do not participate in referral binding, counts, or bonuses.
 
 Helpful observation fields:
 
@@ -308,6 +316,7 @@ The bridge cannot sign wallet transactions from a session token. Bankr signs/swa
 
 - `purchase_potion_shop_item` without proof returns HTTP `409` `payment_required` with exact Base MFERGPT burn details. Potion shop purchases cost MFERGPT and burn those tokens to reduce supply. Burn exactly that amount from the agent wallet, then retry the same action with `paymentTxHash`, `paymentAmountWei`, `paymentChainId: 8453`, and `paymentContractAddress`.
 - Paid `update_traits` uses the same proof fields. First trait setup may be free if the server allows it.
+- `respec_talents` uses the same proof fields. Burn the exact MFERGPT amount returned by the action or listed in `catalog.payments.mferGpt.talentRespec`, then retry with `paymentTxHash`, `paymentAmountWei`, `paymentChainId: 8453`, and `paymentContractAddress`.
 - `swap_eth_for_mfergpt` returns HTTP `409` `wallet_action_required` with Base/token/router/fallback details. Execute the swap from the Bankr wallet context, then continue observing and acting.
 - `register_chain_gear` is for gear already bought or minted by the wallet. After purchase/mint, send `register_chain_gear` with `tokenId` or `text`.
 - Never claim a burn, swap, mint, or purchase happened unless Bankr has an actual transaction hash or owned token id.

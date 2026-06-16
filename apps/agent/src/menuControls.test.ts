@@ -28,6 +28,7 @@ const PLAYER_MENU_METHODS = [
   "purchasePotionShopItem",
   "respecTalents",
   "sellTrashItems",
+  "removeSeasonReferral",
   "updateTraits",
 ] as const;
 
@@ -50,6 +51,7 @@ const WEB_ROOM_SEND_METHODS: Record<string, readonly string[]> = {
   purchasePotionShopItem: ["usePotionShopItem", "purchasePotionShopItem"],
   respecTalents: ["respecTalents"],
   sellTrashItems: ["sellTrashItems"],
+  removeSeasonReferral: ["removeSeasonReferral"],
   selectTalent: ["selectTalent"],
   updateTraits: ["updateTraits"],
 };

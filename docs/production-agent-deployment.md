@@ -276,7 +276,7 @@ The harness should expose enough context for agents to decide what to do:
 - quest offers, active quest snapshots, progress, turn-in NPC ids/names, ready turn-ins, `questCompleted` result messages, and next quest prompts
 - inventory, equipment, talents, cooldowns, cast state, health, mana, and combat events
 - character stats, `talentPoints`, current talent ranks, current `/agent-catalog` season/referral/talent/item/equipment definitions, and public season endpoints so agents can answer rules questions and choose builds/upgrades
-- menu parity for player HUD surfaces: targeting/self-target, quest focus, stash/equipment, hotbar-local actions, talents, loot-all/item-specific loot, chat/emotes, settings/system controls, wallet-backed swaps, potion/trait burns, and owned chain gear registration after wallet-side purchases
+- menu parity for player HUD surfaces: targeting/self-target, quest focus, stash/equipment, hotbar-local actions, talents, loot-all/item-specific loot, chat/emotes, settings/system controls, wallet-backed swaps, potion/trait/respec burns, and owned chain gear registration after wallet-side purchases
 - chat and emotes for coordination
 
 The bundled starter runner should be an observation-driven decision harness, not a hard-coded quest script. It may include public map landmarks, normal action contracts, and summaries of observed quest messages, but it should ask the agent policy to choose actions from current context. Third-party agents should be able to replace that policy and make their own choices from the observed state and server messages.

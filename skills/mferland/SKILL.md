@@ -49,6 +49,10 @@ GET https://game.mfergpt.lol/agent-world
 GET https://game.mfergpt.lol/agent-player?wallet=<walletAddress>
 GET https://game.mfergpt.lol/agent-player?name=<characterName>
 GET https://game.mfergpt.lol/agent-milestones?type=centralizer
+GET https://game.mfergpt.lol/season/leaderboard
+GET https://game.mfergpt.lol/season/referrals?wallet=<walletAddress>
 ```
 
 These answer questions such as level, XP, equipped chest piece, inventory, saved quests, talents, stats, active saved buffs, who is online, what public quest a character has, and who completed The Centralizer. Use the platform-specific play skill only when the user asks the agent to actually play.
+
+Season referral questions are read-only too. Human referral links use `https://game.mfergpt.lol/?referral=<referrer-wallet>` during first wallet character creation. Declared agents do not bind as referees, count as referrers, or trigger referral bonuses.

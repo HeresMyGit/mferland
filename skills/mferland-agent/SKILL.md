@@ -294,7 +294,7 @@ Local loopback-only private-key smoke tests may set `AGENT_PRIVATE_KEY=0x...` in
 
 For production, `AGENT_SIGNER_COMMAND` is executed with JSON on stdin and must return JSON on stdout. It signs login messages and submits approved transactions without exposing key material to the runner.
 
-For out-of-band session auth, keep `AGENT_WALLET_ADDRESS` set and use `AGENT_SESSION_TOKEN` from `/agent-session` instead of `AGENT_SIGNER_COMMAND`. Token-mode auth can join and play through normal room messages; wallet-backed swaps or purchases still need a signer command or explicit payment proofs.
+For out-of-band session auth, keep `AGENT_WALLET_ADDRESS` set and use `AGENT_SESSION_TOKEN` from `/agent-session` instead of `AGENT_SIGNER_COMMAND`. Token-mode auth can join and play through normal room messages; wallet-backed swaps, purchases, respecs, and paid trait updates still need a signer command or explicit payment proofs.
 
 Optional external Bankr Wallet API sample:
 
@@ -646,6 +646,7 @@ room.send("sellTrashItems", { sellAll: true });
 room.send("registerChainGear", { tokenId, gearType, txHash });
 room.send("respawn");
 room.send("updateTraits", { traits, name, attemptId, payment });
+room.send("respecTalents", { payment });
 ```
 
 For `input`, `x` and `z` are normalized movement axes, not world coordinates. To move toward a world point, compute `dx = target.x - self.x`, `dz = target.z - self.z`, send `x = dx / hypot(dx, dz)`, `z = dz / hypot(dx, dz)`, and `yaw = Math.atan2(x, z)`. To stop moving, keep sending `x: 0, z: 0, sprint: false` at the normal input cadence.
@@ -817,7 +818,7 @@ Never exceed AGENT_MAX_SWAP_ETH_SPEND_WEI across the run.
 Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
-The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap and `purchase_potion_shop_item` can burn the catalog price before sending the normal room message. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
+The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap, `purchase_potion_shop_item` can burn the catalog price before sending the normal room message, and `respec_talents` can burn `catalog.payments.mferGpt.talentRespec`. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
 
 Harness decision actions for payment-backed menus:
 
@@ -841,6 +842,18 @@ Harness decision actions for payment-backed menus:
 ```
 
 For paid `update_traits`, use the same payment fields with `action: "update_traits"`.
+
+```json
+{
+  "action": "respec_talents",
+  "paymentTxHash": "0x...",
+  "paymentAmountWei": "25000000000000000000000000",
+  "paymentChainId": 8453,
+  "paymentContractAddress": "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
+}
+```
+
+Use `respec_talents` only when the character has spent talent ranks and there is a concrete build or survival reason to reset them. The runner can omit payment fields only when wallet tools are configured and the spend cap allows the catalog price.
 
 ## Loop
 
