@@ -168,6 +168,43 @@ durationMs
 
 If `status` is `in_progress`, the bridge is still carrying out the chosen action. Observe again or continue with `suggestedNextAction` if step budget allows. If `status` is `completed`, pick the next action from `suggestedNextAction`, `hints`, or fresh observe state. If `status` is `safety_stop`, observe before pulling another enemy.
 
+## Command Mode
+
+For task-bounded autoplay, use `/agent-command` instead of manually polling `/agent-action` for every step. It still uses the same wallet-authenticated bridge player and normal room messages; it just lets the bridge run a bounded sequence and return a recap.
+
+Start:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "finish_next_quest",
+  "behaviorScheme": "quester",
+  "objective": "Finish the next visible quest safely.",
+  "maxSeconds": 900
+}
+```
+
+Poll:
+
+```txt
+GET /agent-command?bridgeSessionId=...&commandId=...
+```
+
+Stop:
+
+```json
+{
+  "operation": "stop",
+  "bridgeSessionId": "...",
+  "commandId": "..."
+}
+```
+
+Command kinds are `finish_next_quest`, `play_for`, `farm_until`, and `custom_objective`. `behaviorMode` is either `premade_scheme` or `external_policy`. Premade behavior schemes are `auto`, `quester`, `farmer`, `survivor`, and `social`. The hosted server rejects raw `codeChunk` bodies; Bankr-owned behavior code should run in Bankr and call `/agent-action`, or request a premade command with optional `policySource`/`codeChunkHash` metadata. The response includes `status`, `summary`, structured `result`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, and persisted rolling-window `usage`.
+
+Time limits are safety guards, not the main success condition. `finish_next_quest` ends when a newly completed quest is observed, `farm_until` ends when the inventory target is reached, and `play_for` ends on time. The server caps a single command by MFERGPT-holding tier: base wallets get 5 minutes, 25M MFERGPT gets 15 minutes, and 100M+ gets 30 minutes. Rolling 24-hour command usage is persisted by wallet, and reserved seconds expire after the command timebox plus a short grace period.
+
 ## Context Boundary
 
 Do not load or follow the full `mferland-agent` runner skill unless the user explicitly asks about building a local runner. That skill contains Node install steps, raw Colyseus schema notes, movement-axis math, process management, and external signer examples that Bankr Terminal/X should not use.
@@ -295,6 +332,7 @@ The bridge cannot sign wallet transactions from a session token. Bankr signs/swa
 - `purchase_potion_shop_item` without proof returns HTTP `409` `payment_required` with exact Base MFERGPT burn details. Potion shop purchases cost MFERGPT and burn those tokens to reduce supply. Burn exactly that amount from the agent wallet, then retry the same action with `paymentTxHash`, `paymentAmountWei`, `paymentChainId: 8453`, and `paymentContractAddress`.
 - Paid `update_traits` uses the same proof fields. First trait setup may be free if the server allows it.
 - `swap_eth_for_mfergpt` returns HTTP `409` `wallet_action_required` with Base/token/router/fallback details. Execute the swap from the Bankr wallet context, then continue observing and acting.
+- For registered tool flows, `/.well-known/ai-tool/mferland-mfergpt-swap.json` describes the swap quote tool. `/agent-mfergpt-swap-quote` returns Base Universal Router calldata for ETH to MFERGPT after a zero-value EIP-3009 `X-Payment` identity proof, and `/agent-mfergpt-swap-result` records the submitted tx hash for command recaps. `/agent-command` can also carry `X-Payment` for OpenSea/ERC-8257 command usage reporting, but it still requires the wallet-bound bridge session token.
 - `register_chain_gear` is for gear already bought or minted by the wallet. After purchase/mint, send `register_chain_gear` with `tokenId` or `text`.
 - Never claim a burn, swap, mint, or purchase happened unless Bankr has an actual transaction hash or owned token id.
 
@@ -307,7 +345,7 @@ Do not buy potions casually; purchases burn MFERGPT and require real wallet proo
 
 ## Step Limits
 
-If a 5-minute request risks Bankr's step limit, play in 60-90 second chunks rather than failing. Keep the same `bridgeSessionId` and `sessionToken` internally if still valid, report concise progress without exposing auth material, and ask the user to say `continue` for the next chunk.
+If a manual 5-minute loop risks Bankr's step limit, either use `/agent-command` or play in 60-90 second chunks rather than failing. Keep the same `bridgeSessionId` and `sessionToken` internally if still valid, report concise progress without exposing auth material, and ask the user to say `continue` for the next chunk.
 
 Store `bridgeSessionId` in scratchpad/session state after `/agent-start`. Reuse it across turns with compact observe; do not restart auth or re-read the full skill unless the bridge returns `401`, `404`, or the user asks for a reset.
 

@@ -10,7 +10,17 @@ import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.
 import { areAgentsEnabled } from "./agentAccess.js";
 import { AgentBridgeManager } from "./agentBridge.js";
 import { buildAgentCatalog } from "./agentCatalog.js";
+import { buildAgentMferGptSwapQuote, buildAgentMferGptSwapResult } from "./agentMferGptSwapTool.js";
 import { buildAgentProfile } from "./agentProfile.js";
+import {
+  buildAgentToolManifestDocument,
+  buildZeroPriceToolChallenge,
+  getAgentToolSlug,
+  parseToolPaymentHeader,
+  reportAgentToolUsage,
+  verifyZeroPriceToolPayment,
+  type AgentToolSlug,
+} from "./agentToolRegistry.js";
 import { buildAgentMilestones, buildAgentPlayer, buildAgentWorld } from "./agentWorld.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
@@ -44,6 +54,7 @@ const MAX_ANALYTICS_BODY_BYTES = 8 * 1024;
 const MAX_WALLET_AUTH_CHALLENGE_BODY_BYTES = 2 * 1024;
 const MAX_AGENT_SESSION_BODY_BYTES = 4 * 1024;
 const MAX_LOCAL_RPC_PROXY_BODY_BYTES = 64 * 1024;
+const MAX_AGENT_TOOL_BODY_BYTES = 16 * 1024;
 const PUBLIC_SKILL_PACKAGES = [
   {
     route: "/skills/mferland",
@@ -222,7 +233,17 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (url === "/agent-start" || url === "/agent-observe" || url === "/agent-action" || url === "/agent-stop") {
+  if (url.startsWith("/.well-known/ai-tool/")) {
+    void handleAgentToolManifest(req, requestUrl, res);
+    return;
+  }
+
+  if (url === "/agent-mfergpt-swap-quote" || url === "/agent-mfergpt-swap-result") {
+    void handleAgentMferGptSwapTool(req, url, res);
+    return;
+  }
+
+  if (url === "/agent-start" || url === "/agent-observe" || url === "/agent-action" || url === "/agent-command" || url === "/agent-command-stop" || url === "/agent-stop") {
     void agentBridge.handle(req, requestUrl, res);
     return;
   }
@@ -487,6 +508,75 @@ async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
   res.end(JSON.stringify(session));
 }
 
+async function handleAgentToolManifest(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    writeJson(res, 405, { ok: false, error: "method not allowed" }, { allow: "GET, HEAD" });
+    return;
+  }
+  const slugText = requestUrl.pathname.slice("/.well-known/ai-tool/".length).replace(/\.json$/i, "");
+  const slug = getAgentToolSlug(slugText);
+  if (!slug) {
+    writeJson(res, 404, { ok: false, error: "agent tool manifest not found" });
+    return;
+  }
+  writeJson(res, 200, buildAgentToolManifestDocument(slug, getRequestOrigin(req)), undefined, req.method === "HEAD");
+}
+
+async function handleAgentMferGptSwapTool(req: IncomingMessage, urlPath: string, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  const tool: AgentToolSlug = "mferland-mfergpt-swap";
+  const startedAt = Date.now();
+  if (req.method !== "POST") {
+    writeJson(res, 405, { ok: false, error: "method not allowed" }, { allow: "POST" });
+    return;
+  }
+
+  const payment = parseToolPaymentHeader(req.headers["x-payment"]);
+  const verifiedPayment = await verifyZeroPriceToolPayment(payment);
+  if (!verifiedPayment.ok) {
+    const challenge = buildZeroPriceToolChallenge(tool);
+    writeJson(res, 402, { ...challenge, detail: verifiedPayment.error }, { "www-authenticate": "x402" });
+    return;
+  }
+
+  let payload: AnyJsonRecord;
+  try {
+    payload = await readJsonBody<AnyJsonRecord>(req, MAX_AGENT_TOOL_BODY_BYTES);
+  } catch (error) {
+    const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+    writeJson(res, status, { ok: false, error: status === 413 ? "payload too large" : "invalid json" });
+    return;
+  }
+
+  try {
+    const operation = cleanText(payload.operation, 24);
+    const body = urlPath === "/agent-mfergpt-swap-result" || operation === "result"
+      ? buildAgentMferGptSwapResult({
+        walletAddress: cleanText(payload.walletAddress, 80),
+        txHash: cleanText(payload.txHash, 96),
+        amountEth: cleanText(payload.amountEth, 40),
+        receivedWei: cleanText(payload.receivedWei, 96),
+        commandId: cleanText(payload.commandId, 80),
+      })
+      : await buildAgentMferGptSwapQuote({
+        walletAddress: cleanText(payload.walletAddress, 80),
+        amountEth: cleanText(payload.amountEth, 40),
+        slippageBps: readOptionalNumber(payload.slippageBps),
+      });
+    const usageReport = payment ? await reportAgentToolUsage(tool, payment, startedAt) : { ok: false, skipped: true };
+    writeJson(res, 200, {
+      ...body,
+      toolUsageReport: usageReport,
+      callerAddress: verifiedPayment.callerAddress,
+    });
+  } catch (error) {
+    writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 async function handleAgentProfile(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
   writeCorsHeaders(res);
   writeNoStoreHeaders(res);
@@ -645,6 +735,8 @@ type AgentSessionPayload = {
   };
 };
 
+type AnyJsonRecord = Record<string, unknown>;
+
 function normalizeAgentSessionProof(payload: Partial<AgentSessionPayload> | null) {
   const proof = payload?.walletAuth && typeof payload.walletAuth === "object" ? payload.walletAuth : payload;
   const nonce = typeof proof?.nonce === "string" ? proof.nonce : "";
@@ -713,6 +805,13 @@ function getRequestDomain(req: IncomingMessage) {
   return forwardedHost || getSingleHeader(req.headers.host) || "mferland";
 }
 
+function getRequestOrigin(req: IncomingMessage) {
+  const host = getRequestDomain(req);
+  const forwardedProto = getSingleHeader(req.headers["x-forwarded-proto"]);
+  const proto = forwardedProto || (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
+  return `${proto}://${host}`;
+}
+
 function getSingleHeader(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0] ?? "";
   return value ?? "";
@@ -725,12 +824,31 @@ function getAgentBridgeRoomServer(serverPort: number) {
 function writeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  res.setHeader("access-control-allow-headers", "authorization,content-type");
+  res.setHeader("access-control-allow-headers", "authorization,content-type,x-payment");
 }
 
 function writeNoStoreHeaders(res: ServerResponse) {
   res.setHeader("cache-control", "no-store");
   res.setHeader("pragma", "no-cache");
+}
+
+function writeJson(res: ServerResponse, status: number, payload: unknown, headers: Record<string, string> = {}, head = false) {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
+    ...headers,
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+  });
+  res.end(head ? undefined : body);
+}
+
+function cleanText(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function readOptionalNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function getWalletCharacterProfileErrorMessage(error: unknown, status: number) {

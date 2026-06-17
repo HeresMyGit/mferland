@@ -78,6 +78,18 @@ MFERLAND_MFERGPT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
 MFERLAND_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
 ```
 
+Only set OpenSea/ERC-8257 tool reporting env after the tools are registered:
+
+```sh
+MFERLAND_TOOL_OPERATOR_ADDRESS="0x..."
+MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
+MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
+OPENSEA_API_KEY="..."
+```
+
+`MFERLAND_TOOL_OPERATOR_ADDRESS` is required for valid zero-value EIP-3009 `X-Payment` verification on registered tool calls.
+
 The older `MFERLAND_TRAIT_*` names are still accepted by the payment verifier, but prefer the `MFERLAND_MFERGPT_*` names above for agent documentation and future consistency.
 
 Do not set local-only envs on production:
@@ -94,6 +106,9 @@ After restart:
 ```sh
 curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -i -X POST https://game.mfergpt.lol/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
 ```
 
@@ -108,14 +123,23 @@ Verify from one controlled agent wallet when ready:
 7. The agent can move, interact, fight, loot, equip/use items, spend talents, chat, and emote through normal room messages.
 8. `/agent-view?wallet=<wallet>` follows the agent in the real game renderer.
 9. No production bypass, debug teleport, DB shortcut, local wallet JSON, or local-only test env is deployed.
+10. `/agent-command` can run a short bounded `play_for` command and return a recap.
+11. The swap quote endpoint returns `402` without `X-Payment` and succeeds with a controlled valid zero-value EIP-3009 header.
 
 ## What The Server Must Expose
 
 - `/wallet-auth-challenge`
 - Colyseus room `town` at `wss://game.mfergpt.lol`
 - `/agent-catalog`
+- `/agent-command`
+- `/.well-known/ai-tool/mferland-agent-command.json`
+- `/.well-known/ai-tool/mferland-mfergpt-swap.json`
+- `/agent-mfergpt-swap-quote`
+- `/agent-mfergpt-swap-result`
 - `/agent-view?wallet=<agent-wallet-address>`
 - `/skills/mferland-agent/SKILL.md`
+
+`/agent-command` still requires the wallet-bound bridge bearer token. Registered-tool callers can also include zero-value EIP-3009 `X-Payment` so OpenSea/ERC-8257 usage is reported when the registry env is configured.
 
 Agents join with:
 
@@ -240,6 +264,8 @@ while (roomIsConnected) {
 ```
 
 The policy may be Codex, Claude, OpenAI, a local model, Bankr, or custom code. The harness should own wallet challenge signing, Colyseus reconnects, public observation shaping, action validation, cooldown checks, stationary cast protection, short combat continuations after the policy picks a target, chat/emote cooldowns, and MFERGPT payment proof submission. The policy should own strategy: quest order, exploration, target selection, grouping, looting, gear/talent choices, shopping, social replies, and retreat timing.
+
+For task-bounded hosted autoplay, use `/agent-command` with `finish_next_quest`, `play_for`, `farm_until`, or `custom_objective`, plus `behaviorMode: "premade_scheme"` and a premade behavior scheme (`auto`, `quester`, `farmer`, `survivor`, `social`). Agent-authored code runs outside the hosted bridge; raw `codeChunk` bodies are rejected, while `behaviorMode: "external_policy"`, `policySource`, and `codeChunkHash` can record caller-owned policy metadata. Time caps are safety guards; command results must include what happened through `summary`, structured `result`, quest/inventory deltas, action reports, budget, and usage. The hosted server must not eval arbitrary agent policy code.
 
 ## Do Not Ship
 

@@ -45,6 +45,10 @@ generated-wallet-signer.mjs   # disposable local signer sample, signs auth only 
 
 The local model policy belongs in `ollama-local-policy.ts`. The runner should only keep repairs that need live game state such as NPC maps, route queues, quest memory, or combat state.
 
+Hosted `/agent-command` can be useful for constrained models that keep losing context on repetitive controller loops. Use it for task-bounded intents such as `finish_next_quest`, `play_for`, or `farm_until` when the model can choose the intent and behavior scheme but does not need to micromanage every step. Keep model-authored gameplay code inside the local runner/policy; the hosted server accepts premade behavior schemes and normal actions, not arbitrary eval. If you want to associate a local policy with a command, send `behaviorMode: "external_policy"` plus `policySource` and optional `codeChunkHash`; do not send raw `codeChunk`.
+
+Available behavior schemes are `auto`, `quester`, `farmer`, `survivor`, and `social`. Start with `quester` for quest progress, `farmer` for inventory-count targets, and `survivor` when debugging low-health or overpull loops.
+
 ## Environment
 
 For a fresh disposable test wallet:

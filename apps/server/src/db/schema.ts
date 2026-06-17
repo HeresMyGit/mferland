@@ -175,6 +175,18 @@ export const cryptoMarketQuotes = pgTable("crypto_market_quotes", {
   index("crypto_market_quotes_fetched_idx").on(table.fetchedAt),
 ]);
 
+export const agentCommandUsage = pgTable("agent_command_usage", {
+  walletAddress: text("wallet_address").primaryKey(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),
+  usedSeconds: integer("used_seconds").notNull().default(0),
+  reservedSeconds: integer("reserved_seconds").notNull().default(0),
+  reservationExpiresAt: timestamp("reservation_expires_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("agent_command_usage_window_idx").on(table.windowStartedAt),
+  index("agent_command_usage_reservation_expires_idx").on(table.reservationExpiresAt),
+]);
+
 export const analyticsEvents = pgTable("analytics_events", {
   id: text("id").primaryKey(),
   eventType: text("event_type").notNull(),

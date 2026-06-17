@@ -80,6 +80,38 @@ export function buildAgentCatalog() {
         "configureLocalCryptoContracts",
       ],
     },
+    agentHarness: {
+      bridgeEndpoints: {
+        start: "/agent-start",
+        observe: "/agent-observe",
+        action: "/agent-action",
+        command: "/agent-command",
+        commandStop: "/agent-command-stop",
+        stop: "/agent-stop",
+      },
+      commands: {
+        kinds: ["finish_next_quest", "play_for", "farm_until", "custom_objective"],
+        behaviorModes: ["premade_scheme", "external_policy"],
+        behaviorSchemes: ["auto", "quester", "farmer", "survivor", "social"],
+        maxCommandSeconds: 30 * 60,
+        timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
+        authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
+        sandbox: {
+          hostedCodeExecution: false,
+          codeChunkRule: "Do not send raw codeChunk to hosted /agent-command. Agent-authored behavior code runs in the caller's external policy runner and may call /agent-action directly or request a premade behaviorScheme command.",
+          externalPolicyMetadata: ["behaviorMode=external_policy", "policySource", "codeChunkHash"],
+        },
+      },
+      registeredTools: {
+        manifests: [
+          "/.well-known/ai-tool/mferland-agent-command.json",
+          "/.well-known/ai-tool/mferland-mfergpt-swap.json",
+        ],
+        swapQuote: "/agent-mfergpt-swap-quote",
+        swapResult: "/agent-mfergpt-swap-result",
+        xPaymentNote: "Registered tools use an ERC-8257-style manifest and accept zero-value EIP-3009 X-Payment payloads for OpenSea usage reporting.",
+      },
+    },
     menus: {
       character: {
         observes: ["walletAddress", "season0Points", "season0DailyPoints", "seasonPassOwnership", "level", "xp", "stats", "equipment"],

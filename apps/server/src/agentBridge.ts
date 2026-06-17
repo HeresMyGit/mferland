@@ -30,7 +30,21 @@ import {
   type TalentId,
   type TalentRankLike,
 } from "@mferland/shared";
+import {
+  finalizeAgentCommandSeconds,
+  getAgentCommandBudget,
+  getAgentCommandUsage,
+  reserveAgentCommandSeconds,
+  type AgentCommandBudget,
+  type AgentCommandUsage,
+} from "./agentCommandBudget.js";
 import { buildAgentCatalog } from "./agentCatalog.js";
+import { getAgentSeason0MferGptGateStatus } from "./agentMferGptGate.js";
+import {
+  parseToolPaymentHeader,
+  reportAgentToolUsage,
+  verifyZeroPriceToolPayment,
+} from "./agentToolRegistry.js";
 import { verifyAgentSessionToken } from "./walletAuth.js";
 
 type AnyRecord = Record<string, unknown>;
@@ -162,6 +176,7 @@ type BridgeActionResult = {
   bridgeSessionId?: string;
   lastAction?: string;
   error?: string;
+  retryAfterMs?: number;
   paymentRequired?: AnyRecord;
   walletActionRequired?: AnyRecord;
   report?: ActionReport;
@@ -225,6 +240,64 @@ type ActionReport = {
   recentMessages: string[];
   suggestedNextAction: SuggestedDecision | null;
   continuePrompt: string;
+};
+
+type AgentCommandKind = "finish_next_quest" | "play_for" | "farm_until" | "custom_objective";
+
+type AgentCommandStatus = "running" | "completed" | "time_limit" | "safety_stop" | "payment_required" | "wallet_action_required" | "stopped" | "failed";
+
+type AgentCommandBehaviorScheme = "auto" | "quester" | "farmer" | "survivor" | "social";
+
+type AgentCommandPayload = {
+  command?: unknown;
+  kind?: unknown;
+  behavior?: unknown;
+  behaviorMode?: unknown;
+  behaviorScheme?: unknown;
+  policySource?: unknown;
+  codeChunk?: unknown;
+  codeChunkHash?: unknown;
+  objective?: unknown;
+  maxSeconds?: unknown;
+  itemId?: unknown;
+  targetCount?: unknown;
+};
+
+type NormalizedAgentCommandPayload = {
+  kind: AgentCommandKind;
+  behaviorMode: "premade_scheme" | "external_policy";
+  behaviorScheme: AgentCommandBehaviorScheme;
+  policySource: string;
+  codeChunkHash: string;
+  objective: string;
+  maxSeconds: number;
+  itemId: string;
+  targetCount: number;
+};
+
+type AgentCommandState = {
+  commandId: string;
+  kind: AgentCommandKind;
+  behaviorMode: "premade_scheme" | "external_policy";
+  behaviorScheme: AgentCommandBehaviorScheme;
+  policySource: string;
+  codeChunkHash: string;
+  objective: string;
+  status: AgentCommandStatus;
+  stoppedBecause: string;
+  startedAt: number;
+  finishedAt: number;
+  maxSeconds: number;
+  budget: AgentCommandBudget;
+  usage: AgentCommandUsage;
+  itemId: string;
+  targetCount: number;
+  abortRequested: boolean;
+  usageFinalized: boolean;
+  startSnapshot: PlayerActionSnapshot | null;
+  lastSnapshot: PlayerActionSnapshot | null;
+  reports: ActionReport[];
+  errors: string[];
 };
 
 type CombatMemoryEntry = {
@@ -446,6 +519,8 @@ class AgentBridgeSession {
   private reconnecting = false;
   private mferGptSpendProofedWei = 0n;
   private swapEthSpendRequestedWei = 0n;
+  private readonly commands = new Map<string, AgentCommandState>();
+  private activeCommandId = "";
   lastDecision: AgentBridgeDecision | null = null;
   lastActionReport: ActionReport | null = null;
   lastAction = "";
@@ -838,6 +913,302 @@ class AgentBridgeSession {
         durationMs: report.durationMs,
       };
     }
+  }
+
+  async startCommand(rawPayload: AgentCommandPayload) {
+    const self = this.self();
+    if (!self) throw new BridgeHttpError(409, "bridge has not received player state yet");
+    const active = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    if (active?.status === "running") throw new BridgeHttpError(409, "agent command already running for this wallet");
+
+    const payload = normalizeCommandPayload(rawPayload);
+    const budget = await this.resolveCommandBudget();
+    const reservation = await reserveAgentCommandSeconds(this.walletAddress, budget, payload.maxSeconds);
+    if (!reservation.ok) throw new BridgeHttpError(429, "agent command daily budget exhausted");
+    const command: AgentCommandState = {
+      commandId: randomUUID(),
+      kind: payload.kind,
+      behaviorMode: payload.behaviorMode,
+      behaviorScheme: payload.behaviorScheme,
+      policySource: payload.policySource,
+      codeChunkHash: payload.codeChunkHash,
+      objective: payload.objective || this.objective,
+      status: "running",
+      stoppedBecause: "",
+      startedAt: Date.now(),
+      finishedAt: 0,
+      maxSeconds: reservation.seconds,
+      budget,
+      usage: reservation.usage,
+      itemId: payload.itemId,
+      targetCount: payload.targetCount,
+      abortRequested: false,
+      usageFinalized: false,
+      startSnapshot: this.snapshotPlayer(self),
+      lastSnapshot: this.snapshotPlayer(self),
+      reports: [],
+      errors: [],
+    };
+    this.commands.set(command.commandId, command);
+    this.activeCommandId = command.commandId;
+    this.lastAction = `command_start ${command.kind}`;
+    void this.runCommand(command);
+    return this.serializeCommand(command);
+  }
+
+  getCommand(commandId: string) {
+    const command = this.commands.get(cleanText(commandId, 80));
+    if (!command) throw new BridgeHttpError(404, "agent command not found");
+    return this.serializeCommand(command);
+  }
+
+  async stopCommand(commandId: string) {
+    const command = this.commands.get(cleanText(commandId, 80));
+    if (!command) throw new BridgeHttpError(404, "agent command not found");
+    if (command.status === "running") {
+      command.abortRequested = true;
+      await this.finishCommand(command, "stopped", "manual_stop");
+    }
+    return this.serializeCommand(command);
+  }
+
+  private async resolveCommandBudget(): Promise<AgentCommandBudget> {
+    try {
+      const gate = await getAgentSeason0MferGptGateStatus(this.walletAddress);
+      return getAgentCommandBudget(gate.balanceWei);
+    } catch {
+      return getAgentCommandBudget("0");
+    }
+  }
+
+  private async runCommand(command: AgentCommandState) {
+    while (command.status === "running") {
+      const elapsedMs = Date.now() - command.startedAt;
+      if (command.abortRequested) {
+        await this.finishCommand(command, "stopped", "manual_stop");
+        break;
+      }
+      if (elapsedMs >= command.maxSeconds * 1000) {
+        await this.finishCommand(command, "time_limit", "command_time_limit");
+        break;
+      }
+
+      const self = this.self();
+      if (!self) {
+        command.errors.push("state_unavailable");
+        await delay(1000);
+        continue;
+      }
+      command.lastSnapshot = this.snapshotPlayer(self);
+      const stop = this.checkCommandCompletion(command, self);
+      if (stop) {
+        await this.finishCommand(command, "completed", stop);
+        break;
+      }
+
+      const decision = this.chooseCommandDecision(command, self);
+      try {
+        const result = await this.execute(decision);
+        if (result.report) command.reports = [...command.reports.slice(-19), result.report];
+        const status = result.status || "";
+        if (!result.ok && status === "chat_cooldown") {
+          await delay(Math.min(DEFAULT_CHAT_COOLDOWN_MS, Math.max(350, result.retryAfterMs ?? 1000)));
+          continue;
+        }
+        if (!result.ok && status === "payment_required") {
+          await this.finishCommand(command, "payment_required", "payment_required");
+          break;
+        }
+        if (!result.ok && status === "wallet_action_required") {
+          await this.finishCommand(command, "wallet_action_required", "wallet_action_required");
+          break;
+        }
+        if (status === "safety_stop" || result.stoppedBecause?.startsWith("retreat_")) {
+          await this.finishCommand(command, "safety_stop", result.stoppedBecause || status);
+          break;
+        }
+      } catch (error) {
+        const message = errorMessage(error);
+        command.errors.push(message);
+        if (command.errors.length >= 3) {
+          await this.finishCommand(command, "failed", message);
+          break;
+        }
+      }
+      await delay(350);
+    }
+  }
+
+  private chooseCommandDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision {
+    const schemeDecision = this.chooseBehaviorSchemeDecision(command, self);
+    if (schemeDecision) return schemeDecision;
+
+    const suggested = this.buildSuggestedNextAction(self);
+    if (suggested) {
+      const decision = normalizeDecision({
+        ...suggested,
+        reason: `${command.kind}/${command.behaviorScheme}: ${suggested.reason}`,
+      });
+      if (this.decisionHasRequiredTarget(decision)) return decision;
+    }
+    return normalizeDecision({
+      action: "wait",
+      reason: `${command.kind}/${command.behaviorScheme}: waiting for a safe actionable game state`,
+    });
+  }
+
+  private chooseBehaviorSchemeDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    if (self.health <= 0) return normalizeDecision({ action: "respawn", reason: `${command.kind}/${command.behaviorScheme}: respawning before continuing` });
+
+    if (command.behaviorScheme === "survivor" && healthRatio < 0.9) {
+      const attackers = this.getAttackers(self);
+      if (attackers.length > 0) {
+        const destination = this.retreatDestination(self);
+        return normalizeDecision({
+          action: "move_to",
+          reason: `${command.kind}/survivor: retreating to recover before risking the command`,
+          x: destination.x,
+          z: destination.z,
+        });
+      }
+      return normalizeDecision({
+        action: "wait",
+        reason: `${command.kind}/survivor: recovering to a safer health buffer`,
+      });
+    }
+
+    if ((command.behaviorScheme === "farmer" || command.kind === "farm_until") && healthRatio >= RECOVER_HEALTH_RATIO) {
+      const loot = this.describeLootableCorpses(self)[0];
+      if (loot) {
+        return normalizeDecision({
+          action: "loot",
+          reason: `${command.kind}/farmer: nearby corpse may contain useful drops`,
+          npcRef: getString(loot.npcId) || getString(loot.id),
+        });
+      }
+      const target = this.findSafeTrainingTarget(self);
+      if (target) {
+        return normalizeDecision({
+          action: "fight_npc",
+          reason: `${command.kind}/farmer: safe target selected by premade farming scheme`,
+          npcRef: target.id,
+        });
+      }
+    }
+
+    if (command.behaviorScheme === "social" && this.canSendEmote()) {
+      const nearbyPlayer = [...this.players.values()]
+        .filter((player) => player.sessionId !== self.sessionId)
+        .sort((a, b) => distance2d(self, a) - distance2d(self, b))[0];
+      if (nearbyPlayer && distance2d(self, nearbyPlayer) <= 10) {
+        return normalizeDecision({
+          action: "emote",
+          reason: `${command.kind}/social: acknowledging a nearby player without interrupting gameplay`,
+          emoteId: "wave",
+        });
+      }
+    }
+
+    return null;
+  }
+
+  private decisionHasRequiredTarget(decision: AgentBridgeDecision) {
+    if (decision.action === "complete_quest" || decision.action === "accept_quest") return Boolean(decision.questId && decision.npcRef);
+    if (decision.action === "fight_npc" || decision.action === "loot" || decision.action === "move_near_npc" || decision.action === "interact_npc") return Boolean(decision.npcRef);
+    if (decision.action === "move_near_player") return Boolean(decision.playerRef);
+    if (decision.action === "select_talent") return Boolean(decision.talentId);
+    return true;
+  }
+
+  private checkCommandCompletion(command: AgentCommandState, self: RuntimePlayer) {
+    if (command.kind === "play_for" || command.kind === "custom_objective") return "";
+    if (command.kind === "finish_next_quest") {
+      const completedAtStart = new Set((command.startSnapshot?.quests ?? [])
+        .filter((quest) => quest.status === "completed")
+        .map((quest) => quest.id));
+      const completed = self.quests.find((quest) => getString(quest.status) === "completed" && !completedAtStart.has(getString(quest.id)));
+      return completed ? `quest_completed:${getString(completed.id)}` : "";
+    }
+    if (command.kind === "farm_until" && command.itemId) {
+      const count = inventoryCount(self, command.itemId);
+      return count >= command.targetCount ? `inventory_target:${command.itemId}:${count}` : "";
+    }
+    return "";
+  }
+
+  private async finishCommand(command: AgentCommandState, status: AgentCommandStatus, stoppedBecause: string) {
+    if (command.status !== "running" && command.finishedAt) return;
+    command.status = status;
+    command.stoppedBecause = stoppedBecause;
+    command.finishedAt = Date.now();
+    const self = this.self();
+    command.lastSnapshot = self ? this.snapshotPlayer(self) : command.lastSnapshot;
+    if (!command.usageFinalized) {
+      await finalizeAgentCommandSeconds(this.walletAddress, command.maxSeconds, command.startedAt, command.finishedAt);
+      command.usage = await getAgentCommandUsage(this.walletAddress, command.budget, command.finishedAt);
+      command.usageFinalized = true;
+    }
+    if (this.activeCommandId === command.commandId) this.activeCommandId = "";
+    this.lastAction = `command_${status} ${command.kind}`;
+  }
+
+  private serializeCommand(command: AgentCommandState) {
+    const now = Date.now();
+    const finishedAt = command.finishedAt || 0;
+    const durationMs = Math.max(0, (finishedAt || now) - command.startedAt);
+    const questChanges = command.startSnapshot && command.lastSnapshot
+      ? this.describeQuestChanges(command.startSnapshot, command.lastSnapshot)
+      : [];
+    const inventoryChanges = command.startSnapshot && command.lastSnapshot
+      ? describeInventoryCountChanges(command.startSnapshot.inventoryCounts, command.lastSnapshot.inventoryCounts)
+      : [];
+    const summary = [
+      `${command.kind} ${command.status}`,
+      command.stoppedBecause ? `stopped ${command.stoppedBecause}` : "",
+      questChanges.length ? `quests ${questChanges.map((change) => `${change.id} ${change.before}->${change.after}`).join(", ")}` : "",
+      inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
+    ].filter(Boolean).join("; ");
+    return {
+      ok: command.status !== "failed",
+      bridgeSessionId: this.id,
+      commandId: command.commandId,
+      command: command.kind,
+      behaviorMode: command.behaviorMode,
+      behaviorScheme: command.behaviorScheme,
+      policySource: command.policySource || undefined,
+      codeChunkHash: command.codeChunkHash || undefined,
+      sandbox: {
+        hostedCodeExecution: false,
+        rule: "Hosted /agent-command runs premade behavior schemes only. Agent-authored code must run in the external policy runner and call /agent-action or request a premade command.",
+      },
+      objective: command.objective,
+      status: command.status,
+      stoppedBecause: command.stoppedBecause,
+      summary,
+      result: {
+        status: command.status,
+        stoppedBecause: command.stoppedBecause,
+        durationMs,
+        questChangeCount: questChanges.length,
+        inventoryChangeCount: inventoryChanges.length,
+        actionReportCount: command.reports.length,
+        remainingSeconds: command.usage.remainingSeconds,
+      },
+      durationMs,
+      maxSeconds: command.maxSeconds,
+      budget: command.budget,
+      usage: command.usage,
+      itemId: command.itemId || undefined,
+      targetCount: command.targetCount || undefined,
+      questChanges,
+      inventoryChanges,
+      lastActionReport: command.reports[command.reports.length - 1] ?? null,
+      actionReports: command.reports.slice(-8),
+      errors: command.errors.slice(-5),
+      startedAt: new Date(command.startedAt).toISOString(),
+      finishedAt: finishedAt ? new Date(finishedAt).toISOString() : "",
+    };
   }
 
   private compactBankrObservation(body: AnyRecord) {
@@ -1729,8 +2100,16 @@ class AgentBridgeSession {
         if (!text) throw new Error("chat requires text");
         this.clearEngagement();
         if (!this.canSendChat()) {
+          const retryAfterMs = this.chatRetryAfterMs();
           this.lastAction = "chat_cooldown";
-          return null;
+          return {
+            ok: false,
+            status: "chat_cooldown",
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            retryAfterMs,
+            error: `chat is cooling down; retry in ${Math.ceil(retryAfterMs / 1000)}s`,
+          };
         }
         this.sendChat(text);
         this.lastAction = `chat ${text.slice(0, 24)}`;
@@ -2612,12 +2991,9 @@ class AgentBridgeSession {
   }
 
   private maybeAnnounceNextAction(self: RuntimePlayer, decision: AgentBridgeDecision) {
-    if (self.health <= 0 || !this.canSendChat()) return;
-    if (decision.action === "wait" || decision.action === "chat" || decision.action === "emote") return;
+    if (self.health <= 0 || decision.action === "wait") return;
     const text = this.describeNextActionChat(decision);
-    if (!text || text === this.lastNextActionChat) return;
-    this.sendChat(text);
-    this.lastNextActionChat = text;
+    if (text) this.lastNextActionChat = text;
   }
 
   private describeNextActionChat(decision: AgentBridgeDecision) {
@@ -2654,6 +3030,10 @@ class AgentBridgeSession {
 
   private canSendChat() {
     return Date.now() >= this.nextChatAt;
+  }
+
+  private chatRetryAfterMs(now = Date.now()) {
+    return Math.max(0, this.nextChatAt - now);
   }
 
   private sendChat(text: string) {
@@ -3063,6 +3443,14 @@ class AgentBridgeSession {
     return null;
   }
 
+  private findSafeTrainingTarget(self: RuntimePlayer) {
+    return [...this.npcs.values()]
+      .filter((candidate) => isAttackable(candidate) && candidate.health > 0 && candidate.defeatedAt <= 0)
+      .filter((candidate) => !this.isNpcAvoided(candidate.id))
+      .filter((candidate) => this.scorePullRisk(candidate) <= 0.5 && this.scoreApproachRisk(self, candidate) <= 0.62)
+      .sort((a, b) => this.scoreCombatTargetCandidate(self, a) - this.scoreCombatTargetCandidate(self, b) || distance2d(self, a) - distance2d(self, b))[0] ?? null;
+  }
+
   private scoreCombatTargetCandidate(self: RuntimePlayer, npc: RuntimeNpc) {
     const distance = distance2d(self, npc);
     const distancePenalty = distance > 40 ? 0.12 : distance > 28 ? 0.06 : 0;
@@ -3156,7 +3544,7 @@ export class AgentBridgeManager {
 
   async handle(req: IncomingMessage, requestUrl: URL, res: ServerResponse): Promise<boolean> {
     const path = requestUrl.pathname;
-    if (!["/agent-start", "/agent-observe", "/agent-action", "/agent-stop"].includes(path)) return false;
+    if (!["/agent-start", "/agent-observe", "/agent-action", "/agent-command", "/agent-command-stop", "/agent-stop"].includes(path)) return false;
 
     writeBridgeCorsHeaders(res);
     writeBridgeNoStoreHeaders(res);
@@ -3171,6 +3559,8 @@ export class AgentBridgeManager {
       if (path === "/agent-start") await this.handleStart(req, res);
       else if (path === "/agent-observe") await this.handleObserve(req, requestUrl, res);
       else if (path === "/agent-action") await this.handleAction(req, res);
+      else if (path === "/agent-command") await this.handleCommand(req, requestUrl, res);
+      else if (path === "/agent-command-stop") await this.handleCommandStop(req, res);
       else if (path === "/agent-stop") await this.handleStop(req, res);
     } catch (error) {
       writeBridgeError(res, error);
@@ -3260,7 +3650,54 @@ export class AgentBridgeManager {
       throw new BridgeHttpError(400, errorMessage(error));
     }
     const result = await session.execute(decision);
-    writeBridgeJson(res, result.ok ? 202 : result.status === "payment_required" || result.status === "wallet_action_required" ? 409 : 400, result);
+    writeBridgeJson(res, actionResultHttpStatus(result), result);
+  }
+
+  private async handleCommand(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+    const toolUsageStartedAt = Date.now();
+    if (req.method === "GET" || req.method === "HEAD") {
+      const session = this.requireSession(req, requestUrl.searchParams.get("bridgeSessionId"));
+      const body = session.getCommand(requestUrl.searchParams.get("commandId") || "");
+      const toolUsageReport = req.method === "HEAD" ? null : await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport), undefined, req.method === "HEAD");
+      return;
+    }
+    if (req.method !== "POST") {
+      writeBridgeJson(res, 405, { ok: false, error: "method not allowed" }, { allow: "GET, HEAD, POST" });
+      return;
+    }
+
+    const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
+    const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
+    const operation = cleanText(payload.operation, 24).toLowerCase() || "start";
+    if (operation === "status") {
+      const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(session.getCommand(cleanText(payload.commandId, 80)), toolUsageReport));
+      return;
+    }
+    if (operation === "stop") {
+      const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+      const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(stopped, toolUsageReport));
+      return;
+    }
+    if (operation !== "start") {
+      writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, or stop" });
+      return;
+    }
+    const body = await session.startCommand(payload);
+    const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+    writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
+  }
+
+  private async handleCommandStop(req: IncomingMessage, res: ServerResponse) {
+    if (req.method !== "POST") {
+      writeBridgeJson(res, 405, { ok: false, error: "method not allowed" }, { allow: "POST" });
+      return;
+    }
+    const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
+    const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
+    writeBridgeJson(res, 200, await session.stopCommand(cleanText(payload.commandId, 80)));
   }
 
   private async handleStop(req: IncomingMessage, res: ServerResponse) {
@@ -3300,6 +3737,13 @@ class BridgeHttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
   }
+}
+
+export function actionResultHttpStatus(result: { ok: boolean; status?: string }) {
+  if (result.ok) return 202;
+  if (result.status === "payment_required" || result.status === "wallet_action_required") return 409;
+  if (result.status === "chat_cooldown") return 429;
+  return 400;
 }
 
 export function writeBridgeError(res: ServerResponse, error: unknown) {
@@ -3345,10 +3789,32 @@ function writeBridgeJson(res: ServerResponse, status: number, payload: unknown, 
   res.end(head ? undefined : body);
 }
 
+async function maybeReportCommandToolUsage(req: IncomingMessage, startedAt: number) {
+  const payment = parseToolPaymentHeader(req.headers["x-payment"]);
+  if (!payment) return null;
+  const verified = await verifyZeroPriceToolPayment(payment);
+  if (!verified.ok) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: verified.error,
+    };
+  }
+  const report = await reportAgentToolUsage("mferland-agent-command", payment, startedAt);
+  return {
+    ...report,
+    callerAddress: verified.callerAddress,
+  };
+}
+
+function withOptionalToolUsageReport<T extends AnyRecord>(body: T, toolUsageReport: unknown) {
+  return toolUsageReport ? { ...body, toolUsageReport } : body;
+}
+
 function writeBridgeCorsHeaders(res: ServerResponse) {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  res.setHeader("access-control-allow-headers", "authorization,content-type");
+  res.setHeader("access-control-allow-headers", "authorization,content-type,x-payment");
 }
 
 function writeBridgeNoStoreHeaders(res: ServerResponse) {
@@ -3392,6 +3858,83 @@ function normalizeDecision(value: unknown): AgentBridgeDecision {
   };
 }
 
+function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCommandPayload {
+  const record = asRecord(value);
+  const kind = normalizeCommandKind(record.command ?? record.kind);
+  const codeChunk = cleanText(record.codeChunk, 20_000);
+  if (codeChunk) {
+    throw new BridgeHttpError(400, "hosted /agent-command does not execute codeChunk; run agent-authored code in the external policy runner and call /agent-action or choose a premade behaviorScheme");
+  }
+  const behaviorScheme = normalizeCommandBehaviorScheme(record.behaviorScheme ?? record.behavior);
+  const behaviorMode = normalizeCommandBehaviorMode(record.behaviorMode, record.policySource, record.codeChunkHash);
+  const maxSeconds = normalizeCommandSeconds(record.maxSeconds, kind);
+  const itemId = cleanText(record.itemId, 96);
+  const targetCount = normalizeCommandTargetCount(record.targetCount);
+  if (kind === "farm_until" && (!itemId || targetCount <= 0)) {
+    throw new BridgeHttpError(400, "farm_until requires itemId and targetCount");
+  }
+  return {
+    kind,
+    behaviorMode,
+    behaviorScheme: behaviorScheme === "auto" ? defaultBehaviorSchemeForCommand(kind) : behaviorScheme,
+    policySource: cleanText(record.policySource, 120),
+    codeChunkHash: normalizeCodeChunkHash(record.codeChunkHash),
+    objective: cleanText(record.objective, 260),
+    maxSeconds,
+    itemId,
+    targetCount,
+  };
+}
+
+function normalizeCommandBehaviorMode(value: unknown, policySource: unknown, codeChunkHash: unknown): "premade_scheme" | "external_policy" {
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "external_policy" || text === "external" || text === "code_chunk" || text === "code") return "external_policy";
+  if (cleanText(policySource, 120) || normalizeCodeChunkHash(codeChunkHash)) return "external_policy";
+  return "premade_scheme";
+}
+
+function normalizeCommandKind(value: unknown): AgentCommandKind {
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "finish_next_quest" || text === "quest" || text === "next_quest") return "finish_next_quest";
+  if (text === "play_for" || text === "play" || text === "timebox") return "play_for";
+  if (text === "farm_until" || text === "farm") return "farm_until";
+  if (text === "custom_objective" || text === "custom") return "custom_objective";
+  return "play_for";
+}
+
+function normalizeCommandBehaviorScheme(value: unknown): AgentCommandBehaviorScheme {
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "quester" || text === "quest") return "quester";
+  if (text === "farmer" || text === "farm") return "farmer";
+  if (text === "survivor" || text === "safe") return "survivor";
+  if (text === "social") return "social";
+  return "auto";
+}
+
+function defaultBehaviorSchemeForCommand(kind: AgentCommandKind): AgentCommandBehaviorScheme {
+  if (kind === "finish_next_quest") return "quester";
+  if (kind === "farm_until") return "farmer";
+  return "auto";
+}
+
+function normalizeCommandSeconds(value: unknown, kind: AgentCommandKind) {
+  const fallback = kind === "finish_next_quest" || kind === "farm_until" ? 15 * 60 : 30 * 60;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(30 * 60, Math.max(15, Math.floor(parsed)));
+}
+
+function normalizeCodeChunkHash(value: unknown) {
+  const text = cleanText(value, 96).toLowerCase();
+  return /^0x[a-f0-9]{64}$/.test(text) || /^[a-f0-9]{64}$/.test(text) ? text : "";
+}
+
+function normalizeCommandTargetCount(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(9999, Math.max(1, Math.floor(parsed)));
+}
+
 function potionShopPaymentRequired(itemId: string, quantity: number) {
   if (!isPotionShopItemId(itemId)) throw new Error(`unknown potion shop itemId ${itemId}`);
   const normalizedItemId = itemId;
@@ -3422,6 +3965,19 @@ function normalizeQuestStatus(value: string): QuestStatus {
 
 function questProgressLabel(quest: QuestSnapshotSummary) {
   return `${quest.status}:${quest.progress}/${quest.required}`;
+}
+
+function describeInventoryCountChanges(before: Record<string, number>, after: Record<string, number>) {
+  const itemIds = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...itemIds]
+    .map((itemId) => ({
+      itemId,
+      before: before[itemId] ?? 0,
+      after: after[itemId] ?? 0,
+    }))
+    .filter((change) => change.before !== change.after)
+    .sort((a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before) || a.itemId.localeCompare(b.itemId))
+    .slice(0, 12);
 }
 
 function normalizeKnownQuestId(value: string): QuestId | null {

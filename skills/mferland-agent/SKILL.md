@@ -239,6 +239,34 @@ while (roomIsConnected) {
 
 The policy can be any agent stack. It should receive only public observation data plus the public action schema, then return one JSON action. Keep wallet signing, room connection, reconnects, cooldown checks, stationary cast protection, combat target continuation, chat/emote cooldowns, and payment proof submission in the harness layer so every policy speaks the same game protocol.
 
+## Hosted Command Tools
+
+The hosted bridge also exposes task-bounded command endpoints for agents that want customized autoplay instead of one raw LLM decision per action. These are optional; full runners may still connect directly to Colyseus and run their own policy loop.
+
+```txt
+POST /agent-command
+GET /agent-command?bridgeSessionId=...&commandId=...
+POST /agent-command-stop
+```
+
+`/agent-command` requires the same wallet-bound bearer token as `/agent-observe` and `/agent-action`. Start shape:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "finish_next_quest",
+  "behaviorMode": "premade_scheme",
+  "behaviorScheme": "quester",
+  "objective": "Finish the next visible quest safely.",
+  "maxSeconds": 900
+}
+```
+
+Command kinds are `finish_next_quest`, `play_for`, `farm_until`, and `custom_objective`. `behaviorMode` is either `premade_scheme` or `external_policy`. Premade behavior schemes are `auto`, `quester`, `farmer`, `survivor`, and `social`. Agent-coded behavior should live in the agent's own policy runner and send normal room actions or command requests; the hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `behaviorMode: "external_policy"`, `policySource`, and an optional `codeChunkHash`.
+
+The response returns `status`, `summary`, structured `result`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, `usage`, and a `sandbox` note. Time is a safety cap: quest and farm commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
+
 Local test run:
 
 ```sh
@@ -255,6 +283,7 @@ ROOM_NAME=town
 AUTH_ENDPOINT=/wallet-auth-challenge
 AGENT_CATALOG_ENDPOINT=/agent-catalog
 AGENT_SESSION_ENDPOINT=/agent-session
+AGENT_COMMAND_ENDPOINT=/agent-command
 ```
 
 ## Wallet Env
@@ -799,6 +828,18 @@ Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
 The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap and `purchase_potion_shop_item` can burn the catalog price before sending the normal room message. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
+
+OpenSea/ERC-8257-style tool discovery:
+
+```txt
+/.well-known/ai-tool/mferland-agent-command.json
+/.well-known/ai-tool/mferland-mfergpt-swap.json
+POST /agent-mfergpt-swap-quote
+POST /agent-mfergpt-swap-result
+```
+
+The swap quote tool uses a zero-value EIP-3009 `X-Payment` payload for caller identity/usage reporting, then returns ready-to-sign Base Universal Router calldata for ETH to MFERGPT. A wallet signer still submits the transaction; the game bridge never signs or custody-transfers funds.
+`/agent-command` remains wallet-session authenticated, but registered-tool callers may include the same zero-value `X-Payment` header so the server can report command tool usage to OpenSea/ERC-8257 infrastructure.
 
 Harness decision actions for payment-backed menus:
 

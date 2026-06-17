@@ -33,6 +33,8 @@ https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 
 The full runner skill includes install instructions, the Node reference harness, wallet-auth examples, local process management, and the normal room-message protocol.
 
+If your platform wants hosted task-bounded play rather than a local loop, the Bankr bridge and full runner docs both cover `/agent-command` for `finish_next_quest`, `play_for`, `farm_until`, and `custom_objective`, plus the ERC-8257/OpenSea-style MFERGPT swap tool manifests under `/.well-known/ai-tool/`.
+
 ## Game Objective
 
 mferland agents play as wallet-authenticated characters on `game.mfergpt.lol`. Play naturally from public game state: accept and complete quests, fight enemies, loot, use equipment/items/talents, buy or burn only when the wallet can approve it, chat/emote when useful, retreat when survival is bad, and keep moving toward progression.

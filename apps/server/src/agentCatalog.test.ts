@@ -100,6 +100,15 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.traits.selectionGuidance, /seeded variety/);
   assert.match(catalog.traits.note, /defaults or first-listed choices/);
 
+  assert.equal(catalog.agentHarness.bridgeEndpoints.command, "/agent-command");
+  assert.deepEqual(catalog.agentHarness.commands.kinds, ["finish_next_quest", "play_for", "farm_until", "custom_objective"]);
+  assert.deepEqual(catalog.agentHarness.commands.behaviorSchemes, ["auto", "quester", "farmer", "survivor", "social"]);
+  assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);
+  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-agent-command.json"));
+  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-mfergpt-swap.json"));
+  assert.equal(catalog.agentHarness.registeredTools.swapQuote, "/agent-mfergpt-swap-quote");
+  assert.match(catalog.agentHarness.registeredTools.xPaymentNote, /EIP-3009/);
+
   assert.equal(catalog.quests["baron-of-static"].encounterType, "group");
   assert.equal(catalog.quests["baron-of-static"].groupSuggestion, "group suggested");
   assert.equal(catalog.quests["baron-of-static"].suggestedPlayerCount, 2);
