@@ -342,7 +342,11 @@ export function buildAgentCatalog() {
         requiredItemId?: string;
         objectives?: unknown;
         defeatNpcModels?: unknown;
+        defeatNpcRoles?: unknown;
+        defeatNpcIdPrefixes?: unknown;
         dropNpcModels?: unknown;
+        dropNpcRoles?: unknown;
+        dropNpcIdPrefixes?: unknown;
         nextQuestId?: string;
         encounterType?: string;
         groupSuggestion?: string;
@@ -361,7 +365,11 @@ export function buildAgentCatalog() {
         requiredQuestId: optional.requiredQuestId ?? "",
         requiredItemId: optional.requiredItemId ?? "",
         defeatNpcModels: optional.defeatNpcModels ?? [],
+        defeatNpcRoles: optional.defeatNpcRoles ?? [],
+        defeatNpcIdPrefixes: optional.defeatNpcIdPrefixes ?? [],
         dropNpcModels: optional.dropNpcModels ?? [],
+        dropNpcRoles: optional.dropNpcRoles ?? [],
+        dropNpcIdPrefixes: optional.dropNpcIdPrefixes ?? [],
         objectives: optional.objectives ?? [],
         xpReward: quest.xpReward,
         nextQuestId: optional.nextQuestId ?? "",

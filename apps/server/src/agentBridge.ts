@@ -50,6 +50,7 @@ import { verifyAgentSessionToken } from "./walletAuth.js";
 type AnyRecord = Record<string, unknown>;
 type Point = { x: number; z: number };
 type TargetSelection = { kind: "npc"; id: string } | { kind: "player"; id: string };
+type QuestTargetMatchers = { models: string[]; roles: string[]; idPrefixes: string[] };
 
 type AgentBridgeConfig = {
   roomServer: string;
@@ -1117,12 +1118,12 @@ class AgentBridgeSession {
         }
         if (status === "safety_stop" || result.stoppedBecause?.startsWith("retreat_")) {
           command.safetyStopCount += 1;
-          if (command.constraints.maxSafetyStops > 0 && command.safetyStopCount > command.constraints.maxSafetyStops) {
+          if (command.constraints.maxSafetyStops <= 0 || command.safetyStopCount > command.constraints.maxSafetyStops) {
             await this.finishCommand(command, "safety_stop", "constraint_max_safety_stops");
             break;
           }
-          await this.finishCommand(command, "safety_stop", result.stoppedBecause || status);
-          break;
+          await delay(1200);
+          continue;
         }
         if (result.stoppedBecause === "dead") {
           command.deathCount += 1;
@@ -1827,6 +1828,9 @@ class AgentBridgeSession {
       const self = this.self();
       const durationMs = Math.max(0, Date.now() - startedAt);
       if (!self) return { status: "waiting_for_state", stoppedBecause: "state_unavailable", durationMs };
+      if (this.shouldInterruptForTravelDamage(decision.action, before, self)) {
+        return { status: "needs_rethink", stoppedBecause: "movement_damage_rethink", durationMs };
+      }
       const finished = this.checkDurableOutcome(decision, before, self, durationMs);
       if (finished) return finished;
       if (this.shouldContinueDurableAction(decision.action) && Date.now() >= nextContinuationAt) {
@@ -1877,6 +1881,10 @@ class AgentBridgeSession {
       default:
         return SHORT_ACTION_SETTLE_MS;
     }
+  }
+
+  private shouldInterruptForTravelDamage(action: string, before: PlayerActionSnapshot, self: RuntimePlayer) {
+    return shouldInterruptMovementForDamage(action, before.health, self.health, self.maxHealth);
   }
 
   private shouldContinueDurableAction(action: string) {
@@ -3864,13 +3872,11 @@ class AgentBridgeSession {
       const questId = normalizeKnownQuestId(getString(quest.id));
       if (!questId || getQuestObjectives(questId).length > 0) continue;
       if (preferredQuestId && questId !== preferredQuestId) continue;
-      const definition = QUESTS[questId] as AnyRecord;
-      const targetModels = Array.isArray(definition.defeatNpcModels) ? definition.defeatNpcModels.map(String) : [];
-      const targetRoles = Array.isArray(definition.defeatNpcRoles) ? definition.defeatNpcRoles.map(String) : [];
-      if (targetModels.length === 0 && targetRoles.length === 0) continue;
+      const matchers = getQuestTargetMatchers(questId);
+      if (matchers.models.length === 0 && matchers.roles.length === 0 && matchers.idPrefixes.length === 0) continue;
       const npc = [...this.npcs.values()]
         .filter((candidate) => isAttackable(candidate) && candidate.health > 0 && candidate.defeatedAt <= 0)
-        .filter((candidate) => targetModels.includes(candidate.model) || targetRoles.includes(candidate.role))
+        .filter((candidate) => matchesQuestTarget(candidate, matchers))
         .sort((a, b) => this.scoreCombatTargetCandidate(self, a) - this.scoreCombatTargetCandidate(self, b) || distance2d(self, a) - distance2d(self, b))[0];
       if (npc) return { questId, npc };
     }
@@ -4667,6 +4673,52 @@ function normalizeNpc(id: string, value: AnyRecord): RuntimeNpc {
     questId: getString(value.questId),
     dialogue: getString(value.dialogue),
   };
+}
+
+function getQuestTargetMatchers(questId: QuestId): QuestTargetMatchers {
+  const definition = QUESTS[questId] as AnyRecord;
+  return {
+    models: uniqueStrings([
+      ...stringList(definition.defeatNpcModels),
+      ...stringList(definition.dropNpcModels),
+    ]),
+    roles: uniqueStrings([
+      ...stringList(definition.defeatNpcRoles),
+      ...stringList(definition.dropNpcRoles),
+    ]),
+    idPrefixes: uniqueStrings([
+      ...stringList(definition.defeatNpcIdPrefixes),
+      ...stringList(definition.dropNpcIdPrefixes),
+    ]),
+  };
+}
+
+function matchesQuestTarget(npc: RuntimeNpc, matchers: QuestTargetMatchers) {
+  if (matchers.models.includes(npc.model)) return true;
+  if (matchers.roles.includes(npc.role)) return true;
+  return matchers.idPrefixes.some((prefix) => prefix && npc.id.startsWith(prefix));
+}
+
+function isMovementLikeAction(action: string) {
+  return action === "move_to"
+    || action === "move_near_npc"
+    || action === "move_near_player"
+    || action === "travel_route"
+    || action === "accept_quest"
+    || action === "complete_quest";
+}
+
+export function shouldInterruptMovementForDamage(action: string, beforeHealth: number, currentHealth: number, maxHealth: number) {
+  if (!isMovementLikeAction(action)) return false;
+  if (maxHealth <= 0 || currentHealth <= 0) return false;
+  const healthRatio = currentHealth / maxHealth;
+  const damageTaken = beforeHealth - currentHealth;
+  const materialDamage = damageTaken >= Math.max(16, maxHealth * 0.08);
+  return materialDamage && healthRatio < 0.7;
+}
+
+function stringList(value: unknown) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
 function isAttackable(npc: RuntimeNpc) {

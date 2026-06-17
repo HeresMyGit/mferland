@@ -124,6 +124,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.quests["ogre-raid-daily"].groupSuggestion, "raid suggested");
   assert.equal(catalog.quests["ogre-raid-daily"].suggestedPlayerCount, 4);
   assert.match(catalog.quests["ogre-raid-daily"].soloWarning, /raid content/i);
+  assert.deepEqual(catalog.quests["hog-livers"].dropNpcModels, ["hog"]);
+  assert.deepEqual(catalog.quests["signal-scraps"].dropNpcIdPrefixes, ["ridge-raider-", "static-mage-"]);
 });
 
 test("agent catalog covers non-debug room messages sent by web menus", () => {
