@@ -488,6 +488,7 @@ const PAID_DECISION_ACTIONS = new Set<string>([
   "purchase_potion_shop_item",
   "update_traits",
 ]);
+const FREE_TRAIT_QUEST_ID = "set-your-traits";
 const DEFAULT_COMMAND_PROFILE: AgentCommandProfile = {
   priority: "auto",
   role: "auto",
@@ -1294,6 +1295,10 @@ class AgentBridgeSession {
     if ((status === "active" || status === "ready" || status === "completed") && goalType === "quest_accepted") {
       return normalizeDecision({ action: "wait", reason: `${questId} is already accepted` });
     }
+    if (status === "active") {
+      const utilityDecision = this.chooseActiveUtilityQuestDecision(self, questId);
+      if (utilityDecision) return utilityDecision;
+    }
     if (!status) {
       const offer = this.describeAvailableQuestHints(self).find((hint) => getString(hint.questId) === questId);
       if (offer) {
@@ -1325,6 +1330,69 @@ class AgentBridgeSession {
         });
       }
     }
+    return null;
+  }
+
+  private chooseActiveUtilityQuestDecision(self: RuntimePlayer, preferredQuestId = ""): AgentBridgeDecision | null {
+    const activeQuestIds = self.quests
+      .filter((quest) => getString(quest.status) === "active")
+      .map((quest) => getString(quest.id))
+      .filter((questId): questId is QuestId => (QUEST_IDS as readonly string[]).includes(questId));
+    const orderedQuestIds = uniqueStrings([
+      preferredQuestId,
+      FREE_TRAIT_QUEST_ID,
+      "mfergpt-checkin",
+      "ask-mfergpt",
+      "tweet-town-link",
+      ...activeQuestIds,
+    ]).filter((questId): questId is QuestId => activeQuestIds.includes(questId as QuestId));
+
+    for (const questId of orderedQuestIds) {
+      const decision = this.utilityDecisionForActiveQuest(self, questId);
+      if (decision) return decision;
+    }
+    return null;
+  }
+
+  private utilityDecisionForActiveQuest(self: RuntimePlayer, questId: QuestId): AgentBridgeDecision | null {
+    const definition = QUESTS[questId] as AnyRecord;
+    if (questId === FREE_TRAIT_QUEST_ID) {
+      const npc = this.resolveNpc("traits-mfer") ?? this.resolveQuestTurnInNpc(questId);
+      if (npc && distance2d(self, npc) > QUEST_SEND_RANGE) {
+        return normalizeDecision({
+          action: "move_near_npc",
+          reason: `${questId} requires saving a look at traits mfer`,
+          questId,
+          npcRef: npc.id,
+        });
+      }
+      return normalizeDecision({
+        action: "update_traits",
+        reason: `${questId} requires saving deterministic free agent traits`,
+        questId,
+        traits: null,
+      });
+    }
+
+    const chatMention = cleanText(definition.chatMention, 40) || (questId === "ask-mfergpt" ? "@mfergpt" : "");
+    if (chatMention && this.canSendChat()) {
+      return normalizeDecision({
+        action: "chat",
+        reason: `${questId} requires a chat mention`,
+        questId,
+        text: questId === "ask-mfergpt" ? `${chatMention} lore check` : `gm ${chatMention}`,
+      });
+    }
+
+    const socialAction = cleanText(definition.socialAction, 40);
+    if (socialAction === "tweet") {
+      return normalizeDecision({
+        action: "share_quest_link",
+        reason: `${questId} requires sharing the public quest link`,
+        questId,
+      });
+    }
+
     return null;
   }
 
@@ -1367,10 +1435,30 @@ class AgentBridgeSession {
   }
 
   private decisionBlockedByConstraints(command: AgentCommandState, decision: AgentBridgeDecision) {
-    if (command.constraints.noWalletActions && WALLET_DECISION_ACTIONS.has(decision.action)) return true;
-    if (command.constraints.noPaidActions && PAID_DECISION_ACTIONS.has(decision.action)) return true;
+    const freeTraitQuestDecision = this.isFreeTraitQuestDecision(decision);
+    if (command.constraints.noWalletActions && WALLET_DECISION_ACTIONS.has(decision.action) && !freeTraitQuestDecision) return true;
+    if (command.constraints.noPaidActions && PAID_DECISION_ACTIONS.has(decision.action) && !freeTraitQuestDecision) return true;
     if (command.constraints.allowedActions.length > 0 && !command.constraints.allowedActions.includes(decision.action)) return true;
     return command.constraints.disallowedActions.includes(decision.action);
+  }
+
+  private isFreeTraitQuestDecision(decision: AgentBridgeDecision) {
+    return decision.action === "update_traits" && cleanText(decision.questId, 96) === FREE_TRAIT_QUEST_ID;
+  }
+
+  private toSuggestedDecision(decision: AgentBridgeDecision): SuggestedDecision {
+    return {
+      action: decision.action,
+      reason: decision.reason,
+      npcRef: cleanText(decision.npcRef, 96) || undefined,
+      questId: cleanText(decision.questId, 96) || undefined,
+      itemId: cleanText(decision.itemId, 96) || undefined,
+      talentId: cleanText(decision.talentId, 96) || undefined,
+      actionId: cleanText(decision.actionId, 96) || undefined,
+      text: cleanText(decision.text, 180) || undefined,
+      x: readFiniteNumber(decision.x),
+      z: readFiniteNumber(decision.z),
+    };
   }
 
   private decisionHasRequiredTarget(decision: AgentBridgeDecision) {
@@ -2136,6 +2224,8 @@ class AgentBridgeSession {
         npcRef: attackers[0].id,
       };
     }
+    const utilityQuestDecision = this.chooseActiveUtilityQuestDecision(self);
+    if (utilityQuestDecision) return this.toSuggestedDecision(utilityQuestDecision);
     const availableQuest = this.describeAvailableQuestHints(self)[0];
     if (availableQuest) {
       return {
@@ -4418,6 +4508,10 @@ function nonNegativeInt(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.floor(parsed));
+}
+
+function uniqueStrings(values: readonly string[]) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function normalizeCommandTargetCount(value: unknown) {
