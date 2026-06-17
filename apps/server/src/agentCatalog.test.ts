@@ -101,8 +101,15 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.traits.note, /defaults or first-listed choices/);
 
   assert.equal(catalog.agentHarness.bridgeEndpoints.command, "/agent-command");
-  assert.deepEqual(catalog.agentHarness.commands.kinds, ["finish_next_quest", "play_for", "farm_until", "custom_objective"]);
-  assert.deepEqual(catalog.agentHarness.commands.behaviorSchemes, ["auto", "quester", "farmer", "survivor", "social"]);
+  assert.deepEqual(catalog.agentHarness.commands.kinds, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
+  assert.deepEqual(catalog.agentHarness.commands.profile.priorities, ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"]);
+  assert.deepEqual(catalog.agentHarness.commands.profile.roles, ["auto", "tank", "healer", "dps", "support"]);
+  assert.ok(catalog.agentHarness.commands.goals.types.includes("quest_completed"));
+  assert.ok(catalog.agentHarness.commands.goals.types.includes("near_player_count"));
+  assert.match(catalog.agentHarness.commands.goals.note, /freeform player requests/);
+  assert.equal(catalog.agentHarness.commands.constraints.walletSigningDefault, false);
+  assert.deepEqual(catalog.agentHarness.commands.controller.types, ["premade", "external_policy"]);
+  assert.match(catalog.agentHarness.commands.controller.note, /metadata only/);
   assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-agent-command.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-mfergpt-swap.json"));

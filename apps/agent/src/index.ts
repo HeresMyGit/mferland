@@ -34,6 +34,7 @@ type AgentConfig = {
   commandMaxRuntimeMs: number;
   commandPollMs: number;
   commandOutputFile?: string;
+  commandProfile: string;
 };
 
 const agents: MferlandAgentClient[] = [];
@@ -75,6 +76,7 @@ try {
       maxRuntimeMs: config.commandMaxRuntimeMs,
       pollMs: config.commandPollMs,
       outputFile: config.commandOutputFile,
+      profilePreset: config.commandProfile,
     });
     console.log(JSON.stringify(result, null, 2));
     await shutdown(result.ok ? 0 : 1);
@@ -224,6 +226,7 @@ function readConfig(): AgentConfig {
       "command-max-runtime-ms": { type: "string", default: process.env.AGENT_COMMAND_MAX_RUNTIME_MS ?? String(30 * 60 * 1000) },
       "command-poll-ms": { type: "string", default: process.env.AGENT_COMMAND_POLL_MS ?? "5000" },
       "command-output-file": { type: "string", default: process.env.AGENT_COMMAND_OUTPUT_FILE },
+      "command-profile": { type: "string", default: process.env.AGENT_COMMAND_PROFILE ?? "quester" },
     },
     allowPositionals: false,
   });
@@ -253,6 +256,7 @@ function readConfig(): AgentConfig {
     commandMaxRuntimeMs: readPositiveInt(values["command-max-runtime-ms"], 30 * 60 * 1000),
     commandPollMs: readPositiveInt(values["command-poll-ms"], 5000),
     commandOutputFile: values["command-output-file"],
+    commandProfile: cleanCommandProfile(values["command-profile"] ?? "quester"),
   };
 }
 
@@ -293,6 +297,10 @@ function cleanModel(value: string) {
 
 function cleanObjective(value: string) {
   return value.trim().slice(0, 800) || "Play mferland as a normal wallet player.";
+}
+
+function cleanCommandProfile(value: string) {
+  return value.replace(/[^\w.-]/g, "").trim().slice(0, 40) || "quester";
 }
 
 function round(value: number) {

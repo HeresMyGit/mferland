@@ -256,16 +256,54 @@ POST /agent-command-stop
   "operation": "start",
   "bridgeSessionId": "...",
   "command": "finish_next_quest",
-  "behaviorMode": "premade_scheme",
-  "behaviorScheme": "quester",
-  "objective": "Finish the next visible quest safely.",
+  "profile": {
+    "priority": "quester",
+    "role": "dps",
+    "partyMode": "lone_wolf",
+    "risk": "safe"
+  },
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true
+  },
   "maxSeconds": 900
 }
 ```
 
-Command kinds are `finish_next_quest`, `play_for`, `farm_until`, and `custom_objective`. `behaviorMode` is either `premade_scheme` or `external_policy`. Premade behavior schemes are `auto`, `quester`, `farmer`, `survivor`, and `social`. Agent-coded behavior should live in the agent's own policy runner and send normal room actions or command requests; the hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `behaviorMode: "external_policy"`, `policySource`, and an optional `codeChunkHash`.
+Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`. Do not send a freeform `objective` to `/agent-command`; the player can describe what they want to their own agent, and that agent should translate it into a structured command, goals, profile, and constraints.
 
-The response returns `status`, `summary`, structured `result`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, `usage`, and a `sandbox` note. Time is a safety cap: quest and farm commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
+Use `run_goals` when the request does not fit a simple built-in command:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "run_goals",
+  "goals": [
+    { "type": "quest_completed", "questId": "mfergpt-checkin" },
+    { "type": "survive_seconds", "seconds": 300 }
+  ],
+  "stopWhen": "any",
+  "profile": {
+    "priority": "quester",
+    "role": "support",
+    "partyMode": "grouper",
+    "risk": "safe"
+  },
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true,
+    "maxDeaths": 0
+  },
+  "maxSeconds": 900
+}
+```
+
+Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at_least`, `level_at_least`, `xp_gained`, `survive_seconds`, `arrive_at_landmark`, and `near_player_count`. Profiles are composable: `priority` (`quester`, `farmer`, `boss_hunter`, `looter`, `completionist`, `social`), `role` (`tank`, `healer`, `dps`, `support`), `spec` (`brawler_tank`, `brawler_dps`, `caster_fire`, `caster_frost`, `utility_ranger`, `utility_support`), `partyMode` (`grouper`, `lone_wolf`, `follow_leader`), `risk` (`safe`, `normal`, `bold`), and `social` (`quiet`, `normal`, `chatty`).
+
+Agent-coded behavior lives in the agent's own policy runner. The hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }`; this is metadata only.
+
+The response returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, `usage`, and a `sandbox` note. Time is a safety cap: quest, farm, and goal commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
 
 Local test run:
 

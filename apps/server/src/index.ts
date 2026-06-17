@@ -43,6 +43,7 @@ const WEB_DIST_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
 const WEB_INDEX_PATH = resolve(WEB_DIST_DIR, "index.html");
 const PUBLIC_SKILL_DIRS = {
   mferland: fileURLToPath(new URL("../../../skills/mferland/", import.meta.url)),
+  mferlandAutoplay: fileURLToPath(new URL("../../../skills/mferland-autoplay/", import.meta.url)),
   mferlandAgent: fileURLToPath(new URL("../../../skills/mferland-agent/", import.meta.url)),
   mferlandBankr: fileURLToPath(new URL("../../../skills/mferland-bankr/", import.meta.url)),
   mferlandLocalModel: fileURLToPath(new URL("../../../skills/mferland-local-model/", import.meta.url)),
@@ -59,6 +60,11 @@ const PUBLIC_SKILL_PACKAGES = [
   {
     route: "/skills/mferland",
     dir: PUBLIC_SKILL_DIRS.mferland,
+    files: new Set(["SKILL.md"]),
+  },
+  {
+    route: "/skills/mferland-autoplay",
+    dir: PUBLIC_SKILL_DIRS.mferlandAutoplay,
     files: new Set(["SKILL.md"]),
   },
   {

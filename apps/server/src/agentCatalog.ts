@@ -90,16 +90,36 @@ export function buildAgentCatalog() {
         stop: "/agent-stop",
       },
       commands: {
-        kinds: ["finish_next_quest", "play_for", "farm_until", "custom_objective"],
-        behaviorModes: ["premade_scheme", "external_policy"],
-        behaviorSchemes: ["auto", "quester", "farmer", "survivor", "social"],
+        kinds: ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"],
+        stopWhen: ["any", "all"],
+        profile: {
+          priorities: ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"],
+          roles: ["auto", "tank", "healer", "dps", "support"],
+          specs: ["auto", "brawler_tank", "brawler_dps", "caster_fire", "caster_frost", "utility_ranger", "utility_support"],
+          partyModes: ["auto", "grouper", "lone_wolf", "follow_leader"],
+          risks: ["safe", "normal", "bold"],
+          social: ["quiet", "normal", "chatty"],
+        },
+        goals: {
+          types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
+          note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",
+        },
+        constraints: {
+          fields: ["noWalletActions", "noPaidActions", "maxDeaths", "maxSafetyStops", "allowedActions", "disallowedActions"],
+          walletSigningDefault: false,
+          note: "Hosted autoplay cannot sign wallet transactions. Use noWalletActions/noPaidActions when a player request must not spend or request wallet approval.",
+        },
+        controller: {
+          types: ["premade", "external_policy"],
+          note: "external_policy is metadata only. Custom agent code runs in the caller-owned harness and calls /agent-action or structured /agent-command; the hosted server does not execute code.",
+        },
         maxCommandSeconds: 30 * 60,
         timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
         authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
         sandbox: {
           hostedCodeExecution: false,
-          codeChunkRule: "Do not send raw codeChunk to hosted /agent-command. Agent-authored behavior code runs in the caller's external policy runner and may call /agent-action directly or request a premade behaviorScheme command.",
-          externalPolicyMetadata: ["behaviorMode=external_policy", "policySource", "codeChunkHash"],
+          codeRule: "Do not send raw code to hosted /agent-command. Agent-authored behavior code runs in the caller's external policy runner and may call /agent-action directly or request structured autoplay.",
+          externalPolicyMetadata: ["controller.type=external_policy", "controller.policyRef", "controller.policyHash"],
         },
       },
       registeredTools: {

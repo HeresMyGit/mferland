@@ -92,6 +92,7 @@ curl -fsS https://game.mfergpt.lol/agent-catalog
 curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x0000000000000000000000000000000000000000"
 curl -fsS https://game.mfergpt.lol/agent-world
 curl -fsS "https://game.mfergpt.lol/agent-milestones?type=centralizer"
+curl -fsS https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
 curl -i -X POST https://game.mfergpt.lol/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
@@ -107,6 +108,7 @@ The public skill entry points live in this repo under `skills/`.
 After the branch is merged and the server is rebuilt/restarted, the game server hosts:
 
 - `https://game.mfergpt.lol/skills/mferland/SKILL.md` as the universal router.
+- `https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md` as the bounded hosted command harness skill.
 - `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md` as the full runner skill for Codex/local/custom agents.
 - `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` as the Bankr Terminal/X bridge skill.
 
@@ -131,6 +133,10 @@ mferland-agent/
 The primary URL to give unknown agents is the router skill:
 
 - `https://game.mfergpt.lol/skills/mferland/SKILL.md`
+
+The primary URL to give hosted command/autoplay agents is:
+
+- `https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md`
 
 The primary URL to give local/custom runner agents is the hosted full runner skill file:
 
@@ -228,7 +234,7 @@ The bridge joins the live `town` room as `identityType: "wallet"` and `agentClie
 
 `/agent-action` uses durable action execution for Bankr-style chat agents: it may wait several seconds while the bridge performs short mechanical continuation for the chosen high-level action, then returns `summary`, `report`, `stoppedBecause`, `suggestedNextAction`, `continuePrompt`, and `durationMs`. The bridge may continue safe combat/movement for an already chosen target after the HTTP response, but it should not choose new quest/shop/social objectives without another Bankr action.
 
-`/agent-command` is the higher-level autoplay surface for bounded tasks. It uses the same bridge session and normal room messages, and returns `status`, `summary`, structured `result`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, and persisted rolling-window `usage`. `behaviorMode` is either `premade_scheme` or `external_policy`; behavior schemes are `auto`, `quester`, `farmer`, `survivor`, and `social`. The server rejects raw `codeChunk` bodies and does not execute arbitrary policy code; external agent code should run in the caller's policy runner and can pass `policySource`/`codeChunkHash` metadata. Time caps are safety guards and budget controls, not the main success condition. When a command caller also provides a valid zero-value EIP-3009 `X-Payment`, the server reports OpenSea tool usage for the registered command tool, but normal wallet-authenticated bridge commands still work without `X-Payment`.
+`/agent-command` is the higher-level autoplay surface for bounded tasks. It uses the same bridge session and normal room messages, and returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, and persisted rolling-window `usage`. Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`. The command API does not accept a freeform `objective`; agents translate player requests into structured command/goals/profile/constraints before calling it. Profiles are composable through `priority`, `role`, `spec`, `partyMode`, `risk`, and `social`. The server rejects raw `codeChunk` bodies and does not execute arbitrary policy code; external agent code should run in the caller's policy runner and can pass `controller: { type: "external_policy", policyRef, policyHash }` metadata. Time caps are safety guards and budget controls, not the main success condition. When a command caller also provides a valid zero-value EIP-3009 `X-Payment`, the server reports OpenSea tool usage for the registered command tool, but normal wallet-authenticated bridge commands still work without `X-Payment`.
 
 Single-command caps are balance-tiered: base wallets get 5 minutes, 25M MFERGPT wallets get 15 minutes, and 100M+ MFERGPT wallets get 30 minutes. Rolling 24-hour command usage is stored in Postgres in `agent_command_usage`, and reserved seconds expire after the reserved command time plus a short grace period so crashed commands do not pin quota indefinitely.
 

@@ -9,8 +9,7 @@ export type AgentCommandPlaytestOptions = {
   serverUrl: string;
   baseName: string;
   command?: string;
-  behaviorScheme?: string;
-  objective?: string;
+  profilePreset?: string;
   maxSeconds?: number;
   maxRuntimeMs?: number;
   pollMs?: number;
@@ -49,7 +48,7 @@ export type AgentCommandPlaytestResult = {
 };
 
 const DEFAULT_COMMAND = "finish_next_quest";
-const DEFAULT_BEHAVIOR_SCHEME = "quester";
+const DEFAULT_PROFILE_PRESET = "quester";
 const DEFAULT_POLL_MS = 5000;
 const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_SECONDS = 24 * 60 * 60;
@@ -89,7 +88,7 @@ export async function runAgentCommandPlaytest(
 
   const client = new CommandPlaytestHttpClient(httpBase);
   await writeStatus(options.outputFile, httpBase, "starting", agents);
-  await Promise.all(agents.map((agent) => startBridgeAgent(client, agent, options)));
+  await Promise.all(agents.map((agent) => startBridgeAgent(client, agent)));
   await Promise.all(agents.map((agent) => startNextCommand(client, agent, options, maxSeconds)));
   const launchTimes = agents
     .map((agent) => agent.firstCommandStartedAt ? Date.parse(agent.firstCommandStartedAt) : 0)
@@ -135,7 +134,7 @@ export async function runAgentCommandPlaytest(
   };
 }
 
-async function startBridgeAgent(client: CommandPlaytestHttpClient, agent: CommandPlaytestAgent, options: AgentCommandPlaytestOptions) {
+async function startBridgeAgent(client: CommandPlaytestHttpClient, agent: CommandPlaytestAgent) {
   const challenge = await client.json("/wallet-auth-challenge", {
     method: "POST",
     body: { walletAddress: agent.walletAddress },
@@ -161,7 +160,6 @@ async function startBridgeAgent(client: CommandPlaytestHttpClient, agent: Comman
       sessionToken: agent.sessionToken,
       name: agent.label,
       createCharacter: true,
-      objective: options.objective || `${agent.label}: play through mferland naturally for as long as command budget allows.`,
     },
   });
   agent.bridgeSessionId = String(bridge.bridgeSessionId || "");
@@ -181,8 +179,8 @@ async function startNextCommand(
         operation: "start",
         bridgeSessionId: agent.bridgeSessionId,
         command: options.command || DEFAULT_COMMAND,
-        behaviorScheme: options.behaviorScheme || DEFAULT_BEHAVIOR_SCHEME,
-        objective: options.objective || `${agent.label}: finish the next visible quest, fight and loot safely, coordinate with nearby agents, and keep progressing.`,
+        profile: profileForPreset(options.profilePreset || DEFAULT_PROFILE_PRESET),
+        constraints: { noWalletActions: true, noPaidActions: true, maxDeaths: 0 },
         maxSeconds,
       },
     });
@@ -207,6 +205,20 @@ async function startNextCommand(
     return;
   }
   agent.error = `${agent.label} command start timed out waiting for player state`;
+}
+
+function profileForPreset(value: string) {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (normalized === "farmer" || normalized === "farm") return { priority: "farmer", risk: "normal" };
+  if (normalized === "boss_hunter" || normalized === "boss" || normalized === "raider") return { priority: "boss_hunter", risk: "bold", partyMode: "grouper" };
+  if (normalized === "survivor" || normalized === "safe") return { priority: "auto", risk: "safe" };
+  if (normalized === "social") return { priority: "social", social: "normal" };
+  if (normalized === "healer") return { priority: "quester", role: "healer", spec: "utility_support", partyMode: "grouper", risk: "safe" };
+  if (normalized === "tank") return { priority: "quester", role: "tank", spec: "brawler_tank", partyMode: "grouper", risk: "normal" };
+  if (normalized === "dps") return { priority: "quester", role: "dps", spec: "brawler_dps", risk: "normal" };
+  if (normalized === "grouper") return { priority: "quester", partyMode: "grouper", risk: "normal" };
+  if (normalized === "lone_wolf" || normalized === "solo") return { priority: "quester", partyMode: "lone_wolf", risk: "safe" };
+  return { priority: "quester", risk: "normal" };
 }
 
 async function maybeUnblockVisibleQuest(client: CommandPlaytestHttpClient, agent: CommandPlaytestAgent, command: JsonRecord) {

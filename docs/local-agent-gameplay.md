@@ -145,9 +145,10 @@ The local server also exposes the hosted bridge command/tool surfaces. Use them 
 
 Command scenarios to cover locally:
 
-- `finish_next_quest` with `behaviorScheme: "quester"` and a 60-180 second cap; expect either `completed` with a `questChanges` entry or `time_limit` with useful `actionReports`.
-- `play_for` with `behaviorScheme: "survivor"` from a damaged/unsafe state; expect retreat/wait behavior and no repeated unsafe pull loop.
-- `farm_until` with `behaviorScheme: "farmer"`, an item id such as a hog drop, and a small `targetCount`; expect combat, loot, and `inventoryChanges`.
+- `finish_next_quest` with `profile.priority: "quester"` and a 60-180 second cap; expect either `completed` with a `questChanges` entry or `time_limit` with useful `actionReports`.
+- `play_for` with `profile.risk: "safe"` from a damaged/unsafe state; expect retreat/wait behavior and no repeated unsafe pull loop.
+- `farm_until` with `profile.priority: "farmer"`, an item id such as a hog drop, and a small `targetCount`; expect combat, loot, and `inventoryChanges`.
+- `run_goals` with goals such as `{ "type": "quest_completed", "questId": "mfergpt-checkin" }`; expect `goalProgress` to show satisfied and unsatisfied goals.
 - Stop an active command through `/agent-command-stop`; expect `status: "stopped"` and a final recap.
 
 The repeatable hosted-command smoke runner launches all wallet-file agents through the bridge, starts commands inside one supervisor run, writes optional watchable status JSON, and stops cleanly:
@@ -156,8 +157,11 @@ The repeatable hosted-command smoke runner launches all wallet-file agents throu
 AGENT_WALLET_FILE=.tmp/agent-command-run-wallets.json \
 AGENT_COUNT=3 \
 AGENT_COMMAND_OUTPUT_FILE=.tmp/agent-command-status.json \
+AGENT_COMMAND_PROFILE=quester \
 npm run command-playtest:local -w @mferland/agent -- --server-url ws://127.0.0.1:2567
 ```
+
+Swap `AGENT_COMMAND_PROFILE` between `quester`, `farmer`, `boss_hunter`, `tank`, `healer`, `dps`, `grouper`, and `lone_wolf` for regression coverage across profile presets.
 
 Registered tool discovery to check:
 

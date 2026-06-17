@@ -20,15 +20,21 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
   assert.equal(manifest.manifest_hash, manifest.manifest_hash_keccak256);
   assert.deepEqual(manifest.pricing, { type: "free", network: "base", maxAmountRequired: "0" });
   const input = manifest.input_schema as {
-    properties: Record<string, { enum?: string[]; description?: string; maximum?: number }>;
+    properties: Record<string, { enum?: string[]; description?: string; maximum?: number; properties?: Record<string, { enum?: string[] }> }>;
   };
-  assert.deepEqual(input.properties.behaviorMode.enum, ["premade_scheme", "external_policy"]);
-  assert.match(input.properties.codeChunk.description ?? "", /Rejected/);
+  assert.deepEqual(input.properties.command.enum, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
+  assert.match(input.properties.goals.description ?? "", /Freeform player objectives/);
+  assert.deepEqual(input.properties.profile.properties?.role.enum, ["auto", "tank", "healer", "dps", "support"]);
+  assert.deepEqual(input.properties.controller.properties?.type.enum, ["premade", "external_policy"]);
+  assert.match(input.properties.controller.description ?? "", /Metadata only/);
+  assert.equal(input.properties.objective, undefined);
+  assert.equal(input.properties.codeChunk, undefined);
   assert.equal(input.properties.maxSeconds.maximum, 1800);
   const output = manifest.output_schema as { properties: Record<string, unknown> };
   assert.ok(output.properties.result);
   assert.ok(output.properties.usage);
   assert.ok(output.properties.sandbox);
+  assert.ok(output.properties.goalProgress);
 });
 
 test("agent tool manifest documents MFERGPT swap route outputs", () => {

@@ -242,11 +242,65 @@ type ActionReport = {
   continuePrompt: string;
 };
 
-type AgentCommandKind = "finish_next_quest" | "play_for" | "farm_until" | "custom_objective";
+type AgentCommandKind = "finish_next_quest" | "finish_quest" | "play_for" | "farm_until" | "run_goals";
 
 type AgentCommandStatus = "running" | "completed" | "time_limit" | "safety_stop" | "payment_required" | "wallet_action_required" | "stopped" | "failed";
 
-type AgentCommandBehaviorScheme = "auto" | "quester" | "farmer" | "survivor" | "social";
+type AgentCommandPriority = "auto" | "quester" | "farmer" | "boss_hunter" | "looter" | "completionist" | "social";
+type AgentCommandRole = "auto" | "tank" | "healer" | "dps" | "support";
+type AgentCommandSpec = "auto" | "brawler_tank" | "brawler_dps" | "caster_fire" | "caster_frost" | "utility_ranger" | "utility_support";
+type AgentCommandPartyMode = "auto" | "grouper" | "lone_wolf" | "follow_leader";
+type AgentCommandRisk = "safe" | "normal" | "bold";
+type AgentCommandSocial = "quiet" | "normal" | "chatty";
+type AgentCommandStopWhen = "any" | "all";
+type AgentCommandController = {
+  type: "premade" | "external_policy";
+  policyRef: string;
+  policyHash: string;
+};
+type AgentCommandProfile = {
+  priority: AgentCommandPriority;
+  role: AgentCommandRole;
+  spec: AgentCommandSpec;
+  partyMode: AgentCommandPartyMode;
+  risk: AgentCommandRisk;
+  social: AgentCommandSocial;
+};
+type AgentCommandGoalType =
+  | "quest_completed"
+  | "quest_ready"
+  | "quest_accepted"
+  | "inventory_at_least"
+  | "level_at_least"
+  | "xp_gained"
+  | "survive_seconds"
+  | "arrive_at_landmark"
+  | "near_player_count";
+type AgentCommandGoal = {
+  type: AgentCommandGoalType;
+  questId: string;
+  itemId: string;
+  count: number;
+  level: number;
+  xp: number;
+  seconds: number;
+  landmarkId: string;
+  radius: number;
+};
+type AgentCommandGoalProgress = AgentCommandGoal & {
+  current: number;
+  required: number;
+  satisfied: boolean;
+  summary: string;
+};
+type AgentCommandConstraints = {
+  noWalletActions: boolean;
+  noPaidActions: boolean;
+  maxDeaths: number;
+  maxSafetyStops: number;
+  allowedActions: string[];
+  disallowedActions: string[];
+};
 
 type AgentCommandPayload = {
   command?: unknown;
@@ -254,23 +308,32 @@ type AgentCommandPayload = {
   behavior?: unknown;
   behaviorMode?: unknown;
   behaviorScheme?: unknown;
+  profile?: unknown;
+  controller?: unknown;
   policySource?: unknown;
+  policyRef?: unknown;
   codeChunk?: unknown;
   codeChunkHash?: unknown;
+  policyHash?: unknown;
   objective?: unknown;
   maxSeconds?: unknown;
+  questId?: unknown;
   itemId?: unknown;
   targetCount?: unknown;
+  goals?: unknown;
+  stopWhen?: unknown;
+  constraints?: unknown;
 };
 
 type NormalizedAgentCommandPayload = {
   kind: AgentCommandKind;
-  behaviorMode: "premade_scheme" | "external_policy";
-  behaviorScheme: AgentCommandBehaviorScheme;
-  policySource: string;
-  codeChunkHash: string;
-  objective: string;
+  controller: AgentCommandController;
+  profile: AgentCommandProfile;
+  goals: AgentCommandGoal[];
+  stopWhen: AgentCommandStopWhen;
+  constraints: AgentCommandConstraints;
   maxSeconds: number;
+  questId: string;
   itemId: string;
   targetCount: number;
 };
@@ -278,11 +341,11 @@ type NormalizedAgentCommandPayload = {
 type AgentCommandState = {
   commandId: string;
   kind: AgentCommandKind;
-  behaviorMode: "premade_scheme" | "external_policy";
-  behaviorScheme: AgentCommandBehaviorScheme;
-  policySource: string;
-  codeChunkHash: string;
-  objective: string;
+  controller: AgentCommandController;
+  profile: AgentCommandProfile;
+  goals: AgentCommandGoal[];
+  stopWhen: AgentCommandStopWhen;
+  constraints: AgentCommandConstraints;
   status: AgentCommandStatus;
   stoppedBecause: string;
   startedAt: number;
@@ -290,8 +353,11 @@ type AgentCommandState = {
   maxSeconds: number;
   budget: AgentCommandBudget;
   usage: AgentCommandUsage;
+  questId: string;
   itemId: string;
   targetCount: number;
+  deathCount: number;
+  safetyStopCount: number;
   abortRequested: boolean;
   usageFinalized: boolean;
   startSnapshot: PlayerActionSnapshot | null;
@@ -410,6 +476,26 @@ const DECISION_ACTIONS = [
   "chat",
   "share_quest_link",
 ] as const;
+
+const WALLET_DECISION_ACTIONS = new Set<string>([
+  "swap_eth_for_mfergpt",
+  "register_chain_gear",
+  "purchase_potion_shop_item",
+  "update_traits",
+]);
+const PAID_DECISION_ACTIONS = new Set<string>([
+  "swap_eth_for_mfergpt",
+  "purchase_potion_shop_item",
+  "update_traits",
+]);
+const DEFAULT_COMMAND_PROFILE: AgentCommandProfile = {
+  priority: "auto",
+  role: "auto",
+  spec: "auto",
+  partyMode: "auto",
+  risk: "normal",
+  social: "quiet",
+};
 
 const COMBAT_ACTION_IDS = Object.keys(COMBAT.actions) as CombatActionId[];
 const COMBAT_UNLOCK_TALENTS: Partial<Record<CombatActionId, string>> = {
@@ -925,14 +1011,16 @@ class AgentBridgeSession {
     const budget = await this.resolveCommandBudget();
     const reservation = await reserveAgentCommandSeconds(this.walletAddress, budget, payload.maxSeconds);
     if (!reservation.ok) throw new BridgeHttpError(429, "agent command daily budget exhausted");
+    const focusedGoalQuestId = payload.questId || payload.goals.find((goal) => goal.questId)?.questId || "";
+    if (focusedGoalQuestId) this.focusedQuestId = focusedGoalQuestId;
     const command: AgentCommandState = {
       commandId: randomUUID(),
       kind: payload.kind,
-      behaviorMode: payload.behaviorMode,
-      behaviorScheme: payload.behaviorScheme,
-      policySource: payload.policySource,
-      codeChunkHash: payload.codeChunkHash,
-      objective: payload.objective || this.objective,
+      controller: payload.controller,
+      profile: payload.profile,
+      goals: payload.goals,
+      stopWhen: payload.stopWhen,
+      constraints: payload.constraints,
       status: "running",
       stoppedBecause: "",
       startedAt: Date.now(),
@@ -940,8 +1028,11 @@ class AgentBridgeSession {
       maxSeconds: reservation.seconds,
       budget,
       usage: reservation.usage,
+      questId: payload.questId,
       itemId: payload.itemId,
       targetCount: payload.targetCount,
+      deathCount: 0,
+      safetyStopCount: 0,
       abortRequested: false,
       usageFinalized: false,
       startSnapshot: this.snapshotPlayer(self),
@@ -1024,8 +1115,20 @@ class AgentBridgeSession {
           break;
         }
         if (status === "safety_stop" || result.stoppedBecause?.startsWith("retreat_")) {
+          command.safetyStopCount += 1;
+          if (command.constraints.maxSafetyStops > 0 && command.safetyStopCount > command.constraints.maxSafetyStops) {
+            await this.finishCommand(command, "safety_stop", "constraint_max_safety_stops");
+            break;
+          }
           await this.finishCommand(command, "safety_stop", result.stoppedBecause || status);
           break;
+        }
+        if (result.stoppedBecause === "dead") {
+          command.deathCount += 1;
+          if (command.deathCount > command.constraints.maxDeaths) {
+            await this.finishCommand(command, "safety_stop", "constraint_max_deaths");
+            break;
+          }
         }
       } catch (error) {
         const message = errorMessage(error);
@@ -1040,45 +1143,195 @@ class AgentBridgeSession {
   }
 
   private chooseCommandDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision {
-    const schemeDecision = this.chooseBehaviorSchemeDecision(command, self);
-    if (schemeDecision) return schemeDecision;
+    const survivalDecision = this.chooseSurvivalDecision(command, self);
+    if (survivalDecision && !this.decisionBlockedByConstraints(command, survivalDecision)) return survivalDecision;
+
+    const goalDecision = this.chooseGoalDecision(command, self);
+    if (goalDecision && !this.decisionBlockedByConstraints(command, goalDecision)) return goalDecision;
+
+    const profileDecision = this.chooseProfileDecision(command, self);
+    if (profileDecision && !this.decisionBlockedByConstraints(command, profileDecision)) return profileDecision;
 
     const suggested = this.buildSuggestedNextAction(self);
     if (suggested) {
       const decision = normalizeDecision({
         ...suggested,
-        reason: `${command.kind}/${command.behaviorScheme}: ${suggested.reason}`,
+        reason: `${command.kind}/${command.profile.priority}/${command.profile.risk}: ${suggested.reason}`,
       });
-      if (this.decisionHasRequiredTarget(decision)) return decision;
+      if (this.decisionHasRequiredTarget(decision) && !this.decisionBlockedByConstraints(command, decision)) return decision;
     }
     return normalizeDecision({
       action: "wait",
-      reason: `${command.kind}/${command.behaviorScheme}: waiting for a safe actionable game state`,
+      reason: `${command.kind}/${command.profile.priority}/${command.profile.risk}: waiting for a safe actionable game state`,
     });
   }
 
-  private chooseBehaviorSchemeDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
+  private chooseSurvivalDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
-    if (self.health <= 0) return normalizeDecision({ action: "respawn", reason: `${command.kind}/${command.behaviorScheme}: respawning before continuing` });
+    if (self.health <= 0) return normalizeDecision({ action: "respawn", reason: `${command.kind}/${command.profile.priority}: respawning before continuing` });
 
-    if (command.behaviorScheme === "survivor" && healthRatio < 0.9) {
+    if (command.profile.role === "healer" && healthRatio < 0.82 && this.canUse(self, "heal")) {
+      return normalizeDecision({
+        action: "use_ability",
+        actionId: "heal",
+        reason: `${command.kind}/healer: healing self before continuing`,
+      });
+    }
+
+    if (command.profile.risk === "safe" && healthRatio < 0.9) {
       const attackers = this.getAttackers(self);
       if (attackers.length > 0) {
         const destination = this.retreatDestination(self);
         return normalizeDecision({
           action: "move_to",
-          reason: `${command.kind}/survivor: retreating to recover before risking the command`,
+          reason: `${command.kind}/safe: retreating to recover before risking the command`,
           x: destination.x,
           z: destination.z,
         });
       }
-      return normalizeDecision({
-        action: "wait",
-        reason: `${command.kind}/survivor: recovering to a safer health buffer`,
-      });
+      if (healthRatio < RECOVER_HEALTH_RATIO) {
+        return normalizeDecision({
+          action: "wait",
+          reason: `${command.kind}/safe: recovering to a safer health buffer`,
+        });
+      }
     }
 
-    if ((command.behaviorScheme === "farmer" || command.kind === "farm_until") && healthRatio >= RECOVER_HEALTH_RATIO) {
+    return null;
+  }
+
+  private chooseGoalDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
+    if (command.kind === "finish_quest" && command.questId) {
+      return this.chooseQuestGoalDecision(self, command.questId, "quest_completed");
+    }
+    if (command.kind !== "run_goals") return null;
+
+    const progress = this.describeCommandGoalProgress(command, self);
+    const pending = progress.find((goal) => !goal.satisfied);
+    if (!pending) return null;
+
+    switch (pending.type) {
+      case "quest_completed":
+      case "quest_ready":
+      case "quest_accepted":
+        return this.chooseQuestGoalDecision(self, pending.questId, pending.type);
+      case "inventory_at_least": {
+        const loot = this.describeLootableCorpses(self).find((corpse) => {
+          const npc = this.npcs.get(getString(corpse.npcId));
+          return npc ? this.describeLootItems(npc).some((item) => item.itemId === pending.itemId) : false;
+        });
+        if (loot) {
+          return normalizeDecision({
+            action: "loot",
+            reason: `${command.kind}/goal: looting ${pending.itemId} for inventory goal`,
+            npcRef: getString(loot.npcId) || getString(loot.id),
+          });
+        }
+        const target = this.findGenericQuestTarget(self)?.npc ?? this.findSafeTrainingTarget(self);
+        if (target) {
+          return normalizeDecision({
+            action: "fight_npc",
+            reason: `${command.kind}/goal: fighting likely loot source while working toward ${pending.itemId}`,
+            npcRef: target.id,
+          });
+        }
+        return null;
+      }
+      case "level_at_least":
+      case "xp_gained": {
+        const questTarget = this.findNamedObjectiveTarget(self) ?? this.findGenericQuestTarget(self);
+        const target = questTarget?.npc ?? this.findSafeTrainingTarget(self);
+        return target ? normalizeDecision({
+          action: "fight_npc",
+          reason: `${command.kind}/goal: earning xp toward ${pending.type}`,
+          questId: questTarget?.questId,
+          npcRef: target.id,
+        }) : null;
+      }
+      case "survive_seconds":
+        return normalizeDecision({
+          action: "wait",
+          reason: `${command.kind}/goal: staying alive for ${pending.required} seconds`,
+        });
+      case "arrive_at_landmark": {
+        const landmark = PUBLIC_LANDMARKS[pending.landmarkId];
+        return landmark ? normalizeDecision({
+          action: "move_to",
+          reason: `${command.kind}/goal: moving to landmark ${pending.landmarkId}`,
+          x: landmark.x,
+          z: landmark.z,
+        }) : null;
+      }
+      case "near_player_count": {
+        const nearest = [...this.players.values()]
+          .filter((player) => player.sessionId !== self.sessionId)
+          .sort((a, b) => distance2d(self, a) - distance2d(self, b))[0];
+        return nearest ? normalizeDecision({
+          action: "move_near_player",
+          reason: `${command.kind}/goal: grouping near visible players`,
+          playerRef: nearest.name || nearest.sessionId,
+        }) : normalizeDecision({
+          action: "wait",
+          reason: `${command.kind}/goal: waiting for visible players to group with`,
+        });
+      }
+    }
+    return null;
+  }
+
+  private chooseQuestGoalDecision(self: RuntimePlayer, questId: string, goalType: AgentCommandGoalType): AgentBridgeDecision | null {
+    const quest = self.quests.find((entry) => getString(entry.id) === questId);
+    const status = getString(quest?.status);
+    const turnInNpc = this.resolveQuestTurnInNpc(questId);
+    if ((status === "ready" || status === "completed") && goalType === "quest_completed" && turnInNpc) {
+      return normalizeDecision({
+        action: "complete_quest",
+        reason: `${questId} is ready for the structured quest goal`,
+        questId,
+        npcRef: turnInNpc.id,
+      });
+    }
+    if ((status === "active" || status === "ready" || status === "completed") && goalType === "quest_accepted") {
+      return normalizeDecision({ action: "wait", reason: `${questId} is already accepted` });
+    }
+    if (!status) {
+      const offer = this.describeAvailableQuestHints(self).find((hint) => getString(hint.questId) === questId);
+      if (offer) {
+        return normalizeDecision({
+          action: "accept_quest",
+          reason: `${questId} is the structured quest goal and is available`,
+          questId,
+          npcRef: getString(offer.npcId),
+        });
+      }
+    }
+    if (status === "active" || status === "ready") {
+      const namedTarget = this.findNamedObjectiveTarget(self, questId);
+      if (namedTarget) {
+        return normalizeDecision({
+          action: "fight_npc",
+          reason: `${namedTarget.npc.name} is an unfinished named objective for ${questId}`,
+          questId,
+          npcRef: namedTarget.npc.id,
+        });
+      }
+      const questTarget = this.findGenericQuestTarget(self, questId);
+      if (questTarget) {
+        return normalizeDecision({
+          action: "fight_npc",
+          reason: `${questTarget.npc.name} matches structured quest goal ${questId}`,
+          questId,
+          npcRef: questTarget.npc.id,
+        });
+      }
+    }
+    return null;
+  }
+
+  private chooseProfileDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+
+    if ((command.profile.priority === "farmer" || command.kind === "farm_until") && healthRatio >= RECOVER_HEALTH_RATIO) {
       const loot = this.describeLootableCorpses(self)[0];
       if (loot) {
         return normalizeDecision({
@@ -1097,7 +1350,7 @@ class AgentBridgeSession {
       }
     }
 
-    if (command.behaviorScheme === "social" && this.canSendEmote()) {
+    if ((command.profile.priority === "social" || command.profile.social === "chatty") && this.canSendEmote()) {
       const nearbyPlayer = [...this.players.values()]
         .filter((player) => player.sessionId !== self.sessionId)
         .sort((a, b) => distance2d(self, a) - distance2d(self, b))[0];
@@ -1113,6 +1366,13 @@ class AgentBridgeSession {
     return null;
   }
 
+  private decisionBlockedByConstraints(command: AgentCommandState, decision: AgentBridgeDecision) {
+    if (command.constraints.noWalletActions && WALLET_DECISION_ACTIONS.has(decision.action)) return true;
+    if (command.constraints.noPaidActions && PAID_DECISION_ACTIONS.has(decision.action)) return true;
+    if (command.constraints.allowedActions.length > 0 && !command.constraints.allowedActions.includes(decision.action)) return true;
+    return command.constraints.disallowedActions.includes(decision.action);
+  }
+
   private decisionHasRequiredTarget(decision: AgentBridgeDecision) {
     if (decision.action === "complete_quest" || decision.action === "accept_quest") return Boolean(decision.questId && decision.npcRef);
     if (decision.action === "fight_npc" || decision.action === "loot" || decision.action === "move_near_npc" || decision.action === "interact_npc") return Boolean(decision.npcRef);
@@ -1122,7 +1382,8 @@ class AgentBridgeSession {
   }
 
   private checkCommandCompletion(command: AgentCommandState, self: RuntimePlayer) {
-    if (command.kind === "play_for" || command.kind === "custom_objective") return "";
+    if (command.constraints.maxDeaths === 0 && self.health <= 0) return "constraint_max_deaths";
+    if (command.kind === "play_for") return "";
     if (command.kind === "finish_next_quest") {
       const completedAtStart = new Set((command.startSnapshot?.quests ?? [])
         .filter((quest) => quest.status === "completed")
@@ -1130,11 +1391,83 @@ class AgentBridgeSession {
       const completed = self.quests.find((quest) => getString(quest.status) === "completed" && !completedAtStart.has(getString(quest.id)));
       return completed ? `quest_completed:${getString(completed.id)}` : "";
     }
+    if (command.kind === "finish_quest" && command.questId) {
+      return this.questHasStatus(self, command.questId, "completed") ? `quest_completed:${command.questId}` : "";
+    }
     if (command.kind === "farm_until" && command.itemId) {
       const count = inventoryCount(self, command.itemId);
       return count >= command.targetCount ? `inventory_target:${command.itemId}:${count}` : "";
     }
+    if (command.kind === "run_goals") {
+      const progress = this.describeCommandGoalProgress(command, self);
+      if (progress.length === 0) return "";
+      const satisfied = progress.filter((goal) => goal.satisfied).length;
+      if (command.stopWhen === "any" && satisfied > 0) return `goals_any:${satisfied}/${progress.length}`;
+      if (command.stopWhen === "all" && satisfied === progress.length) return `goals_all:${satisfied}/${progress.length}`;
+    }
     return "";
+  }
+
+  private describeCommandGoalProgress(command: AgentCommandState, self: RuntimePlayer): AgentCommandGoalProgress[] {
+    const started = command.startSnapshot;
+    const elapsedSeconds = Math.floor(Math.max(0, Date.now() - command.startedAt) / 1000);
+    return command.goals.map((goal) => {
+      switch (goal.type) {
+        case "quest_completed": {
+          const satisfied = Boolean(goal.questId && this.questHasStatus(self, goal.questId, "completed"));
+          return { ...goal, current: satisfied ? 1 : 0, required: 1, satisfied, summary: `${goal.questId || "quest"} completed` };
+        }
+        case "quest_ready": {
+          const status = this.questStatus(self, goal.questId);
+          const satisfied = status === "ready" || status === "completed";
+          return { ...goal, current: satisfied ? 1 : 0, required: 1, satisfied, summary: `${goal.questId || "quest"} ready` };
+        }
+        case "quest_accepted": {
+          const status = this.questStatus(self, goal.questId);
+          const satisfied = status === "active" || status === "ready" || status === "completed";
+          return { ...goal, current: satisfied ? 1 : 0, required: 1, satisfied, summary: `${goal.questId || "quest"} accepted` };
+        }
+        case "inventory_at_least": {
+          const current = goal.itemId ? inventoryCount(self, goal.itemId) : 0;
+          const required = Math.max(1, goal.count);
+          return { ...goal, current, required, satisfied: current >= required, summary: `${goal.itemId || "item"} ${current}/${required}` };
+        }
+        case "level_at_least": {
+          const required = Math.max(1, goal.level);
+          return { ...goal, current: self.level, required, satisfied: self.level >= required, summary: `level ${self.level}/${required}` };
+        }
+        case "xp_gained": {
+          const current = Math.max(0, self.xp - (started?.xp ?? self.xp));
+          const required = Math.max(1, goal.xp);
+          return { ...goal, current, required, satisfied: current >= required, summary: `xp gained ${current}/${required}` };
+        }
+        case "survive_seconds": {
+          const required = Math.max(1, goal.seconds);
+          return { ...goal, current: elapsedSeconds, required, satisfied: elapsedSeconds >= required && self.health > 0, summary: `survived ${elapsedSeconds}/${required}s` };
+        }
+        case "arrive_at_landmark": {
+          const landmark = PUBLIC_LANDMARKS[goal.landmarkId];
+          const radius = goal.radius || 4;
+          const distance = landmark ? distance2d(self, landmark) : Number.POSITIVE_INFINITY;
+          const current = Number.isFinite(distance) ? Math.max(0, Math.ceil(radius - distance)) : 0;
+          return { ...goal, current, required: radius, satisfied: Boolean(landmark && distance <= radius), summary: `${goal.landmarkId || "landmark"} distance ${Number.isFinite(distance) ? round(distance) : "unknown"}` };
+        }
+        case "near_player_count": {
+          const radius = goal.radius || 12;
+          const current = [...this.players.values()].filter((player) => player.sessionId !== self.sessionId && distance2d(self, player) <= radius).length;
+          const required = Math.max(1, goal.count);
+          return { ...goal, current, required, satisfied: current >= required, summary: `nearby players ${current}/${required} within ${radius}m` };
+        }
+      }
+    });
+  }
+
+  private questStatus(self: RuntimePlayer, questId: string) {
+    return getString(self.quests.find((quest) => getString(quest.id) === questId)?.status);
+  }
+
+  private questHasStatus(self: RuntimePlayer, questId: string, status: string) {
+    return this.questStatus(self, questId) === status;
   }
 
   private async finishCommand(command: AgentCommandState, status: AgentCommandStatus, stoppedBecause: string) {
@@ -1157,51 +1490,60 @@ class AgentBridgeSession {
     const now = Date.now();
     const finishedAt = command.finishedAt || 0;
     const durationMs = Math.max(0, (finishedAt || now) - command.startedAt);
-    const questChanges = command.startSnapshot && command.lastSnapshot
-      ? this.describeQuestChanges(command.startSnapshot, command.lastSnapshot)
-      : [];
-    const inventoryChanges = command.startSnapshot && command.lastSnapshot
-      ? describeInventoryCountChanges(command.startSnapshot.inventoryCounts, command.lastSnapshot.inventoryCounts)
-      : [];
-    const summary = [
-      `${command.kind} ${command.status}`,
-      command.stoppedBecause ? `stopped ${command.stoppedBecause}` : "",
-      questChanges.length ? `quests ${questChanges.map((change) => `${change.id} ${change.before}->${change.after}`).join(", ")}` : "",
-      inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
-    ].filter(Boolean).join("; ");
+      const questChanges = command.startSnapshot && command.lastSnapshot
+        ? this.describeQuestChanges(command.startSnapshot, command.lastSnapshot)
+        : [];
+      const inventoryChanges = command.startSnapshot && command.lastSnapshot
+        ? describeInventoryCountChanges(command.startSnapshot.inventoryCounts, command.lastSnapshot.inventoryCounts)
+        : [];
+      const self = this.self();
+      const goalProgress = self ? this.describeCommandGoalProgress(command, self) : [];
+      const summary = [
+        `${command.kind} ${command.status}`,
+        command.stoppedBecause ? `stopped ${command.stoppedBecause}` : "",
+        goalProgress.length ? `goals ${goalProgress.filter((goal) => goal.satisfied).length}/${goalProgress.length}` : "",
+        questChanges.length ? `quests ${questChanges.map((change) => `${change.id} ${change.before}->${change.after}`).join(", ")}` : "",
+        inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
+      ].filter(Boolean).join("; ");
     return {
       ok: command.status !== "failed",
-      bridgeSessionId: this.id,
-      commandId: command.commandId,
-      command: command.kind,
-      behaviorMode: command.behaviorMode,
-      behaviorScheme: command.behaviorScheme,
-      policySource: command.policySource || undefined,
-      codeChunkHash: command.codeChunkHash || undefined,
-      sandbox: {
-        hostedCodeExecution: false,
-        rule: "Hosted /agent-command runs premade behavior schemes only. Agent-authored code must run in the external policy runner and call /agent-action or request a premade command.",
-      },
-      objective: command.objective,
-      status: command.status,
-      stoppedBecause: command.stoppedBecause,
-      summary,
+        bridgeSessionId: this.id,
+        commandId: command.commandId,
+        command: command.kind,
+        controller: command.controller,
+        profile: command.profile,
+        goals: command.goals,
+        goalProgress,
+        stopWhen: command.stopWhen,
+        constraints: command.constraints,
+        sandbox: {
+          hostedCodeExecution: false,
+          rule: "Hosted /agent-command accepts structured commands, goals, profiles, constraints, and controller metadata only. Agent-authored code must run in the external policy runner and call /agent-action or request structured autoplay.",
+        },
+        status: command.status,
+        stoppedBecause: command.stoppedBecause,
+        summary,
       result: {
         status: command.status,
         stoppedBecause: command.stoppedBecause,
         durationMs,
-        questChangeCount: questChanges.length,
-        inventoryChangeCount: inventoryChanges.length,
-        actionReportCount: command.reports.length,
-        remainingSeconds: command.usage.remainingSeconds,
-      },
+          questChangeCount: questChanges.length,
+          inventoryChangeCount: inventoryChanges.length,
+          satisfiedGoalCount: goalProgress.filter((goal) => goal.satisfied).length,
+          goalCount: goalProgress.length,
+          actionReportCount: command.reports.length,
+          remainingSeconds: command.usage.remainingSeconds,
+        },
       durationMs,
-      maxSeconds: command.maxSeconds,
-      budget: command.budget,
-      usage: command.usage,
-      itemId: command.itemId || undefined,
-      targetCount: command.targetCount || undefined,
-      questChanges,
+        maxSeconds: command.maxSeconds,
+        budget: command.budget,
+        usage: command.usage,
+        questId: command.questId || undefined,
+        itemId: command.itemId || undefined,
+        targetCount: command.targetCount || undefined,
+        deathCount: command.deathCount,
+        safetyStopCount: command.safetyStopCount,
+        questChanges,
       inventoryChanges,
       lastActionReport: command.reports[command.reports.length - 1] ?? null,
       actionReports: command.reports.slice(-8),
@@ -3410,11 +3752,12 @@ class AgentBridgeSession {
       .slice(0, 8);
   }
 
-  private findNamedObjectiveTarget(self: RuntimePlayer) {
+  private findNamedObjectiveTarget(self: RuntimePlayer, preferredQuestId = "") {
     for (const quest of self.quests) {
       if (getString(quest.status) !== "active") continue;
       const questId = normalizeKnownQuestId(getString(quest.id));
       if (!questId) continue;
+      if (preferredQuestId && questId !== preferredQuestId) continue;
       const completed = getQuestFlagSet(getString(quest.flags));
       for (const objective of getQuestObjectives(questId)) {
         if (completed.has(objective.id)) continue;
@@ -3425,11 +3768,12 @@ class AgentBridgeSession {
     return null;
   }
 
-  private findGenericQuestTarget(self: RuntimePlayer) {
+  private findGenericQuestTarget(self: RuntimePlayer, preferredQuestId = "") {
     for (const quest of self.quests) {
       if (getString(quest.status) !== "active") continue;
       const questId = normalizeKnownQuestId(getString(quest.id));
       if (!questId || getQuestObjectives(questId).length > 0) continue;
+      if (preferredQuestId && questId !== preferredQuestId) continue;
       const definition = QUESTS[questId] as AnyRecord;
       const targetModels = Array.isArray(definition.defeatNpcModels) ? definition.defeatNpcModels.map(String) : [];
       const targetRoles = Array.isArray(definition.defeatNpcRoles) ? definition.defeatNpcRoles.map(String) : [];
@@ -3861,60 +4205,201 @@ function normalizeDecision(value: unknown): AgentBridgeDecision {
 function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCommandPayload {
   const record = asRecord(value);
   const kind = normalizeCommandKind(record.command ?? record.kind);
+  if (cleanText(record.objective, 260)) {
+    throw new BridgeHttpError(400, "freeform objective is not accepted by /agent-command; translate player intent into structured command, goals, profile, and constraints in the agent runner");
+  }
   const codeChunk = cleanText(record.codeChunk, 20_000);
   if (codeChunk) {
-    throw new BridgeHttpError(400, "hosted /agent-command does not execute codeChunk; run agent-authored code in the external policy runner and call /agent-action or choose a premade behaviorScheme");
+    throw new BridgeHttpError(400, "hosted /agent-command does not execute codeChunk; run agent-authored code in the external policy runner and call /agent-action or send structured goals/profile");
   }
-  const behaviorScheme = normalizeCommandBehaviorScheme(record.behaviorScheme ?? record.behavior);
-  const behaviorMode = normalizeCommandBehaviorMode(record.behaviorMode, record.policySource, record.codeChunkHash);
+  const controller = normalizeCommandController(record.controller, record.behaviorMode, record.policyRef ?? record.policySource, record.policyHash ?? record.codeChunkHash);
+  const profile = normalizeCommandProfile(record.profile, record.behaviorScheme ?? record.behavior, kind);
+  const goals = normalizeCommandGoals(record.goals, kind, record);
+  const stopWhen = normalizeCommandStopWhen(record.stopWhen);
+  const constraints = normalizeCommandConstraints(record.constraints);
   const maxSeconds = normalizeCommandSeconds(record.maxSeconds, kind);
+  const questId = cleanText(record.questId, 96);
   const itemId = cleanText(record.itemId, 96);
   const targetCount = normalizeCommandTargetCount(record.targetCount);
+  if (kind === "finish_quest" && !questId) {
+    throw new BridgeHttpError(400, "finish_quest requires questId");
+  }
   if (kind === "farm_until" && (!itemId || targetCount <= 0)) {
     throw new BridgeHttpError(400, "farm_until requires itemId and targetCount");
   }
+  if (kind === "run_goals" && goals.length === 0) {
+    throw new BridgeHttpError(400, "run_goals requires at least one structured goal");
+  }
   return {
     kind,
-    behaviorMode,
-    behaviorScheme: behaviorScheme === "auto" ? defaultBehaviorSchemeForCommand(kind) : behaviorScheme,
-    policySource: cleanText(record.policySource, 120),
-    codeChunkHash: normalizeCodeChunkHash(record.codeChunkHash),
-    objective: cleanText(record.objective, 260),
+    controller,
+    profile,
+    goals,
+    stopWhen,
+    constraints,
     maxSeconds,
+    questId,
     itemId,
     targetCount,
   };
 }
 
-function normalizeCommandBehaviorMode(value: unknown, policySource: unknown, codeChunkHash: unknown): "premade_scheme" | "external_policy" {
-  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  if (text === "external_policy" || text === "external" || text === "code_chunk" || text === "code") return "external_policy";
-  if (cleanText(policySource, 120) || normalizeCodeChunkHash(codeChunkHash)) return "external_policy";
-  return "premade_scheme";
+function normalizeCommandController(value: unknown, legacyMode: unknown, policyRef: unknown, policyHash: unknown): AgentCommandController {
+  const record = asRecord(value);
+  const requested = cleanText(record.type, 40) || cleanText(legacyMode, 40);
+  const normalized = requested.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const hash = normalizePolicyHash(record.policyHash ?? policyHash);
+  const ref = cleanText(record.policyRef ?? policyRef, 120);
+  const type = normalized === "external_policy" || normalized === "external" || ref || hash
+    ? "external_policy"
+    : "premade";
+  return {
+    type,
+    policyRef: ref,
+    policyHash: hash,
+  };
 }
 
 function normalizeCommandKind(value: unknown): AgentCommandKind {
   const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (text === "finish_next_quest" || text === "quest" || text === "next_quest") return "finish_next_quest";
+  if (text === "finish_quest" || text === "quest_id") return "finish_quest";
   if (text === "play_for" || text === "play" || text === "timebox") return "play_for";
   if (text === "farm_until" || text === "farm") return "farm_until";
-  if (text === "custom_objective" || text === "custom") return "custom_objective";
+  if (text === "run_goals" || text === "goal_set" || text === "custom_goal_set" || text === "custom_objective" || text === "custom") return "run_goals";
   return "play_for";
 }
 
-function normalizeCommandBehaviorScheme(value: unknown): AgentCommandBehaviorScheme {
+function normalizeCommandProfile(value: unknown, legacyBehavior: unknown, kind: AgentCommandKind): AgentCommandProfile {
+  const record = asRecord(value);
+  const legacy = normalizeProfileToken(legacyBehavior);
+  const defaultPriority = defaultCommandPriority(kind);
+  const legacyPriority: AgentCommandPriority = legacy && legacy !== "safe" ? legacy : defaultPriority;
+  return {
+    priority: normalizeProfileEnum(record.priority, ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"], legacyPriority),
+    role: normalizeProfileEnum(record.role, ["auto", "tank", "healer", "dps", "support"], DEFAULT_COMMAND_PROFILE.role),
+    spec: normalizeProfileEnum(record.spec, ["auto", "brawler_tank", "brawler_dps", "caster_fire", "caster_frost", "utility_ranger", "utility_support"], DEFAULT_COMMAND_PROFILE.spec),
+    partyMode: normalizeProfileEnum(record.partyMode ?? record.party, ["auto", "grouper", "lone_wolf", "follow_leader"], DEFAULT_COMMAND_PROFILE.partyMode),
+    risk: normalizeProfileEnum(record.risk, ["safe", "normal", "bold"], legacy === "safe" ? "safe" : DEFAULT_COMMAND_PROFILE.risk),
+    social: normalizeProfileEnum(record.social, ["quiet", "normal", "chatty"], legacy === "social" ? "normal" : DEFAULT_COMMAND_PROFILE.social),
+  };
+}
+
+function normalizeProfileToken(value: unknown): AgentCommandPriority | "safe" | "" {
   const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (text === "quester" || text === "quest") return "quester";
   if (text === "farmer" || text === "farm") return "farmer";
-  if (text === "survivor" || text === "safe") return "survivor";
+  if (text === "boss_hunter" || text === "boss") return "boss_hunter";
+  if (text === "looter" || text === "loot") return "looter";
+  if (text === "completionist" || text === "complete") return "completionist";
   if (text === "social") return "social";
+  if (text === "survivor" || text === "safe") return "safe";
+  return "";
+}
+
+function normalizeProfileEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return allowed.includes(text as T) ? text as T : fallback;
+}
+
+function defaultCommandPriority(kind: AgentCommandKind): AgentCommandPriority {
+  if (kind === "finish_next_quest" || kind === "finish_quest") return "quester";
+  if (kind === "farm_until") return "farmer";
   return "auto";
 }
 
-function defaultBehaviorSchemeForCommand(kind: AgentCommandKind): AgentCommandBehaviorScheme {
-  if (kind === "finish_next_quest") return "quester";
-  if (kind === "farm_until") return "farmer";
-  return "auto";
+function normalizeCommandGoals(value: unknown, kind: AgentCommandKind, record: AnyRecord): AgentCommandGoal[] {
+  const rawGoals = Array.isArray(value) ? value : [];
+  const goals = rawGoals.map(normalizeCommandGoal).filter((goal): goal is AgentCommandGoal => Boolean(goal));
+  if (goals.length > 0) return goals.slice(0, 12);
+  if (kind === "finish_quest") {
+    const questId = cleanText(record.questId, 96);
+    return questId ? [emptyGoal("quest_completed", { questId })] : [];
+  }
+  if (kind === "farm_until") {
+    const itemId = cleanText(record.itemId, 96);
+    const count = normalizeCommandTargetCount(record.targetCount);
+    return itemId && count > 0 ? [emptyGoal("inventory_at_least", { itemId, count })] : [];
+  }
+  return [];
+}
+
+function normalizeCommandGoal(value: unknown): AgentCommandGoal | null {
+  const record = asRecord(value);
+  const type = normalizeCommandGoalType(record.type);
+  if (!type) return null;
+  const goal = emptyGoal(type, {
+    questId: cleanText(record.questId, 96),
+    itemId: cleanText(record.itemId, 96),
+    landmarkId: cleanText(record.landmarkId, 80),
+    count: nonNegativeInt(record.count),
+    level: nonNegativeInt(record.level),
+    xp: nonNegativeInt(record.xp ?? record.amount),
+    seconds: nonNegativeInt(record.seconds),
+    radius: nonNegativeInt(record.radius),
+  });
+  if (["quest_completed", "quest_ready", "quest_accepted"].includes(goal.type) && !goal.questId) return null;
+  if (goal.type === "inventory_at_least" && (!goal.itemId || goal.count <= 0)) return null;
+  if (goal.type === "level_at_least" && goal.level <= 0) return null;
+  if (goal.type === "xp_gained" && goal.xp <= 0) return null;
+  if (goal.type === "survive_seconds" && goal.seconds <= 0) return null;
+  if (goal.type === "arrive_at_landmark" && !goal.landmarkId) return null;
+  if (goal.type === "near_player_count" && goal.count <= 0) return null;
+  return goal;
+}
+
+function normalizeCommandGoalType(value: unknown): AgentCommandGoalType | "" {
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "quest_completed" || text === "complete_quest") return "quest_completed";
+  if (text === "quest_ready" || text === "ready_quest") return "quest_ready";
+  if (text === "quest_accepted" || text === "accepted_quest" || text === "accept_quest") return "quest_accepted";
+  if (text === "inventory_at_least" || text === "inventory_count" || text === "item_count") return "inventory_at_least";
+  if (text === "level_at_least" || text === "level") return "level_at_least";
+  if (text === "xp_gained" || text === "gain_xp") return "xp_gained";
+  if (text === "survive_seconds" || text === "survive") return "survive_seconds";
+  if (text === "arrive_at_landmark" || text === "arrive" || text === "landmark") return "arrive_at_landmark";
+  if (text === "near_player_count" || text === "near_players" || text === "group_size") return "near_player_count";
+  return "";
+}
+
+function emptyGoal(type: AgentCommandGoalType, overrides: Partial<AgentCommandGoal> = {}): AgentCommandGoal {
+  return {
+    type,
+    questId: "",
+    itemId: "",
+    count: 0,
+    level: 0,
+    xp: 0,
+    seconds: 0,
+    landmarkId: "",
+    radius: 0,
+    ...overrides,
+  };
+}
+
+function normalizeCommandStopWhen(value: unknown): AgentCommandStopWhen {
+  const text = cleanText(value, 20).toLowerCase();
+  return text === "all" ? "all" : "any";
+}
+
+function normalizeCommandConstraints(value: unknown): AgentCommandConstraints {
+  const record = asRecord(value);
+  return {
+    noWalletActions: Boolean(record.noWalletActions),
+    noPaidActions: Boolean(record.noPaidActions),
+    maxDeaths: Math.min(99, Math.max(0, nonNegativeInt(record.maxDeaths))),
+    maxSafetyStops: Math.min(99, Math.max(0, nonNegativeInt(record.maxSafetyStops))),
+    allowedActions: normalizeDecisionActionList(record.allowedActions),
+    disallowedActions: normalizeDecisionActionList(record.disallowedActions),
+  };
+}
+
+function normalizeDecisionActionList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => cleanText(entry, 40))
+    .filter((entry) => DECISION_ACTIONS.includes(entry as typeof DECISION_ACTIONS[number]))
+    .slice(0, 32);
 }
 
 function normalizeCommandSeconds(value: unknown, kind: AgentCommandKind) {
@@ -3924,9 +4409,15 @@ function normalizeCommandSeconds(value: unknown, kind: AgentCommandKind) {
   return Math.min(30 * 60, Math.max(15, Math.floor(parsed)));
 }
 
-function normalizeCodeChunkHash(value: unknown) {
+function normalizePolicyHash(value: unknown) {
   const text = cleanText(value, 96).toLowerCase();
   return /^0x[a-f0-9]{64}$/.test(text) || /^[a-f0-9]{64}$/.test(text) ? text : "";
+}
+
+function nonNegativeInt(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor(parsed));
 }
 
 function normalizeCommandTargetCount(value: unknown) {

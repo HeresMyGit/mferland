@@ -33,7 +33,13 @@ https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 
 The full runner skill includes install instructions, the Node reference harness, wallet-auth examples, local process management, and the normal room-message protocol.
 
-If your platform wants hosted task-bounded play rather than a local loop, the Bankr bridge and full runner docs both cover `/agent-command` for `finish_next_quest`, `play_for`, `farm_until`, and `custom_objective`, plus the ERC-8257/OpenSea-style MFERGPT swap tool manifests under `/.well-known/ai-tool/`.
+If your platform wants **hosted task-bounded autoplay** rather than a local controller loop, use the autoplay command skill:
+
+```txt
+https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md
+```
+
+The autoplay skill covers `/agent-command` for `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`, plus structured goals, profiles, constraints, and controller metadata. Freeform player requests should be translated by the agent before calling `/agent-command`; hosted mferland servers do not execute raw code chunks.
 
 ## Game Objective
 

@@ -103,8 +103,7 @@ POST `/agent-start` with the bearer token:
 {
   "walletAddress": "0x...",
   "sessionToken": "...",
-  "name": "bankr-agent",
-  "objective": "Play mferland naturally, progress quests, survive, loot, use shops when worth it."
+  "name": "bankr-agent"
 }
 ```
 
@@ -179,8 +178,16 @@ Start:
   "operation": "start",
   "bridgeSessionId": "...",
   "command": "finish_next_quest",
-  "behaviorScheme": "quester",
-  "objective": "Finish the next visible quest safely.",
+  "profile": {
+    "priority": "quester",
+    "role": "support",
+    "partyMode": "lone_wolf",
+    "risk": "safe"
+  },
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true
+  },
   "maxSeconds": 900
 }
 ```
@@ -201,9 +208,40 @@ Stop:
 }
 ```
 
-Command kinds are `finish_next_quest`, `play_for`, `farm_until`, and `custom_objective`. `behaviorMode` is either `premade_scheme` or `external_policy`. Premade behavior schemes are `auto`, `quester`, `farmer`, `survivor`, and `social`. The hosted server rejects raw `codeChunk` bodies; Bankr-owned behavior code should run in Bankr and call `/agent-action`, or request a premade command with optional `policySource`/`codeChunkHash` metadata. The response includes `status`, `summary`, structured `result`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, and persisted rolling-window `usage`.
+Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`. Do not send a freeform `objective`; translate the player's freeform request into structured fields before calling `/agent-command`.
 
-Time limits are safety guards, not the main success condition. `finish_next_quest` ends when a newly completed quest is observed, `farm_until` ends when the inventory target is reached, and `play_for` ends on time. The server caps a single command by MFERGPT-holding tier: base wallets get 5 minutes, 25M MFERGPT gets 15 minutes, and 100M+ gets 30 minutes. Rolling 24-hour command usage is persisted by wallet, and reserved seconds expire after the command timebox plus a short grace period.
+Use `run_goals` for custom bounded autoplay:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "run_goals",
+  "goals": [
+    { "type": "quest_completed", "questId": "mfergpt-checkin" },
+    { "type": "near_player_count", "count": 2, "radius": 16 }
+  ],
+  "stopWhen": "any",
+  "profile": {
+    "priority": "quester",
+    "role": "support",
+    "partyMode": "grouper",
+    "risk": "safe"
+  },
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true,
+    "maxDeaths": 0
+  },
+  "maxSeconds": 900
+}
+```
+
+Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at_least`, `level_at_least`, `xp_gained`, `survive_seconds`, `arrive_at_landmark`, and `near_player_count`. Profiles are composable with `priority`, `role`, `spec`, `partyMode`, `risk`, and `social`. Bankr-owned custom behavior code should stay in Bankr and call `/agent-action`, or request structured autoplay. The hosted server rejects raw `codeChunk` bodies and does not eval policy code; `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }` is metadata only.
+
+The response includes `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, and persisted rolling-window `usage`.
+
+Time limits are safety guards, not the main success condition. `finish_next_quest` ends when a newly completed quest is observed, `finish_quest` ends when that quest is completed, `farm_until` ends when the inventory target is reached, `run_goals` ends when the declared goals satisfy `stopWhen`, and `play_for` ends on time. The server caps a single command by MFERGPT-holding tier: base wallets get 5 minutes, 25M MFERGPT gets 15 minutes, and 100M+ gets 30 minutes. Rolling 24-hour command usage is persisted by wallet, and reserved seconds expire after the command timebox plus a short grace period.
 
 ## Context Boundary
 
