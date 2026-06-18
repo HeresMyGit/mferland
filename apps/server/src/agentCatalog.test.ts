@@ -22,7 +22,7 @@ test("agent catalog documents normal player menu controls", () => {
 
   assert.deepEqual(catalog.controls.session, ["leave"]);
   assert.deepEqual(catalog.controls.movement, ["input", "respawn"]);
-  assert.deepEqual(catalog.controls.social, ["chat", "emote", "shareQuestLink"]);
+  assert.deepEqual(catalog.controls.social, ["chat", "emote", "agentStatus", "shareQuestLink"]);
   assert.deepEqual(catalog.controls.npc, ["interact"]);
   assert.deepEqual(catalog.controls.quests, ["acceptQuest", "completeQuest", "cancelQuest"]);
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
@@ -92,11 +92,10 @@ test("agent catalog documents normal player menu controls", () => {
   assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
   assert.equal(catalog.traits.declaredAgentModel, "mfergpt");
   assert.deepEqual(catalog.traits.forcedForDeclaredAgents, { eyes: "regular", mouth: "flat" });
-  assert.deepEqual(catalog.traits.blockedForDeclaredAgents.categories, ["long_hair"]);
-  assert.ok(catalog.traits.blockedForDeclaredAgents.options.hat_under_headphones.includes("cap_based_blue"));
-  assert.ok(catalog.traits.blockedForDeclaredAgents.options.eyes.includes("shades"));
+  assert.deepEqual(catalog.traits.blockedForDeclaredAgents.categories, []);
+  assert.deepEqual(catalog.traits.blockedForDeclaredAgents.options, {});
   assert.match(catalog.traits.note, /regular eyes and flat mouth/);
-  assert.match(catalog.traits.note, /caps, long hair, shades, or glasses/);
+  assert.match(catalog.traits.note, /caps and long hair/);
   assert.match(catalog.traits.selectionGuidance, /seeded variety/);
   assert.match(catalog.traits.note, /defaults or first-listed choices/);
 

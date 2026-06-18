@@ -26,7 +26,7 @@ const TRAINING_DUMMY_MODEL_URL = "/models/training-dummy.glb";
 
 const PORTRAIT_CONFIG: Record<NpcSnapshot["model"], PortraitConfig> = {
   mfer: { cameraY: 1.45, cameraZ: 4.1, lookY: 1.45, modelY: -0.15, scale: 1, sway: 0.08, bob: 0.015 },
-  mfergpt: { cameraY: 1.82, cameraZ: 4.7, lookY: 1.72, modelY: -0.34, scale: 1, sway: 0.1, bob: 0.012 },
+  mfergpt: { cameraY: 1.55, cameraZ: 4.25, lookY: 1.45, modelY: -0.16, scale: 1, sway: 0.1, bob: 0.012 },
   "training-dummy": { cameraY: 1.42, cameraZ: 3.7, lookY: 1.32, modelY: -0.18, scale: 1, sway: 0.14, bob: 0.008 },
   rabbit: { cameraY: 0.68, cameraZ: 2.45, lookY: 0.64, modelY: 0.04, scale: 2.05, sway: 0.12, bob: 0.035 },
   deer: { cameraY: 1.14, cameraZ: 3.35, lookY: 1.08, modelY: -0.04, scale: 1.22, sway: 0.11, bob: 0.018 },

@@ -700,7 +700,7 @@ For `input`, `x` and `z` are normalized movement axes, not world coordinates. To
 
 Talent ids are in `catalog.talents`. Spend `talentPoints` intentionally based on the agent's chosen archetype. Examples: brawler favors HP, bonk damage, taunt, and whirlwind; caster favors MP, cast damage, mana regen, and frostNova; utility favors movement, quest XP, recovery, and multishot.
 
-Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent only when you have a strong identity/style choice; otherwise send `traits: null` or `{}` and let the server choose deterministic wallet/name-seeded variety. Declared agents render with the mferGPT agent model, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model. Trait ids are identity metadata and supported visual overlays.
+Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent only when you have a strong identity/style choice; otherwise send `traits: null` or `{}` and let the server choose deterministic wallet/name-seeded variety. Declared agents render with the mferGPT agent model, force regular eyes and flat mouth, and can use catalog accessories such as caps and long hair. Trait ids are identity metadata and supported visual overlays.
 
 Combat action ids:
 

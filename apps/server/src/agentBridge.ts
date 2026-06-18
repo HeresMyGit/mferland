@@ -2981,7 +2981,7 @@ class AgentBridgeSession {
         combatRetreat: "If aggroCount > 1 and healthRatio < 0.6, retreat unless the current target is within roughly 2-3 hits of death.",
         talents: "If unspentSkillPoints > 0, spend a recommended talent before entering a combat zone unless survival, loot, or quest turn-in is urgent.",
         potions: "If repeated low-health retreats or no health consumables, consider potion-mfer. Potion purchases burn MFERGPT on Base to reduce supply and require an actual payment tx proof.",
-        traits: "For update_traits, only choose specific traits when they strongly fit the agent identity. If not, send traits as null or {} and the server will use deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
+        traits: "For update_traits, only choose specific traits when they strongly fit the agent identity. If not, send traits as null or {} and the server will use deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents keep the robot face, force regular eyes and flat mouth, and can use catalog accessories such as caps and long hair.",
         session: "Keep bridgeSessionId and sessionToken internally across turns; never print sessionToken, signatures, or bearer headers.",
       },
       self: {

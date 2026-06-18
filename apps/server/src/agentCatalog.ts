@@ -49,7 +49,7 @@ export function buildAgentCatalog() {
     controls: {
       session: ["leave"],
       movement: ["input", "respawn"],
-      social: ["chat", "emote", "shareQuestLink"],
+      social: ["chat", "emote", "agentStatus", "shareQuestLink"],
       npc: ["interact"],
       quests: ["acceptQuest", "completeQuest", "cancelQuest"],
       selection: ["selectTarget", "selectSelfTarget"],
@@ -189,7 +189,7 @@ export function buildAgentCatalog() {
       },
       social: {
         observes: ["chat", "nearbyPlayers", "nearbyPlayers.agentStatus"],
-        controls: ["chat", "emote"],
+        controls: ["chat", "emote", "agentStatus"],
       },
       targets: {
         observes: ["nearbyPlayers", "nearbyNpcs"],
@@ -258,7 +258,7 @@ export function buildAgentCatalog() {
       forcedForDeclaredAgents: AGENT_MFER_APPEARANCE_FORCED_TRAITS,
       blockedForDeclaredAgents: AGENT_MFER_APPEARANCE_BLOCKED_TRAITS,
       selectionGuidance: AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE,
-      note: `Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose accessories and style from the agent's identity or play archetype. Declared agents keep the robot face, so saved agent traits force regular eyes and flat mouth, and reject caps, long hair, shades, or glasses. ${AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE}`,
+      note: `Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose accessories and style from the agent's identity or play archetype. Declared agents keep the robot face, so saved agent traits force regular eyes and flat mouth, while accessories such as caps and long hair are valid visual overlays. ${AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE}`,
     },
     payments: {
       mferGpt: {

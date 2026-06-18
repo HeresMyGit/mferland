@@ -188,7 +188,7 @@ function makeWorldTarget(
 function getNpcDebugHitRadius(npc: NpcSnapshot) {
   if (npc.id === "raid-ogre-mfer") return 2.5;
   if (npc.id === "static-baron-nox") return 1.55;
-  if (npc.model === "mfergpt") return 1.15;
+  if (npc.model === "mfergpt") return 1.0;
   if (npc.model === "training-dummy") return 0.9;
   if (npc.model === "hog") return 0.95;
   if (npc.model === "deer") return 0.8;
@@ -199,7 +199,7 @@ function getNpcDebugHitRadius(npc: NpcSnapshot) {
 function getNpcDebugHitHeight(npc: NpcSnapshot) {
   if (npc.id === "raid-ogre-mfer") return 7.5;
   if (npc.id === "static-baron-nox") return 4.2;
-  if (npc.model === "mfergpt") return 3.8;
+  if (npc.model === "mfergpt") return 3.2;
   if (npc.model === "training-dummy") return 2.9;
   if (npc.model === "hog") return 1.3;
   if (npc.model === "deer") return 1.9;

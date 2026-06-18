@@ -55,6 +55,7 @@ type LoadedMferGltf = {
 
 const MODEL_URL = "https://sfo3.digitaloceanspaces.com/cybermfers/cybermfers/builders/mfermashup.glb";
 const DEATH_ANIMATION_SECONDS = 0.82;
+export const MFER_AVATAR_WORLD_HEIGHT = 2.55;
 export const MIXAMO_CLIPS: Record<AnimationState, MferClipConfig> = {
   idle: { file: "idles/Breathing_Idle", loop: THREE.LoopRepeat, timeScale: 0.9 },
   walk: { file: "Walking_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1 },
@@ -1125,7 +1126,7 @@ function createMferAvatarTemplate(
 
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const scale = size.y > 0.01 ? 2.55 / size.y : 1;
+  const scale = size.y > 0.01 ? MFER_AVATAR_WORLD_HEIGHT / size.y : 1;
   scene.scale.setScalar(scale);
   scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
