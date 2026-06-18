@@ -97,6 +97,11 @@ const friendlyAntennaLightColor = new THREE.Color("#8d0000");
 const hostileAntennaLightColor = new THREE.Color("#a60000");
 const antennaLightPeakIntensity = 3.2;
 const antennaLightDefeatedIntensity = 0.18;
+const antennaPointLightPeakIntensity = 5.5;
+const antennaPointLightPulseThreshold = 0.08;
+const antennaPointLightDistance = 4.2;
+const antennaPointLightDecay = 2.2;
+const antennaPointLightPosition: [number, number, number] = [0, 2.58, 0.04];
 
 hitGeometry.computeBoundingBox();
 hitGeometry.computeBoundingSphere();
@@ -136,6 +141,7 @@ function MferGptAvatarRig({
 }: MferGptAvatarProps & { agentTraitSourceScene?: THREE.Group | null }) {
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
+  const antennaPointLightRef = useRef<THREE.PointLight>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
   const currentClipNameRef = useRef<string | null>(null);
@@ -148,6 +154,7 @@ function MferGptAvatarRig({
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const labelColor = isHostile ? hostileLabelColor : friendlyLabelColor;
   const badgeColor = isHostile ? hostileBadgeColor : friendlyBadgeColor;
+  const antennaColor = isHostile ? hostileAntennaLightColor : friendlyAntennaLightColor;
   const avatar = useMemo(
     () => createMferGptAvatar(gltf.scene, isHostile, {
       agentTraitSourceScene,
@@ -196,9 +203,16 @@ function MferGptAvatarRig({
   useFrame(({ clock }, delta) => {
     const group = groupRef.current;
     if (!group) return;
-    const antennaPulse = Math.pow(Math.sin(clock.elapsedTime * 4.4) * 0.5 + 0.5, 1.8) * antennaLightPeakIntensity;
+    const antennaPulse = Math.pow(Math.sin(clock.elapsedTime * 4.4) * 0.5 + 0.5, 1.8);
+    const antennaMaterialIntensity = antennaPulse * antennaLightPeakIntensity;
     for (const material of antennaLightMaterials) {
-      material.emissiveIntensity = isDefeated ? antennaLightDefeatedIntensity : antennaPulse;
+      material.emissiveIntensity = isDefeated ? antennaLightDefeatedIntensity : antennaMaterialIntensity;
+    }
+    const antennaPointLight = antennaPointLightRef.current;
+    if (antennaPointLight) {
+      antennaPointLight.intensity = !isDefeated && antennaPulse > antennaPointLightPulseThreshold
+        ? antennaPulse * antennaPointLightPeakIntensity
+        : 0;
     }
 
     if (isDefeated && !wasDefeatedRef.current) {
@@ -254,6 +268,14 @@ function MferGptAvatarRig({
         onPointerDown={handleTarget}
       />
       <group ref={poseRef}>
+        <pointLight
+          ref={antennaPointLightRef}
+          color={antennaColor}
+          position={antennaPointLightPosition}
+          intensity={0}
+          distance={antennaPointLightDistance}
+          decay={antennaPointLightDecay}
+        />
         <primitive object={avatar} dispose={null} />
         {showNameplate && (
           <Billboard position={[0, MFER_GPT_NAMEPLATE_Y, 0]}>
