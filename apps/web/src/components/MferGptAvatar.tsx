@@ -36,6 +36,7 @@ type MferGptAvatarProps = {
   npc: NpcSnapshot;
   variant?: "npc" | "agent";
   appearanceTraits?: MferAppearanceTraits | null;
+  cleanAgentModel?: boolean;
   isTargeted?: boolean;
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
@@ -128,6 +129,7 @@ function MferGptAvatarRig({
   npc,
   variant = "npc",
   appearanceTraits = null,
+  cleanAgentModel = false,
   isTargeted = false,
   isDefeated = false,
   questMarker = null,
@@ -160,8 +162,9 @@ function MferGptAvatarRig({
       agentTraitSourceScene,
       appearanceTraits,
       avatarSeed: npc.avatarSeed,
+      cleanAgentModel,
     }),
-    [gltf.scene, isHostile, agentTraitSourceScene, appearanceTraits, npc.avatarSeed],
+    [gltf.scene, isHostile, agentTraitSourceScene, appearanceTraits, npc.avatarSeed, cleanAgentModel],
   );
   const antennaLightMaterials = useMemo(() => getMferGptAntennaLightMaterials(avatar), [avatar]);
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
@@ -419,6 +422,7 @@ export function createMferGptAvatar(
     agentTraitSourceScene?: THREE.Group | null;
     appearanceTraits?: MferAppearanceTraits | null;
     avatarSeed?: number;
+    cleanAgentModel?: boolean;
   } = {},
 ) {
   const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
@@ -452,7 +456,13 @@ export function createMferGptAvatar(
   scene.scale.setScalar(scale);
   scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
   if (options.agentTraitSourceScene) {
-    graftAgentTraitMeshes(scene, options.agentTraitSourceScene, options.avatarSeed ?? 0, options.appearanceTraits ?? null);
+    graftAgentTraitMeshes(
+      scene,
+      options.agentTraitSourceScene,
+      options.avatarSeed ?? 0,
+      options.appearanceTraits ?? null,
+      options.cleanAgentModel ? new Set(["headphones_black"]) : null,
+    );
   }
   return scene;
 }
@@ -462,6 +472,7 @@ function graftAgentTraitMeshes(
   traitSourceScene: THREE.Group,
   avatarSeed: number,
   appearanceTraits: MferAppearanceTraits | null,
+  forcedTraitMeshes: Set<string> | null = null,
 ) {
   const targetSkeleton: THREE.Skeleton | null = findFirstSkeleton(robotScene);
   if (!targetSkeleton) return;
@@ -473,7 +484,7 @@ function graftAgentTraitMeshes(
     ]),
   );
   const fallbackBone = targetBoneByName.get("mixamorigHips");
-  const traitMeshes = getAgentRobotTraitMeshes(avatarSeed, appearanceTraits);
+  const traitMeshes = forcedTraitMeshes ?? getAgentRobotTraitMeshes(avatarSeed, appearanceTraits);
   const sourceScene = SkeletonUtils.clone(traitSourceScene) as THREE.Group;
   const graftGroup = new THREE.Group();
   graftGroup.name = "agent_robot_traits";

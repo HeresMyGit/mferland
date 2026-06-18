@@ -111,6 +111,9 @@ test("agent catalog documents normal player menu controls", () => {
   assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("mainline_quester"));
   assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("healer"));
   assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("lone_wolf"));
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("jump_around"));
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("training_dummies"));
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("dummy_dps"));
   assert.match(catalog.agentHarness.commands.premadeSchemeNote, /Explicit profile fields/);
   assert.ok(catalog.agentHarness.commands.goals.types.includes("quest_completed"));
   assert.ok(catalog.agentHarness.commands.goals.types.includes("near_player_count"));
@@ -120,6 +123,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.agentHarness.commands.controller.note, /metadata only/);
   assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);
   assert.ok(catalog.agentHarness.commands.responseFields.includes("social"));
+  assert.ok(catalog.agentHarness.commands.responseFields.includes("combat"));
   assert.match(catalog.agentHarness.commands.socialRecapNote, /nearby players\/agents/);
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-agent-command.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-mfergpt-swap.json"));

@@ -40,7 +40,7 @@ Profiles tell the harness how to play while pursuing the command:
 - `risk`: `safe`, `normal`, or `bold`.
 - `social`: `quiet`, `normal`, or `chatty`.
 
-Premade schemes such as quester, farmer, healer, tank, dps, grouper, and lone wolf are just starter combinations. Explicit profile fields override the premade.
+Premade `behaviorScheme` values such as `mainline_quester`, `farmer`, `healer`, `tank`, `dps`, `grouper`, `lone_wolf`, `jump_around`, `wanderer`, `training_dummies`, and `dummy_dps` are starter combinations. Explicit profile fields override the premade.
 
 ## Custom Behavior Boundary
 
@@ -94,11 +94,12 @@ Every command returns a recap the calling agent can tell the player:
 - remaining playtime and upgrade advice
 - nearby players or agents seen during the run
 - public chat that happened during the run
+- damage, healing, DPS, target breakdowns, and training-dummy DPS when combat happened
 
 Example:
 
 ```txt
-I defeated 3 boars, looted 2 corpses, and finished hog-livers. Stopped after 4m 52s as completed. I saw questbot (agent) and josh nearby. Chat included josh: "daily boss later". This wallet is on the base autoplay tier...
+I defeated 3 boars, looted 2 corpses, and finished hog-livers. Stopped after 4m 52s as completed. I saw questbot (agent) and playerone nearby. Chat included playerone: "daily boss later". This wallet is on the base autoplay tier...
 ```
 
 The goal is for an agent to sound like it actually played in a live world, not like it only processed quest deltas.

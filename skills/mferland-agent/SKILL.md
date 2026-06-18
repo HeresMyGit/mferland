@@ -222,6 +222,10 @@ Harness provides: wallet auth, room connection, public observation, normal messa
 Harness must not provide: hard-coded quest paths, hidden DB/server state, debug messages, teleports, production bypasses, or deterministic playthrough macros.
 ```
 
+For hosted autoplay commands, `behaviorScheme` selects a premade policy seed such as `mainline_quester`, `farmer`, `healer`, `tank`, `dps`, `grouper`, `lone_wolf`, `jump_around`, `wanderer`, `training_dummies`, or `dummy_dps`. Explicit `profile` fields still override the premade role, spec, risk, party mode, and social style.
+
+Command results include a `combat` recap with damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` when the command attacks training dummies. Use it in player-facing recaps the same way you use quest, loot, budget, and social recaps.
+
 ## Custom Runner Contract
 
 Use the bundled runner as a reference implementation, not as the only supported model provider. A custom runner should keep this loop:

@@ -57,6 +57,25 @@ type MobileMoveInputRef = {
   current: MobileMoveInput;
 };
 
+export type CaptureInputState = {
+  input: ClientInput;
+  receivedAt: number;
+};
+
+type CaptureInputRef = {
+  current: CaptureInputState | null;
+};
+
+export type CaptureCameraState = {
+  position: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  fov?: number;
+};
+
+type CaptureCameraRef = {
+  current: CaptureCameraState | null;
+};
+
 type TownSceneProps = {
   players: Map<string, PlayerSnapshot>;
   npcs: Map<string, NpcSnapshot>;
@@ -87,6 +106,9 @@ type TownSceneProps = {
   lightweightRender?: boolean;
   controlsEnabled?: boolean;
   cameraControlsEnabled?: boolean;
+  cleanCaptureAgentModel?: boolean;
+  captureInputRef?: CaptureInputRef;
+  captureCameraRef?: CaptureCameraRef;
   idleCameraNpcId?: string | null;
   onSelectDebugPlacement?: (targetId: string | null) => void;
   onChangeDebugPlacement?: (target: DebugPlacementTarget, value: { x: number; z: number; rotation: number }, commit: boolean) => void;
@@ -121,6 +143,7 @@ const DEBUG_CAMERA_WHEEL_ZOOM_SCALE = 0.16;
 const DEBUG_CAMERA_TURN_SPEED = 2.8;
 const DEBUG_PLACEMENT_CLICK_Y = 18;
 const EMPTY_MOBILE_MOVE_INPUT: MobileMoveInput = { active: false, forward: 0, right: 0, sprint: false };
+const CAPTURE_INPUT_STALE_MS = 260;
 
 function TownSceneComponent({
   players,
@@ -147,6 +170,9 @@ function TownSceneComponent({
   lightweightRender = false,
   controlsEnabled = true,
   cameraControlsEnabled = false,
+  cleanCaptureAgentModel = false,
+  captureInputRef,
+  captureCameraRef,
   idleCameraNpcId = null,
   onSelectDebugPlacement,
   onChangeDebugPlacement,
@@ -529,10 +555,23 @@ function TownSceneComponent({
       .copy(frameForward)
       .multiplyScalar(forwardIntent)
       .addScaledVector(frameRight, keyboardLeftIntent + mobileLeftIntent);
-    const moveLength = frameMove.length();
+    let moveLength = frameMove.length();
     if (moveLength > 1) frameMove.normalize();
-    const isSprinting = !localIsDead && moveLength > 0.01;
-    const isJumping = !localIsDead && (keys.has(" ") || keys.has("space") || keys.has("spacebar"));
+    const captureInputState = !controlsEnabled ? captureInputRef?.current ?? null : null;
+    const captureInput = captureInputState && Date.now() - captureInputState.receivedAt <= CAPTURE_INPUT_STALE_MS
+      ? captureInputState.input
+      : null;
+    if (captureInput && !localIsDead) {
+      facingYaw.current = captureInput.yaw;
+      frameMove.set(captureInput.x, 0, captureInput.z);
+      moveLength = frameMove.length();
+      if (moveLength > 1) {
+        frameMove.normalize();
+        moveLength = 1;
+      }
+    }
+    const isSprinting = !localIsDead && moveLength > 0.01 && (captureInput ? Boolean(captureInput.sprint) : true);
+    const isJumping = !localIsDead && (captureInput ? Boolean(captureInput.jump) : (keys.has(" ") || keys.has("space") || keys.has("spacebar")));
 
     const interactPressed = keys.has("f") || keys.has("keyf");
     if (interactPressed && !interactHeld.current && localPlayer && !localIsDead) {
@@ -567,11 +606,22 @@ function TownSceneComponent({
     }
 
     if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
-      if (controlsEnabled) {
+      if (controlsEnabled || captureInput) {
         updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, controlDelta);
       } else {
         updateObserverVisualPlayer(localVisualPlayer.current, localPlayer, controlDelta);
       }
+    }
+
+    const captureCamera = !controlsEnabled ? captureCameraRef?.current ?? null : null;
+    if (captureCamera) {
+      if (camera instanceof THREE.PerspectiveCamera && captureCamera.fov && camera.fov !== captureCamera.fov) {
+        camera.fov = captureCamera.fov;
+        camera.updateProjectionMatrix();
+      }
+      camera.position.set(captureCamera.position.x, captureCamera.position.y, captureCamera.position.z);
+      camera.lookAt(captureCamera.target.x, captureCamera.target.y, captureCamera.target.z);
+      return;
     }
 
     const cameraPlayer = localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId
@@ -644,7 +694,8 @@ function TownSceneComponent({
                 key={sessionId}
                 npc={makeAgentModelSnapshot(renderedPlayer)}
                 variant="agent"
-                appearanceTraits={renderedPlayer.appearanceTraits}
+                appearanceTraits={cleanCaptureAgentModel && isLocalPlayer ? null : renderedPlayer.appearanceTraits}
+                cleanAgentModel={cleanCaptureAgentModel && isLocalPlayer}
                 showNameplate={showNameplate}
                 showNameplateHealthBar={nameplateVisibility.healthBars}
                 isTargeted={isTargetSelected(selectedTarget, "player", sessionId)}
@@ -790,6 +841,9 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.lightweightRender === next.lightweightRender
     && previous.controlsEnabled === next.controlsEnabled
     && previous.cameraControlsEnabled === next.cameraControlsEnabled
+    && previous.cleanCaptureAgentModel === next.cleanCaptureAgentModel
+    && previous.captureInputRef === next.captureInputRef
+    && previous.captureCameraRef === next.captureCameraRef
     && previous.idleCameraNpcId === next.idleCameraNpcId
     && previous.onSelectDebugPlacement === next.onSelectDebugPlacement
     && previous.onChangeDebugPlacement === next.onChangeDebugPlacement;

@@ -63,7 +63,7 @@ test("agent command social recap summarizes nearby players and chat", () => {
         }],
         ["human-1", {
           sessionId: "human-1",
-          name: "josh",
+          name: "playerone",
           identityType: "wallet",
           isAgent: false,
           firstSeenAt: now - 18_000,
@@ -73,7 +73,7 @@ test("agent command social recap summarizes nearby players and chat", () => {
       ]),
       chat: [{
         sessionId: "human-1",
-        name: "josh",
+        name: "playerone",
         identityType: "wallet",
         isAgent: false,
         kind: "say",
@@ -86,9 +86,9 @@ test("agent command social recap summarizes nearby players and chat", () => {
   assert.equal(recap.nearbyPlayerCount, 2);
   assert.equal(recap.nearbyAgentCount, 1);
   assert.equal(recap.nearbyHumanCount, 1);
-  assert.deepEqual(recap.nearbyPlayers.map((player) => player.name), ["josh", "questbot"]);
+  assert.deepEqual(recap.nearbyPlayers.map((player) => player.name), ["playerone", "questbot"]);
   assert.equal(recap.recentChat[0]?.text, "daily boss later");
-  assert.match(recap.summary, /josh/);
+  assert.match(recap.summary, /playerone/);
   assert.match(recap.summary, /questbot \(agent\)/);
   assert.match(recap.summary, /daily boss later/);
 });

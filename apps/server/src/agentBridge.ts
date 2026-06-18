@@ -4,6 +4,7 @@ import { Client, type Room } from "colyseus.js";
 import {
   AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   COMBAT,
+  INPUT_SEND_RATE,
   clamp,
   getCombatActionUnlockLevel,
   getItemEquipment,
@@ -48,6 +49,7 @@ import {
   type AgentCommandUsage,
 } from "./agentCommandBudget.js";
 import { buildAgentCatalog } from "./agentCatalog.js";
+import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 import { getAgentSeason0MferGptGateStatus } from "./agentMferGptGate.js";
 import {
   parseToolPaymentHeader,
@@ -115,6 +117,7 @@ export type AgentBridgeDecision = {
   paymentChainId?: number | null;
   paymentContractAddress?: string | null;
   sprint?: boolean | null;
+  jump?: boolean | null;
   traits?: AnyRecord | null;
 };
 
@@ -369,6 +372,26 @@ export type AgentCommandSocialMemory = {
   chat: AgentCommandSocialChat[];
 };
 
+type AgentCommandCombatTargetStats = {
+  targetId: string;
+  targetName: string;
+  targetModel: string;
+  damageDone: number;
+  hitCount: number;
+  firstAt: number;
+  lastAt: number;
+  defeated: boolean;
+};
+
+type AgentCommandCombatStats = {
+  damageDone: number;
+  healingDone: number;
+  hitCount: number;
+  firstAt: number;
+  lastAt: number;
+  targets: Map<string, AgentCommandCombatTargetStats>;
+};
+
 type AgentCommandPayload = {
   command?: unknown;
   kind?: unknown;
@@ -394,6 +417,7 @@ type AgentCommandPayload = {
 
 type NormalizedAgentCommandPayload = {
   kind: AgentCommandKind;
+  behaviorScheme: string;
   controller: AgentCommandController;
   profile: AgentCommandProfile;
   goals: AgentCommandGoal[];
@@ -408,6 +432,7 @@ type NormalizedAgentCommandPayload = {
 type AgentCommandState = {
   commandId: string;
   kind: AgentCommandKind;
+  behaviorScheme: string;
   controller: AgentCommandController;
   profile: AgentCommandProfile;
   goals: AgentCommandGoal[];
@@ -433,6 +458,7 @@ type AgentCommandState = {
   reports: ActionReport[];
   errors: string[];
   social: AgentCommandSocialMemory;
+  combat: AgentCommandCombatStats;
 };
 
 type CombatMemoryEntry = {
@@ -461,7 +487,7 @@ type RecentNpcPlayerCombat = {
 };
 
 const BRIDGE_BODY_LIMIT_BYTES = 64 * 1024;
-const INPUT_INTERVAL_MS = 150;
+const INPUT_INTERVAL_MS = Math.round(1000 / INPUT_SEND_RATE);
 const INTERACT_SEND_RANGE = 12.5;
 const QUEST_SEND_RANGE = 3.75;
 const INTERACT_APPROACH_DISTANCE = 1.6;
@@ -732,6 +758,7 @@ const DECISION_SCHEMA = {
     paymentChainId: { type: ["number", "null"] },
     paymentContractAddress: { type: ["string", "null"] },
     sprint: { type: ["boolean", "null"] },
+    jump: { type: ["boolean", "null"] },
     traits: { type: ["object", "null"], additionalProperties: { type: "string" } },
   },
   required: [
@@ -756,6 +783,7 @@ const DECISION_SCHEMA = {
     "paymentChainId",
     "paymentContractAddress",
     "sprint",
+    "jump",
     "traits",
   ],
 } as const;
@@ -806,6 +834,7 @@ class AgentBridgeSession {
   private nextAgentStatusAt = 0;
   private nextChatAt = 0;
   private nextEmoteAt = 0;
+  private movementJumpUntil = 0;
   private lastNextActionChat = "";
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
@@ -1244,6 +1273,7 @@ class AgentBridgeSession {
     const command: AgentCommandState = {
       commandId: randomUUID(),
       kind: payload.kind,
+      behaviorScheme: payload.behaviorScheme,
       controller: payload.controller,
       profile: payload.profile,
       goals: payload.goals,
@@ -1269,6 +1299,7 @@ class AgentBridgeSession {
       reports: [],
       errors: [],
       social: { players: new Map(), chat: [] },
+      combat: createCommandCombatStats(),
     };
     this.commands.set(command.commandId, command);
     this.activeCommandId = command.commandId;
@@ -2092,6 +2123,21 @@ class AgentBridgeSession {
   private chooseProfileDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
 
+    if (this.isJumpAroundScheme(command.behaviorScheme) && healthRatio >= RECOVER_HEALTH_RATIO) {
+      return this.chooseJumpAroundDecision(command, self);
+    }
+
+    if (this.isTrainingDummyScheme(command.behaviorScheme) && healthRatio >= RECOVER_HEALTH_RATIO) {
+      const target = this.findTrainingDummyTarget(self);
+      if (target) {
+        return normalizeDecision({
+          action: "fight_npc",
+          reason: `${command.kind}/${command.behaviorScheme}: practicing on ${target.name || target.id} and logging DPS`,
+          npcRef: target.id,
+        });
+      }
+    }
+
     if ((command.profile.priority === "farmer" || command.kind === "farm_until") && healthRatio >= RECOVER_HEALTH_RATIO) {
       const loot = this.describeLootableCorpses(self)[0];
       if (loot) {
@@ -2125,6 +2171,39 @@ class AgentBridgeSession {
     }
 
     return null;
+  }
+
+  private isJumpAroundScheme(scheme: string) {
+    return scheme === "jump_around" || scheme === "wanderer";
+  }
+
+  private isTrainingDummyScheme(scheme: string) {
+    return scheme === "training_dummies" || scheme === "dummy_dps";
+  }
+
+  private chooseJumpAroundDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision {
+    const tick = Math.floor(Date.now() / 4500);
+    const seed = stableHash(`${command.commandId}:${tick}:${command.behaviorScheme}`);
+    const angle = (seed % 6283) / 1000;
+    const radius = command.behaviorScheme === "wanderer" ? 5 + (seed % 500) / 100 : 2.8 + (seed % 280) / 100;
+    return normalizeDecision({
+      action: "move_to",
+      reason: `${command.kind}/${command.behaviorScheme}: wandering for fun without pulling fights`,
+      x: self.x + Math.cos(angle) * radius,
+      z: self.z + Math.sin(angle) * radius,
+      sprint: true,
+      jump: command.behaviorScheme === "jump_around",
+    });
+  }
+
+  private findTrainingDummyTarget(self: RuntimePlayer) {
+    return [...this.npcs.values()]
+      .filter((npc) => npc.model === "training-dummy" && npc.health > 0 && npc.defeatedAt <= 0)
+      .sort((a, b) => {
+        const leftPreferred = a.id === "training-dummy-left" ? -2 : a.id === "training-dummy-right" ? -1 : 0;
+        const rightPreferred = b.id === "training-dummy-left" ? -2 : b.id === "training-dummy-right" ? -1 : 0;
+        return leftPreferred - rightPreferred || distance2d(self, a) - distance2d(self, b);
+      })[0] ?? null;
   }
 
   private decisionBlockedByConstraints(command: AgentCommandState, decision: AgentBridgeDecision) {
@@ -2878,6 +2957,7 @@ class AgentBridgeSession {
         bridgeSessionId: this.id,
         commandId: command.commandId,
         command: command.kind,
+        behaviorScheme: command.behaviorScheme || undefined,
         controller: command.controller,
         profile: command.profile,
         goals: command.goals,
@@ -2892,6 +2972,7 @@ class AgentBridgeSession {
         budgetAdvice,
         recap,
         social: recap.social,
+        combat: recap.combat,
         status: command.status,
         stoppedBecause: command.stoppedBecause,
         summary,
@@ -2909,6 +2990,7 @@ class AgentBridgeSession {
           budgetAdvice,
           recap,
           social: recap.social,
+          combat: recap.combat,
         },
       durationMs,
         requestedMaxSeconds: command.requestedMaxSeconds,
@@ -3725,11 +3807,13 @@ class AgentBridgeSession {
     switch (decision.action) {
       case "wait":
         this.targetPoint = null;
+        this.movementJumpUntil = 0;
         this.clearEngagement();
         this.clearRoute();
         this.lastAction = "wait";
         return null;
       case "respawn":
+        this.movementJumpUntil = 0;
         this.clearEngagement();
         this.clearRoute();
         this.send("respawn", {});
@@ -3742,6 +3826,7 @@ class AgentBridgeSession {
         this.clearEngagement();
         this.clearRoute();
         this.moveTo({ x, z });
+        this.movementJumpUntil = decision.jump ? Date.now() + 7_000 : 0;
         this.lastAction = `move_to ${round(x)},${round(z)}`;
         return null;
       }
@@ -4055,7 +4140,12 @@ class AgentBridgeSession {
         }
       }
     }
-    this.send("input", { x, z, yaw: this.yaw, sprint: Boolean(this.targetPoint), jump: false, seq: ++this.seq });
+    const jump = Boolean(
+      this.targetPoint
+      && Date.now() < this.movementJumpUntil
+      && Math.floor(Date.now() / 520) % 2 === 0,
+    );
+    this.send("input", { x, z, yaw: this.yaw, sprint: Boolean(this.targetPoint), jump, seq: ++this.seq });
     this.publishAgentStatus(self);
   }
 
@@ -4565,7 +4655,7 @@ class AgentBridgeSession {
 
   private assertNpcCombatTarget(npc: RuntimeNpc, action: string) {
     if (!isAttackable(npc)) throw new Error(`${action} target ${npc.id} is not attackable; role=${npc.role}, model=${npc.model}`);
-    if (npc.isImmortal || npc.health <= 0 || npc.defeatedAt > 0) throw new Error(`${action} target ${npc.id} is not available`);
+    if ((npc.isImmortal && npc.model !== "training-dummy") || npc.health <= 0 || npc.defeatedAt > 0) throw new Error(`${action} target ${npc.id} is not available`);
   }
 
   private activeEngagementNpc() {
@@ -6216,6 +6306,7 @@ class AgentBridgeSession {
   private handleCombatEvent(message: unknown) {
     this.remember(`combat:${messageSummary(message)}`);
     this.recordRecentNpcPlayerCombat(message as CombatEvent);
+    this.recordActiveCommandCombat(message as CombatEvent);
   }
 
   private recordRecentNpcPlayerCombat(event: CombatEvent) {
@@ -6249,6 +6340,54 @@ class AgentBridgeSession {
       });
       this.pruneRecentNpcPlayerCombat(now);
     }
+  }
+
+  private recordActiveCommandCombat(event: CombatEvent) {
+    const command = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    if (!command || command.status !== "running" || !this.room) return;
+    const record = asRecord(event);
+    const sourceId = getString(record.sourceId);
+    if (sourceId !== this.room.sessionId) return;
+    const amount = Math.max(0, getNumber(record.amount));
+    if (amount <= 0) return;
+    const impactAt = getNumber(record.impactAt);
+    if (impactAt > Date.now() + 100) return;
+    const actionId = getString(record.actionId);
+    const target = asRecord(record.target);
+    const targetKind = getString(target.kind);
+    const targetId = getString(target.id);
+    const now = impactAt || getNumber(record.sentAt) || Date.now();
+
+    if (actionId === "heal" || targetKind === "player") {
+      command.combat.healingDone += amount;
+      return;
+    }
+    if (targetKind !== "npc" || !targetId) return;
+
+    const npc = this.npcs.get(targetId);
+    const targetStats = command.combat.targets.get(targetId) ?? {
+      targetId,
+      targetName: getString(record.targetName) || npc?.name || targetId,
+      targetModel: npc?.model || "",
+      damageDone: 0,
+      hitCount: 0,
+      firstAt: now,
+      lastAt: now,
+      defeated: false,
+    };
+    targetStats.targetName = getString(record.targetName) || targetStats.targetName;
+    targetStats.targetModel = npc?.model || targetStats.targetModel;
+    targetStats.damageDone += amount;
+    targetStats.hitCount += 1;
+    targetStats.firstAt = targetStats.firstAt || now;
+    targetStats.lastAt = Math.max(targetStats.lastAt, now);
+    targetStats.defeated = targetStats.defeated || Boolean(record.defeated);
+    command.combat.targets.set(targetId, targetStats);
+
+    command.combat.damageDone += amount;
+    command.combat.hitCount += 1;
+    command.combat.firstAt = command.combat.firstAt || now;
+    command.combat.lastAt = Math.max(command.combat.lastAt, now);
   }
 
   private rememberQuestMessage(kind: QuestMemory["kind"], message: unknown) {
@@ -6612,6 +6751,7 @@ function normalizeDecision(value: unknown): AgentBridgeDecision {
     paymentChainId: readFiniteNumber(record.paymentChainId) ?? null,
     paymentContractAddress: nullableText(record.paymentContractAddress),
     sprint: typeof record.sprint === "boolean" ? record.sprint : null,
+    jump: typeof record.jump === "boolean" ? record.jump : null,
     traits: record.traits && typeof record.traits === "object" && !Array.isArray(record.traits) ? asRecord(record.traits) : null,
   };
 }
@@ -6626,8 +6766,9 @@ function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCom
   if (codeChunk) {
     throw new BridgeHttpError(400, "hosted /agent-command does not execute codeChunk; run agent-authored code in the external policy runner and call /agent-action or send structured goals/profile");
   }
+  const behaviorScheme = normalizeBehaviorScheme(record.behaviorScheme ?? record.behavior);
   const controller = normalizeCommandController(record.controller, record.behaviorMode, record.policyRef ?? record.policySource, record.policyHash ?? record.codeChunkHash);
-  const profile = normalizeCommandProfile(record.profile, record.behaviorScheme ?? record.behavior, kind);
+  const profile = normalizeCommandProfile(record.profile, behaviorScheme, kind);
   const goals = normalizeCommandGoals(record.goals, kind, record);
   const stopWhen = normalizeCommandStopWhen(record.stopWhen);
   const constraints = normalizeCommandConstraints(record.constraints);
@@ -6646,6 +6787,7 @@ function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCom
   }
   return {
     kind,
+    behaviorScheme,
     controller,
     profile,
     goals,
@@ -6682,6 +6824,16 @@ function normalizeCommandKind(value: unknown): AgentCommandKind {
   if (text === "farm_until" || text === "farm") return "farm_until";
   if (text === "run_goals" || text === "goal_set" || text === "custom_goal_set" || text === "custom_objective" || text === "custom") return "run_goals";
   return "play_for";
+}
+
+function normalizeBehaviorScheme(value: unknown) {
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!text) return "";
+  if (text === "jump" || text === "jumper" || text === "jumping" || text === "jumping_around") return "jump_around";
+  if (text === "wander" || text === "wanderer" || text === "aimless" || text === "aimless_wander") return "wanderer";
+  if (text === "dummy" || text === "training_dummy" || text === "training_dummies") return "training_dummies";
+  if (text === "dummy_dps" || text === "dps_dummy" || text === "training_dummy_dps" || text === "dps_meter") return "dummy_dps";
+  return AGENT_PREMADE_BEHAVIOR_SCHEMES.includes(text as typeof AGENT_PREMADE_BEHAVIOR_SCHEMES[number]) ? text : "";
 }
 
 function normalizeCommandProfile(value: unknown, legacyBehavior: unknown, kind: AgentCommandKind): AgentCommandProfile {
@@ -6741,6 +6893,12 @@ function premadeProfileForScheme(value: unknown, kind: AgentCommandKind): AgentC
     case "lone_wolf":
     case "solo":
       return { ...base, priority: "quester", partyMode: "lone_wolf", risk: "safe" };
+    case "jump_around":
+    case "wanderer":
+      return { ...base, priority: "social", social: "chatty", risk: "safe" };
+    case "training_dummies":
+    case "dummy_dps":
+      return { ...base, priority: "farmer", role: "dps", spec: "brawler_dps", risk: "safe" };
     default:
       return base;
   }
@@ -7572,6 +7730,7 @@ function buildAgentCommandRecap(
   budgetAdvice: string,
 ) {
   const social = buildAgentCommandSocialRecap(command);
+  const combat = buildAgentCommandCombatRecap(command.combat, Date.now());
   const defeatedCounts = countReportTargets(command.reports, (report) => {
     if (report.action !== "fight_npc") return false;
     return report.stoppedBecause === "target_defeated" || /\btarget defeated\b/i.test(report.summary);
@@ -7591,6 +7750,7 @@ function buildAgentCommandRecap(
     lootCounts.length ? `looted ${formatCountedTargets(lootCounts)}` : "",
     completedQuests.length ? `finished ${formatHumanList(completedQuests)}` : "",
     inventoryDeltas.length ? `inventory ${inventoryDeltas.map((change) => `${change.delta > 0 ? "+" : ""}${change.delta} ${change.itemId}`).join(", ")}` : "",
+    combat.damageDone > 0 ? `dealt ${combat.damageDone} damage (${combat.dps} DPS${combat.trainingDummyDps > 0 ? `, ${combat.trainingDummyDps} dummy DPS` : ""})` : "",
   ].filter(Boolean);
   const actionSentence = parts.length
     ? `I ${formatHumanList(parts)}.`
@@ -7608,6 +7768,7 @@ function buildAgentCommandRecap(
     completedQuests,
     inventoryChanges: inventoryDeltas,
     social,
+    combat,
     playtime: {
       sessionUsedSeconds: playtime.session.usedSeconds,
       sessionMaxSeconds: playtime.session.maxSeconds,
@@ -7619,6 +7780,56 @@ function buildAgentCommandRecap(
       sessionCapReached: playtime.sessionCapReached,
     },
     budgetAdvice,
+  };
+}
+
+function createCommandCombatStats(): AgentCommandCombatStats {
+  return {
+    damageDone: 0,
+    healingDone: 0,
+    hitCount: 0,
+    firstAt: 0,
+    lastAt: 0,
+    targets: new Map(),
+  };
+}
+
+function buildAgentCommandCombatRecap(stats: AgentCommandCombatStats, now = Date.now()) {
+  const durationSeconds = stats.firstAt > 0
+    ? Math.max(1, ((stats.lastAt || now) - stats.firstAt) / 1000)
+    : 0;
+  const targets = [...stats.targets.values()]
+    .sort((left, right) => right.damageDone - left.damageDone || left.targetName.localeCompare(right.targetName))
+    .map((target) => {
+      const targetDurationSeconds = target.firstAt > 0
+        ? Math.max(1, ((target.lastAt || now) - target.firstAt) / 1000)
+        : 0;
+      return {
+        targetId: target.targetId,
+        targetName: target.targetName,
+        targetModel: target.targetModel,
+        damageDone: round(target.damageDone),
+        hitCount: target.hitCount,
+        dps: targetDurationSeconds > 0 ? round(target.damageDone / targetDurationSeconds) : 0,
+        durationSeconds: round(targetDurationSeconds),
+        defeated: target.defeated,
+      };
+    });
+  const trainingDummyDamage = targets
+    .filter((target) => target.targetModel === "training-dummy" || /dummy/i.test(target.targetName) || /dummy/i.test(target.targetId))
+    .reduce((sum, target) => sum + target.damageDone, 0);
+  const trainingDummyWindow = stats.firstAt > 0
+    ? Math.max(1, ((stats.lastAt || now) - stats.firstAt) / 1000)
+    : 0;
+  return {
+    damageDone: round(stats.damageDone),
+    healingDone: round(stats.healingDone),
+    hitCount: stats.hitCount,
+    durationSeconds: round(durationSeconds),
+    dps: durationSeconds > 0 ? round(stats.damageDone / durationSeconds) : 0,
+    trainingDummyDamage: round(trainingDummyDamage),
+    trainingDummyDps: trainingDummyWindow > 0 ? round(trainingDummyDamage / trainingDummyWindow) : 0,
+    targets,
   };
 }
 

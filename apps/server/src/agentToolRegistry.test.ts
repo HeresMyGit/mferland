@@ -24,6 +24,8 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
   };
   assert.deepEqual(input.properties.command.enum, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
   assert.match(input.properties.goals.description ?? "", /Freeform player objectives/);
+  assert.ok(input.properties.behaviorScheme.enum?.includes("jump_around"));
+  assert.ok(input.properties.behaviorScheme.enum?.includes("dummy_dps"));
   assert.deepEqual(input.properties.profile.properties?.role.enum, ["auto", "tank", "healer", "dps", "support"]);
   assert.deepEqual(input.properties.controller.properties?.type.enum, ["premade", "external_policy"]);
   assert.match(input.properties.controller.description ?? "", /Metadata only/);
@@ -34,8 +36,10 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
   assert.ok(output.properties.result);
   assert.ok(output.properties.usage);
   assert.ok(output.properties.social);
+  assert.ok(output.properties.combat);
   assert.ok(output.properties.sandbox);
   assert.ok(output.properties.goalProgress);
+  assert.ok(output.properties.behaviorScheme);
 });
 
 test("agent tool manifest documents MFERGPT swap route outputs", () => {

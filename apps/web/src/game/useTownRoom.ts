@@ -6,6 +6,7 @@ import {
   ROOM_NAME,
   type ChatMessage,
   type ClientAcceptQuest,
+  type ClientAgentStatus,
   type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
@@ -539,6 +540,10 @@ export function useTownRoom(identity: JoinOptions) {
     roomRef.current?.send("chat", { text });
   }, []);
 
+  const sendAgentStatus = useCallback((message: ClientAgentStatus) => {
+    roomRef.current?.send("agentStatus", message);
+  }, []);
+
   const sendEmote = useCallback((message: ClientEmote) => {
     roomRef.current?.send("emote", message);
   }, []);
@@ -714,6 +719,7 @@ export function useTownRoom(identity: JoinOptions) {
     leaveAndWait,
     sendInput,
     sendChat,
+    sendAgentStatus,
     sendEmote,
     sendInteract,
     sendAcceptQuest,

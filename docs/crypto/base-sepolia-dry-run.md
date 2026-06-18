@@ -46,7 +46,7 @@ Public RPCs and faucets are fine for rehearsal. They are not production reliabil
 2. Use Base Sepolia only when we want a real wallet/network rehearsal.
 3. Use disposable wallets for Base Sepolia.
 4. Deploy mocks to Base Sepolia only if we specifically need public-testnet `$mfergpt` behavior.
-5. Do not use Josh's real wallet keys for any dry run.
+5. Do not use an operator's real wallet keys for any dry run.
 
 ## Open Before Any Sepolia Deploy
 

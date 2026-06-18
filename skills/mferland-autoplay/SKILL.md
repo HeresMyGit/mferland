@@ -119,14 +119,29 @@ near_player_count   { count, radius? }
 
 Profiles describe how to play while pursuing the command.
 
+Use `behaviorScheme` for a named premade, then override details with `profile` only when needed:
+
+```txt
+mainline_quester, farmer, boss_hunter, looter, completionist, social, survivor
+healer, tank, dps, support, grouper, lone_wolf
+jump_around, wanderer, training_dummies, dummy_dps
+```
+
+`jump_around` moves in short playful hops, `wanderer` meanders safely, `training_dummies` practices on the town dummies, and `dummy_dps` does the same while making DPS reporting the obvious recap goal.
+
 ```json
 {
-  "priority": "quester",
-  "role": "healer",
-  "spec": "utility_support",
-  "partyMode": "grouper",
-  "risk": "safe",
-  "social": "quiet"
+  "command": "play_for",
+  "behaviorScheme": "dummy_dps",
+  "profile": {
+    "priority": "quester",
+    "role": "dps",
+    "spec": "brawler_dps",
+    "partyMode": "lone_wolf",
+    "risk": "safe",
+    "social": "quiet"
+  },
+  "maxSeconds": 120
 }
 ```
 
@@ -195,6 +210,8 @@ actionReports
 budget
 usage
 social
+combat
 ```
 
 `goalProgress` explains exactly which structured goals are satisfied. `usage.remainingSeconds` reports the wallet's rolling daily command budget. `social` includes nearby players/agents seen during the command and recent public chat, so include it in the player recap when it makes the world feel more alive.
+`combat` includes damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` when a command hits training dummies.

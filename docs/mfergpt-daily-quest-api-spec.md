@@ -47,7 +47,7 @@ The first version should support one land, `main`, while shaping tables and API 
 | Game server | Owns validation, storage, publication, runtime spawning, quest progress, rewards, and logs. |
 | Digester worker | Reads outside sources, reads safe game context, proposes daily quest content. |
 | mferGPT NPC | In-game interface that tells players about the active daily and starts the event. |
-| Admin/Josh | Owns API keys, publish policy, source allowlist, and manual overrides. |
+| Project admin | Owns API keys, publish policy, source allowlist, and manual overrides. |
 | Future land owner | Owns generated content for one land through scoped keys and server validation. |
 
 ## Version 1 Architecture

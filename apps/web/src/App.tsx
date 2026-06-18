@@ -21,6 +21,7 @@ import {
   isAttackableNpcRole,
   isCombatActionUnlocked,
   normalizeAvatarSeed,
+  normalizeWalletAddress,
   setWorldCollisionPlacementOverrides,
   stableHash,
   type ActionId,
@@ -76,7 +77,7 @@ import {
 } from "./auth/walletProfile";
 import { initializeAnalytics, trackEvent, type AnalyticsProperties } from "./analytics";
 import { useTownRoom } from "./game/useTownRoom";
-import { TownScene, type MobileMoveInput } from "./game/TownScene";
+import { TownScene, type CaptureCameraState, type CaptureInputState, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
@@ -259,6 +260,21 @@ function GameApp() {
     const params = new URLSearchParams(window.location.search);
     if (!isRealCaptureMode()) return;
     const name = params.get("name")?.trim() || "capture mfer";
+    const captureWallet = normalizeWalletAddress(params.get("realCaptureWallet") ?? params.get("wallet") ?? "");
+    const captureAvatarSeed = Number(params.get("realCaptureAvatarSeed") ?? params.get("avatarSeed") ?? "");
+    const isAgentCapture = params.get("realCaptureAgent") === "1" || params.get("agentClient") === "1";
+    if (isAgentCapture && captureWallet) {
+      setIdentity({
+        ...makeWalletIdentity(
+          name,
+          captureWallet,
+          Number.isFinite(captureAvatarSeed) ? normalizeAvatarSeed(captureAvatarSeed) : stableHash(`${captureWallet}:${name}:capture`),
+          true,
+        ),
+        agentClient: true,
+      });
+      return;
+    }
     setIdentity(makeGuestIdentity(name));
   }, [identity]);
 
@@ -1121,6 +1137,8 @@ function GameShell({
   const combatAudioTimeoutsRef = useRef<number[]>([]);
   const realCaptureRoomRef = useRef(room);
   const realCaptureSelectedTargetRef = useRef<TargetSelection | null>(null);
+  const realCaptureInputRef = useRef<CaptureInputState | null>(null);
+  const realCaptureCameraRef = useRef<CaptureCameraState | null>(null);
   const debugToolsAvailable = import.meta.env.DEV;
   const cryptoSmokeMode = isCryptoSmokeMode();
   const cryptoStoreEnabled = isCryptoStoreEnabled();
@@ -1176,8 +1194,10 @@ function GameShell({
     [room.npcs, room.snapshotRevision],
   );
   const debugPlacementMode = debugToolsAvailable && settings.debugPlacementEditor;
-  const hideCaptureHud = isRealCaptureMode()
-    && new URLSearchParams(window.location.search).get("realCaptureHud") === "0";
+  const realCaptureMode = isRealCaptureMode();
+  const realCaptureParams = realCaptureMode ? new URLSearchParams(window.location.search) : null;
+  const hideCaptureHud = realCaptureMode && realCaptureParams?.get("realCaptureHud") === "0";
+  const cleanCaptureAgentModel = realCaptureMode && realCaptureParams?.get("realCaptureCleanAgentModel") === "1";
   const visibleSelectedTarget = hideCaptureHud ? null : selectedTarget;
   const effectiveDebugPlacementOverrides = useMemo(
     () => ({
@@ -1662,6 +1682,8 @@ function GameShell({
       disposeCaptureBridge = installRealGameCaptureBridge({
         roomRef: realCaptureRoomRef,
         selectedTargetRef: realCaptureSelectedTargetRef,
+        captureInputRef: realCaptureInputRef,
+        captureCameraRef: realCaptureCameraRef,
         setSelectedTarget,
         setDebugTravelView,
       });
@@ -1720,6 +1742,11 @@ function GameShell({
           onChangeDebugPlacement={updateDebugPlacement}
           renderProfile={renderProfile}
           lightweightRender={cryptoSmokeMode}
+          controlsEnabled={!realCaptureMode}
+          cameraControlsEnabled={realCaptureMode}
+          cleanCaptureAgentModel={cleanCaptureAgentModel}
+          captureInputRef={realCaptureMode ? realCaptureInputRef : undefined}
+          captureCameraRef={realCaptureMode ? realCaptureCameraRef : undefined}
         />
       </Canvas>
       {renderGameLoader && <MferHeadLoader ready={!showGameLoader} renderProfile={renderProfile} onComplete={handleGameLoaderComplete} />}

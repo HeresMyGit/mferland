@@ -39,6 +39,7 @@ import {
   AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
   DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
 } from "./agentMferGptGate.js";
+import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 import { readAgentSeason0PointMultiplier } from "./agentRewards.js";
 
 export function buildAgentCatalog() {
@@ -109,21 +110,7 @@ export function buildAgentCatalog() {
           risks: ["safe", "normal", "bold"],
           social: ["quiet", "normal", "chatty"],
         },
-        premadeSchemes: [
-          "mainline_quester",
-          "farmer",
-          "boss_hunter",
-          "looter",
-          "completionist",
-          "social",
-          "survivor",
-          "healer",
-          "tank",
-          "dps",
-          "support",
-          "grouper",
-          "lone_wolf",
-        ],
+        premadeSchemes: [...AGENT_PREMADE_BEHAVIOR_SCHEMES],
         premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
         goals: {
           types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
@@ -142,7 +129,7 @@ export function buildAgentCatalog() {
         maxCommandSeconds: 30 * 60,
         timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
         authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
-        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "actionReports", "budget", "usage", "social"],
+        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "actionReports", "budget", "usage", "social", "combat"],
         socialRecapNote: "Command results include nearby players/agents seen during the run and recent public chat so agents can report alive-world context to users.",
         sandbox: {
           hostedCodeExecution: false,

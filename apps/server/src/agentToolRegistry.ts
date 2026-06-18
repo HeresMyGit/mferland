@@ -5,6 +5,7 @@ import {
   stringToHex,
   type Address,
 } from "viem";
+import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 
 export type AgentToolSlug = "mferland-agent-command" | "mferland-mfergpt-swap";
 
@@ -58,6 +59,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
           bridgeSessionId: { type: "string" },
           commandId: { type: "string" },
           command: { type: "string", enum: ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"] },
+          behaviorScheme: { type: "string", enum: AGENT_PREMADE_BEHAVIOR_SCHEMES },
           questId: { type: "string" },
           goals: {
             type: "array",
@@ -336,6 +338,7 @@ function commandOutputSchema() {
       bridgeSessionId: { type: "string" },
       commandId: { type: "string" },
       command: { type: "string" },
+      behaviorScheme: { type: "string" },
       controller: { type: "object" },
       profile: { type: "object" },
       goals: { type: "array", items: { type: "object" } },
@@ -347,6 +350,7 @@ function commandOutputSchema() {
       summary: { type: "string" },
       result: { type: "object" },
       social: { type: "object" },
+      combat: { type: "object" },
       stoppedBecause: { type: "string" },
       durationMs: { type: "number" },
       maxSeconds: { type: "number" },
