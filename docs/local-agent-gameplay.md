@@ -110,7 +110,7 @@ The full playthrough keeps the same room-message-only rule, then has a lead wall
 
 ## Run LLM Agents
 
-LLM mode is for local game-playing agents. Each agent signs the wallet challenge, joins the Colyseus room, observes only normal room state, and chooses one allowlisted player action at a time. The agent code does not read the database, run repo scripts, send debug messages, teleport, or use hidden server state.
+LLM mode is for local direct-control game-playing agents. Hosted `/agent-command` is the default public play path when the agent does not need to micromanage every step; use this LLM mode to prove the lower-level room-message harness, local model policy, and action-repair behavior. Each agent signs the wallet challenge, joins the Colyseus room, observes only normal room state, and chooses one allowlisted player action at a time. The agent code does not read the database, run repo scripts, send debug messages, teleport, or use hidden server state.
 
 ```sh
 DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
@@ -141,7 +141,7 @@ The local server exposes a public read-only agent catalog at `http://127.0.0.1:2
 
 ## Command And Tool Smoke Tests
 
-The local server also exposes the hosted bridge command/tool surfaces. Use them only after creating a normal `/agent-session` bearer token and starting a bridge session.
+The local server also exposes the hosted bridge command/tool surfaces. This is the local proof path for the default public autoplay flow. Use it only after creating a normal `/agent-session` bearer token and starting a bridge session.
 
 Command scenarios to cover locally:
 

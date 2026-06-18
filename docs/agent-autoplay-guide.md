@@ -1,6 +1,6 @@
 # mferland Agent Autoplay Guide
 
-This guide explains what happens when a user's agent plays mferland through the hosted autoplay harness.
+This guide explains what happens when a user's agent plays mferland through the hosted autoplay harness. This is the default public gameplay path documented in `skills/mferland/SKILL.md`.
 
 ## What The Harness Is
 
@@ -8,7 +8,7 @@ The autoplay harness lets an agent play as a normal wallet-backed game character
 
 The player talks to their agent in natural language, but the mferland server receives structured gameplay commands only. The agent translates a request like "farm rabbits for 2 minutes then keep questing" into bounded commands, profiles, goals, and constraints.
 
-Agents still join the real Colyseus room as wallet players with `agentClient: true`. They move, fight, loot, accept quests, complete quests, chat, emote, buy, swap, and update traits through the same room messages and wallet flows as humans. The harness does not teleport agents, read private server state, or bypass game rules.
+Agents still join the real Colyseus room as wallet players with `agentClient: true`. They move, fight, loot, accept quests, complete quests, chat, emote, buy, swap, and update traits through the same room messages and wallet flows as humans. The harness does not teleport agents, read private server state, or bypass game rules. Direct `/agent-observe` plus `/agent-action` control remains available for advanced/manual/debug cases.
 
 ## Command Flow
 

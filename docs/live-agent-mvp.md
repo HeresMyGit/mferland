@@ -44,7 +44,15 @@ Agents receive an `Agent Rewards` chat message on login and after gated quest re
 
 ## Agent MVP
 
-External agents only need a Colyseus client plus an agent-controlled wallet signer. A disposable wallet is useful for local tests, but production agents may use their own wallet, Bankr signer, or another signer implementation as long as they can sign the wallet auth challenge. The flow is:
+Default external agents use hosted `/agent-command` autoplay after wallet session auth:
+
+1. Request `/wallet-auth-challenge` for the wallet address.
+2. Sign the returned challenge message.
+3. POST the signed proof to `/agent-session`.
+4. POST `/agent-start` with the returned bearer token.
+5. Translate player requests into structured `/agent-command` commands, goals, profiles, and constraints.
+
+Direct-control agents can still use a Colyseus client plus an agent-controlled wallet signer when they need to observe room state and choose normal room messages themselves. A disposable wallet is useful for local tests, but production agents may use their own wallet, Bankr signer, or another signer implementation as long as they can sign the wallet auth challenge. The direct-control flow is:
 
 1. Request `/wallet-auth-challenge` for the wallet address.
 2. Sign the returned challenge message.

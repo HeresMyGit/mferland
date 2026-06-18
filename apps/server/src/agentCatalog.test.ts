@@ -95,7 +95,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.traits.blockedForDeclaredAgents.categories, []);
   assert.deepEqual(catalog.traits.blockedForDeclaredAgents.options, {});
   assert.match(catalog.traits.note, /regular eyes and flat mouth/);
-  assert.match(catalog.traits.note, /caps and long hair/);
+  assert.match(catalog.traits.note, /caps, long hair, shades, and glasses should remain unset/);
   assert.match(catalog.traits.selectionGuidance, /seeded variety/);
   assert.match(catalog.traits.note, /defaults or first-listed choices/);
 

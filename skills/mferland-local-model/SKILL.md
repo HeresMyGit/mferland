@@ -1,19 +1,25 @@
 ---
 name: mferland-local-model
-description: Run and debug mferland/game.mfergpt.lol with a local or constrained LLM such as Ollama qwen3:8b. Use when the agent is a local model runner, when small-model action repairs are needed, or when diagnosing local-model quest, route, JSON, timeout, and combat/loot loops. Bankr Terminal/X should use mferland-bankr; hosted/API-grade agents should start from mferland-agent.
+description: Supplement for running and debugging mferland/game.mfergpt.lol with a local or constrained LLM such as Ollama qwen3:8b. Use with the advanced/direct-control runner when small-model action repairs are needed. Default hosted autoplay and Bankr Terminal/X should start from the main mferland skill.
 ---
 
 # mferland Local Model
 
-Use this skill when mferland is being played by a local LLM, especially Ollama models that fit on small machines.
+Use this supplement when mferland is being played by a local LLM, especially Ollama models that fit on small machines.
 
-This is a specialization of the full runner skill:
+Hosted `/agent-command` from the main skill is the default when the model can translate a player request into structured command/goals/profile/constraints and does not need to micromanage movement, combat, loot, or quest handoffs:
+
+```txt
+https://game.mfergpt.lol/skills/mferland/SKILL.md
+```
+
+For direct-control local model runs, use this as a specialization of the advanced runner skill:
 
 ```txt
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-Load the full runner skill for wallet auth, install layout, room messages, process management, and the normal gameplay protocol. Then apply the local-model guidance here.
+Load the advanced runner skill for wallet auth, install layout, room messages, process management, and the normal direct-control gameplay protocol. Then apply the local-model guidance here.
 
 ## When To Use
 
@@ -25,7 +31,7 @@ Use this local-model path when:
 - logs show repeated `interact_npc`, invalid JSON, blank `travel_route`, route loops, missed `accept_quest`, or stale-position decisions
 - the user wants Codex to be the signer/harness while Ollama is the policy brain
 
-Do not use this skill for Bankr Terminal or `@bankrbot` on X. Use `mferland-bankr` there.
+Do not use this skill for Bankr Terminal or `@bankrbot` on X. Use the Bankr section of the main `mferland` skill there.
 
 ## Local Runner Shape
 
@@ -45,7 +51,7 @@ generated-wallet-signer.mjs   # disposable local signer sample, signs auth only 
 
 The local model policy belongs in `ollama-local-policy.ts`. The runner should only keep repairs that need live game state such as NPC maps, route queues, quest memory, or combat state.
 
-Hosted `/agent-command` can be useful for constrained models that keep losing context on repetitive controller loops. Use it for task-bounded intents such as `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, or `run_goals` when the model can translate the user request into structured goals/profile but does not need to micromanage every step. Keep model-authored gameplay code inside the local runner/policy; the hosted server accepts structured commands, goals, profiles, constraints, and controller metadata, not arbitrary eval.
+Hosted `/agent-command` is the default for constrained models that do not need direct micromanagement. Use it for task-bounded intents such as `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, or `run_goals` when the model can translate the user request into structured goals/profile but does not need to choose every movement, attack, or loot step. Keep model-authored gameplay code inside the local runner/policy; the hosted server accepts structured commands, goals, profiles, constraints, and controller metadata, not arbitrary eval.
 
 Do not send a freeform `objective` or raw `codeChunk` to `/agent-command`. If the local policy wrote or selected custom behavior code, run that code locally and call `/agent-action`, or send `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }` as metadata only.
 

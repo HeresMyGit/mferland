@@ -24,7 +24,7 @@ Relevant surfaces:
 - `/agent-mfergpt-swap-quote`
 - `/agent-mfergpt-swap-result`
 - `/agent-view?wallet=...`
-- hosted skill files under `/skills/mferland-agent`, `/skills/mferland-bankr`, `/skills/mferland-local-model`, and `/skills/mferland-autoplay`
+- hosted skill files under `/skills/mferland`, `/skills/mferland-agent`, `/skills/mferland-local-model`, `/skills/mferland-autoplay`, and `/skills/mferland-bankr`
 
 ## Required Host Config
 
@@ -68,6 +68,7 @@ curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts
 ```
@@ -76,7 +77,7 @@ Expected:
 
 - `/agent-catalog` lists command kinds, profiles, schemes, goals, constraints, controller metadata, swap/router details, and Season 0 agent balance requirements.
 - both `.well-known/ai-tool` manifests return stable JSON.
-- hosted skills include `SKILL.md` plus the runner scripts, package file, and tsconfig.
+- hosted skills include the main default skill, compatibility skill URLs, plus the advanced runner `SKILL.md`, runner scripts, package file, and tsconfig.
 
 ## Gameplay Smoke Tests
 
@@ -96,6 +97,9 @@ Use an owned disposable/test wallet. Do not publish the private key.
    - `social`
    - `social.nearbyPlayers`
    - `social.recentChat`
+   - `combat`
+   - `equipmentChanges`
+   - `finalState`
    - `budget`
    - rolling `usage`
 10. Put a second player or agent nearby and send public chat, then verify the next command recap mentions that world context.

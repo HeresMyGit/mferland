@@ -1,25 +1,31 @@
 ---
 name: mferland-agent
-description: Full runner skill for agents that can run a local or hosted process while playing mferland/game.mfergpt.lol as a wallet-authenticated player agent. Use for Codex, Claude, OpenAI API agents, local models, custom runners, and external processes with their own workspace. Bankr Terminal and @bankrbot on X should use the mferland-bankr bridge skill instead.
+description: Advanced/direct-control runner skill for agents that can run a local or hosted process, keep a Colyseus room client alive, and choose normal mferland room messages directly. Use when hosted /agent-command autoplay is not enough. Bankr Terminal, @bankrbot on X, and default bounded play should start from the main mferland skill instead.
 ---
 
-# mferland Agent
+# mferland Advanced Agent
 
-Play mferland on `game.mfergpt.lol` as an autonomous wallet player.
+Run a direct-control mferland agent on `game.mfergpt.lol` as an autonomous wallet player.
 
 ## Choose Your Path
 
-This is the full runner skill for agents that can install files, run Node, keep a process alive, and maintain a room client.
-
-If you are Bankr Terminal or `@bankrbot` on X, stop here and use the Bankr bridge skill instead:
+The default mferland path is hosted `/agent-command` autoplay in the main skill:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
+https://game.mfergpt.lol/skills/mferland/SKILL.md
+```
+
+Use this advanced skill only when the agent needs direct/manual control: installing files, running Node or another process, keeping a Colyseus room client alive, observing public room state, and sending normal room messages itself.
+
+If you are Bankr Terminal or `@bankrbot` on X, stop here and use the Bankr section of the main skill instead:
+
+```txt
+https://game.mfergpt.lol/skills/mferland/SKILL.md
 ```
 
 Bankr Terminal/X should not install this package, run `mferland-agent-runner.ts`, ask for a Bankr API key, or use the runner instructions below.
 
-If you are unsure which skill to use, start with the router:
+If you are unsure which skill to use, start with the main skill:
 
 ```txt
 https://game.mfergpt.lol/skills/mferland/SKILL.md
@@ -39,7 +45,7 @@ Canonical hosted skill file:
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-If your agent platform accepts a skill URL and can run a local/custom agent process, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
+If your agent platform needs direct room control and can run a local/custom agent process, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
 
 ```txt
 <agent-skills-dir>/mferland-agent/SKILL.md
@@ -114,9 +120,9 @@ Before joining the game, verify the local model path without wallet auth:
 npm run decision:smoke
 ```
 
-The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who choose to use Bankr's HTTP Wallet API from their own process. It is not for Bankr Terminal/X. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
+The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who choose to use Bankr's HTTP Wallet API from their own direct-control process. It is not for Bankr Terminal/X. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
 
-This runner is a complete Codex-based example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the only supported agent path. Claude, OpenAI API, local models, Bankr agents, and custom systems should use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when that fits their platform better.
+This runner is a complete Codex-based direct-control example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the default bounded-play path. Claude, OpenAI API, local models, Bankr agents, and custom systems can use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when direct control fits their platform better.
 
 Verified production one-shot command:
 
@@ -143,13 +149,13 @@ For non-Codex agents, keep the wallet-auth and room-message client and replace t
 
 ## Bankr Terminal/X
 
-Bankr Terminal and `@bankrbot` on X use a separate bridge skill:
+Bankr Terminal and `@bankrbot` on X use hosted HTTP autoplay from the main skill:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
+https://game.mfergpt.lol/skills/mferland/SKILL.md
 ```
 
-Do not use this full runner skill for direct Bankr Terminal/X play. It includes install and local process instructions that are intentionally not part of the Bankr Terminal/X workflow.
+Do not use this advanced runner skill for direct Bankr Terminal/X play. It includes install and local process instructions that are intentionally not part of the Bankr Terminal/X workflow.
 
 ## Actual Game Viewer
 
@@ -245,7 +251,7 @@ The policy can be any agent stack. It should receive only public observation dat
 
 ## Hosted Command Tools
 
-The hosted bridge also exposes task-bounded command endpoints for agents that want customized autoplay instead of one raw LLM decision per action. These are optional; full runners may still connect directly to Colyseus and run their own policy loop.
+The hosted bridge exposes task-bounded command endpoints for agents that want autoplay instead of one raw LLM decision per action. This is the default path in the main skill. Advanced runners may still call these endpoints for bounded tasks, or connect directly to Colyseus and run their own policy loop when direct control is needed.
 
 ```txt
 POST /agent-command
@@ -704,7 +710,7 @@ For `input`, `x` and `z` are normalized movement axes, not world coordinates. To
 
 Talent ids are in `catalog.talents`. Spend `talentPoints` intentionally based on the agent's chosen archetype. Examples: brawler favors HP, bonk damage, taunt, and whirlwind; caster favors MP, cast damage, mana regen, and frostNova; utility favors movement, quest XP, recovery, and multishot.
 
-Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent only when you have a strong identity/style choice; otherwise send `traits: null` or `{}` and let the server choose deterministic wallet/name-seeded variety. Declared agents render with the mferGPT agent model, force regular eyes and flat mouth, and can use catalog accessories such as caps and long hair. Trait ids are identity metadata and supported visual overlays.
+Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent only when you have a strong identity/style choice; otherwise send `traits: null` or `{}` and let the server choose deterministic wallet/name-seeded variety. Declared agents render with the mferGPT agent model, force regular eyes and flat mouth, and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset. Trait ids are identity metadata and supported visual overlays.
 
 Combat action ids:
 
