@@ -138,6 +138,12 @@ test("mferGPT daily assignments are boss events at the signal camp", () => {
 });
 
 test("mferGPT daily assignment targeting matches the daily boss", () => {
+  assert.deepEqual(QUESTS["mfergpt-daily-signal"].defeatNpcIdPrefixes, ["mfergpt-daily-boss"]);
+  assert.equal(QUESTS["mfergpt-daily-signal"].encounterType, "daily_boss");
+  assert.equal(QUESTS["mfergpt-daily-signal"].groupSuggestion, "daily boss");
+  assert.equal(QUESTS["mfergpt-daily-signal"].suggestedPlayerCount, 4);
+  assert.match(QUESTS["mfergpt-daily-signal"].soloWarning, /below level 10/i);
+
   const hogSweep = getMferGptDailyQuestAssignmentFromFlags(makeMferGptDailyQuestFlags("claim-pile-hog-sweep"));
   assert.equal(isMferGptDailyQuestDefeatTarget(hogSweep, { id: "mfergpt-daily-boss", model: "mfer", role: "farmer" }), true);
   assert.equal(isMferGptDailyQuestDefeatTarget(hogSweep, { id: "wild-hog-rooter", model: "hog", role: "beast" }), false);

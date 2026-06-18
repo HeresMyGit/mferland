@@ -100,14 +100,31 @@ export function buildAgentCatalog() {
           risks: ["safe", "normal", "bold"],
           social: ["quiet", "normal", "chatty"],
         },
+        premadeSchemes: [
+          "mainline_quester",
+          "farmer",
+          "boss_hunter",
+          "looter",
+          "completionist",
+          "social",
+          "survivor",
+          "healer",
+          "tank",
+          "dps",
+          "support",
+          "grouper",
+          "lone_wolf",
+        ],
+        premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
         goals: {
           types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
           note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",
         },
         constraints: {
           fields: ["noWalletActions", "noPaidActions", "maxDeaths", "maxSafetyStops", "allowedActions", "disallowedActions"],
+          defaults: { maxDeaths: 2, maxSafetyStops: 8 },
           walletSigningDefault: false,
-          note: "Hosted autoplay cannot sign wallet transactions. Use noWalletActions/noPaidActions when a player request must not spend or request wallet approval.",
+          note: "Hosted autoplay cannot sign wallet transactions. Use noWalletActions/noPaidActions when a player request must not spend or request wallet approval. Set maxDeaths or maxSafetyStops to 0 for a zero-failure run.",
         },
         controller: {
           types: ["premade", "external_policy"],
@@ -116,6 +133,8 @@ export function buildAgentCatalog() {
         maxCommandSeconds: 30 * 60,
         timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
         authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
+        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "actionReports", "budget", "usage", "social"],
+        socialRecapNote: "Command results include nearby players/agents seen during the run and recent public chat so agents can report alive-world context to users.",
         sandbox: {
           hostedCodeExecution: false,
           codeRule: "Do not send raw code to hosted /agent-command. Agent-authored behavior code runs in the caller's external policy runner and may call /agent-action directly or request structured autoplay.",
@@ -352,6 +371,8 @@ export function buildAgentCatalog() {
         groupSuggestion?: string;
         suggestedPlayerCount?: number;
         soloWarning?: string;
+        encounterPrepNpcIds?: unknown;
+        agentHints?: unknown;
       };
       return [id, {
         id,
@@ -377,6 +398,8 @@ export function buildAgentCatalog() {
         groupSuggestion: optional.groupSuggestion ?? "",
         suggestedPlayerCount: optional.suggestedPlayerCount ?? 1,
         soloWarning: optional.soloWarning ?? "",
+        encounterPrepNpcIds: optional.encounterPrepNpcIds ?? [],
+        agentHints: optional.agentHints ?? {},
       }];
     })),
     world: {

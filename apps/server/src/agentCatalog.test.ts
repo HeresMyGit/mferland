@@ -104,6 +104,10 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.agentHarness.commands.kinds, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
   assert.deepEqual(catalog.agentHarness.commands.profile.priorities, ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"]);
   assert.deepEqual(catalog.agentHarness.commands.profile.roles, ["auto", "tank", "healer", "dps", "support"]);
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("mainline_quester"));
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("healer"));
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("lone_wolf"));
+  assert.match(catalog.agentHarness.commands.premadeSchemeNote, /Explicit profile fields/);
   assert.ok(catalog.agentHarness.commands.goals.types.includes("quest_completed"));
   assert.ok(catalog.agentHarness.commands.goals.types.includes("near_player_count"));
   assert.match(catalog.agentHarness.commands.goals.note, /freeform player requests/);
@@ -111,6 +115,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.agentHarness.commands.controller.types, ["premade", "external_policy"]);
   assert.match(catalog.agentHarness.commands.controller.note, /metadata only/);
   assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);
+  assert.ok(catalog.agentHarness.commands.responseFields.includes("social"));
+  assert.match(catalog.agentHarness.commands.socialRecapNote, /nearby players\/agents/);
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-agent-command.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-mfergpt-swap.json"));
   assert.equal(catalog.agentHarness.registeredTools.swapQuote, "/agent-mfergpt-swap-quote");
@@ -118,14 +124,29 @@ test("agent catalog documents normal player menu controls", () => {
 
   assert.equal(catalog.quests["baron-of-static"].encounterType, "group");
   assert.equal(catalog.quests["baron-of-static"].groupSuggestion, "group suggested");
-  assert.equal(catalog.quests["baron-of-static"].suggestedPlayerCount, 2);
+  assert.equal(catalog.quests["baron-of-static"].suggestedPlayerCount, 4);
   assert.match(catalog.quests["baron-of-static"].soloWarning, /do not repeatedly solo/i);
+  assert.deepEqual(catalog.quests["baron-of-static"].encounterPrepNpcIds, ["ridge-raider-vex", "ridge-raider-pax", "static-mage-ori"]);
+  assert.equal(catalog.quests["mfergpt-daily-signal"].encounterType, "daily_boss");
+  assert.equal(catalog.quests["mfergpt-daily-signal"].groupSuggestion, "daily boss");
+  assert.equal(catalog.quests["mfergpt-daily-signal"].suggestedPlayerCount, 4);
+  assert.match(catalog.quests["mfergpt-daily-signal"].soloWarning, /below level 10/i);
   assert.equal(catalog.quests["ogre-raid-daily"].encounterType, "raid");
   assert.equal(catalog.quests["ogre-raid-daily"].groupSuggestion, "raid suggested");
   assert.equal(catalog.quests["ogre-raid-daily"].suggestedPlayerCount, 4);
   assert.match(catalog.quests["ogre-raid-daily"].soloWarning, /raid content/i);
   assert.deepEqual(catalog.quests["hog-livers"].dropNpcModels, ["hog"]);
   assert.deepEqual(catalog.quests["signal-scraps"].dropNpcIdPrefixes, ["ridge-raider-", "static-mage-"]);
+  assert.deepEqual(catalog.quests["signal-scraps"].agentHints, {
+    targetArea: { label: "signal ridge scrap sources", point: { x: 145.5, z: -95.8 } },
+    patrolPoints: [
+      { label: "ridge switchback", point: { x: 129.5, z: -88.5 } },
+      { label: "operator ridge", point: { x: 143.5, z: -88.8 } },
+      { label: "repeater lane", point: { x: 153.2, z: -95.8 } },
+      { label: "uplink edge", point: { x: 124, z: -104 } },
+    ],
+    avoidGenericTargetNpcIds: ["static-mage-ori"],
+  });
 });
 
 test("agent catalog covers non-debug room messages sent by web menus", () => {

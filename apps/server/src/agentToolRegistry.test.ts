@@ -33,6 +33,7 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
   const output = manifest.output_schema as { properties: Record<string, unknown> };
   assert.ok(output.properties.result);
   assert.ok(output.properties.usage);
+  assert.ok(output.properties.social);
   assert.ok(output.properties.sandbox);
   assert.ok(output.properties.goalProgress);
 });

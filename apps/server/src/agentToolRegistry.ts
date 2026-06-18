@@ -346,6 +346,7 @@ function commandOutputSchema() {
       status: { type: "string" },
       summary: { type: "string" },
       result: { type: "object" },
+      social: { type: "object" },
       stoppedBecause: { type: "string" },
       durationMs: { type: "number" },
       maxSeconds: { type: "number" },

@@ -82,6 +82,19 @@ export function getAgentCommandBudget(balanceWei: string | bigint | null | undef
   };
 }
 
+export function getLocalAgentCommandBudgetOverride(env: NodeJS.ProcessEnv = process.env): AgentCommandBudget | null {
+  if (env.MFERLAND_AGENT_LOCAL_ONLY !== "1") return null;
+  const balanceWei = env.MFERLAND_AGENT_COMMAND_BUDGET_BALANCE_WEI?.trim();
+  if (!balanceWei) return null;
+  return getAgentCommandBudget(balanceWei);
+}
+
+export function describeAgentCommandBudgetExhaustion(budget: AgentCommandBudget, usage: AgentCommandUsage) {
+  const usedMinutes = Math.ceil(Math.max(0, usage.usedSeconds) / 60);
+  const dailyMinutes = Math.ceil(Math.max(0, budget.rollingDailySeconds) / 60);
+  return `agent command daily budget exhausted for ${budget.tier} tier (${usedMinutes}/${dailyMinutes} rolling daily minutes used). Hold at least 25M MFERGPT on Base for longer autoplay commands and Season 0 agent points; progress still saves below the gate.`;
+}
+
 function normalizeWei(value: string | bigint | null | undefined) {
   if (typeof value === "bigint") return value > 0n ? value : 0n;
   if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return 0n;

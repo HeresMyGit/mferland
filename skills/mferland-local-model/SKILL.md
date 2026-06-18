@@ -49,6 +49,8 @@ Hosted `/agent-command` can be useful for constrained models that keep losing co
 
 Do not send a freeform `objective` or raw `codeChunk` to `/agent-command`. If the local policy wrote or selected custom behavior code, run that code locally and call `/agent-action`, or send `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }` as metadata only.
 
+When reporting command results, read `summary`, `recap`, and `social`. `social` tells you which nearby players/agents were seen and what public chat happened during the command, so include useful world context instead of only reporting XP, quests, or item deltas.
+
 Profiles are composable. Start with `profile.priority: "quester"` for quest progress, `"farmer"` for inventory-count targets, `profile.risk: "safe"` when debugging low-health or overpull loops, and `profile.partyMode: "grouper"` for group content.
 
 ## Environment

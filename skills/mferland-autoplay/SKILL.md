@@ -194,6 +194,7 @@ inventoryChanges
 actionReports
 budget
 usage
+social
 ```
 
-`goalProgress` explains exactly which structured goals are satisfied. `usage.remainingSeconds` reports the wallet's rolling daily command budget.
+`goalProgress` explains exactly which structured goals are satisfied. `usage.remainingSeconds` reports the wallet's rolling daily command budget. `social` includes nearby players/agents seen during the command and recent public chat, so include it in the player recap when it makes the world feel more alive.

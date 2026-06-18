@@ -191,6 +191,32 @@
       0 18px 54px rgba(0, 0, 0, 0.52);
   }
 
+  .auth-swap-panel.embedded-swap-panel,
+  .auth-swap-panel.embedded-swap-panel.expanded {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: auto;
+  }
+
+  .auth-swap-panel.embedded-swap-panel.expanded .auth-swap-toggle {
+    display: inline-flex;
+  }
+
+  .auth-swap-panel.embedded-swap-panel .auth-swap-card {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(318px, calc(100vw - 32px));
+  }
+
+  .stream-agent-playtime-panel .auth-swap-panel.embedded-swap-panel .auth-swap-card {
+    top: auto;
+    bottom: calc(100% + 8px);
+  }
+
   .auth-swap-panel.expanded ~ .auth-connect-panel {
     opacity: 0.2;
     pointer-events: none;

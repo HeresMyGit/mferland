@@ -9,6 +9,7 @@ export type AgentCommandPlaytestOptions = {
   serverUrl: string;
   baseName: string;
   command?: string;
+  questId?: string;
   profilePreset?: string;
   maxSeconds?: number;
   maxRuntimeMs?: number;
@@ -20,6 +21,7 @@ type CommandPlaytestAgent = {
   label: string;
   wallet: AgentWallet;
   walletAddress: string;
+  profilePreset: string;
   viewerUrl: string;
   sessionToken: string;
   bridgeSessionId: string;
@@ -30,11 +32,15 @@ type CommandPlaytestAgent = {
   lastSummary: string;
   lastStatus: string;
   lastResult: unknown;
+  lastRecap: unknown;
+  lastSocial: unknown;
+  lastReports: unknown[];
   lastSandbox: unknown;
   lastBudget: unknown;
   lastUsage: { remainingSeconds?: number } | null;
   lastUnblockAt: number;
   unblockCount: number;
+  complete: boolean;
   exhausted: boolean;
   error: string;
 };
@@ -67,6 +73,7 @@ export async function runAgentCommandPlaytest(
     label: wallets.length === 1 ? options.baseName : wallet.label || `${options.baseName}-${index + 1}`,
     wallet,
     walletAddress: wallet.account.address.toLowerCase(),
+    profilePreset: profilePresetForAgent(options.profilePreset || DEFAULT_PROFILE_PRESET, index),
     viewerUrl: `${httpBase.replace(/:\d+$/, ":5173")}/agent-view?wallet=${encodeURIComponent(wallet.account.address)}`,
     sessionToken: "",
     bridgeSessionId: "",
@@ -77,11 +84,15 @@ export async function runAgentCommandPlaytest(
     lastSummary: "",
     lastStatus: "",
     lastResult: null,
+    lastRecap: null,
+    lastSocial: null,
+    lastReports: [],
     lastSandbox: null,
     lastBudget: null,
     lastUsage: null,
     lastUnblockAt: 0,
     unblockCount: 0,
+    complete: false,
     exhausted: false,
     error: "",
   }));
@@ -110,6 +121,12 @@ export async function runAgentCommandPlaytest(
         return;
       }
       agent.activeCommandId = "";
+      if (asRecord(command.playtime).sessionCapReached) {
+        agent.exhausted = true;
+      }
+      if (String(command.status || "") === "completed" && shouldStopAfterCompletedCommand(options.command || DEFAULT_COMMAND)) {
+        agent.complete = true;
+      }
       if (Number(agent.lastUsage?.remainingSeconds ?? 0) <= 0 || String(command.status || "") === "failed") {
         agent.exhausted = true;
       }
@@ -179,8 +196,9 @@ async function startNextCommand(
         operation: "start",
         bridgeSessionId: agent.bridgeSessionId,
         command: options.command || DEFAULT_COMMAND,
-        profile: profileForPreset(options.profilePreset || DEFAULT_PROFILE_PRESET),
-        constraints: { noWalletActions: true, noPaidActions: true, maxDeaths: 0 },
+        questId: options.questId || undefined,
+        profile: profileForPreset(agent.profilePreset),
+        constraints: { noWalletActions: true, noPaidActions: true, maxDeaths: 2, maxSafetyStops: 8 },
         maxSeconds,
       },
     });
@@ -193,6 +211,9 @@ async function startNextCommand(
     }
     const message = String(result.body.error || `HTTP ${result.statusCode}`);
     if (result.statusCode === 429) {
+      agent.lastSummary = message;
+      agent.lastBudget = result.body.budget || null;
+      agent.lastUsage = asRecord(result.body.usage) as { remainingSeconds?: number };
       agent.exhausted = true;
       agent.activeCommandId = "";
       return;
@@ -205,6 +226,12 @@ async function startNextCommand(
     return;
   }
   agent.error = `${agent.label} command start timed out waiting for player state`;
+}
+
+function profilePresetForAgent(value: string, index: number) {
+  const presets = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (presets.length === 0) return DEFAULT_PROFILE_PRESET;
+  return presets[Math.min(index, presets.length - 1)] || presets[0] || DEFAULT_PROFILE_PRESET;
 }
 
 function profileForPreset(value: string) {
@@ -360,6 +387,9 @@ function rememberCommand(agent: CommandPlaytestAgent, command: JsonRecord) {
   agent.lastStatus = String(command.status || "");
   agent.lastSummary = String(command.summary || "");
   agent.lastResult = command.result || null;
+  agent.lastRecap = command.recap || asRecord(command.result).recap || null;
+  agent.lastSocial = command.social || asRecord(agent.lastRecap).social || asRecord(command.result).social || null;
+  agent.lastReports = (asArray(command.actionReports).length > 0 ? asArray(command.actionReports) : asArray(command.reports)).slice(-8);
   agent.lastSandbox = command.sandbox || null;
   agent.lastBudget = command.budget || null;
   agent.lastUsage = asRecord(command.usage) as { remainingSeconds?: number };
@@ -384,6 +414,7 @@ function redactAgent(agent: CommandPlaytestAgent) {
   return {
     label: agent.label,
     walletAddress: agent.walletAddress,
+    profilePreset: agent.profilePreset,
     viewerUrl: agent.viewerUrl,
     bridgeSessionId: agent.bridgeSessionId,
     activeCommandId: agent.activeCommandId,
@@ -391,19 +422,39 @@ function redactAgent(agent: CommandPlaytestAgent) {
     commandCount: agent.commandCount,
     completedQuestCount: agent.completedQuestCount,
     lastStatus: agent.lastStatus,
+    finalMessage: formatAgentFinalMessage(agent),
     lastSummary: agent.lastSummary,
+    recap: agent.lastRecap,
+    social: agent.lastSocial,
     result: agent.lastResult,
+    reports: agent.lastReports,
     sandbox: agent.lastSandbox,
     budget: agent.lastBudget,
     usage: agent.lastUsage,
     unblockCount: agent.unblockCount,
+    complete: agent.complete,
     exhausted: agent.exhausted,
     error: agent.error,
   };
 }
 
 function shouldContinue(agent: CommandPlaytestAgent) {
-  return !agent.error && !agent.exhausted;
+  return !agent.error && !agent.exhausted && !agent.complete;
+}
+
+function formatAgentFinalMessage(agent: CommandPlaytestAgent) {
+  if (agent.activeCommandId && !agent.error && !agent.exhausted && !agent.complete) return "";
+  const recap = asRecord(agent.lastRecap);
+  const recapSummary = String(recap.summary || agent.lastSummary || "").trim();
+  const advice = String(recap.budgetAdvice || "").trim();
+  const start = recapSummary || (agent.error ? `I stopped with an error: ${agent.error}` : "I stopped the autoplay run.");
+  const logout = "I logged out.";
+  if (advice && !start.includes(advice)) return `${start} ${logout} ${advice}`;
+  return `${start} ${logout}`;
+}
+
+function shouldStopAfterCompletedCommand(command: string) {
+  return command !== DEFAULT_COMMAND;
 }
 
 class CommandPlaytestHttpClient {

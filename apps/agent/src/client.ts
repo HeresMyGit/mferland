@@ -65,6 +65,7 @@ export type MferlandAgentOptions = {
 };
 
 type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
+  agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
@@ -1294,6 +1295,7 @@ export class MferlandAgentClient {
 }
 
 function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapshot {
+  const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
   return {
     sessionId,
     name: player.name,
@@ -1305,6 +1307,15 @@ function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapsho
     agentStatusObjective: player.agentStatusObjective || "",
     agentStatusQuest: player.agentStatusQuest || "",
     agentStatusUpdatedAt: Number(player.agentStatusUpdatedAt) || 0,
+    agentCommandStatus: agentCommandBudget.status,
+    agentCommandBudgetTier: agentCommandBudget.budgetTier,
+    agentCommandStartedAt: agentCommandBudget.startedAt,
+    agentCommandMaxSeconds: agentCommandBudget.maxSeconds,
+    agentCommandSessionUsedSeconds: agentCommandBudget.sessionUsedSeconds,
+    agentCommandSessionRemainingSeconds: agentCommandBudget.sessionRemainingSeconds,
+    agentCommandDailyUsedSeconds: agentCommandBudget.dailyUsedSeconds,
+    agentCommandDailyRemainingSeconds: agentCommandBudget.dailyRemainingSeconds,
+    agentCommandDailySeconds: agentCommandBudget.dailySeconds,
     avatarSeed: player.avatarSeed,
     appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,
@@ -1396,6 +1407,44 @@ function snapshotQuests(quests: RuntimeQuestCollection | undefined): QuestSnapsh
     });
   });
   return next.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function parseAgentCommandBudgetJson(value: unknown) {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value || "{}") as Record<string, unknown> : {};
+    return {
+      status: readAgentCommandText(parsed.status),
+      budgetTier: readAgentCommandText(parsed.budgetTier),
+      startedAt: readAgentCommandNumber(parsed.startedAt),
+      maxSeconds: readAgentCommandNumber(parsed.maxSeconds),
+      sessionUsedSeconds: readAgentCommandNumber(parsed.sessionUsedSeconds),
+      sessionRemainingSeconds: readAgentCommandNumber(parsed.sessionRemainingSeconds),
+      dailyUsedSeconds: readAgentCommandNumber(parsed.dailyUsedSeconds),
+      dailyRemainingSeconds: readAgentCommandNumber(parsed.dailyRemainingSeconds),
+      dailySeconds: readAgentCommandNumber(parsed.dailySeconds),
+    };
+  } catch {
+    return {
+      status: "",
+      budgetTier: "",
+      startedAt: 0,
+      maxSeconds: 0,
+      sessionUsedSeconds: 0,
+      sessionRemainingSeconds: 0,
+      dailyUsedSeconds: 0,
+      dailyRemainingSeconds: 0,
+      dailySeconds: 0,
+    };
+  }
+}
+
+function readAgentCommandText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readAgentCommandNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
 function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): InventoryItemSnapshot[] {

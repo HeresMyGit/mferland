@@ -35,6 +35,8 @@ type AgentConfig = {
   commandPollMs: number;
   commandOutputFile?: string;
   commandProfile: string;
+  command: string;
+  commandQuestId: string;
 };
 
 const agents: MferlandAgentClient[] = [];
@@ -77,6 +79,8 @@ try {
       pollMs: config.commandPollMs,
       outputFile: config.commandOutputFile,
       profilePreset: config.commandProfile,
+      command: config.command,
+      questId: config.commandQuestId,
     });
     console.log(JSON.stringify(result, null, 2));
     await shutdown(result.ok ? 0 : 1);
@@ -227,6 +231,8 @@ function readConfig(): AgentConfig {
       "command-poll-ms": { type: "string", default: process.env.AGENT_COMMAND_POLL_MS ?? "5000" },
       "command-output-file": { type: "string", default: process.env.AGENT_COMMAND_OUTPUT_FILE },
       "command-profile": { type: "string", default: process.env.AGENT_COMMAND_PROFILE ?? "quester" },
+      command: { type: "string", default: process.env.AGENT_COMMAND ?? "finish_next_quest" },
+      "command-quest-id": { type: "string", default: process.env.AGENT_COMMAND_QUEST_ID ?? "" },
     },
     allowPositionals: false,
   });
@@ -257,6 +263,8 @@ function readConfig(): AgentConfig {
     commandPollMs: readPositiveInt(values["command-poll-ms"], 5000),
     commandOutputFile: values["command-output-file"],
     commandProfile: cleanCommandProfile(values["command-profile"] ?? "quester"),
+    command: cleanCommand(values.command ?? "finish_next_quest"),
+    commandQuestId: cleanQuestId(values["command-quest-id"] ?? ""),
   };
 }
 
@@ -300,7 +308,15 @@ function cleanObjective(value: string) {
 }
 
 function cleanCommandProfile(value: string) {
-  return value.replace(/[^\w.-]/g, "").trim().slice(0, 40) || "quester";
+  return value.replace(/[^\w.,-]/g, "").trim().slice(0, 80) || "quester";
+}
+
+function cleanCommand(value: string) {
+  return value.replace(/[^\w.-]/g, "").trim().slice(0, 40) || "finish_next_quest";
+}
+
+function cleanQuestId(value: string) {
+  return value.replace(/[^\w.-]/g, "").trim().slice(0, 80);
 }
 
 function round(value: number) {

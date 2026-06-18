@@ -73,6 +73,7 @@ type RuntimeActiveBuffCollection = {
   forEach(callback: (buff: RuntimeActiveBuffState, id: string) => void): void;
 };
 type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
+  agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
@@ -935,6 +936,7 @@ function applyActiveLocalTraitUpdateOverride(
 }
 
 function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot {
+  const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
   return {
     sessionId: id,
     name: player.name,
@@ -946,6 +948,15 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     agentStatusObjective: player.agentStatusObjective || "",
     agentStatusQuest: player.agentStatusQuest || "",
     agentStatusUpdatedAt: Number(player.agentStatusUpdatedAt) || 0,
+    agentCommandStatus: agentCommandBudget.status,
+    agentCommandBudgetTier: agentCommandBudget.budgetTier,
+    agentCommandStartedAt: agentCommandBudget.startedAt,
+    agentCommandMaxSeconds: agentCommandBudget.maxSeconds,
+    agentCommandSessionUsedSeconds: agentCommandBudget.sessionUsedSeconds,
+    agentCommandSessionRemainingSeconds: agentCommandBudget.sessionRemainingSeconds,
+    agentCommandDailyUsedSeconds: agentCommandBudget.dailyUsedSeconds,
+    agentCommandDailyRemainingSeconds: agentCommandBudget.dailyRemainingSeconds,
+    agentCommandDailySeconds: agentCommandBudget.dailySeconds,
     avatarSeed: player.avatarSeed,
     appearanceTraits: parseMferAppearanceTraitsJson(player.appearanceTraitsJson),
     level: player.level,
@@ -1009,11 +1020,30 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   const nextAgentStatusObjective = player.agentStatusObjective || "";
   const nextAgentStatusQuest = player.agentStatusQuest || "";
   const nextAgentStatusUpdatedAt = Number(player.agentStatusUpdatedAt) || 0;
+  const nextAgentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
+  const nextAgentCommandStatus = nextAgentCommandBudget.status;
+  const nextAgentCommandBudgetTier = nextAgentCommandBudget.budgetTier;
+  const nextAgentCommandStartedAt = nextAgentCommandBudget.startedAt;
+  const nextAgentCommandMaxSeconds = nextAgentCommandBudget.maxSeconds;
+  const nextAgentCommandSessionUsedSeconds = nextAgentCommandBudget.sessionUsedSeconds;
+  const nextAgentCommandSessionRemainingSeconds = nextAgentCommandBudget.sessionRemainingSeconds;
+  const nextAgentCommandDailyUsedSeconds = nextAgentCommandBudget.dailyUsedSeconds;
+  const nextAgentCommandDailyRemainingSeconds = nextAgentCommandBudget.dailyRemainingSeconds;
+  const nextAgentCommandDailySeconds = nextAgentCommandBudget.dailySeconds;
   changed = target.agentStatusAction !== nextAgentStatusAction || changed;
   changed = target.agentStatusThought !== nextAgentStatusThought || changed;
   changed = target.agentStatusObjective !== nextAgentStatusObjective || changed;
   changed = target.agentStatusQuest !== nextAgentStatusQuest || changed;
   changed = target.agentStatusUpdatedAt !== nextAgentStatusUpdatedAt || changed;
+  changed = target.agentCommandStatus !== nextAgentCommandStatus || changed;
+  changed = target.agentCommandBudgetTier !== nextAgentCommandBudgetTier || changed;
+  changed = target.agentCommandStartedAt !== nextAgentCommandStartedAt || changed;
+  changed = target.agentCommandMaxSeconds !== nextAgentCommandMaxSeconds || changed;
+  changed = target.agentCommandSessionUsedSeconds !== nextAgentCommandSessionUsedSeconds || changed;
+  changed = target.agentCommandSessionRemainingSeconds !== nextAgentCommandSessionRemainingSeconds || changed;
+  changed = target.agentCommandDailyUsedSeconds !== nextAgentCommandDailyUsedSeconds || changed;
+  changed = target.agentCommandDailyRemainingSeconds !== nextAgentCommandDailyRemainingSeconds || changed;
+  changed = target.agentCommandDailySeconds !== nextAgentCommandDailySeconds || changed;
   changed = target.avatarSeed !== player.avatarSeed || changed;
   const nextAppearanceTraits = parseMferAppearanceTraitsJson(player.appearanceTraitsJson);
   const nextAppearanceTraitsKey = appearanceTraitsKey(nextAppearanceTraits);
@@ -1065,6 +1095,15 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.agentStatusObjective = nextAgentStatusObjective;
   target.agentStatusQuest = nextAgentStatusQuest;
   target.agentStatusUpdatedAt = nextAgentStatusUpdatedAt;
+  target.agentCommandStatus = nextAgentCommandStatus;
+  target.agentCommandBudgetTier = nextAgentCommandBudgetTier;
+  target.agentCommandStartedAt = nextAgentCommandStartedAt;
+  target.agentCommandMaxSeconds = nextAgentCommandMaxSeconds;
+  target.agentCommandSessionUsedSeconds = nextAgentCommandSessionUsedSeconds;
+  target.agentCommandSessionRemainingSeconds = nextAgentCommandSessionRemainingSeconds;
+  target.agentCommandDailyUsedSeconds = nextAgentCommandDailyUsedSeconds;
+  target.agentCommandDailyRemainingSeconds = nextAgentCommandDailyRemainingSeconds;
+  target.agentCommandDailySeconds = nextAgentCommandDailySeconds;
   target.avatarSeed = player.avatarSeed;
   if (appearanceTraitsChanged) target.appearanceTraits = nextAppearanceTraits;
   target.level = player.level;
@@ -1320,6 +1359,44 @@ function snapshotActiveBuffs(activeBuffs: RuntimeActiveBuffCollection | undefine
     });
   });
   return next.sort((left, right) => left.expiresAt - right.expiresAt || left.id.localeCompare(right.id));
+}
+
+function parseAgentCommandBudgetJson(value: unknown) {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value || "{}") as Record<string, unknown> : {};
+    return {
+      status: readAgentCommandText(parsed.status),
+      budgetTier: readAgentCommandText(parsed.budgetTier),
+      startedAt: readAgentCommandNumber(parsed.startedAt),
+      maxSeconds: readAgentCommandNumber(parsed.maxSeconds),
+      sessionUsedSeconds: readAgentCommandNumber(parsed.sessionUsedSeconds),
+      sessionRemainingSeconds: readAgentCommandNumber(parsed.sessionRemainingSeconds),
+      dailyUsedSeconds: readAgentCommandNumber(parsed.dailyUsedSeconds),
+      dailyRemainingSeconds: readAgentCommandNumber(parsed.dailyRemainingSeconds),
+      dailySeconds: readAgentCommandNumber(parsed.dailySeconds),
+    };
+  } catch {
+    return {
+      status: "",
+      budgetTier: "",
+      startedAt: 0,
+      maxSeconds: 0,
+      sessionUsedSeconds: 0,
+      sessionRemainingSeconds: 0,
+      dailyUsedSeconds: 0,
+      dailyRemainingSeconds: 0,
+      dailySeconds: 0,
+    };
+  }
+}
+
+function readAgentCommandText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readAgentCommandNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
 function questSnapshotsEqual(left: QuestSnapshot[], right: QuestSnapshot[]) {

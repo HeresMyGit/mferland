@@ -303,7 +303,7 @@ Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at
 
 Agent-coded behavior lives in the agent's own policy runner. The hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }`; this is metadata only.
 
-The response returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, `usage`, and a `sandbox` note. Time is a safety cap: quest, farm, and goal commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
+The response returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, `usage`, `social`, and a `sandbox` note. The `social` recap lists nearby players/agents seen during the command plus recent public chat, so the agent can tell the player what happened in the world instead of only reporting quest math. Time is a safety cap: quest, farm, and goal commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
 
 Local test run:
 

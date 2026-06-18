@@ -6,6 +6,7 @@ import {
   COMBAT,
   clamp,
   getCombatActionUnlockLevel,
+  getItemEquipment,
   getLevelProgress,
   getNpcQuestIds,
   getQuestObjectives,
@@ -16,24 +17,32 @@ import {
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
   isQuestAvailableForSnapshots,
+  ITEMS,
   normalizeWalletAddress,
+  PLAYER,
   resolveAgentMferAppearanceTraitsForUpdate,
+  resolveWorldCollision,
   QUESTS,
   QUEST_IDS,
   ROOM_NAME,
   TALENTS,
   TALENT_IDS,
   type CombatActionId,
+  type CombatEvent,
+  type ItemId,
   type QuestId,
   type QuestSnapshot,
   type QuestStatus,
+  type StatKey,
   type TalentId,
   type TalentRankLike,
 } from "@mferland/shared";
 import {
+  describeAgentCommandBudgetExhaustion,
   finalizeAgentCommandSeconds,
   getAgentCommandBudget,
   getAgentCommandUsage,
+  getLocalAgentCommandBudgetOverride,
   reserveAgentCommandSeconds,
   type AgentCommandBudget,
   type AgentCommandUsage,
@@ -48,7 +57,22 @@ import {
 import { verifyAgentSessionToken } from "./walletAuth.js";
 
 type AnyRecord = Record<string, unknown>;
-type Point = { x: number; z: number };
+export type Point = { x: number; z: number };
+export type QuestAgentPointHint = { label: string; point: Point };
+export type QuestAgentHints = {
+  targetArea?: QuestAgentPointHint;
+  patrolPoints: QuestAgentPointHint[];
+  avoidGenericTargetNpcIds: string[];
+};
+type AgentQuestLike = { id?: unknown; status?: unknown };
+type AgentParticipantLike = {
+  sessionId?: unknown;
+  health?: unknown;
+  maxHealth?: unknown;
+  x?: unknown;
+  z?: unknown;
+  quests?: unknown;
+};
 type TargetSelection = { kind: "npc"; id: string } | { kind: "player"; id: string };
 type QuestTargetMatchers = { models: string[]; roles: string[]; idPrefixes: string[] };
 
@@ -227,12 +251,29 @@ type SuggestedDecision = {
   z?: number;
 };
 
+type DecisionPlanningOptions = {
+  skipOptionalBossDailies?: boolean;
+  profile?: AgentCommandProfile;
+  deathCount?: number;
+  focusedQuestId?: string;
+  planningOnly?: boolean;
+};
+
+type GroupEncounterPrepOptions = {
+  ignoreAttemptCooldown?: boolean;
+  markAttempt?: boolean;
+  allowDuringObjectiveCombat?: boolean;
+  includeExplicitPrep?: boolean;
+  includeAggroAdds?: boolean;
+};
+
 type ActionReport = {
   status: string;
   stoppedBecause: string;
   summary: string;
   durationMs: number;
   action: string;
+  target: string;
   reason: string;
   health: string;
   position: Point | null;
@@ -303,6 +344,31 @@ type AgentCommandConstraints = {
   disallowedActions: string[];
 };
 
+export type AgentCommandSocialPlayer = {
+  sessionId: string;
+  name: string;
+  identityType: string;
+  isAgent: boolean;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  closestDistance: number;
+};
+
+export type AgentCommandSocialChat = {
+  sessionId: string;
+  name: string;
+  identityType: string;
+  isAgent: boolean;
+  kind: string;
+  text: string;
+  observedAt: number;
+};
+
+export type AgentCommandSocialMemory = {
+  players: Map<string, AgentCommandSocialPlayer>;
+  chat: AgentCommandSocialChat[];
+};
+
 type AgentCommandPayload = {
   command?: unknown;
   kind?: unknown;
@@ -351,6 +417,7 @@ type AgentCommandState = {
   stoppedBecause: string;
   startedAt: number;
   finishedAt: number;
+  requestedMaxSeconds: number;
   maxSeconds: number;
   budget: AgentCommandBudget;
   usage: AgentCommandUsage;
@@ -365,6 +432,7 @@ type AgentCommandState = {
   lastSnapshot: PlayerActionSnapshot | null;
   reports: ActionReport[];
   errors: string[];
+  social: AgentCommandSocialMemory;
 };
 
 type CombatMemoryEntry = {
@@ -385,12 +453,26 @@ type CombatMemoryEntry = {
   recommendedAction: string;
 };
 
+type RecentNpcPlayerCombat = {
+  lastAt: number;
+  playerSessionId: string;
+  direction: "npc_to_player" | "player_to_npc";
+  defeated: boolean;
+};
+
 const BRIDGE_BODY_LIMIT_BYTES = 64 * 1024;
 const INPUT_INTERVAL_MS = 150;
 const INTERACT_SEND_RANGE = 12.5;
-const QUEST_SEND_RANGE = 3.2;
+const QUEST_SEND_RANGE = 3.75;
 const INTERACT_APPROACH_DISTANCE = 1.6;
 const LOOT_SEND_RANGE = 3.2;
+const COMMAND_SOCIAL_PLAYER_RADIUS = 45;
+const LOCAL_NAV_MAX_DISTANCE = 34;
+const LOCAL_NAV_MARGIN = 16;
+const LOCAL_NAV_GRID_SIZE = 0.5;
+const LOCAL_NAV_ARRIVAL_DISTANCE = 0.8;
+const LOCAL_NAV_FREE_TOLERANCE = 0.08;
+const LOCAL_NAV_MAX_NODES = 18_000;
 const RECOVER_HEALTH_RATIO = 0.72;
 const CRITICAL_HEALTH_RATIO = 0.35;
 const DANGEROUS_NEIGHBOR_RADIUS = 11;
@@ -398,11 +480,16 @@ const CROWDED_PULL_RADIUS = 12;
 const HOSTILE_PATH_CORRIDOR_RADIUS = 9;
 const SAFE_APPROACH_TRIGGER_RISK = 0.42;
 const SAFE_APPROACH_ARRIVAL_DISTANCE = 4.2;
+const GENERIC_QUEST_TARGET_SAFE_SCORE = 1.12;
+const GENERIC_QUEST_TARGET_FALLBACK_SCORE = 1.28;
+const GENERIC_QUEST_TARGET_AREA_RADIUS = 76;
+const GENERIC_QUEST_TARGET_AREA_PATROL_RADIUS = 18;
 const SOCIAL_MESSAGE_TTL_MS = 2 * 60_000;
 const DEFAULT_CHAT_COOLDOWN_MS = 30_000;
 const DEFAULT_EMOTE_COOLDOWN_MS = 45_000;
-const PRESS_SINGLE_ATTACKER_HEALTH_RATIO = 0.46;
+const PRESS_SINGLE_ATTACKER_HEALTH_RATIO = 0.58;
 const PRESS_MULTI_ATTACKER_HEALTH_RATIO = 0.68;
+const PRESS_ENGAGED_MULTI_ATTACKER_HEALTH_RATIO = 0.76;
 const PRESS_LOW_HEALTH_FINISH_RATIO = 0.38;
 const FAVORABLE_FIGHT_SURVIVAL_MARGIN = 1.25;
 const MOVEMENT_STUCK_RETHINK_ATTEMPTS = 3;
@@ -410,6 +497,27 @@ const MOVEMENT_TROUBLE_TTL_MS = 2 * 60_000;
 const COMBAT_MEMORY_TTL_MS = 10 * 60_000;
 const COMBAT_AVOID_BASE_MS = 90_000;
 const COMBAT_AVOID_MAX_MS = 5 * 60_000;
+const GROUP_ENCOUNTER_ACTIVE_COMBAT_TTL_MS = 20_000;
+const GROUP_ENCOUNTER_COMBAT_MEMORY_TTL_MS = 3 * 60_000;
+const GROUP_ENCOUNTER_PREP_SKIP_AFTER_PULL_MS = 2 * 60_000;
+const GROUP_ENCOUNTER_PREP_RETRY_MS = 25_000;
+const GROUP_ENCOUNTER_PREP_CLEAR_MEMORY_MS = 90_000;
+const DEFAULT_COMMAND_MAX_DEATHS = 2;
+const DEFAULT_COMMAND_MAX_SAFETY_STOPS = 8;
+const GROUP_ENCOUNTER_READY_RADIUS = 34;
+const GROUP_ENCOUNTER_RALLY_DISTANCE = 28;
+const GROUP_ENCOUNTER_READY_HEALTH_RATIO = 0.88;
+const GROUP_ENCOUNTER_SELF_HEAL_RATIO = 0.82;
+const GROUP_ENCOUNTER_ALLY_HEAL_RATIO = 0.82;
+const GROUP_ENCOUNTER_CONSUMABLE_HEALTH_RATIO = 0.9;
+const GROUP_ENCOUNTER_REPOSITION_HEALTH_RATIO = 0.68;
+const GROUP_ENCOUNTER_PRESS_HEALTH_RATIO = 0.5;
+const GROUP_ENCOUNTER_CAST_PRESSURE_DISTANCE = 13;
+const GROUP_ENCOUNTER_RECOVERY_KITE_DISTANCE = 14;
+const GROUP_ENCOUNTER_CRITICAL_RECOVERY_KITE_DISTANCE = 18;
+const GROUP_ENCOUNTER_MAX_RECOVERY_BOSS_DISTANCE = 34;
+const GROUP_ENCOUNTER_EXPLICIT_PREP_RADIUS = 58;
+const GROUP_ENCOUNTER_ADD_PREP_RADIUS = 34;
 const DURABLE_ACTION_POLL_MS = 300;
 const DURABLE_CONTINUATION_MS = 900;
 const SHORT_ACTION_SETTLE_MS = 700;
@@ -418,6 +526,78 @@ const BASE_MFERGPT_TOKEN_ADDRESS = "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07";
 const BASE_BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
 const BASE_UNISWAP_UNIVERSAL_ROUTER_ADDRESS = "0x6fF5693b99212Da76ad316178A184AB56D299b43";
 const DEFAULT_SWAP_ETH_AMOUNT = "0.01";
+const DAILY_SIGNAL_QUEST_ID = "mfergpt-daily-signal";
+const DAILY_BOSS_NPC_ID = "mfergpt-daily-boss";
+const DAILY_BOSS_ROUTE_ID = "plaza-to-daily-boss";
+const DAILY_BOSS_RETURN_ROUTE_ID = "daily-boss-to-plaza";
+const DAILY_BOSS_ROUTE: Point[] = [
+  { x: -18, z: 0 },
+  { x: -52, z: 0 },
+  { x: -52, z: -36 },
+  { x: -58, z: -48 },
+  { x: -69.4, z: -55.6 },
+];
+const DAILY_BOSS_RETURN_ROUTE: Point[] = [
+  { x: -58, z: -48 },
+  { x: -52, z: -36 },
+  { x: -52, z: 0 },
+  { x: -18, z: 0 },
+  { x: 6.8, z: -5.2 },
+];
+const PLAZA_TO_ROUTE_POST_ROUTE: Point[] = [
+  { x: 0, z: 29 },
+  { x: -31, z: 60 },
+  { x: -64.5, z: 64.5 },
+  { x: -76, z: 78 },
+  { x: -82, z: 92 },
+  { x: -101, z: 116 },
+  { x: -119.2, z: 132.4 },
+];
+const ROUTE_POST_TO_LOOP_FARM_ROUTE: Point[] = [
+  { x: -101, z: 116 },
+  { x: -82, z: 92 },
+  { x: -76, z: 78 },
+  { x: -64.5, z: 64.5 },
+];
+const OPTIONAL_BOSS_DAILY_QUEST_IDS = new Set<string>([
+  DAILY_SIGNAL_QUEST_ID,
+  "ogre-raid-daily",
+]);
+
+const NPC_AREA_ROUTE_RULES: Array<{
+  id: string;
+  matchesTarget: (point: Point) => boolean;
+  routeFrom: (self: Point) => string;
+}> = [
+  {
+    id: "route-post",
+    matchesTarget: (target) => target.x < -100 && target.z > 110,
+    routeFrom: (self) => self.x < -55 && self.z > 45 ? "loop-farm-to-route-post" : "plaza-to-route-post",
+  },
+  {
+    id: "loop-farm",
+    matchesTarget: (target) => target.x < -55 && target.z > 45,
+    routeFrom: (self) => self.x < -90 && self.z > 105 ? "route-post-to-loop-farm" : "plaza-to-loop-farm",
+  },
+  {
+    id: "static-lot",
+    matchesTarget: (target) => target.x > 135 && target.z < -70,
+    routeFrom: (self) => {
+      if (self.x > 80 && self.z < -45) return "signal-post-to-static-lot";
+      return self.x < -55 && self.z > 45 ? "route-post-to-signal-ridge" : "plaza-to-signal-ridge";
+    },
+  },
+  {
+    id: "signal-ridge",
+    matchesTarget: (target) => target.x > 80 && target.z < -45,
+    routeFrom: (self) => self.x < -55 && self.z > 45 ? "route-post-to-signal-ridge" : "plaza-to-signal-ridge",
+  },
+  {
+    id: "daily-boss-camp",
+    matchesTarget: (target) => target.x < -45 && target.z < -35,
+    routeFrom: () => DAILY_BOSS_ROUTE_ID,
+  },
+];
 
 const PUBLIC_LANDMARKS: Record<string, Point> = {
   plaza: { x: -2.4, z: 4.2 },
@@ -432,20 +612,34 @@ const PUBLIC_LANDMARKS: Record<string, Point> = {
   "static-lot": { x: 151.5, z: -106.2 },
 };
 
+const OBJECTIVE_LOCATION_HINTS: Record<string, { label: string; point: Point }> = {
+  "farmhand-bran": { label: "creyzie chaser bran", point: { x: -77.5, z: 86.5 } },
+  "farmhand-mae": { label: "just-missed-it mae", point: { x: -87.5, z: 91.5 } },
+  "field-mage-sol": { label: "nakamigo truther sol", point: { x: -73.2, z: 99.8 } },
+  "ridge-raider-vex": { label: "operator vex", point: { x: 145.5, z: -84.2 } },
+  "ridge-raider-pax": { label: "repeater pax", point: { x: 153.2, z: -95.8 } },
+  "static-mage-ori": { label: "echo-shell ori", point: { x: 150.2, z: -113.4 } },
+  "static-baron-nox": { label: "The Centralizer", point: { x: 151.5, z: -124.8 } },
+};
+
 const PUBLIC_ROUTES: Record<string, Point[]> = {
   "plaza-to-loop-farm": [{ x: 0, z: 29 }, { x: -31, z: 60 }, { x: -64.5, z: 64.5 }],
   "loop-farm-to-claim-pile": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -99, z: 75 }, { x: -89, z: 92 }],
   "claim-pile-to-loop-farm": [{ x: -89, z: 92 }, { x: -99, z: 75 }, { x: -82, z: 60 }, { x: -64.5, z: 64.5 }],
   "loop-farm-to-route-post": [{ x: -64.5, z: 64.5 }, { x: -82, z: 60 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
+  "plaza-to-route-post": PLAZA_TO_ROUTE_POST_ROUTE,
+  "route-post-to-loop-farm": ROUTE_POST_TO_LOOP_FARM_ROUTE,
   "claim-pile-to-route-post": [{ x: -89, z: 92 }, { x: -112, z: 70 }, { x: -128, z: 102 }, { x: -124, z: 124 }, { x: -119.2, z: 132.4 }],
   "route-post-to-claim-booth": [{ x: -119.2, z: 132.4 }, { x: -111.2, z: 136.7 }],
-  "route-post-to-signal-post": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
-  "route-post-to-signal-ridge": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
-  "plaza-to-signal-ridge": [{ x: 0, z: -34 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "route-post-to-signal-post": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 0, z: -56 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "route-post-to-signal-ridge": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: 0, z: -34 }, { x: 0, z: -56 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
+  "plaza-to-signal-ridge": [{ x: 0, z: -34 }, { x: 0, z: -56 }, { x: 53, z: -11.5 }, { x: 75, z: -22 }, { x: 120, z: -62 }, { x: 108.8, z: -92.8 }],
   "signal-post-to-uplink-shack": [{ x: 108.8, z: -92.8 }, { x: 117.6, z: -91.2 }],
   "signal-post-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
   "signal-ridge-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
   "uplink-shack-to-static-lot": [{ x: 117.6, z: -91.2 }, { x: 124, z: -104 }, { x: 145.5, z: -84.2 }],
+  [DAILY_BOSS_ROUTE_ID]: DAILY_BOSS_ROUTE,
+  [DAILY_BOSS_RETURN_ROUTE_ID]: DAILY_BOSS_RETURN_ROUTE,
   "field-to-plaza": [{ x: -119.2, z: 132.4 }, { x: -112, z: 70 }, { x: -31, z: 60 }, { x: 0, z: 29 }, { x: -2.4, z: 4.2 }],
   "ridge-to-plaza": [{ x: 108.8, z: -92.8 }, { x: 75, z: -22 }, { x: 53, z: -11.5 }, { x: 0, z: -34 }, { x: -2.4, z: 4.2 }],
 };
@@ -504,6 +698,13 @@ const COMBAT_UNLOCK_TALENTS: Partial<Record<CombatActionId, string>> = {
   frostNova: "caster:frost-nova",
   whirlwind: "brawler:whirlwind",
   multishot: "utility:multishot",
+};
+const EQUIPMENT_STAT_WEIGHTS: Record<StatKey, number> = {
+  maxHealth: 0.16,
+  maxMana: 0.04,
+  strength: 1.2,
+  dexterity: 1.1,
+  magic: 0.9,
 };
 
 const DECISION_SCHEMA = {
@@ -587,8 +788,12 @@ class AgentBridgeSession {
   private movementUnstickAttempts = 0;
   private movementTrouble: AnyRecord | null = null;
   private combatMemory: CombatMemoryEntry[] = [];
+  private recentNpcPlayerCombat = new Map<string, RecentNpcPlayerCombat>();
+  private groupPrepAttemptedNpcIds = new Map<string, Map<string, number>>();
   private lastDeathRecordedAt = 0;
   private routeQueue: Point[] = [];
+  private currentRouteId = "";
+  private routeArrivalDistance = 2;
   private engagedNpcId = "";
   private combatAnchor: Point | null = null;
   private lastSafePoint: Point | null = null;
@@ -671,9 +876,10 @@ class AgentBridgeSession {
       this.players = new Map(schemaEntries(record.players).map(([id, value]) => [id, normalizePlayer(id, value)]));
       this.npcs = new Map(schemaEntries(record.npcs).map(([id, value]) => [id, normalizeNpc(id, value)]));
       this.lastObservedAt = Date.now();
+      this.rememberActiveCommandPlayers(this.lastObservedAt);
     });
     room.onMessage("chat", (message: unknown) => this.handleChatMessage(message));
-    room.onMessage("combatEvent", (message: unknown) => this.remember(`combat:${messageSummary(message)}`));
+    room.onMessage("combatEvent", (message: unknown) => this.handleCombatEvent(message));
     room.onMessage("experienceEvent", (message: unknown) => this.remember(`xp:${messageSummary(message)}`, true));
     room.onMessage("lootWindow", (message: unknown) => this.remember(`lootWindow:${messageSummary(message)}`, true));
     room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
@@ -827,7 +1033,16 @@ class AgentBridgeSession {
     const questOffers = this.describeQuestOffers();
     const availableQuestHints = this.describeAvailableQuestHints(self);
     const lootableCorpses = this.describeLootableCorpses(self);
-    const hints = this.buildDecisionHints(self, availableQuestHints, lootableCorpses);
+    const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    const defaultPlanningOptions: DecisionPlanningOptions = activeCommand?.status === "running"
+      ? {
+        skipOptionalBossDailies: this.shouldSkipOptionalBossDailies(activeCommand),
+        profile: activeCommand.profile,
+        deathCount: activeCommand.deathCount,
+        focusedQuestId: activeCommand.questId,
+      }
+      : { skipOptionalBossDailies: true };
+    const hints = this.buildDecisionHints(self, availableQuestHints, lootableCorpses, defaultPlanningOptions);
 
     const body = {
       ok: true,
@@ -932,7 +1147,7 @@ class AgentBridgeSession {
       social: this.buildSocialObservation(now),
       recentMessages: this.recentMessages.slice(-25),
       lastActionReport: this.lastActionReport,
-      suggestedNextAction: this.buildSuggestedNextAction(self),
+      suggestedNextAction: this.buildSuggestedNextAction(self, defaultPlanningOptions),
       lastDecision: this.lastDecision,
       lastAction: this.lastAction,
       lastError: this.lastError,
@@ -1012,7 +1227,18 @@ class AgentBridgeSession {
     const payload = normalizeCommandPayload(rawPayload);
     const budget = await this.resolveCommandBudget();
     const reservation = await reserveAgentCommandSeconds(this.walletAddress, budget, payload.maxSeconds);
-    if (!reservation.ok) throw new BridgeHttpError(429, "agent command daily budget exhausted");
+    if (!reservation.ok) {
+      throw new BridgeHttpError(429, describeAgentCommandBudgetExhaustion(budget, reservation.usage), {
+        code: "agent_command_budget_exhausted",
+        budget,
+        usage: reservation.usage,
+        upgrade: {
+          chain: "Base",
+          requiredMferGpt: "25M MFERGPT",
+          reason: "Longer autoplay commands and Season 0 agent points require the agent wallet to hold more MFERGPT.",
+        },
+      });
+    }
     const focusedGoalQuestId = payload.questId || payload.goals.find((goal) => goal.questId)?.questId || "";
     if (focusedGoalQuestId) this.focusedQuestId = focusedGoalQuestId;
     const command: AgentCommandState = {
@@ -1027,6 +1253,7 @@ class AgentBridgeSession {
       stoppedBecause: "",
       startedAt: Date.now(),
       finishedAt: 0,
+      requestedMaxSeconds: payload.maxSeconds,
       maxSeconds: reservation.seconds,
       budget,
       usage: reservation.usage,
@@ -1041,9 +1268,11 @@ class AgentBridgeSession {
       lastSnapshot: this.snapshotPlayer(self),
       reports: [],
       errors: [],
+      social: { players: new Map(), chat: [] },
     };
     this.commands.set(command.commandId, command);
     this.activeCommandId = command.commandId;
+    this.rememberCommandPlayers(command, self, command.startedAt);
     this.lastAction = `command_start ${command.kind}`;
     void this.runCommand(command);
     return this.serializeCommand(command);
@@ -1066,6 +1295,8 @@ class AgentBridgeSession {
   }
 
   private async resolveCommandBudget(): Promise<AgentCommandBudget> {
+    const localOverride = getLocalAgentCommandBudgetOverride();
+    if (localOverride) return localOverride;
     try {
       const gate = await getAgentSeason0MferGptGateStatus(this.walletAddress);
       return getAgentCommandBudget(gate.balanceWei);
@@ -1092,7 +1323,12 @@ class AgentBridgeSession {
         await delay(1000);
         continue;
       }
+      if (command.constraints.maxDeaths <= 0 && self.health <= 0) {
+        await this.finishCommand(command, "safety_stop", "constraint_max_deaths");
+        break;
+      }
       command.lastSnapshot = this.snapshotPlayer(self);
+      this.rememberCommandPlayers(command, self, Date.now());
       const stop = this.checkCommandCompletion(command, self);
       if (stop) {
         await this.finishCommand(command, "completed", stop);
@@ -1118,7 +1354,7 @@ class AgentBridgeSession {
         }
         if (status === "safety_stop" || result.stoppedBecause?.startsWith("retreat_")) {
           command.safetyStopCount += 1;
-          if (command.constraints.maxSafetyStops <= 0 || command.safetyStopCount > command.constraints.maxSafetyStops) {
+          if (command.constraints.maxSafetyStops <= 0 || command.safetyStopCount >= command.constraints.maxSafetyStops) {
             await this.finishCommand(command, "safety_stop", "constraint_max_safety_stops");
             break;
           }
@@ -1127,7 +1363,7 @@ class AgentBridgeSession {
         }
         if (result.stoppedBecause === "dead") {
           command.deathCount += 1;
-          if (command.deathCount > command.constraints.maxDeaths) {
+          if (command.deathCount >= command.constraints.maxDeaths) {
             await this.finishCommand(command, "safety_stop", "constraint_max_deaths");
             break;
           }
@@ -1154,7 +1390,12 @@ class AgentBridgeSession {
     const profileDecision = this.chooseProfileDecision(command, self);
     if (profileDecision && !this.decisionBlockedByConstraints(command, profileDecision)) return profileDecision;
 
-    const suggested = this.buildSuggestedNextAction(self);
+    const suggested = this.buildSuggestedNextAction(self, {
+      skipOptionalBossDailies: this.shouldSkipOptionalBossDailies(command),
+      profile: command.profile,
+      deathCount: command.deathCount,
+      focusedQuestId: command.questId,
+    });
     if (suggested) {
       const decision = normalizeDecision({
         ...suggested,
@@ -1171,6 +1412,123 @@ class AgentBridgeSession {
   private chooseSurvivalDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
     if (self.health <= 0) return normalizeDecision({ action: "respawn", reason: `${command.kind}/${command.profile.priority}: respawning before continuing` });
+    const attackers = this.getAttackers(self);
+    const groupQuestId = this.commandGroupEncounterQuestId(command);
+    const groupQuestActive = Boolean(groupQuestId && this.hasQuestStatus(self, groupQuestId, ["active"]));
+    const fightingGroupEncounter = Boolean(
+      groupQuestActive
+      && attackers.some((npc) => this.groupEncounterQuestForNpc(npc) === groupQuestId),
+    );
+    const groupEncounterAttacker = fightingGroupEncounter && groupQuestId
+      ? this.groupEncounterPressureAttacker(self, groupQuestId, attackers)
+      : null;
+    const recentlyUsedRecoveryItem = this.lastAction.startsWith("use_item")
+      && Date.now() - this.lastActionAt < 5_000;
+
+    if (
+      groupEncounterAttacker
+      && (
+        healthRatio <= CRITICAL_HEALTH_RATIO
+        || (attackers.length >= 2 && healthRatio <= GROUP_ENCOUNTER_REPOSITION_HEALTH_RATIO)
+      )
+    ) {
+      const pressureDistance = distance2d(self, groupEncounterAttacker);
+      if (pressureDistance <= COMBAT.actions.frostNova.maxRange && this.canUse(self, "frostNova")) {
+        return normalizeDecision({
+          action: "use_ability",
+          actionId: "frostNova",
+          reason: `${command.kind}/${command.profile.priority}: controlling ${groupEncounterAttacker.name || groupEncounterAttacker.id} to break a group-boss overpull`,
+          questId: groupQuestId,
+        });
+      }
+      const destination = this.groupEncounterRecoveryPoint(self, groupEncounterAttacker, healthRatio);
+      return normalizeDecision({
+        action: "move_to",
+        reason: `${command.kind}/${command.profile.priority}: breaking a group-boss overpull before spending more recovery items`,
+        questId: groupQuestId,
+        x: destination.x,
+        z: destination.z,
+      });
+    }
+
+    if (
+      attackers.length > 0
+      && recentlyUsedRecoveryItem
+      && healthRatio <= (fightingGroupEncounter ? GROUP_ENCOUNTER_REPOSITION_HEALTH_RATIO : 0.56)
+    ) {
+      const destination = groupEncounterAttacker
+        ? this.groupEncounterRecoveryPoint(self, groupEncounterAttacker, healthRatio)
+        : this.retreatDestination(self);
+      return normalizeDecision({
+        action: "move_to",
+        reason: `${command.kind}/${command.profile.priority}: creating space after a recovery item under pressure`,
+        questId: groupQuestId,
+        x: destination.x,
+        z: destination.z,
+      });
+    }
+
+    if (!recentlyUsedRecoveryItem && attackers.length > 0 && healthRatio <= (fightingGroupEncounter ? GROUP_ENCOUNTER_CONSUMABLE_HEALTH_RATIO : 0.56) && inventoryCount(self, "red-juice") > 0) {
+      return normalizeDecision({
+        action: "use_item",
+        itemId: "red-juice",
+        reason: `${command.kind}/${command.profile.priority}: using red juice before retreating under pressure`,
+        questId: groupQuestId,
+      });
+    }
+
+    if (!recentlyUsedRecoveryItem && attackers.length > 0 && healthRatio <= (fightingGroupEncounter ? GROUP_ENCOUNTER_SELF_HEAL_RATIO : 0.46) && inventoryCount(self, "field-snack") > 0) {
+      return normalizeDecision({
+        action: "use_item",
+        itemId: "field-snack",
+        reason: `${command.kind}/${command.profile.priority}: using field snack before retreating under pressure`,
+        questId: groupQuestId,
+      });
+    }
+
+    if (
+      attackers.length > 0
+      && !recentlyUsedRecoveryItem
+      && healthRatio <= (fightingGroupEncounter ? GROUP_ENCOUNTER_SELF_HEAL_RATIO : 0.68)
+      && self.mana < COMBAT.actions.heal.manaCost
+      && inventoryCount(self, "blue-juice") > 0
+    ) {
+      return normalizeDecision({
+        action: "use_item",
+        itemId: "blue-juice",
+        reason: `${command.kind}/${command.profile.priority}: restoring mana for emergency healing under pressure`,
+        questId: groupQuestId,
+      });
+    }
+
+    if (groupEncounterAttacker && this.shouldCreateSpaceBeforeGroupEncounterHeal(self, groupEncounterAttacker, healthRatio)) {
+      const pressureDistance = distance2d(self, groupEncounterAttacker);
+      if (pressureDistance <= COMBAT.actions.frostNova.maxRange && this.canUse(self, "frostNova")) {
+        return normalizeDecision({
+          action: "use_ability",
+          actionId: "frostNova",
+          reason: `${command.kind}/${command.profile.priority}: controlling ${groupEncounterAttacker.name || groupEncounterAttacker.id} before a stationary group-boss heal`,
+          questId: groupQuestId,
+        });
+      }
+      const destination = this.groupEncounterRecoveryPoint(self, groupEncounterAttacker, healthRatio);
+      return normalizeDecision({
+        action: "move_to",
+        reason: `${command.kind}/${command.profile.priority}: creating space from ${groupEncounterAttacker.name || groupEncounterAttacker.id} before a stationary group-boss heal`,
+        questId: groupQuestId,
+        x: destination.x,
+        z: destination.z,
+      });
+    }
+
+    if (fightingGroupEncounter && healthRatio < GROUP_ENCOUNTER_SELF_HEAL_RATIO && this.canUse(self, "heal")) {
+      return normalizeDecision({
+        action: "use_ability",
+        actionId: "heal",
+        reason: `${command.kind}/${command.profile.priority}: healing early during ${groupQuestId}`,
+        questId: groupQuestId,
+      });
+    }
 
     if (command.profile.role === "healer" && healthRatio < 0.82 && this.canUse(self, "heal")) {
       return normalizeDecision({
@@ -1180,9 +1538,92 @@ class AgentBridgeSession {
       });
     }
 
+    const activeGroupObjective = groupQuestActive ? this.findActiveGroupObjectiveNpc(self, groupQuestId) : null;
+    const activeGroupAddDecision = groupQuestActive
+      && activeGroupObjective
+      && healthRatio >= GROUP_ENCOUNTER_REPOSITION_HEALTH_RATIO
+      && distance2d(self, activeGroupObjective) <= GROUP_ENCOUNTER_READY_RADIUS
+      ? this.chooseGroupEncounterPrepDecision(
+        self,
+        groupQuestId,
+        activeGroupObjective,
+        `${command.kind}/${command.profile.priority}: active group fight has aggroed adds`,
+        activeGroupObjective.id,
+        {
+          allowDuringObjectiveCombat: true,
+          ignoreAttemptCooldown: true,
+          includeExplicitPrep: false,
+          includeAggroAdds: true,
+          markAttempt: false,
+        },
+      )
+      : null;
+    if (activeGroupAddDecision) return activeGroupAddDecision;
+
+    const groupAllyHealDecision = groupQuestActive && this.canUseGroupAllyHealProfile(command.profile)
+      ? this.chooseGroupAllyHealDecision(command, self, groupQuestId, attackers)
+      : null;
+    if (groupAllyHealDecision) return groupAllyHealDecision;
+
+    if (groupQuestActive && attackers.length === 0 && healthRatio < GROUP_ENCOUNTER_READY_HEALTH_RATIO) {
+      if (self.mana < COMBAT.actions.heal.manaCost && inventoryCount(self, "blue-juice") > 0) {
+        return normalizeDecision({
+          action: "use_item",
+          itemId: "blue-juice",
+          reason: `${command.kind}/${command.profile.priority}: restoring mana to reach group-ready health for ${groupQuestId}`,
+          questId: groupQuestId,
+        });
+      }
+      if (this.canUse(self, "heal")) {
+        return normalizeDecision({
+          action: "use_ability",
+          actionId: "heal",
+          reason: `${command.kind}/${command.profile.priority}: healing to group-ready health for ${groupQuestId}`,
+          questId: groupQuestId,
+        });
+      }
+    }
+
+    if ((attackers.length > 0 || Date.now() < this.retreatUntil) && healthRatio < RECOVER_HEALTH_RATIO && this.canUse(self, "heal")) {
+      return normalizeDecision({
+        action: "use_ability",
+        actionId: "heal",
+        reason: `${command.kind}/${command.profile.priority}: healing self before retreating under pressure`,
+      });
+    }
+
+    if (Date.now() < this.retreatUntil) {
+      const destination = this.targetPoint && distance2d(self, this.targetPoint) > 2.6
+        ? this.targetPoint
+        : attackers.length > 0
+          ? this.retreatDestination(self)
+          : null;
+      if (destination) {
+        return normalizeDecision({
+          action: "move_to",
+          reason: `${command.kind}/${command.profile.priority}: finishing retreat before re-engaging`,
+          x: destination.x,
+          z: destination.z,
+        });
+      }
+      if (healthRatio < RECOVER_HEALTH_RATIO || attackers.length === 0) {
+        return normalizeDecision({
+          action: "wait",
+          reason: `${command.kind}/${command.profile.priority}: recovering after retreat`,
+        });
+      }
+    }
+
     if (command.profile.risk === "safe" && healthRatio < 0.9) {
-      const attackers = this.getAttackers(self);
       if (attackers.length > 0) {
+        const pressableAttacker = this.findPressableAttacker(self, attackers);
+        if (pressableAttacker) {
+          return normalizeDecision({
+            action: "fight_npc",
+            reason: `${command.kind}/safe: clearing ${pressableAttacker.name || pressableAttacker.id} because the fight is safer than dragging aggro`,
+            npcRef: pressableAttacker.id,
+          });
+        }
         const destination = this.retreatDestination(self);
         return normalizeDecision({
           action: "move_to",
@@ -1202,9 +1643,92 @@ class AgentBridgeSession {
     return null;
   }
 
+  private chooseGroupAllyHealDecision(command: AgentCommandState, self: RuntimePlayer, questId: string, attackers: RuntimeNpc[]) {
+    const selfHealthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    if (selfHealthRatio < PRESS_SINGLE_ATTACKER_HEALTH_RATIO) return null;
+    const heal = COMBAT.actions.heal;
+    const ally = this.findGroupAllyNeedingHeal(self, GROUP_ENCOUNTER_ALLY_HEAL_RATIO, GROUP_ENCOUNTER_READY_RADIUS * 1.8);
+    if (!ally) return null;
+    const activeGroupObjective = this.findActiveGroupObjectiveNpc(self, questId);
+    const activeGroupFight = Boolean(
+      activeGroupObjective
+      && this.hasRecentNpcPlayerCombat(activeGroupObjective.id, GROUP_ENCOUNTER_PREP_SKIP_AFTER_PULL_MS),
+    );
+    const canSafelyMoveToAlly = attackers.length === 0 && selfHealthRatio >= RECOVER_HEALTH_RATIO && !activeGroupFight;
+
+    if (self.mana < heal.manaCost && ally.distance <= heal.maxRange + 3 && inventoryCount(self, "blue-juice") > 0) {
+      return normalizeDecision({
+        action: "use_item",
+        itemId: "blue-juice",
+        reason: `${command.kind}/${command.profile.priority}: restoring mana to heal ${ally.player.name || "ally"} during ${questId}`,
+        questId,
+      });
+    }
+    if (ally.distance <= heal.maxRange && this.canUse(self, "heal")) {
+      return normalizeDecision({
+        action: "use_ability",
+        actionId: "heal",
+        playerRef: ally.player.sessionId,
+        reason: `${command.kind}/${command.profile.priority}: healing ${ally.player.name || "ally"} during ${questId}`,
+        questId,
+      });
+    }
+    if (canSafelyMoveToAlly) {
+      return normalizeDecision({
+        action: "move_near_player",
+        playerRef: ally.player.sessionId,
+        reason: `${command.kind}/${command.profile.priority}: moving into heal range for ${ally.player.name || "ally"} during ${questId}`,
+        questId,
+      });
+    }
+    return null;
+  }
+
+  private canUseGroupAllyHealProfile(profile: AgentCommandProfile) {
+    return profile.role === "healer" || profile.role === "support" || profile.spec === "utility_support";
+  }
+
+  private findGroupAllyNeedingHeal(self: RuntimePlayer, maxHealthRatio: number, maxDistance: number) {
+    return [...this.players.values()]
+      .filter((player) => player.sessionId !== self.sessionId)
+      .map((player) => {
+        const health = getNumber(player.health);
+        const maxHealth = getNumber(player.maxHealth);
+        return {
+          player,
+          distance: distance2d(self, player),
+          healthRatio: maxHealth > 0 ? health / maxHealth : 1,
+        };
+      })
+      .filter((entry) => (
+        entry.healthRatio > 0
+        && entry.healthRatio <= maxHealthRatio
+        && entry.distance <= maxDistance
+        && this.playerHasActiveNpcAggro(entry.player)
+      ))
+      .sort((a, b) => a.healthRatio - b.healthRatio || a.distance - b.distance)[0] ?? null;
+  }
+
+  private commandGroupEncounterQuestId(command: AgentCommandState) {
+    const questIds = uniqueStrings([
+      command.questId,
+      ...command.goals.map((goal) => goal.questId),
+    ]);
+    return questIds.find((questId) => this.isGroupEncounterQuest(questId)) || "";
+  }
+
+  private activeGroupCommandQuestId() {
+    const command = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    if (command?.status === "running") {
+      const commandQuestId = this.commandGroupEncounterQuestId(command);
+      if (commandQuestId) return commandQuestId;
+    }
+    return this.isGroupEncounterQuest(this.focusedQuestId) ? this.focusedQuestId : "";
+  }
+
   private chooseGoalDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
     if (command.kind === "finish_quest" && command.questId) {
-      return this.chooseQuestGoalDecision(self, command.questId, "quest_completed");
+      return this.chooseQuestGoalDecision(self, command.questId, "quest_completed", command);
     }
     if (command.kind !== "run_goals") return null;
 
@@ -1216,7 +1740,7 @@ class AgentBridgeSession {
       case "quest_completed":
       case "quest_ready":
       case "quest_accepted":
-        return this.chooseQuestGoalDecision(self, pending.questId, pending.type);
+        return this.chooseQuestGoalDecision(self, pending.questId, pending.type, command);
       case "inventory_at_least": {
         const loot = this.describeLootableCorpses(self).find((corpse) => {
           const npc = this.npcs.get(getString(corpse.npcId));
@@ -1281,11 +1805,20 @@ class AgentBridgeSession {
     return null;
   }
 
-  private chooseQuestGoalDecision(self: RuntimePlayer, questId: string, goalType: AgentCommandGoalType): AgentBridgeDecision | null {
+  private chooseQuestGoalDecision(
+    self: RuntimePlayer,
+    questId: string,
+    goalType: AgentCommandGoalType,
+    command?: Pick<AgentCommandState, "profile" | "deathCount">,
+  ): AgentBridgeDecision | null {
     const quest = self.quests.find((entry) => getString(entry.id) === questId);
     const status = getString(quest?.status);
     const turnInNpc = this.resolveQuestTurnInNpc(questId);
     if ((status === "ready" || status === "completed") && goalType === "quest_completed" && turnInNpc) {
+      const dailyReturnDecision = this.chooseDailyBossReturnDecision(self, questId, turnInNpc);
+      if (dailyReturnDecision) return dailyReturnDecision;
+      const routeDecision = this.chooseRouteToNpcAreaDecision(self, turnInNpc, `${questId} is ready for turn-in`, questId);
+      if (routeDecision) return routeDecision;
       return normalizeDecision({
         action: "complete_quest",
         reason: `${questId} is ready for the structured quest goal`,
@@ -1296,13 +1829,25 @@ class AgentBridgeSession {
     if ((status === "active" || status === "ready" || status === "completed") && goalType === "quest_accepted") {
       return normalizeDecision({ action: "wait", reason: `${questId} is already accepted` });
     }
+    const targetQuestAccepted = status === "active" || status === "ready" || status === "completed";
+    if (!targetQuestAccepted) {
+      const prerequisiteQuestId = this.findIncompleteRequiredQuestId(self, questId);
+      if (prerequisiteQuestId) {
+        return this.chooseQuestGoalDecision(self, prerequisiteQuestId, "quest_completed", command);
+      }
+    }
     if (status === "active") {
+      const immediateDecision = this.chooseImmediateQuestGoalDecision(self, questId);
+      if (immediateDecision) return immediateDecision;
       const utilityDecision = this.chooseActiveUtilityQuestDecision(self, questId);
       if (utilityDecision) return utilityDecision;
     }
-    if (!status) {
+    if (!targetQuestAccepted) {
       const offer = this.describeAvailableQuestHints(self).find((hint) => getString(hint.questId) === questId);
       if (offer) {
+        const npc = this.resolveNpc(getString(offer.npcId));
+        const routeDecision = this.chooseRouteToNpcAreaDecision(self, npc, `${questId} is available`, questId);
+        if (routeDecision) return routeDecision;
         return normalizeDecision({
           action: "accept_quest",
           reason: `${questId} is the structured quest goal and is available`,
@@ -1314,23 +1859,167 @@ class AgentBridgeSession {
     if (status === "active" || status === "ready") {
       const namedTarget = this.findNamedObjectiveTarget(self, questId);
       if (namedTarget) {
+        const namedReason = `${namedTarget.npc.name} is an unfinished named objective for ${questId}`;
+        const groupDecision = this.chooseGroupEncounterDecision(
+          self,
+          questId,
+          namedTarget.npc,
+          namedReason,
+          command?.profile,
+          command?.deathCount ?? 0,
+          namedTarget.npc.id,
+        );
+        if (groupDecision) return groupDecision;
+        const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+          self,
+          questId,
+          namedTarget.npc,
+          `${namedTarget.npc.name} is an unfinished named objective for ${questId}`,
+        );
+        if (dailyBossDecision) return dailyBossDecision;
+        if (this.hasOpenGroupEncounterPrep(questId, namedTarget.npc, namedTarget.npc.id)) {
+          const prepDecision = this.chooseGroupEncounterPrepDecision(
+            self,
+            questId,
+            namedTarget.npc,
+            namedReason,
+            namedTarget.npc.id,
+            { ignoreAttemptCooldown: true },
+          );
+          if (prepDecision) return prepDecision;
+          return normalizeDecision({
+            action: "wait",
+            reason: `${namedTarget.npc.name} is an unfinished named objective for ${questId}; waiting for group prep targets before pulling`,
+            questId,
+          });
+        }
+        const routeDecision = this.chooseRouteToNpcAreaDecision(self, namedTarget.npc, namedReason, questId);
+        if (routeDecision) return routeDecision;
         return normalizeDecision({
           action: "fight_npc",
-          reason: `${namedTarget.npc.name} is an unfinished named objective for ${questId}`,
+          reason: namedReason,
           questId,
           npcRef: namedTarget.npc.id,
         });
       }
       const questTarget = this.findGenericQuestTarget(self, questId);
       if (questTarget) {
+        const targetReason = `${questTarget.npc.name} matches structured quest goal ${questId}`;
+        const groupDecision = this.chooseGroupEncounterDecision(
+          self,
+          questId,
+          questTarget.npc,
+          targetReason,
+          command?.profile,
+          command?.deathCount ?? 0,
+          questTarget.npc.id,
+        );
+        if (groupDecision) return groupDecision;
+        const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+          self,
+          questId,
+          questTarget.npc,
+          `${questTarget.npc.name} matches structured quest goal ${questId}`,
+        );
+        if (dailyBossDecision) return dailyBossDecision;
+        if (this.hasOpenGroupEncounterPrep(questId, questTarget.npc, questTarget.npc.id)) {
+          const prepDecision = this.chooseGroupEncounterPrepDecision(
+            self,
+            questId,
+            questTarget.npc,
+            targetReason,
+            questTarget.npc.id,
+            { ignoreAttemptCooldown: true },
+          );
+          if (prepDecision) return prepDecision;
+          return normalizeDecision({
+            action: "wait",
+            reason: `${questTarget.npc.name} matches structured quest goal ${questId}; waiting for group prep targets before pulling`,
+            questId,
+          });
+        }
+        const routeDecision = this.chooseRouteToNpcAreaDecision(self, questTarget.npc, targetReason, questId);
+        if (routeDecision) return routeDecision;
         return normalizeDecision({
           action: "fight_npc",
-          reason: `${questTarget.npc.name} matches structured quest goal ${questId}`,
+          reason: targetReason,
           questId,
           npcRef: questTarget.npc.id,
         });
       }
+      const genericTargetAreaDecision = this.chooseGenericQuestTargetAreaDecision(self, questId, {
+        profile: command?.profile,
+        deathCount: command?.deathCount ?? 0,
+      });
+      if (genericTargetAreaDecision) return genericTargetAreaDecision;
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        questId,
+        null,
+        `${questId} is active and the runner daily boss target is not visible yet`,
+      );
+      if (dailyBossDecision) return dailyBossDecision;
+      const missingObjectiveRoute = this.chooseMissingObjectiveRouteDecision(self, questId, {
+        profile: command?.profile,
+        deathCount: command?.deathCount ?? 0,
+      });
+      if (missingObjectiveRoute) return missingObjectiveRoute;
     }
+    return null;
+  }
+
+  private findIncompleteRequiredQuestId(self: RuntimePlayer, questId: string, seen = new Set<string>()): string {
+    return resolveIncompleteRequiredQuestIdForQuests(self.quests, questId, seen);
+  }
+
+  private chooseImmediateQuestGoalDecision(self: RuntimePlayer, questId: string): AgentBridgeDecision | null {
+    const attackers = this.getAttackers(self);
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    const activeGroupObjective = this.findActiveGroupObjectiveNpc(self, questId);
+    const activeGroupObjectiveExtraAttackers = activeGroupObjective
+      ? attackers.filter((npc) => npc.id !== activeGroupObjective.id)
+      : attackers;
+    const activeGroupObjectiveDistance = activeGroupObjective
+      ? distance2d(self, activeGroupObjective)
+      : Number.POSITIVE_INFINITY;
+    if (
+      activeGroupObjective
+      && this.hasRecentNpcPlayerCombat(activeGroupObjective.id, GROUP_ENCOUNTER_PREP_SKIP_AFTER_PULL_MS)
+      && activeGroupObjectiveExtraAttackers.length === 0
+      && healthRatio >= GROUP_ENCOUNTER_PRESS_HEALTH_RATIO
+      && activeGroupObjectiveDistance <= GROUP_ENCOUNTER_READY_RADIUS
+      && this.healthyQuestParticipantCountNear(self, activeGroupObjective, GROUP_ENCOUNTER_READY_RADIUS, questId) >= this.suggestedGroupSize(questId)
+    ) {
+      return normalizeDecision({
+        action: "fight_npc",
+        reason: `${questId}: staying on active group objective ${activeGroupObjective.name || activeGroupObjective.id}`,
+        questId,
+        npcRef: activeGroupObjective.id,
+      });
+    }
+    if (attackers.length > 0) {
+      const pressableAttacker = this.findPressableAttacker(self, attackers);
+      if (pressableAttacker) {
+        return normalizeDecision({
+          action: "fight_npc",
+          reason: `${questId}: clearing ${pressableAttacker.name || pressableAttacker.id} before waiting or routing`,
+          questId,
+          npcRef: pressableAttacker.id,
+        });
+      }
+    }
+
+    const loot = this.describeLootableCorpses(self)
+      .find((corpse) => getNumber(corpse.distance) <= 18);
+    if (loot) {
+      return normalizeDecision({
+        action: "loot",
+        reason: `${questId}: looting ${getString(loot.name) || "nearby corpse"} before continuing`,
+        questId,
+        npcRef: getString(loot.npcId) || getString(loot.id),
+      });
+    }
+
     return null;
   }
 
@@ -1339,6 +2028,9 @@ class AgentBridgeSession {
       .filter((quest) => getString(quest.status) === "active")
       .map((quest) => getString(quest.id))
       .filter((questId): questId is QuestId => (QUEST_IDS as readonly string[]).includes(questId));
+    if (preferredQuestId && activeQuestIds.includes(preferredQuestId as QuestId)) {
+      return this.utilityDecisionForActiveQuest(self, preferredQuestId as QuestId);
+    }
     const orderedQuestIds = uniqueStrings([
       preferredQuestId,
       FREE_TRAIT_QUEST_ID,
@@ -1447,6 +2139,10 @@ class AgentBridgeSession {
     return decision.action === "update_traits" && cleanText(decision.questId, 96) === FREE_TRAIT_QUEST_ID;
   }
 
+  private shouldSkipOptionalBossDailies(command: AgentCommandState) {
+    return shouldSkipOptionalBossDailyCommand(command.kind, command.profile.priority);
+  }
+
   private toSuggestedDecision(decision: AgentBridgeDecision): SuggestedDecision {
     return {
       action: decision.action,
@@ -1462,6 +2158,552 @@ class AgentBridgeSession {
     };
   }
 
+  private isDailyBossQuestTarget(questId: string, npc?: RuntimeNpc | null) {
+    return questId === DAILY_SIGNAL_QUEST_ID && (!npc || npc.id === DAILY_BOSS_NPC_ID);
+  }
+
+  private chooseDailyBossRunnerDecision(self: RuntimePlayer, questId: string, npc: RuntimeNpc | null, reason: string): AgentBridgeDecision | null {
+    if (!this.isDailyBossQuestTarget(questId, npc)) return null;
+    const routeEnd = DAILY_BOSS_ROUTE[DAILY_BOSS_ROUTE.length - 1] ?? npc;
+    if (!npc || (distance2d(self, routeEnd) > 15 && distance2d(self, npc) > 16)) {
+      return normalizeDecision({
+        action: "travel_route",
+        reason: `${reason}; following runner daily boss route`,
+        questId,
+        text: DAILY_BOSS_ROUTE_ID,
+      });
+    }
+    return normalizeDecision({
+      action: "fight_npc",
+      reason: `${reason}; using runner daily boss combat`,
+      questId,
+      npcRef: npc.id,
+    });
+  }
+
+  private chooseDailyBossReturnDecision(self: RuntimePlayer, questId: string, turnInNpc: RuntimeNpc | null): AgentBridgeDecision | null {
+    if (questId !== DAILY_SIGNAL_QUEST_ID || !turnInNpc) return null;
+    if (distance2d(self, turnInNpc) <= 18) return null;
+    return normalizeDecision({
+      action: "travel_route",
+      reason: `${questId} is ready; following runner daily boss return route`,
+      questId,
+      text: DAILY_BOSS_RETURN_ROUTE_ID,
+    });
+  }
+
+  private chooseRouteToNpcAreaDecision(self: RuntimePlayer, npc: RuntimeNpc | null, reason: string, questId = ""): AgentBridgeDecision | null {
+    const staticCombatStagingDecision = npc ? this.chooseStaticCombatStagingDecision(self, npc, reason, questId) : null;
+    if (staticCombatStagingDecision) return staticCombatStagingDecision;
+    if (npc && this.isStaticLotCombatTarget(npc) && distance2d(self, PUBLIC_LANDMARKS["signal-post"]) <= 12) return null;
+    const routeId = npc ? this.routeIdToNpcArea(self, npc) : "";
+    if (!routeId) return null;
+    return normalizeDecision({
+      action: "travel_route",
+      reason: `${reason}; following known route to ${npc?.name || npc?.id || "target area"}`,
+      questId,
+      npcRef: npc?.id,
+      text: routeId,
+    });
+  }
+
+  private chooseStaticCombatStagingDecision(self: RuntimePlayer, npc: RuntimeNpc, reason: string, questId = ""): AgentBridgeDecision | null {
+    if (!this.isStaticLotCombatTarget(npc)) return null;
+    const stagingPoint = PUBLIC_LANDMARKS["signal-post"];
+    const distanceToStaging = distance2d(self, stagingPoint);
+    if (distanceToStaging <= 12) return null;
+    const routeId = self.x < -55 && self.z > 45 ? "route-post-to-signal-ridge" : "plaza-to-signal-ridge";
+    if (distanceToStaging > 48) {
+      return normalizeDecision({
+        action: "travel_route",
+        reason: `${reason}; staging at signal post before pulling ${npc.name || npc.id}`,
+        questId,
+        npcRef: npc.id,
+        text: routeId,
+      });
+    }
+    return normalizeDecision({
+      action: "move_to",
+      reason: `${reason}; staging at signal post before pulling ${npc.name || npc.id}`,
+      questId,
+      npcRef: npc.id,
+      x: stagingPoint.x,
+      z: stagingPoint.z,
+    });
+  }
+
+  private isStaticLotCombatTarget(npc: RuntimeNpc) {
+    return isAttackable(npc) && npc.x > 135 && npc.z < -70;
+  }
+
+  private chooseRouteToPointAreaDecision(self: RuntimePlayer, pointLike: Point, reason: string, questId = "", objectiveId = ""): AgentBridgeDecision | null {
+    const routeId = this.routeIdToPointArea(self, pointLike);
+    if (routeId) {
+      return normalizeDecision({
+        action: "travel_route",
+        reason,
+        questId,
+        npcRef: objectiveId,
+        text: routeId,
+      });
+    }
+    if (distance2d(self, pointLike) > 14) {
+      return normalizeDecision({
+        action: "move_to",
+        reason,
+        questId,
+        x: pointLike.x,
+        z: pointLike.z,
+      });
+    }
+    return null;
+  }
+
+  private chooseGroupEncounterDecision(
+    self: RuntimePlayer,
+    questId: string,
+    targetPoint: Point,
+    reason: string,
+    profile?: AgentCommandProfile,
+    deathCount = 0,
+    objectiveId = "",
+    prepOptions: GroupEncounterPrepOptions = {},
+  ): AgentBridgeDecision | null {
+    if (!this.isGroupEncounterQuest(questId)) return null;
+    const rallyPoint = this.groupEncounterRallyPoint(questId, objectiveId, targetPoint);
+    const required = this.suggestedGroupSize(questId);
+    const readyCount = Math.max(
+      this.healthyQuestParticipantCountNear(
+        self,
+        targetPoint,
+        GROUP_ENCOUNTER_READY_RADIUS,
+        questId,
+        GROUP_ENCOUNTER_READY_HEALTH_RATIO,
+      ),
+      this.healthyQuestParticipantCountNear(
+        self,
+        rallyPoint,
+        GROUP_ENCOUNTER_READY_RADIUS,
+        questId,
+        GROUP_ENCOUNTER_READY_HEALTH_RATIO,
+      ),
+    );
+    const activeSupportCount = this.healthyQuestParticipantCountNear(
+      self,
+      targetPoint,
+      GROUP_ENCOUNTER_READY_RADIUS,
+      questId,
+    );
+    const boldSoloAttempt = profile?.priority === "boss_hunter" && profile.risk === "bold" && deathCount <= 0;
+    const activeTargetNpc = this.resolveGroupEncounterTargetNpc(targetPoint, objectiveId);
+    const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+    const targetIsInRecentPlayerCombat = activeTargetNpc
+      ? this.hasRecentNpcPlayerCombat(activeTargetNpc.id)
+      : false;
+    const bossAlreadyPulled = Boolean(activeTargetNpc && (activeTargetNpc.aggroTargetId || targetIsInRecentPlayerCombat));
+    const activeTargetExtraAttackers = activeTargetNpc
+      ? this.getAttackers(self).filter((npc) => npc.id !== activeTargetNpc.id)
+      : [];
+    const activeTargetDistance = activeTargetNpc ? distance2d(self, activeTargetNpc) : Number.POSITIVE_INFINITY;
+
+    if (
+      bossAlreadyPulled
+      && activeSupportCount >= required
+      && healthRatio >= GROUP_ENCOUNTER_PRESS_HEALTH_RATIO
+      && activeTargetDistance <= GROUP_ENCOUNTER_READY_RADIUS
+    ) {
+      const addDecision = this.chooseGroupEncounterPrepDecision(
+        self,
+        questId,
+        targetPoint,
+        `${reason}; active group fight has aggroed adds`,
+        objectiveId,
+        {
+          allowDuringObjectiveCombat: true,
+          ignoreAttemptCooldown: true,
+          includeExplicitPrep: false,
+          includeAggroAdds: true,
+          markAttempt: false,
+        },
+      );
+      if (addDecision) return addDecision;
+    }
+
+    const supportingActiveFight = Boolean(
+      activeTargetNpc
+      && bossAlreadyPulled
+      && activeSupportCount >= required
+      && activeTargetNpc.health > 0
+      && activeTargetNpc.defeatedAt <= 0
+      && healthRatio >= GROUP_ENCOUNTER_PRESS_HEALTH_RATIO
+      && activeTargetDistance <= GROUP_ENCOUNTER_READY_RADIUS
+    );
+    if (supportingActiveFight && activeTargetNpc) {
+      const addDecision = activeTargetExtraAttackers.length > 0
+        ? this.chooseGroupEncounterPrepDecision(
+          self,
+          questId,
+          targetPoint,
+          `${reason}; active group fight has aggroed adds`,
+          objectiveId,
+          {
+            allowDuringObjectiveCombat: true,
+            ignoreAttemptCooldown: true,
+            includeExplicitPrep: false,
+            includeAggroAdds: true,
+            markAttempt: false,
+          },
+        )
+        : null;
+      if (addDecision) return addDecision;
+      return normalizeDecision({
+        action: "fight_npc",
+        reason: `${reason}; supporting the active group fight`,
+        questId,
+        npcRef: activeTargetNpc.id,
+      });
+    }
+
+    if (!bossAlreadyPulled && healthRatio >= GROUP_ENCOUNTER_READY_HEALTH_RATIO && this.getAttackers(self).length === 0) {
+      const selfPrepDecision = this.chooseSelfPreparationDecision(self, profile);
+      if (selfPrepDecision) {
+        return normalizeDecision({
+          ...selfPrepDecision,
+          reason: `${reason}; preparing before the group boss pull; ${selfPrepDecision.reason}`,
+          questId: selfPrepDecision.questId || questId,
+        });
+      }
+    }
+
+    if (readyCount >= required) return null;
+
+    if (boldSoloAttempt) {
+      const prepDecision = this.chooseGroupEncounterPrepDecision(self, questId, targetPoint, reason, objectiveId, prepOptions);
+      if (prepDecision) return prepDecision;
+      return null;
+    }
+
+    const detail = `group encounter ${questId} needs ${required} nearby healthy players; currently ${readyCount}/${required}`;
+    if (healthRatio < GROUP_ENCOUNTER_READY_HEALTH_RATIO) {
+      const farFromRally = distance2d(self, rallyPoint) > GROUP_ENCOUNTER_RALLY_DISTANCE;
+      if (farFromRally && this.getAttackers(self).length === 0) {
+        return normalizeDecision({
+          action: "move_to",
+          reason: `${reason}; ${detail}; returning to rally while recovering`,
+          questId,
+          x: rallyPoint.x,
+          z: rallyPoint.z,
+        });
+      }
+      if (self.mana < COMBAT.actions.heal.manaCost && inventoryCount(self, "blue-juice") > 0) {
+        return normalizeDecision({
+          action: "use_item",
+          itemId: "blue-juice",
+          reason: `${reason}; ${detail}; restoring mana before regrouping`,
+          questId,
+        });
+      }
+      if (this.canUse(self, "heal")) {
+        return normalizeDecision({
+          action: "use_ability",
+          actionId: "heal",
+          reason: `${reason}; ${detail}; healing before regrouping`,
+          questId,
+        });
+      }
+      if (bossAlreadyPulled && activeTargetNpc && activeTargetDistance <= GROUP_ENCOUNTER_READY_RADIUS) {
+        const destination = this.groupEncounterRecoveryPoint(self, activeTargetNpc, healthRatio);
+        return normalizeDecision({
+          action: "move_to",
+          reason: `${reason}; ${detail}; creating safer space before regrouping`,
+          questId,
+          x: destination.x,
+          z: destination.z,
+        });
+      }
+      return normalizeDecision({
+        action: "wait",
+        reason: `${reason}; ${detail}; recovering before another group pull`,
+        questId,
+      });
+    }
+
+    const routeDecision = this.chooseRouteToPointAreaDecision(
+      self,
+      rallyPoint,
+      `${reason}; ${detail}; routing to rally point`,
+      questId,
+      objectiveId,
+    );
+    if (routeDecision && distance2d(self, rallyPoint) > GROUP_ENCOUNTER_RALLY_DISTANCE) return routeDecision;
+
+    const selfPrepDecision = this.chooseSelfPreparationDecision(self, profile);
+    if (selfPrepDecision) {
+      return normalizeDecision({
+        ...selfPrepDecision,
+        reason: `${reason}; ${detail}; ${selfPrepDecision.reason}`,
+        questId: selfPrepDecision.questId || questId,
+      });
+    }
+
+    if (this.canSendChat()) {
+      return normalizeDecision({
+        action: "chat",
+        reason: `${reason}; waiting for group before pulling`,
+        questId,
+        text: `need ${Math.max(1, required - readyCount)} more for ${QUESTS[normalizeKnownQuestId(questId) || "baron-of-static"]?.title || questId}`,
+      });
+    }
+
+    return normalizeDecision({
+      action: "wait",
+      reason: `${reason}; ${detail}; waiting at rally point instead of solo pulling`,
+      questId,
+    });
+  }
+
+  private chooseGroupEncounterPrepDecision(
+    self: RuntimePlayer,
+    questId: string,
+    targetPoint: Point,
+    reason: string,
+    objectiveId = "",
+    options: GroupEncounterPrepOptions = {},
+  ) {
+    const prepNpc = this.findOpenGroupEncounterPrepNpc(self, questId, targetPoint, objectiveId, options);
+    if (!prepNpc) return null;
+    const knownQuestId = normalizeKnownQuestId(questId);
+    if (!knownQuestId) return null;
+    const now = Date.now();
+    const attemptedPrep = this.groupPrepAttemptedNpcIds.get(knownQuestId) ?? new Map<string, number>();
+    const prepReason = options.allowDuringObjectiveCombat && options.includeExplicitPrep === false
+      ? `${reason}; clearing ${prepNpc.name || prepNpc.id} during the active group fight`
+      : `${reason}; clearing ${prepNpc.name || prepNpc.id} before the group boss pull`;
+    const routeDecision = this.chooseRouteToNpcAreaDecision(self, prepNpc, prepReason, questId);
+    if (routeDecision) return routeDecision;
+    const nextAttemptedPrep = new Map(attemptedPrep);
+    if (options.markAttempt !== false) {
+      nextAttemptedPrep.set(prepNpc.id, now);
+      this.groupPrepAttemptedNpcIds.set(knownQuestId, nextAttemptedPrep);
+    }
+    return normalizeDecision({
+      action: "fight_npc",
+      reason: prepReason,
+      questId,
+      npcRef: prepNpc.id,
+    });
+  }
+
+  private findOpenGroupEncounterPrepNpc(
+    self: RuntimePlayer,
+    questId: string,
+    targetPoint: Point,
+    objectiveId = "",
+    options: GroupEncounterPrepOptions = {},
+  ) {
+    const knownQuestId = normalizeKnownQuestId(questId);
+    if (!knownQuestId) return null;
+    const objectiveNpc = this.resolveGroupEncounterTargetNpc(targetPoint, objectiveId);
+    if (
+      !options.allowDuringObjectiveCombat
+      && objectiveNpc
+      && this.hasRecentNpcPlayerCombat(objectiveNpc.id, GROUP_ENCOUNTER_PREP_SKIP_AFTER_PULL_MS)
+    ) {
+      return null;
+    }
+    const now = Date.now();
+    const attemptedPrep = this.groupPrepAttemptedNpcIds.get(knownQuestId) ?? new Map<string, number>();
+    const prepNpcIds = stringList((QUESTS[knownQuestId] as AnyRecord).encounterPrepNpcIds);
+    const objectiveNpcIds = new Set(
+      getQuestObjectives(knownQuestId)
+        .map((objective) => getString(asRecord(objective).id))
+        .filter(Boolean),
+    );
+
+    const candidatesById = new Map<string, RuntimeNpc>();
+    if (options.includeExplicitPrep !== false) {
+      for (const npcId of prepNpcIds) {
+        if (this.hasRecentNpcDefeat(npcId, GROUP_ENCOUNTER_PREP_CLEAR_MEMORY_MS, now)) continue;
+        const attemptedAt = attemptedPrep.get(npcId) ?? 0;
+        if (!options.ignoreAttemptCooldown && attemptedAt > 0 && now - attemptedAt < GROUP_ENCOUNTER_PREP_RETRY_MS) continue;
+        const npc = this.resolveNpc(npcId);
+        if (!npc) continue;
+        if (!isAttackable(npc) || npc.health <= 0 || npc.defeatedAt > 0) continue;
+        if (distance2d(npc, targetPoint) > GROUP_ENCOUNTER_EXPLICIT_PREP_RADIUS) continue;
+        candidatesById.set(npc.id, npc);
+      }
+    }
+    if (options.includeAggroAdds !== false) {
+      for (const npc of this.npcs.values()) {
+        if (objectiveNpcIds.has(npc.id) || candidatesById.has(npc.id)) continue;
+        if (!isAttackable(npc) || !isHostile(npc) || npc.health <= 0 || npc.defeatedAt > 0) continue;
+        if (distance2d(npc, targetPoint) > GROUP_ENCOUNTER_ADD_PREP_RADIUS) continue;
+        if (!npc.aggroTargetId) continue;
+        if (this.isNpcAvoided(npc.id)) continue;
+        candidatesById.set(npc.id, npc);
+      }
+    }
+
+    const candidates = [...candidatesById.values()]
+      .sort((a, b) => (
+        (b.aggroTargetId === self.sessionId ? 1 : 0) - (a.aggroTargetId === self.sessionId ? 1 : 0)
+        || (b.aggroTargetId ? 1 : 0) - (a.aggroTargetId ? 1 : 0)
+        || this.attackerFocusPriority(b) - this.attackerFocusPriority(a)
+        || distance2d(self, a) - distance2d(self, b)
+      ));
+    return candidates[0] ?? null;
+  }
+
+  private hasOpenGroupEncounterPrep(_questId: string, _targetPoint: Point, _objectiveId = "") {
+    // Pre-pull prep is coordinated by chooseGroupEncounterDecision; these older
+    // checks caused assembled groups to chase respawns instead of pulling.
+    return false;
+  }
+
+  private resolveGroupEncounterTargetNpc(targetPoint: Point, objectiveId = "") {
+    const targetRecord = asRecord(targetPoint);
+    const targetId = getString(targetRecord.id) || objectiveId;
+    return targetId ? this.resolveNpc(targetId) : null;
+  }
+
+  private groupEncounterRallyPoint(questId: string, objectiveId: string, targetPoint: Point): Point {
+    if (objectiveId === "static-baron-nox" || questId === "baron-of-static") return PUBLIC_LANDMARKS["signal-post"];
+    if (objectiveId === "raid-ogre-mfer" || questId === "ogre-raid-daily") return PUBLIC_LANDMARKS["uplink-shack"];
+    if (objectiveId === DAILY_BOSS_NPC_ID || questId === DAILY_SIGNAL_QUEST_ID) return DAILY_BOSS_ROUTE[DAILY_BOSS_ROUTE.length - 1] ?? targetPoint;
+    return targetPoint;
+  }
+
+  private isGroupEncounterQuest(questId: string) {
+    const knownQuestId = normalizeKnownQuestId(questId);
+    if (!knownQuestId) return false;
+    return isGroupGatedEncounterType((QUESTS[knownQuestId] as AnyRecord).encounterType);
+  }
+
+  private isGroupEncounterObjectiveForQuest(questId: string, npc: RuntimeNpc) {
+    const knownQuestId = normalizeKnownQuestId(questId);
+    if (!knownQuestId || !this.isGroupEncounterQuest(knownQuestId)) return false;
+    return getQuestObjectives(knownQuestId).some((objective) => getString(asRecord(objective).id) === npc.id);
+  }
+
+  private suggestedGroupSize(questId: string) {
+    const knownQuestId = normalizeKnownQuestId(questId);
+    if (!knownQuestId) return 1;
+    const definition = QUESTS[knownQuestId] as AnyRecord;
+    const configured = Math.floor(getNumber(definition.suggestedPlayerCount));
+    if (configured > 1) return configured;
+    return cleanText(definition.encounterType, 20) === "raid" ? 3 : 2;
+  }
+
+  private groupEncounterQuestForNpc(npc: RuntimeNpc | null | undefined) {
+    if (!npc) return "";
+    for (const [questId, definition] of Object.entries(QUESTS)) {
+      const record = definition as AnyRecord;
+      if (!isGroupGatedEncounterType(record.encounterType)) continue;
+      const objectives = Array.isArray(record.objectives) ? record.objectives : [];
+      if (objectives.some((objective) => getString(asRecord(objective).id) === npc.id)) return questId;
+    }
+    return "";
+  }
+
+  private isGroupEncounterObjectiveNpc(npc: RuntimeNpc | null | undefined) {
+    return Boolean(this.groupEncounterQuestForNpc(npc));
+  }
+
+  private isActiveGroupEncounterObjectiveForSelf(self: RuntimePlayer, npc: RuntimeNpc | null | undefined) {
+    const questId = this.groupEncounterQuestForNpc(npc);
+    return Boolean(questId && this.hasQuestStatus(self, questId, ["active"]));
+  }
+
+  private hasQuestStatus(self: RuntimePlayer, questId: string, statuses: readonly string[]) {
+    return hasAgentQuestStatus(self.quests, questId, statuses);
+  }
+
+  private healthyPlayerCountNear(self: RuntimePlayer, pointLike: Point, radius: number, questId = "") {
+    const seen = new Set<string>();
+    let count = 0;
+    const maybeCount = (player: RuntimePlayer) => {
+      const sessionId = getString(player.sessionId);
+      if (sessionId && seen.has(sessionId)) return;
+      if (sessionId) seen.add(sessionId);
+      const health = getNumber(player.health);
+      const maxHealth = getNumber(player.maxHealth);
+      if (health <= 0 || maxHealth <= 0 || health / maxHealth < GROUP_ENCOUNTER_READY_HEALTH_RATIO) return;
+      if (distance2d(player, pointLike) > radius) return;
+      if (questId && this.playerHasActiveNpcAggro(player)) return;
+      count += 1;
+    };
+    maybeCount(self);
+    for (const player of this.players.values()) {
+      if (player.sessionId === self.sessionId) continue;
+      maybeCount(player);
+    }
+    return count;
+  }
+
+  private healthyQuestParticipantCountNear(
+    self: RuntimePlayer,
+    pointLike: Point,
+    radius: number,
+    questId: string,
+    minHealthRatio = GROUP_ENCOUNTER_PRESS_HEALTH_RATIO,
+  ) {
+    return countHealthyQuestParticipantsNear([self, ...this.players.values()], pointLike, radius, questId, minHealthRatio);
+  }
+
+  private playerHasActiveNpcAggro(player: RuntimePlayer) {
+    const sessionId = getString(player.sessionId);
+    if (!sessionId) return false;
+    return [...this.npcs.values()].some((npc) => (
+      npc.aggroTargetId === sessionId
+      && isAttackable(npc)
+      && npc.health > 0
+      && npc.defeatedAt <= 0
+    ));
+  }
+
+  private chooseSelfPreparationDecision(self: RuntimePlayer, profile: AgentCommandProfile = DEFAULT_COMMAND_PROFILE): AgentBridgeDecision | null {
+    const talentSpend = this.describeRecommendedTalentSpends(self, profile)[0];
+    if (talentSpend) {
+      return normalizeDecision({
+        action: "select_talent",
+        reason: `unspent skill point available; ${talentSpend.reason}`,
+        talentId: talentSpend.talentId,
+      });
+    }
+    return this.chooseEquipmentUpgradeDecision(self, profile);
+  }
+
+  private routeIdToNpcArea(self: RuntimePlayer, npc: RuntimeNpc) {
+    if (distance2d(self, npc) < 48) return "";
+    return this.routeIdToPointArea(self, npc);
+  }
+
+  private routeIdToPointArea(self: RuntimePlayer, pointLike: Point) {
+    if (distance2d(self, pointLike) < 48) return "";
+    return NPC_AREA_ROUTE_RULES.find((rule) => rule.matchesTarget(pointLike))?.routeFrom(self) ?? "";
+  }
+
+  private isRunnerStyleDailyBossCombat(npc?: RuntimeNpc | null) {
+    return npc?.id === DAILY_BOSS_NPC_ID;
+  }
+
+  private isActiveDailySignalQuest(self: RuntimePlayer) {
+    return self.quests.some((quest) => getString(quest.id) === DAILY_SIGNAL_QUEST_ID && getString(quest.status) === "active");
+  }
+
+  private isOptionalBossDailyQuest(questId: string) {
+    return OPTIONAL_BOSS_DAILY_QUEST_IDS.has(questId);
+  }
+
+  private isOptionalAutoplayQuest(questId: string) {
+    return this.isOptionalBossDailyQuest(questId);
+  }
+
+  private findRunnerDailyBossQuestTarget(self: RuntimePlayer) {
+    const target = this.findGenericQuestTarget(self, DAILY_SIGNAL_QUEST_ID);
+    return target && this.isDailyBossQuestTarget(target.questId, target.npc) ? target : null;
+  }
+
   private decisionHasRequiredTarget(decision: AgentBridgeDecision) {
     if (decision.action === "complete_quest" || decision.action === "accept_quest") return Boolean(decision.questId && decision.npcRef);
     if (decision.action === "fight_npc" || decision.action === "loot" || decision.action === "move_near_npc" || decision.action === "interact_npc") return Boolean(decision.npcRef);
@@ -1471,7 +2713,6 @@ class AgentBridgeSession {
   }
 
   private checkCommandCompletion(command: AgentCommandState, self: RuntimePlayer) {
-    if (command.constraints.maxDeaths === 0 && self.health <= 0) return "constraint_max_deaths";
     if (command.kind === "play_for") return "";
     if (command.kind === "finish_next_quest") {
       const completedAtStart = new Set((command.startSnapshot?.quests ?? [])
@@ -1559,8 +2800,41 @@ class AgentBridgeSession {
     return this.questStatus(self, questId) === status;
   }
 
+  private rememberActiveCommandPlayers(now = Date.now()) {
+    const command = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    const self = this.self();
+    if (!command || command.status !== "running" || !self) return;
+    this.rememberCommandPlayers(command, self, now);
+  }
+
+  private rememberCommandPlayers(command: AgentCommandState, self: RuntimePlayer, now = Date.now()) {
+    for (const player of this.players.values()) {
+      if (player.sessionId === self.sessionId) continue;
+      const distance = distance2d(self, player);
+      if (distance > COMMAND_SOCIAL_PLAYER_RADIUS) continue;
+      const existing = command.social.players.get(player.sessionId);
+      command.social.players.set(player.sessionId, {
+        sessionId: player.sessionId,
+        name: cleanText(player.name, 48) || "player",
+        identityType: cleanText(player.identityType, 24),
+        isAgent: Boolean(player.isAgent),
+        firstSeenAt: existing?.firstSeenAt ?? now,
+        lastSeenAt: now,
+        closestDistance: Math.min(existing?.closestDistance ?? Number.POSITIVE_INFINITY, round(distance)),
+      });
+    }
+  }
+
+  private rememberActiveCommandChat(entry: AgentCommandSocialChat) {
+    const command = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    if (!command || command.status !== "running") return;
+    command.social.chat = [...command.social.chat.slice(-11), entry];
+  }
+
   private async finishCommand(command: AgentCommandState, status: AgentCommandStatus, stoppedBecause: string) {
     if (command.status !== "running" && command.finishedAt) return;
+    const endingSelf = this.self();
+    if (endingSelf) this.rememberCommandPlayers(command, endingSelf);
     command.status = status;
     command.stoppedBecause = stoppedBecause;
     command.finishedAt = Date.now();
@@ -1587,9 +2861,14 @@ class AgentBridgeSession {
         : [];
       const self = this.self();
       const goalProgress = self ? this.describeCommandGoalProgress(command, self) : [];
+      const playtime = describeCommandPlaytime(command, now);
+      const budgetAdvice = getAgentCommandBudgetAdvice(command.budget, command.requestedMaxSeconds);
+      const recap = buildAgentCommandRecap(command, questChanges, inventoryChanges, playtime, budgetAdvice);
       const summary = [
+        recap.summary,
         `${command.kind} ${command.status}`,
         command.stoppedBecause ? `stopped ${command.stoppedBecause}` : "",
+        playtime.sessionCapReached ? "session cap reached: hold 25M MFERGPT on Base for longer commands and Season 0 agent points" : "",
         goalProgress.length ? `goals ${goalProgress.filter((goal) => goal.satisfied).length}/${goalProgress.length}` : "",
         questChanges.length ? `quests ${questChanges.map((change) => `${change.id} ${change.before}->${change.after}`).join(", ")}` : "",
         inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
@@ -1609,6 +2888,10 @@ class AgentBridgeSession {
           hostedCodeExecution: false,
           rule: "Hosted /agent-command accepts structured commands, goals, profiles, constraints, and controller metadata only. Agent-authored code must run in the external policy runner and call /agent-action or request structured autoplay.",
         },
+        playtime,
+        budgetAdvice,
+        recap,
+        social: recap.social,
         status: command.status,
         stoppedBecause: command.stoppedBecause,
         summary,
@@ -1622,8 +2905,13 @@ class AgentBridgeSession {
           goalCount: goalProgress.length,
           actionReportCount: command.reports.length,
           remainingSeconds: command.usage.remainingSeconds,
+          sessionCapReached: playtime.sessionCapReached,
+          budgetAdvice,
+          recap,
+          social: recap.social,
         },
       durationMs,
+        requestedMaxSeconds: command.requestedMaxSeconds,
         maxSeconds: command.maxSeconds,
         budget: command.budget,
         usage: command.usage,
@@ -1828,7 +3116,7 @@ class AgentBridgeSession {
       const self = this.self();
       const durationMs = Math.max(0, Date.now() - startedAt);
       if (!self) return { status: "waiting_for_state", stoppedBecause: "state_unavailable", durationMs };
-      if (this.shouldInterruptForTravelDamage(decision.action, before, self)) {
+      if (this.shouldInterruptForTravelDamage(decision, before, self)) {
         return { status: "needs_rethink", stoppedBecause: "movement_damage_rethink", durationMs };
       }
       const finished = this.checkDurableOutcome(decision, before, self, durationMs);
@@ -1863,8 +3151,9 @@ class AgentBridgeSession {
         return 6_000;
       case "interact_npc":
         return 2_500;
-      case "respawn":
       case "use_ability":
+        return 2_700;
+      case "respawn":
       case "equip_item":
       case "unequip_item":
       case "use_item":
@@ -1883,7 +3172,17 @@ class AgentBridgeSession {
     }
   }
 
-  private shouldInterruptForTravelDamage(action: string, before: PlayerActionSnapshot, self: RuntimePlayer) {
+  private shouldInterruptForTravelDamage(decision: AgentBridgeDecision, before: PlayerActionSnapshot, self: RuntimePlayer) {
+    const action = decision.action;
+    const questId = cleanText(decision.questId, 96);
+    if (
+      questId
+      && this.isGroupEncounterQuest(questId)
+      && (action === "move_to" || action === "move_near_player" || action === "travel_route")
+      && this.getAttackers(self).some((npc) => this.isGroupEncounterObjectiveForQuest(questId, npc))
+    ) {
+      return false;
+    }
     return shouldInterruptMovementForDamage(action, before.health, self.health, self.maxHealth);
   }
 
@@ -1915,16 +3214,17 @@ class AgentBridgeSession {
       case "fight_npc": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) return { status: "stopped", stoppedBecause: "target_unavailable", durationMs };
+        const runnerStyleDailyBoss = this.isRunnerStyleDailyBossCombat(npc);
         if (npc.health <= 0 || npc.defeatedAt > 0) {
           if (npc.hasLoot) return null;
           return { status: "completed", stoppedBecause: "target_defeated", durationMs };
         }
-        if (this.lastAction.startsWith("retreat_") || this.lastAction.startsWith("auto_control_frostNova")) {
+        if (!runnerStyleDailyBoss && (this.lastAction.startsWith("retreat_") || this.lastAction.startsWith("auto_control_frostNova"))) {
           return { status: "safety_stop", stoppedBecause: this.lastAction, durationMs };
         }
         const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
         const attackers = this.getAttackers(self);
-        if (healthRatio < CRITICAL_HEALTH_RATIO && attackers.length > 0) {
+        if (!runnerStyleDailyBoss && healthRatio < CRITICAL_HEALTH_RATIO && attackers.length > 0) {
           return { status: "safety_stop", stoppedBecause: "critical_health_under_attack", durationMs };
         }
         return null;
@@ -2019,14 +3319,10 @@ class AgentBridgeSession {
         if (!questId || !npc) return;
         this.focusedQuestId = questId;
         if (self.quests.some((quest) => getString(quest.id) === questId && getString(quest.status) !== "completed")) return;
-        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
-          this.moveNearNpc(self, npc);
-          this.lastAction = `move_to_accept ${questId}`;
-        } else {
-          this.targetPoint = null;
-          this.send("acceptQuest", { questId, npcId: npc.id });
-          this.lastAction = `accept_quest ${questId}`;
-        }
+        this.clearRoute();
+        this.targetPoint = null;
+        this.send("acceptQuest", { questId, npcId: npc.id });
+        this.lastAction = `accept_quest ${questId}`;
         return;
       }
       case "complete_quest": {
@@ -2035,9 +3331,9 @@ class AgentBridgeSession {
         if (!questId || !npc) return;
         this.focusedQuestId = questId;
         if (distance2d(self, npc) > QUEST_SEND_RANGE) {
-          this.moveNearNpc(self, npc);
-          this.lastAction = `move_to_complete ${questId}`;
+          this.moveToNpcInteractionRange(self, npc, QUEST_SEND_RANGE, `move_to_complete ${questId}`);
         } else {
+          this.clearRoute();
           this.targetPoint = null;
           this.send("completeQuest", { questId, npcId: npc.id });
           this.lastAction = `complete_quest ${questId}`;
@@ -2047,6 +3343,7 @@ class AgentBridgeSession {
       case "loot": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc || !npc.hasLoot) return;
+        this.clearRoute();
         if (distance2d(self, npc) > LOOT_SEND_RANGE) {
           this.moveTo(point(npc));
           this.lastAction = `move_to_loot ${npc.id}`;
@@ -2060,6 +3357,7 @@ class AgentBridgeSession {
       case "interact_npc": {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) return;
+        this.clearRoute();
         if (distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_near_npc ${npc.id}`;
@@ -2073,6 +3371,7 @@ class AgentBridgeSession {
       case "sell_trash_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("trash-mfer");
         if (!npc) return;
+        this.clearRoute();
         if (distance2d(self, npc) > QUEST_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_sell_trash ${npc.id}`;
@@ -2095,10 +3394,19 @@ class AgentBridgeSession {
     const after = self ? this.snapshotPlayer(self) : null;
     const questProgress = after?.quests ?? before.quests;
     const questChanges = after ? this.describeQuestChanges(before, after) : [];
-    const suggestedNextAction = self ? this.buildSuggestedNextAction(self) : null;
+    const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    const suggestedNextAction = self ? this.buildSuggestedNextAction(self, activeCommand?.status === "running"
+      ? {
+        skipOptionalBossDailies: this.shouldSkipOptionalBossDailies(activeCommand),
+        profile: activeCommand.profile,
+        deathCount: activeCommand.deathCount,
+        focusedQuestId: activeCommand.questId,
+      }
+      : { skipOptionalBossDailies: true }) : null;
     const continuePrompt = suggestedNextAction
       ? `Suggested next: ${suggestedNextAction.action} because ${suggestedNextAction.reason}`
       : "Observe again, then choose the next action from current state.";
+    const target = this.describeDecisionTarget(decision);
     const summary = this.summarizeAction(decision, before, after, outcome, questChanges, suggestedNextAction);
     return {
       status: outcome.status,
@@ -2106,6 +3414,7 @@ class AgentBridgeSession {
       summary,
       durationMs: outcome.durationMs,
       action: decision.action,
+      target,
       reason: decision.reason,
       health: after ? `${Math.ceil(after.health)}/${Math.ceil(after.maxHealth)}` : "unknown",
       position: after?.position ?? null,
@@ -2185,11 +3494,39 @@ class AgentBridgeSession {
     return quest ? `quest ${quest.id} ${questProgressLabel(quest)}` : "";
   }
 
-  private buildSuggestedNextAction(self: RuntimePlayer): SuggestedDecision | null {
+  private buildSuggestedNextAction(self: RuntimePlayer, options: DecisionPlanningOptions = {}): SuggestedDecision | null {
     if (self.health <= 0) return { action: "respawn", reason: "self health is 0" };
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
     const attackers = this.getAttackers(self).sort((a, b) => distance2d(self, a) - distance2d(self, b));
-    if (attackers.length > 0 && (healthRatio < CRITICAL_HEALTH_RATIO || attackers.length >= 2)) {
+    const runnerDailyBossTarget = options.skipOptionalBossDailies ? null : this.findRunnerDailyBossQuestTarget(self);
+    if (!runnerDailyBossTarget && attackers.length > 0 && (healthRatio < CRITICAL_HEALTH_RATIO || attackers.length >= 2)) {
+      const groupQuestId = this.activeGroupCommandQuestId();
+      const activeGroupObjective = groupQuestId ? this.findActiveGroupObjectiveNpc(self, groupQuestId) : null;
+      const activeGroupObjectiveExtraAttackers = activeGroupObjective
+        ? attackers.filter((npc) => npc.id !== activeGroupObjective.id)
+        : attackers;
+      if (
+        activeGroupObjective
+        && this.hasRecentNpcPlayerCombat(activeGroupObjective.id, GROUP_ENCOUNTER_PREP_SKIP_AFTER_PULL_MS)
+        && activeGroupObjectiveExtraAttackers.length === 0
+        && healthRatio >= GROUP_ENCOUNTER_PRESS_HEALTH_RATIO
+        && this.healthyQuestParticipantCountNear(self, activeGroupObjective, GROUP_ENCOUNTER_READY_RADIUS, groupQuestId) >= this.suggestedGroupSize(groupQuestId)
+      ) {
+        return {
+          action: "fight_npc",
+          reason: `${activeGroupObjective.name || activeGroupObjective.id} is the active group objective under pressure`,
+          questId: groupQuestId,
+          npcRef: activeGroupObjective.id,
+        };
+      }
+      const pressableAttacker = healthRatio > CRITICAL_HEALTH_RATIO ? this.findPressableAttacker(self, attackers) : null;
+      if (pressableAttacker) {
+        return {
+          action: "fight_npc",
+          reason: `${pressableAttacker.name || pressableAttacker.id} is attacking and is safer to clear than to keep dragging aggro`,
+          npcRef: pressableAttacker.id,
+        };
+      }
       const destination = this.retreatDestination(self);
       return {
         action: "move_to",
@@ -2206,10 +3543,30 @@ class AgentBridgeSession {
         npcRef: getString(loot.npcId) || getString(loot.id),
       };
     }
-    const readyQuest = self.quests.find((quest) => getString(quest.status) === "ready");
+    const focusedQuestId = normalizeKnownQuestId(cleanText(options.focusedQuestId, 96));
+    if (focusedQuestId) {
+      const focusedDecision = this.chooseQuestGoalDecision(self, focusedQuestId, "quest_completed", {
+        profile: options.profile ?? DEFAULT_COMMAND_PROFILE,
+        deathCount: options.deathCount ?? 0,
+      });
+      if (focusedDecision) return this.toSuggestedDecision(focusedDecision);
+      return {
+        action: "wait",
+        reason: `focused on ${focusedQuestId}; no actionable focused quest step is visible yet`,
+        questId: focusedQuestId,
+      };
+    }
+    const readyQuest = self.quests.find((quest) => (
+      getString(quest.status) === "ready"
+      && !(options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(getString(quest.id)))
+    ));
     if (readyQuest) {
       const questId = getString(readyQuest.id);
       const npc = this.resolveQuestTurnInNpc(questId);
+      const dailyReturnDecision = this.chooseDailyBossReturnDecision(self, questId, npc);
+      if (dailyReturnDecision) return this.toSuggestedDecision(dailyReturnDecision);
+      const routeDecision = this.chooseRouteToNpcAreaDecision(self, npc, `${questId} is ready to turn in`, questId);
+      if (routeDecision) return this.toSuggestedDecision(routeDecision);
       return {
         action: "complete_quest",
         reason: `${questId} is ready to turn in`,
@@ -2217,7 +3574,7 @@ class AgentBridgeSession {
         npcRef: npc?.id,
       };
     }
-    const talentSpend = this.describeRecommendedTalentSpends(self)[0];
+    const talentSpend = this.describeRecommendedTalentSpends(self, options.profile)[0];
     if (talentSpend) {
       return {
         action: "select_talent",
@@ -2225,44 +3582,141 @@ class AgentBridgeSession {
         talentId: talentSpend.talentId,
       };
     }
-    if (attackers[0] && healthRatio >= CRITICAL_HEALTH_RATIO) {
+    if (!runnerDailyBossTarget && attackers[0]) {
+      const pressableAttacker = this.findPressableAttacker(self, attackers);
+      if (!pressableAttacker) {
+        const destination = this.retreatDestination(self);
+        return {
+          action: "move_to",
+          reason: `${attackers[0].name} is attacking but health is below the safe press threshold`,
+          x: destination.x,
+          z: destination.z,
+        };
+      }
       return {
         action: "fight_npc",
-        reason: `${attackers[0].name} is currently attacking`,
-        npcRef: attackers[0].id,
-      };
-    }
-    const utilityQuestDecision = this.chooseActiveUtilityQuestDecision(self);
-    if (utilityQuestDecision) return this.toSuggestedDecision(utilityQuestDecision);
-    const availableQuest = this.describeAvailableQuestHints(self)[0];
-    if (availableQuest) {
-      return {
-        action: "accept_quest",
-        reason: `${getString(availableQuest.title) || getString(availableQuest.questId)} is available`,
-        questId: getString(availableQuest.questId),
-        npcRef: getString(availableQuest.npcId),
-      };
-    }
-    const namedTarget = this.findNamedObjectiveTarget(self);
-    if (namedTarget) {
-      return {
-        action: "fight_npc",
-        reason: `${namedTarget.npc.name} is an unfinished named objective for ${namedTarget.questId}`,
-        questId: namedTarget.questId,
-        npcRef: namedTarget.npc.id,
-      };
-    }
-    const questTarget = this.findGenericQuestTarget(self);
-    if (questTarget) {
-      return {
-        action: "fight_npc",
-        reason: `${questTarget.npc.name} matches active quest ${questTarget.questId}`,
-        questId: questTarget.questId,
-        npcRef: questTarget.npc.id,
+        reason: `${pressableAttacker.name} is currently attacking and safe enough to pressure`,
+        npcRef: pressableAttacker.id,
       };
     }
     if (healthRatio < RECOVER_HEALTH_RATIO) {
       return { action: "wait", reason: "recover health before pulling another target" };
+    }
+    const equipmentUpgrade = this.chooseEquipmentUpgradeDecision(self);
+    if (equipmentUpgrade) return this.toSuggestedDecision(equipmentUpgrade);
+    const utilityQuestDecision = this.chooseActiveUtilityQuestDecision(self);
+    if (utilityQuestDecision) return this.toSuggestedDecision(utilityQuestDecision);
+    if (!options.skipOptionalBossDailies && this.isActiveDailySignalQuest(self)) {
+      const dailyBossTarget = this.findRunnerDailyBossQuestTarget(self);
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        DAILY_SIGNAL_QUEST_ID,
+        dailyBossTarget?.npc ?? null,
+        dailyBossTarget
+          ? `${dailyBossTarget.npc.name} matches active quest ${DAILY_SIGNAL_QUEST_ID}`
+          : `${DAILY_SIGNAL_QUEST_ID} is active and the runner daily boss target is not visible yet`,
+      );
+      if (dailyBossDecision) return this.toSuggestedDecision(dailyBossDecision);
+    }
+    const namedTarget = this.findNamedObjectiveTarget(self, "", { skipOptionalBossDailies: options.skipOptionalBossDailies });
+    if (namedTarget) {
+      const namedReason = `${namedTarget.npc.name} is an unfinished named objective for ${namedTarget.questId}`;
+      const groupDecision = this.chooseGroupEncounterDecision(
+        self,
+        namedTarget.questId,
+        namedTarget.npc,
+        namedReason,
+        options.profile,
+        options.deathCount ?? 0,
+        namedTarget.npc.id,
+        { markAttempt: false },
+      );
+      if (groupDecision) return this.toSuggestedDecision(groupDecision);
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        namedTarget.questId,
+        namedTarget.npc,
+        `${namedTarget.npc.name} is an unfinished named objective for ${namedTarget.questId}`,
+      );
+      if (dailyBossDecision) return this.toSuggestedDecision(dailyBossDecision);
+      if (this.hasOpenGroupEncounterPrep(namedTarget.questId, namedTarget.npc, namedTarget.npc.id)) {
+        const prepDecision = this.chooseGroupEncounterPrepDecision(
+          self,
+          namedTarget.questId,
+          namedTarget.npc,
+          namedReason,
+          namedTarget.npc.id,
+          { ignoreAttemptCooldown: true, markAttempt: false },
+        );
+        if (prepDecision) return this.toSuggestedDecision(prepDecision);
+      }
+      const routeDecision = this.chooseRouteToNpcAreaDecision(self, namedTarget.npc, namedReason, namedTarget.questId);
+      if (routeDecision) return this.toSuggestedDecision(routeDecision);
+      return {
+        action: "fight_npc",
+        reason: namedReason,
+        questId: namedTarget.questId,
+        npcRef: namedTarget.npc.id,
+      };
+    }
+    const missingObjectiveRoute = this.chooseMissingObjectiveRouteDecision(self, "", { ...options, planningOnly: true });
+    if (missingObjectiveRoute) return this.toSuggestedDecision(missingObjectiveRoute);
+    const questTarget = this.findGenericQuestTarget(self, "", { skipOptionalBossDailies: options.skipOptionalBossDailies });
+    if (questTarget) {
+      const targetReason = `${questTarget.npc.name} matches active quest ${questTarget.questId}`;
+      const groupDecision = this.chooseGroupEncounterDecision(
+        self,
+        questTarget.questId,
+        questTarget.npc,
+        targetReason,
+        options.profile,
+        options.deathCount ?? 0,
+        questTarget.npc.id,
+        { markAttempt: false },
+      );
+      if (groupDecision) return this.toSuggestedDecision(groupDecision);
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        questTarget.questId,
+        questTarget.npc,
+        `${questTarget.npc.name} matches active quest ${questTarget.questId}`,
+      );
+      if (dailyBossDecision) return this.toSuggestedDecision(dailyBossDecision);
+      if (this.hasOpenGroupEncounterPrep(questTarget.questId, questTarget.npc, questTarget.npc.id)) {
+        const prepDecision = this.chooseGroupEncounterPrepDecision(
+          self,
+          questTarget.questId,
+          questTarget.npc,
+          targetReason,
+          questTarget.npc.id,
+          { ignoreAttemptCooldown: true, markAttempt: false },
+        );
+        if (prepDecision) return this.toSuggestedDecision(prepDecision);
+      }
+      const routeDecision = this.chooseRouteToNpcAreaDecision(self, questTarget.npc, targetReason, questTarget.questId);
+      if (routeDecision) return this.toSuggestedDecision(routeDecision);
+      return {
+        action: "fight_npc",
+        reason: targetReason,
+        questId: questTarget.questId,
+        npcRef: questTarget.npc.id,
+      };
+    }
+    const genericTargetAreaDecision = this.chooseActiveGenericQuestTargetAreaDecision(self, "", options);
+    if (genericTargetAreaDecision) return this.toSuggestedDecision(genericTargetAreaDecision);
+    const availableQuest = this.describeAvailableQuestHints(self)
+      .find((hint) => !(options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(getString(hint.questId))));
+    if (availableQuest) {
+      const questId = getString(availableQuest.questId);
+      const npc = this.resolveNpc(getString(availableQuest.npcId));
+      const routeDecision = this.chooseRouteToNpcAreaDecision(self, npc, `${getString(availableQuest.title) || questId} is available`, questId);
+      if (routeDecision) return this.toSuggestedDecision(routeDecision);
+      return {
+        action: "accept_quest",
+        reason: `${getString(availableQuest.title) || questId} is available`,
+        questId,
+        npcRef: getString(availableQuest.npcId),
+      };
     }
     return { action: "wait", reason: "no urgent quest, loot, or combat action is visible" };
   }
@@ -2272,11 +3726,12 @@ class AgentBridgeSession {
       case "wait":
         this.targetPoint = null;
         this.clearEngagement();
+        this.clearRoute();
         this.lastAction = "wait";
         return null;
       case "respawn":
         this.clearEngagement();
-        this.routeQueue = [];
+        this.clearRoute();
         this.send("respawn", {});
         this.lastAction = "respawn";
         return null;
@@ -2285,7 +3740,7 @@ class AgentBridgeSession {
         const z = readFiniteNumber(decision.z);
         if (x === undefined || z === undefined) throw new Error("move_to requires x and z");
         this.clearEngagement();
-        this.routeQueue = [];
+        this.clearRoute();
         this.moveTo({ x, z });
         this.lastAction = `move_to ${round(x)},${round(z)}`;
         return null;
@@ -2294,8 +3749,13 @@ class AgentBridgeSession {
         const routeText = cleanText(decision.text, 80);
         const route = resolveRoute(routeText);
         if (!route) throw new Error(`unknown route ${routeText}`);
+        const routeId = normalizeRouteId(routeText);
         this.clearEngagement();
-        this.routeQueue = [...route];
+        if (this.currentRouteId !== routeId || this.routeQueue.length === 0) {
+          this.currentRouteId = routeId;
+          this.routeArrivalDistance = routeArrivalDistance(routeId);
+          this.routeQueue = routeQueueFromPosition(route, self);
+        }
         this.followRoute(self);
         this.lastAction = `travel_route ${routeText}`;
         return null;
@@ -2306,11 +3766,12 @@ class AgentBridgeSession {
         if (!npc) throw new Error(`${decision.action} requires npcRef`);
         if (isHostile(npc) && !npc.isImmortal && npc.health > 0 && npc.defeatedAt <= 0) {
           this.setEngagement(self, npc.id);
-          this.routeQueue = [];
+          this.clearRoute();
           this.fight(self, npc);
           return null;
         }
         this.clearEngagement();
+        this.clearRoute();
         if (decision.action === "move_near_npc" || distance2d(self, npc) > INTERACT_SEND_RANGE) {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_near_npc ${npc.id}`;
@@ -2325,6 +3786,7 @@ class AgentBridgeSession {
         const player = this.resolvePlayer(decision.playerRef);
         if (!player) throw new Error("move_near_player requires playerRef");
         this.clearEngagement();
+        this.clearRoute();
         this.moveTo(player);
         this.lastAction = `move_near_player ${player.name}`;
         return null;
@@ -2335,11 +3797,7 @@ class AgentBridgeSession {
         if (!questId || !npc) throw new Error("accept_quest requires questId and npcRef");
         this.focusedQuestId = questId;
         this.clearEngagement();
-        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
-          this.moveNearNpc(self, npc);
-          this.lastAction = `move_to_accept ${questId}`;
-          return { ok: true, status: "moving_to_quest_giver", bridgeSessionId: this.id, lastAction: this.lastAction };
-        }
+        this.clearRoute();
         this.targetPoint = null;
         this.send("acceptQuest", { questId, npcId: npc.id });
         this.lastAction = `accept_quest ${questId}`;
@@ -2352,10 +3810,10 @@ class AgentBridgeSession {
         this.focusedQuestId = questId;
         this.clearEngagement();
         if (distance2d(self, npc) > QUEST_SEND_RANGE) {
-          this.moveNearNpc(self, npc);
-          this.lastAction = `move_to_complete ${questId}`;
+          this.moveToNpcInteractionRange(self, npc, QUEST_SEND_RANGE, `move_to_complete ${questId}`);
           return null;
         }
+        this.clearRoute();
         this.targetPoint = null;
         this.send("completeQuest", { questId, npcId: npc.id });
         this.lastAction = `complete_quest ${questId}`;
@@ -2374,7 +3832,7 @@ class AgentBridgeSession {
         if (!npc) throw new Error("fight_npc requires visible npcRef");
         this.assertNpcCombatTarget(npc, "fight_npc");
         this.setEngagement(self, npc.id);
-        this.routeQueue = [];
+        this.clearRoute();
         this.fight(self, npc);
         return null;
       }
@@ -2385,12 +3843,12 @@ class AgentBridgeSession {
           const player = this.resolvePlayer(decision.playerRef);
           if (!player) throw new Error("unknown playerRef");
           this.clearEngagement();
-          this.routeQueue = [];
+          this.clearRoute();
           this.cast(actionId, { kind: "player", id: player.sessionId });
         } else {
           if (actionId === "frostNova" || actionId === "whirlwind") {
             this.clearEngagement();
-            this.routeQueue = [];
+            this.clearRoute();
             this.cast(actionId, { kind: "npc", id: "" });
             this.lastAction = `use_ability ${actionId}`;
             return null;
@@ -2400,7 +3858,7 @@ class AgentBridgeSession {
           if (npc && actionId !== "heal") this.assertNpcCombatTarget(npc, `use_ability ${actionId}`);
           if (actionId === "heal") this.clearEngagement();
           else if (npc) this.setEngagement(self, npc.id);
-          this.routeQueue = [];
+          this.clearRoute();
           this.cast(actionId, actionId === "heal" ? { kind: "player", id: self.sessionId } : { kind: "npc", id: npc?.id ?? "" });
         }
         this.lastAction = `use_ability ${actionId}`;
@@ -2410,6 +3868,7 @@ class AgentBridgeSession {
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error("loot requires npcRef");
         this.clearEngagement();
+        this.clearRoute();
         if (distance2d(self, npc) > LOOT_SEND_RANGE) {
           this.moveTo(point(npc));
           this.lastAction = `move_to_loot ${npc.id}`;
@@ -2601,23 +4060,56 @@ class AgentBridgeSession {
   }
 
   private fight(self: RuntimePlayer, npc: RuntimeNpc) {
-    this.routeQueue = [];
+    this.clearRoute();
     const distance = distance2d(self, npc);
     const attackers = this.getAttackers(self);
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
-    if (healthRatio < CRITICAL_HEALTH_RATIO && (this.lastSafePoint || this.combatAnchor)) {
+    const runnerStyleDailyBoss = this.isRunnerStyleDailyBossCombat(npc);
+    const groupEncounterObjective = this.isActiveGroupEncounterObjectiveForSelf(self, npc);
+    if (!runnerStyleDailyBoss && !groupEncounterObjective && healthRatio < CRITICAL_HEALTH_RATIO && (this.lastSafePoint || this.combatAnchor)) {
       this.startRetreat(self, "retreat_critical_health");
       return;
     }
-    if (attackers.length >= 2 && !this.shouldPressCurrentFight(self, npc, attackers)) {
+    if (!runnerStyleDailyBoss && attackers.length >= 2 && !this.shouldPressCurrentFight(self, npc, attackers)) {
+      const pressableAttacker = this.findPressableAttacker(self, attackers);
+      if (pressableAttacker && pressableAttacker.id !== npc.id) {
+        this.fight(self, pressableAttacker);
+        return;
+      }
+      if (groupEncounterObjective) {
+        this.moveTo(this.groupEncounterRecoveryPoint(self, npc, healthRatio));
+        this.lastAction = `kite_group_boss_overpull ${npc.id}`;
+        return;
+      }
       this.startRetreat(self, "retreat_overpull");
+      return;
+    }
+    if (groupEncounterObjective && this.shouldCreateSpaceBeforeGroupEncounterHeal(self, npc, healthRatio, distance)) {
+      if (distance <= COMBAT.actions.frostNova.maxRange && this.canUse(self, "frostNova")) {
+        this.cast("frostNova", { kind: "npc", id: "" });
+        this.lastAction = `control_group_boss ${npc.id}`;
+        return;
+      }
+      this.moveTo(this.groupEncounterRecoveryPoint(self, npc, healthRatio));
+      this.lastAction = `kite_group_boss_recover ${npc.id}`;
       return;
     }
     const actionId = this.chooseCombatAction(self, npc, distance);
     const action = COMBAT.actions[actionId];
+    if (
+      groupEncounterObjective
+      && actionId !== "heal"
+      && action.maxRange >= 20
+      && distance < Math.max(10, action.maxRange * 0.45)
+      && healthRatio > CRITICAL_HEALTH_RATIO
+    ) {
+      this.moveTo(this.combatKitePoint(self, npc, 9));
+      this.lastAction = `kite_group_boss ${npc.id}`;
+      return;
+    }
     if (distance > action.maxRange * 0.9) {
       const directCombatPoint = this.combatRangePoint(self, npc, action);
-      const safeApproach = this.safeCombatApproachPoint(self, npc, action, directCombatPoint);
+      const safeApproach = runnerStyleDailyBoss ? null : this.safeCombatApproachPoint(self, npc, action, directCombatPoint);
       if (safeApproach && distance2d(self, safeApproach.point) > SAFE_APPROACH_ARRIVAL_DISTANCE) {
         this.moveTo(safeApproach.point);
         this.lastAction = `safe_approach ${npc.id} via ${safeApproach.label}`;
@@ -2637,13 +4129,25 @@ class AgentBridgeSession {
     const attackers = this.getAttackers(self);
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
     const npc = this.npcs.get(this.engagedNpcId);
-    if (attackers.length >= 2 || healthRatio < 0.55) {
+    const runnerStyleDailyBoss = this.isRunnerStyleDailyBossCombat(npc);
+    const groupEncounterObjective = this.isActiveGroupEncounterObjectiveForSelf(self, npc);
+    if (!runnerStyleDailyBoss && !groupEncounterObjective && (attackers.length >= 2 || healthRatio < 0.55)) {
       if (npc && this.shouldPressCurrentFight(self, npc, attackers)) {
         this.nextAutoCombatAt = Date.now() + 650;
         this.fight(self, npc);
         return;
       }
       this.startRetreat(self, attackers.length >= 2 ? "retreat_overpull" : "retreat_low_health");
+      return;
+    }
+    if (!runnerStyleDailyBoss && groupEncounterObjective && healthRatio < CRITICAL_HEALTH_RATIO) {
+      if (npc) {
+        this.nextAutoCombatAt = Date.now() + 900;
+        this.moveTo(this.groupEncounterRecoveryPoint(self, npc, healthRatio));
+        this.lastAction = `recover_group_boss_critical ${npc.id}`;
+        return;
+      }
+      this.startRetreat(self, "retreat_group_boss_critical");
       return;
     }
     if (!npc || npc.health <= 0 || npc.defeatedAt > 0) {
@@ -2660,35 +4164,153 @@ class AgentBridgeSession {
     const attackers = this.getAttackers(self);
     const closeAttackers = attackers.filter((npc) => distance2d(self, npc) <= 6.5);
     const engagedNpc = this.activeEngagementNpc();
+    const runnerStyleDailyBoss = this.isRunnerStyleDailyBossCombat(engagedNpc);
+    const groupEncounterObjective = this.isActiveGroupEncounterObjectiveForSelf(self, engagedNpc);
     const pressCurrentFight = Boolean(engagedNpc && this.shouldPressCurrentFight(self, engagedNpc, attackers));
-    if (attackers.length >= 2 && closeAttackers.length > 0 && this.canUse(self, "frostNova") && !self.castingAction) {
-      this.nextAutoConsumableAt = Date.now() + 1800;
-      this.cast("frostNova", { kind: "npc", id: "" });
-      if (pressCurrentFight) this.lastAction = "auto_control_frostNova_press";
-      else this.startRetreat(self, "auto_control_frostNova", 5600);
-      return;
-    }
-    if (healthRatio <= 0.48 && inventoryCount(self, "red-juice") > 0) {
+    if (healthRatio <= (groupEncounterObjective ? GROUP_ENCOUNTER_CONSUMABLE_HEALTH_RATIO : 0.56) && inventoryCount(self, "red-juice") > 0) {
       this.nextAutoConsumableAt = Date.now() + 3500;
       this.send("useItem", { itemId: "red-juice" });
       this.lastAction = "auto_use red-juice";
       return;
     }
-    if (healthRatio <= 0.62 && inventoryCount(self, "field-snack") > 0) {
+    if (healthRatio <= (groupEncounterObjective ? GROUP_ENCOUNTER_SELF_HEAL_RATIO : 0.46) && inventoryCount(self, "field-snack") > 0) {
       this.nextAutoConsumableAt = Date.now() + 3500;
       this.send("useItem", { itemId: "field-snack" });
+      this.lastAction = "auto_use field-snack";
+      return;
     }
+    if (healthRatio <= (groupEncounterObjective ? GROUP_ENCOUNTER_SELF_HEAL_RATIO : 0.68) && self.mana < COMBAT.actions.heal.manaCost && inventoryCount(self, "blue-juice") > 0) {
+      this.nextAutoConsumableAt = Date.now() + 3500;
+      this.send("useItem", { itemId: "blue-juice" });
+      this.lastAction = "auto_use blue-juice";
+      return;
+    }
+    if (engagedNpc && groupEncounterObjective && this.shouldCreateSpaceBeforeGroupEncounterHeal(self, engagedNpc, healthRatio)) {
+      const distance = distance2d(self, engagedNpc);
+      this.nextAutoConsumableAt = Date.now() + 1200;
+      if (distance <= COMBAT.actions.frostNova.maxRange && this.canUse(self, "frostNova") && !self.castingAction) {
+        this.cast("frostNova", { kind: "npc", id: "" });
+        this.lastAction = `auto_control_group_boss ${engagedNpc.id}`;
+        return;
+      }
+      this.moveTo(this.groupEncounterRecoveryPoint(self, engagedNpc, healthRatio));
+      this.lastAction = `auto_kite_group_boss_recover ${engagedNpc.id}`;
+      return;
+    }
+    if (healthRatio <= (groupEncounterObjective ? GROUP_ENCOUNTER_SELF_HEAL_RATIO : 0.62) && this.canUse(self, "heal") && !self.castingAction) {
+      this.nextAutoConsumableAt = Date.now() + 2200;
+      this.cast("heal", { kind: "player", id: self.sessionId });
+      this.lastAction = "auto_heal self";
+      return;
+    }
+    const groupQuestId = this.activeGroupCommandQuestId();
+    const allyToHeal = groupQuestId && healthRatio >= PRESS_SINGLE_ATTACKER_HEALTH_RATIO
+      ? this.findGroupAllyNeedingHeal(self, GROUP_ENCOUNTER_ALLY_HEAL_RATIO, COMBAT.actions.heal.maxRange)
+      : null;
+    if (allyToHeal && self.mana < COMBAT.actions.heal.manaCost && inventoryCount(self, "blue-juice") > 0) {
+      this.nextAutoConsumableAt = Date.now() + 3500;
+      this.send("useItem", { itemId: "blue-juice" });
+      this.lastAction = `auto_use blue-juice ally_heal ${allyToHeal.player.name || "ally"}`;
+      return;
+    }
+    if (allyToHeal && this.canUse(self, "heal") && !self.castingAction) {
+      this.nextAutoConsumableAt = Date.now() + 2200;
+      this.cast("heal", { kind: "player", id: allyToHeal.player.sessionId });
+      this.lastAction = `auto_heal ally ${allyToHeal.player.name || allyToHeal.player.sessionId}`;
+      return;
+    }
+    if (attackers.length >= 2 && closeAttackers.length > 0 && this.canUse(self, "frostNova") && !self.castingAction) {
+      this.nextAutoConsumableAt = Date.now() + 1800;
+      this.cast("frostNova", { kind: "npc", id: "" });
+      if (pressCurrentFight || runnerStyleDailyBoss || groupEncounterObjective) this.lastAction = "auto_control_frostNova_press";
+      else this.startRetreat(self, "auto_control_frostNova", 5600);
+      return;
+    }
+  }
+
+  private groupEncounterPressureAttacker(self: RuntimePlayer, questId: string, attackers = this.getAttackers(self)) {
+    return attackers
+      .filter((npc) => this.groupEncounterQuestForNpc(npc) === questId)
+      .sort((a, b) => distance2d(self, a) - distance2d(self, b))[0] ?? null;
+  }
+
+  private shouldCreateSpaceBeforeGroupEncounterHeal(self: RuntimePlayer, npc: RuntimeNpc, healthRatio: number, distance = distance2d(self, npc)) {
+    if (!this.isGroupEncounterObjectiveNpc(npc)) return false;
+    if (healthRatio <= CRITICAL_HEALTH_RATIO) return true;
+    return healthRatio <= GROUP_ENCOUNTER_REPOSITION_HEALTH_RATIO
+      && distance <= GROUP_ENCOUNTER_CAST_PRESSURE_DISTANCE;
+  }
+
+  private groupEncounterRecoveryPoint(self: RuntimePlayer, npc: RuntimeNpc, healthRatio: number) {
+    const questId = this.groupEncounterQuestForNpc(npc);
+    if (!questId) return this.combatKitePoint(self, npc, GROUP_ENCOUNTER_RECOVERY_KITE_DISTANCE);
+    const desiredDistance = healthRatio <= CRITICAL_HEALTH_RATIO
+      ? GROUP_ENCOUNTER_CRITICAL_RECOVERY_KITE_DISTANCE
+      : GROUP_ENCOUNTER_RECOVERY_KITE_DISTANCE;
+    const idealBossDistance = healthRatio <= CRITICAL_HEALTH_RATIO ? 24 : 18;
+    const rallyPoint = this.groupEncounterRallyPoint(questId, npc.id, npc);
+    const candidates = [
+      this.combatKitePoint(self, npc, desiredDistance),
+      this.threatAvoidancePoint(self, desiredDistance),
+      pointAlongVector(npc, self, idealBossDistance),
+      pointAlongVector(npc, rallyPoint, idealBossDistance),
+      rotatePointAround(npc, self, Math.PI / 5, idealBossDistance),
+      rotatePointAround(npc, self, -Math.PI / 5, idealBossDistance),
+    ]
+      .map((candidate) => point(resolveWorldCollision(candidate.x, candidate.z, PLAYER.radius)))
+      .filter((candidate, index, list) => (
+        list.findIndex((entry) => distance2d(entry, candidate) < 1.2) === index
+      ))
+      .map((candidate) => ({
+        point: candidate,
+        density: this.nearbyHostileCount(candidate, 10, npc.id),
+        pathRisk: this.scoreHostileTravelPath(self, candidate, HOSTILE_PATH_CORRIDOR_RADIUS, npc),
+        bossDistance: distance2d(candidate, npc),
+        selfDistance: distance2d(candidate, self),
+        rallyDistance: distance2d(candidate, rallyPoint),
+      }))
+      .filter((candidate) => candidate.bossDistance >= 10 && candidate.bossDistance <= GROUP_ENCOUNTER_MAX_RECOVERY_BOSS_DISTANCE)
+      .sort((a, b) => (
+        a.density - b.density
+        || a.pathRisk - b.pathRisk
+        || Math.abs(idealBossDistance - a.bossDistance) - Math.abs(idealBossDistance - b.bossDistance)
+        || a.rallyDistance - b.rallyDistance
+        || a.selfDistance - b.selfDistance
+      ));
+    return candidates[0]?.point ?? this.combatKitePoint(self, npc, desiredDistance);
   }
 
   private chooseCombatAction(self: RuntimePlayer, npc: RuntimeNpc, distance: number): CombatActionId {
     const closeAttackers = this.getAttackers(self).filter((entry) => distance2d(self, entry) <= 5.5).length;
-    if (self.health < self.maxHealth * 0.45 && this.canUse(self, "heal")) return "heal";
+    const groupEncounterObjective = this.isActiveGroupEncounterObjectiveForSelf(self, npc);
+    const selfHealRatio = groupEncounterObjective ? GROUP_ENCOUNTER_SELF_HEAL_RATIO : 0.62;
+    if (self.health < self.maxHealth * selfHealRatio && this.canUse(self, "heal")) return "heal";
+    const bossAggroAlly = groupEncounterObjective ? this.groupBossAggroAllyNeedingCover(self, npc) : null;
+    if (bossAggroAlly && this.canUse(self, "taunt")) return "taunt";
+    if (this.isRunnerStyleDailyBossCombat(npc)) {
+      const shoot = COMBAT.actions.shoot;
+      if (distance >= shoot.minRange && distance <= shoot.maxRange && this.canUse(self, "shoot")) return "shoot";
+      return "attack";
+    }
     if (closeAttackers >= 2 && this.canUse(self, "frostNova")) return "frostNova";
     if (closeAttackers >= 2 && this.canUse(self, "whirlwind")) return "whirlwind";
     if (distance >= 8 && this.canUse(self, "fireblast")) return "fireblast";
     if (distance >= 4 && this.canUse(self, "signalShot")) return "signalShot";
     if (distance >= 4 && this.canUse(self, "shoot")) return "shoot";
     return "attack";
+  }
+
+  private groupBossAggroAllyNeedingCover(self: RuntimePlayer, npc: RuntimeNpc) {
+    const aggroTargetId = getString(npc.aggroTargetId);
+    if (!aggroTargetId || aggroTargetId === self.sessionId) return null;
+    const ally = this.players.get(aggroTargetId);
+    if (!ally || ally.health <= 0 || ally.maxHealth <= 0 || self.maxHealth <= 0) return null;
+    const selfHealthRatio = self.health / self.maxHealth;
+    const allyHealthRatio = ally.health / ally.maxHealth;
+    if (selfHealthRatio < 0.74) return null;
+    if (allyHealthRatio > GROUP_ENCOUNTER_ALLY_HEAL_RATIO) return null;
+    if (allyHealthRatio + 0.12 >= selfHealthRatio) return null;
+    return ally;
   }
 
   private canUse(self: RuntimePlayer, actionId: CombatActionId) {
@@ -2738,20 +4360,38 @@ class AgentBridgeSession {
         : "recover at a safe waypoint before another pull",
     });
     this.clearEngagement();
-    this.routeQueue = [];
+    this.clearRoute();
     this.moveTo(destination);
     this.retreatUntil = Date.now() + durationMs;
     this.lastAction = reason;
   }
 
   private retreatDestination(self: RuntimePlayer) {
-    const candidates = [this.lastSafePoint, this.combatAnchor]
+    const activeThreatEscape = this.getAttackers(self).length > 0 ? this.threatAvoidancePoint(self, 28) : null;
+    const candidates = [
+      activeThreatEscape,
+      this.lastSafePoint,
+      this.combatAnchor,
+      PUBLIC_LANDMARKS.plaza,
+      PUBLIC_LANDMARKS["loop-farm"],
+      PUBLIC_LANDMARKS["route-post"],
+      PUBLIC_LANDMARKS["signal-post"],
+    ]
       .filter((candidate): candidate is Point => Boolean(candidate))
       .filter((candidate) => distance2d(self, candidate) >= 6)
-      .sort((a, b) => this.nearbyHostileCount(a, 14) - this.nearbyHostileCount(b, 14));
-    return candidates.find((candidate) => this.nearbyHostileCount(candidate, 14) === 0)
-      ?? candidates[0]
-      ?? this.threatAvoidancePoint(self, 22);
+      .map((candidate) => ({
+        point: candidate,
+        density: this.nearbyHostileCount(candidate, 18),
+        pathRisk: this.scoreHostileTravelPath(self, candidate, HOSTILE_PATH_CORRIDOR_RADIUS),
+        distance: distance2d(self, candidate),
+        activeEscape: activeThreatEscape ? distance2d(candidate, activeThreatEscape) <= 0.5 : false,
+      }))
+      .map((candidate) => ({
+        ...candidate,
+        score: candidate.density * 2.8 + candidate.pathRisk * 3.4 + candidate.distance * 0.012 - (candidate.activeEscape ? 0.35 : 0),
+      }))
+      .sort((a, b) => a.score - b.score);
+    return candidates[0]?.point ?? this.threatAvoidancePoint(self, 22);
   }
 
   private threatAvoidancePoint(self: RuntimePlayer, distance: number) {
@@ -2770,17 +4410,93 @@ class AgentBridgeSession {
     return { x: round(self.x + (awayX / length) * distance), z: round(self.z + (awayZ / length) * distance) };
   }
 
+  private combatKitePoint(self: RuntimePlayer, npc: RuntimeNpc, distance: number) {
+    const dx = self.x - npc.x;
+    const dz = self.z - npc.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const direct = { x: round(self.x + (dx / length) * distance), z: round(self.z + (dz / length) * distance) };
+    const activeEscape = this.getAttackers(self).length > 0 ? this.threatAvoidancePoint(self, distance) : direct;
+    const candidates = [
+      direct,
+      activeEscape,
+    ].filter((candidate): candidate is Point => Boolean(candidate));
+    return candidates
+      .map((candidate) => ({
+        point: candidate,
+        density: this.nearbyHostileCount(candidate, 10, npc.id),
+        pathRisk: this.scoreHostileTravelPath(self, candidate, HOSTILE_PATH_CORRIDOR_RADIUS, npc),
+        bossDistance: distance2d(candidate, npc),
+        travelDistance: distance2d(self, candidate),
+      }))
+      .filter((candidate) => candidate.bossDistance >= 10)
+      .sort((a, b) => (
+        a.density - b.density
+        || a.pathRisk - b.pathRisk
+        || Math.abs(18 - a.bossDistance) - Math.abs(18 - b.bossDistance)
+        || a.travelDistance - b.travelDistance
+      ))[0]?.point ?? direct;
+  }
+
+  private findPressableAttacker(self: RuntimePlayer, attackers: RuntimeNpc[]) {
+    if (attackers.length === 0) return null;
+    return [...attackers]
+      .filter((npc) => isAttackable(npc) && npc.health > 0 && npc.defeatedAt <= 0)
+      .sort((a, b) => (
+        this.attackerFocusPriority(b) - this.attackerFocusPriority(a)
+        || a.health - b.health
+        || distance2d(self, a) - distance2d(self, b)
+      ))
+      .find((npc) => this.shouldPressCurrentFight(self, npc, attackers)) ?? null;
+  }
+
+  private attackerFocusPriority(npc: RuntimeNpc) {
+    if (npc.id === "static-baron-nox" || npc.id === "raid-ogre-mfer") return 6;
+    if (npc.combatStyle === "caster") return 4;
+    if (npc.role === "farmer") return 3;
+    if (npc.model === "hog") return 1;
+    return 0;
+  }
+
   private shouldPressCurrentFight(self: RuntimePlayer, npc: RuntimeNpc, attackers: RuntimeNpc[]) {
     if (!npc || npc.health <= 0 || npc.defeatedAt > 0) return false;
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
     if (healthRatio <= CRITICAL_HEALTH_RATIO) return false;
+    const groupQuestId = this.groupEncounterQuestForNpc(npc);
+    if (groupQuestId && !this.hasQuestStatus(self, groupQuestId, ["active"])) return false;
+    if (
+      groupQuestId
+      && this.healthyQuestParticipantCountNear(self, npc, GROUP_ENCOUNTER_READY_RADIUS, groupQuestId) < this.suggestedGroupSize(groupQuestId)
+    ) {
+      return false;
+    }
     if (attackers.length === 0) return true;
     const targetIsAttacking = attackers.some((attacker) => attacker.id === npc.id);
     const extraAttackers = attackers.filter((attacker) => attacker.id !== npc.id);
     const estimate = this.estimateCombatOutcome(self, npc, attackers);
     const canFinishSoon = npc.health <= this.estimatePlayerBurstDamage(self) * 1.35 && healthRatio >= PRESS_LOW_HEALTH_FINISH_RATIO;
+    const highThreatAdd = this.attackerFocusPriority(npc) >= 3 && npc.maxHealth <= self.maxHealth * 1.25;
+    const dangerousPull = attackers.some((attacker) => attacker.combatStyle === "caster" || attacker.maxHealth >= self.maxHealth * 1.2);
+    if (
+      groupQuestId
+      && targetIsAttacking
+      && extraAttackers.length === 0
+      && healthRatio >= GROUP_ENCOUNTER_PRESS_HEALTH_RATIO
+      && this.healthyQuestParticipantCountNear(self, npc, GROUP_ENCOUNTER_READY_RADIUS, groupQuestId) >= this.suggestedGroupSize(groupQuestId)
+      && estimate.survivalMs > 1600
+    ) {
+      return true;
+    }
+    if (targetIsAttacking && highThreatAdd && dangerousPull && healthRatio >= 0.48 && estimate.survivalMs > 1800) {
+      return true;
+    }
+    if (targetIsAttacking && dangerousPull && npc.maxHealth <= self.maxHealth * 0.75 && healthRatio >= 0.42 && estimate.survivalMs > 1400) {
+      return true;
+    }
     if (extraAttackers.length === 0 && targetIsAttacking) {
       return healthRatio >= PRESS_SINGLE_ATTACKER_HEALTH_RATIO || estimate.favorable || canFinishSoon;
+    }
+    if (targetIsAttacking && attackers.length <= 2 && healthRatio >= PRESS_ENGAGED_MULTI_ATTACKER_HEALTH_RATIO && npc.maxHealth <= self.maxHealth * 1.15) {
+      return true;
     }
     if (attackers.length <= 2 && healthRatio >= PRESS_MULTI_ATTACKER_HEALTH_RATIO && estimate.favorable) return true;
     return canFinishSoon && estimate.survivalMs > 2500;
@@ -2868,8 +4584,29 @@ class AgentBridgeSession {
     this.combatAnchor = null;
   }
 
+  private clearRoute() {
+    this.routeQueue = [];
+    this.currentRouteId = "";
+    this.routeArrivalDistance = 2;
+  }
+
   private getAttackers(self: RuntimePlayer) {
-    return [...this.npcs.values()].filter((npc) => npc.aggroTargetId === self.sessionId && npc.health > 0 && npc.defeatedAt <= 0);
+    const sessionId = getString(self.sessionId);
+    const now = Date.now();
+    this.pruneRecentNpcPlayerCombat(now);
+    return [...this.npcs.values()].filter((npc) => {
+      if (npc.health <= 0 || npc.defeatedAt > 0) return false;
+      if (npc.aggroTargetId === sessionId) return true;
+      const recent = this.recentNpcPlayerCombat.get(npc.id);
+      return Boolean(
+        sessionId
+        && recent
+        && recent.direction === "npc_to_player"
+        && recent.playerSessionId === sessionId
+        && !recent.defeated
+        && now - recent.lastAt <= GROUP_ENCOUNTER_ACTIVE_COMBAT_TTL_MS,
+      );
+    });
   }
 
   private isDangerousNeighbor(npc: RuntimeNpc, intendedTarget?: RuntimeNpc) {
@@ -3076,17 +4813,41 @@ class AgentBridgeSession {
   }
 
   private followRoute(self: RuntimePlayer) {
-    const target = this.routeQueue[0];
+    let target = this.routeQueue[0];
     if (!target) return;
-    if (distance2d(self, target) < 2) this.routeQueue.shift();
+    while (target && distance2d(self, target) <= this.routeArrivalDistance) {
+      this.routeQueue.shift();
+      target = this.routeQueue[0];
+    }
     const nextTarget = this.routeQueue[0];
     if (nextTarget) this.moveTo(nextTarget);
+    else {
+      this.targetPoint = null;
+      this.currentRouteId = "";
+      this.routeArrivalDistance = 2;
+    }
   }
 
   private moveTo(target: Point) {
     const nextPoint = { x: target.x, z: target.z };
     if (!this.targetPoint || distance2d(this.targetPoint, nextPoint) > 1.2) this.resetMovementProgress(nextPoint);
     this.targetPoint = nextPoint;
+  }
+
+  private moveToNpcInteractionRange(self: RuntimePlayer, npc: RuntimeNpc, sendRange: number, actionLabel: string) {
+    const route = findLocalCollisionRoute(point(self), point(npc), npcInteractionRouteStopDistance(sendRange));
+    if (route.length > 0) {
+      this.currentRouteId = `local-npc:${npc.id}`;
+      this.routeArrivalDistance = LOCAL_NAV_ARRIVAL_DISTANCE;
+      this.routeQueue = route;
+      this.followRoute(self);
+      this.lastAction = actionLabel;
+      return;
+    }
+
+    this.clearRoute();
+    this.moveNearNpc(self, npc);
+    this.lastAction = actionLabel;
   }
 
   private currentMovementTarget() {
@@ -3161,7 +4922,7 @@ class AgentBridgeSession {
       distance: round(distance),
     };
     this.targetPoint = null;
-    this.routeQueue = [];
+    this.clearRoute();
     this.avoidancePoint = null;
     this.avoidanceUntil = 0;
     this.lastAction = `stuck_rethink ${previousAction}`.slice(0, 120);
@@ -3356,13 +5117,47 @@ class AgentBridgeSession {
     return Boolean(npcId && this.combatMemory.some((entry) => entry.npcId === npcId && entry.avoidUntil > now));
   }
 
+  private hasRecentNpcPlayerCombat(npcId: string, ttlMs = GROUP_ENCOUNTER_ACTIVE_COMBAT_TTL_MS, now = Date.now()) {
+    if (!npcId) return false;
+    this.pruneRecentNpcPlayerCombat(now);
+    const entry = this.recentNpcPlayerCombat.get(npcId);
+    return Boolean(entry && now - entry.lastAt <= ttlMs);
+  }
+
+  private hasRecentNpcDefeat(npcId: string, ttlMs: number, now = Date.now()) {
+    if (!npcId) return false;
+    this.pruneRecentNpcPlayerCombat(now);
+    const entry = this.recentNpcPlayerCombat.get(npcId);
+    return Boolean(entry?.defeated && now - entry.lastAt <= ttlMs);
+  }
+
   private combatAvoidancePenalty(npc: RuntimeNpc, now = Date.now()) {
     const entry = this.combatMemory.find((memory) => memory.npcId === npc.id && memory.avoidUntil > now);
     return entry ? 0.85 + Math.min(0.45, entry.count * 0.08) : 0;
   }
 
+  private combatAreaAvoidancePenalty(npc: RuntimeNpc, now = Date.now()) {
+    let penalty = 0;
+    for (const entry of this.combatMemory) {
+      if (entry.avoidUntil <= now) continue;
+      const anchor = entry.targetPosition ?? entry.position;
+      if (!anchor) continue;
+      const distance = distance2d(npc, anchor);
+      if (distance > 18) continue;
+      const distancePenalty = distance <= 10 ? 0.1 : 0;
+      penalty = Math.max(penalty, 0.28 + entry.severity * 0.34 + Math.min(0.24, entry.count * 0.06) + distancePenalty);
+    }
+    return round(clamp(penalty, 0, 0.9));
+  }
+
   private pruneCombatMemory(now = Date.now()) {
     this.combatMemory = this.combatMemory.filter((entry) => now - entry.lastAt <= COMBAT_MEMORY_TTL_MS);
+  }
+
+  private pruneRecentNpcPlayerCombat(now = Date.now()) {
+    for (const [npcId, entry] of this.recentNpcPlayerCombat.entries()) {
+      if (now - entry.lastAt > GROUP_ENCOUNTER_COMBAT_MEMORY_TTL_MS) this.recentNpcPlayerCombat.delete(npcId);
+    }
   }
 
   private resolveNpc(ref: unknown) {
@@ -3404,11 +5199,24 @@ class AgentBridgeSession {
     const now = Date.now();
     if (!force && now < this.nextAgentStatusAt) return;
     this.nextAgentStatusAt = now + 1500;
+    const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) ?? null : null;
+    const playtime = activeCommand?.status === "running"
+      ? describeCommandPlaytime(activeCommand, now)
+      : null;
     this.send("agentStatus", {
       action: this.lastAction,
       thought: this.lastDecision?.reason ?? "",
       objective: this.objective,
       quest: this.describeCurrentQuest(self),
+      commandStatus: activeCommand?.status ?? "",
+      commandBudgetTier: activeCommand?.budget.tier ?? "",
+      commandStartedAt: activeCommand?.startedAt ?? 0,
+      commandMaxSeconds: activeCommand?.maxSeconds ?? 0,
+      commandSessionUsedSeconds: playtime?.session.usedSeconds ?? 0,
+      commandSessionRemainingSeconds: playtime?.session.remainingSeconds ?? 0,
+      commandDailyUsedSeconds: playtime?.daily.usedSeconds ?? 0,
+      commandDailyRemainingSeconds: playtime?.daily.remainingSeconds ?? 0,
+      commandDailySeconds: playtime?.daily.totalSeconds ?? 0,
     });
   }
 
@@ -3620,18 +5428,60 @@ class AgentBridgeSession {
     }).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
   }
 
-  private describeRecommendedTalentSpends(self: RuntimePlayer) {
+  private describeRecommendedTalentSpends(self: RuntimePlayer, profile: AgentCommandProfile = DEFAULT_COMMAND_PROFILE) {
     return this.describeSpendableTalents(self)
       .map((talent) => ({
         ...talent,
-        priority: this.scoreTalentSpend(self, talent.talentId),
-        reason: this.describeTalentSpendReason(talent.talentId),
+        priority: this.scoreTalentSpend(self, talent.talentId, profile),
+        reason: this.describeTalentSpendReason(talent.talentId, profile),
       }))
       .sort((a, b) => b.priority - a.priority)
       .slice(0, Math.max(1, Math.min(5, self.talentPoints || 1)));
   }
 
-  private scoreTalentSpend(self: RuntimePlayer, talentId: TalentId) {
+  private chooseEquipmentUpgradeDecision(self: RuntimePlayer, profile: AgentCommandProfile = DEFAULT_COMMAND_PROFILE): AgentBridgeDecision | null {
+    const equippedBySlot = new Map(self.equipment.map((slot) => [getString(slot.slot), slot]));
+    const candidates = self.inventory
+      .map((item) => {
+        const itemId = normalizeKnownItemId(getString(item.id));
+        if (!itemId || getNumber(item.count) <= 0) return null;
+        const chainTokenId = getString(item.chainTokenId);
+        const chainTier = getNumber(item.chainTier, 1);
+        const equipment = getItemEquipment(itemId, chainTier, self.level);
+        if (!equipment) return null;
+        const equipped = equippedBySlot.get(equipment.slot);
+        const equippedItemId = normalizeKnownItemId(getString(equipped?.itemId));
+        const equippedTokenId = getString(equipped?.chainTokenId);
+        if (equippedItemId === itemId && equippedTokenId === chainTokenId) return null;
+        const equippedEquipment = equippedItemId
+          ? getItemEquipment(equippedItemId, getNumber(equipped?.chainTier, 1), self.level)
+          : null;
+        const score = scoreEquipmentStats(equipment.stats, profile);
+        const currentScore = equippedEquipment ? scoreEquipmentStats(equippedEquipment.stats, profile) : 0;
+        const delta = score - currentScore;
+        return {
+          itemId,
+          chainTokenId,
+          slot: equipment.slot,
+          score,
+          currentScore,
+          delta,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      .filter((entry) => entry.delta >= 1.25)
+      .sort((a, b) => b.delta - a.delta || b.score - a.score);
+    const best = candidates[0];
+    if (!best) return null;
+    return normalizeDecision({
+      action: "equip_item",
+      reason: `equipping ${best.itemId} improves ${best.slot} before more combat`,
+      itemId: best.itemId,
+      chainTokenId: best.chainTokenId || null,
+    });
+  }
+
+  private scoreTalentSpend(self: RuntimePlayer, talentId: TalentId, profile: AgentCommandProfile = DEFAULT_COMMAND_PROFILE) {
     const talent = TALENTS[talentId];
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
     let score = 0.1;
@@ -3642,9 +5492,61 @@ class AgentBridgeSession {
     if (talentId === "utility:recovery-loop") score += 0.26;
     if (talentId === "brawler:heavy-hands") score += 0.24;
     if (talentId === "caster:deep-pockets") score += 0.12;
+    score += this.scoreProfileTalentFit(profile, talentId);
     if (healthRatio < RECOVER_HEALTH_RATIO && talentId === "brawler:street-tough") score += 0.12;
     if (this.getAttackers(self).length > 0 && talent.tree === "brawler") score += 0.08;
     return round(score);
+  }
+
+  private scoreProfileTalentFit(profile: AgentCommandProfile, talentId: TalentId) {
+    const brawlerTank = profile.role === "tank" || profile.spec === "brawler_tank";
+    const brawlerDps = profile.role === "dps" || profile.spec === "brawler_dps";
+    const supportCaster = profile.role === "healer" || profile.role === "support" || profile.spec === "utility_support";
+    const rangedUtility = profile.spec === "utility_ranger";
+    let score = 0;
+
+    if (brawlerTank) {
+      if (talentId === "brawler:street-tough") score += 0.34;
+      if (talentId === "brawler:heavy-hands") score += 0.28;
+      if (talentId === "brawler:snap-swing") score += 0.44;
+      if (talentId === "brawler:whirlwind") score += 0.56;
+      if (talentId === "utility:recovery-loop") score += 0.18;
+    }
+
+    if (brawlerDps) {
+      if (talentId === "brawler:heavy-hands") score += 0.44;
+      if (talentId === "brawler:snap-swing") score += 0.56;
+      if (talentId === "brawler:whirlwind") score += 0.74;
+      if (talentId === "brawler:street-tough") score += 0.08;
+    }
+
+    if (supportCaster) {
+      if (TALENTS[talentId].tree === "brawler") score -= 0.22;
+      if (talentId === "caster:deep-pockets") score += 0.5;
+      if (talentId === "caster:sticker-sparks") score += 0.58;
+      if (talentId === "caster:flow-state") score += 0.7;
+      if (talentId === "caster:frost-nova") score += 0.82;
+      if (talentId === "utility:recovery-loop") score += 0.2;
+      if (talentId === "brawler:street-tough") score += 0.12;
+    }
+
+    if (rangedUtility) {
+      if (talentId === "utility:light-step") score += 0.24;
+      if (talentId === "utility:errand-brain") score += 0.2;
+      if (talentId === "utility:recovery-loop") score += 0.44;
+      if (talentId === "utility:multishot") score += 0.52;
+      if (talentId === "brawler:street-tough") score += 0.1;
+    }
+
+    if (profile.priority === "boss_hunter") {
+      if (talentId === "brawler:street-tough") score += 0.16;
+      if (talentId === "brawler:heavy-hands") score += 0.16;
+      if (talentId === "brawler:snap-swing") score += 0.18;
+      if (talentId === "brawler:whirlwind") score += 0.18;
+      if (talentId === "caster:frost-nova") score += 0.14;
+    }
+
+    return score;
   }
 
   private talentRankLikes(self: RuntimePlayer): TalentRankLike[] {
@@ -3656,7 +5558,17 @@ class AgentBridgeSession {
     }));
   }
 
-  private describeTalentSpendReason(talentId: TalentId) {
+  private describeTalentSpendReason(talentId: TalentId, profile: AgentCommandProfile = DEFAULT_COMMAND_PROFILE) {
+    if (profile.role === "tank" || profile.spec === "brawler_tank") {
+      if (talentId.startsWith("brawler:")) return "tank profile favors HP, bonk threat, and close control for group fights";
+    }
+    if (profile.role === "dps" || profile.spec === "brawler_dps") {
+      if (talentId.startsWith("brawler:")) return "dps profile favors faster, harder close pressure";
+    }
+    if (profile.role === "healer" || profile.role === "support" || profile.spec === "utility_support") {
+      if (talentId.startsWith("caster:")) return "support profile favors mana, regen, and control for safer group fights";
+    }
+    if (profile.spec === "utility_ranger" && talentId.startsWith("utility:")) return "ranger profile favors movement, recovery, and ranged utility";
     switch (talentId) {
       case "brawler:street-tough":
         return "more max HP improves farm survival";
@@ -3749,7 +5661,12 @@ class AgentBridgeSession {
     return hints.sort((a, b) => getNumber(a.distance) - getNumber(b.distance)).slice(0, 16);
   }
 
-  private buildDecisionHints(self: RuntimePlayer, availableQuestHints: AnyRecord[], lootableCorpses: AnyRecord[]) {
+  private buildDecisionHints(
+    self: RuntimePlayer,
+    availableQuestHints: AnyRecord[],
+    lootableCorpses: AnyRecord[],
+    options: DecisionPlanningOptions = {},
+  ) {
     const hints: AnyRecord[] = [];
     if (self.health <= 0) {
       hints.push({ action: "respawn", priority: 1, reason: "self health is 0" });
@@ -3758,7 +5675,8 @@ class AgentBridgeSession {
 
     const attackers = this.getAttackers(self).sort((a, b) => distance2d(self, a) - distance2d(self, b));
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
-    if (attackers.length >= 2 || healthRatio < CRITICAL_HEALTH_RATIO) {
+    const runnerDailyBossTarget = this.findRunnerDailyBossQuestTarget(self);
+    if (!runnerDailyBossTarget && (attackers.length >= 2 || healthRatio < CRITICAL_HEALTH_RATIO)) {
       hints.push({
         action: "retreat",
         priority: attackers.length >= 2 ? 0.94 : 0.88,
@@ -3786,21 +5704,63 @@ class AgentBridgeSession {
       });
     }
 
-    const readyQuest = self.quests.find((quest) => getString(quest.status) === "ready");
+    const focusedQuestId = normalizeKnownQuestId(cleanText(options.focusedQuestId, 96));
+    if (focusedQuestId) {
+      const focusedDecision = this.chooseQuestGoalDecision(self, focusedQuestId, "quest_completed", {
+        profile: options.profile ?? DEFAULT_COMMAND_PROFILE,
+        deathCount: options.deathCount ?? 0,
+      });
+      if (focusedDecision) {
+        const focusedHint = this.toSuggestedDecision(focusedDecision);
+        hints.push({
+          ...focusedHint,
+          priority: 0.88,
+          reason: focusedHint.reason || focusedDecision.reason,
+        });
+      } else {
+        hints.push({
+          action: "wait",
+          questId: focusedQuestId,
+          priority: 0.45,
+          reason: `focused on ${focusedQuestId}; no actionable focused quest step is visible yet`,
+        });
+      }
+      return hints
+        .sort((a, b) => getNumber(b.priority) - getNumber(a.priority))
+        .slice(0, 8);
+    }
+
+    const readyQuest = self.quests.find((quest) => (
+      getString(quest.status) === "ready"
+      && !(options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(getString(quest.id)))
+    ));
     if (readyQuest) {
       const questId = getString(readyQuest.id);
       const npc = this.resolveQuestTurnInNpc(questId);
-      hints.push({
-        action: "complete_quest",
-        questId,
-        npcId: npc?.id ?? "",
-        npcRef: npc?.id ?? "",
-        priority: npc && distance2d(self, npc) <= QUEST_SEND_RANGE ? 0.9 : 0.78,
-        reason: `${questId} is ready to turn in`,
-      });
+      const dailyReturnDecision = this.chooseDailyBossReturnDecision(self, questId, npc);
+      if (dailyReturnDecision) {
+        hints.push({
+          action: dailyReturnDecision.action,
+          questId,
+          npcId: npc?.id ?? "",
+          npcRef: npc?.id ?? "",
+          routeId: cleanText(dailyReturnDecision.text, 80) || undefined,
+          priority: 0.9,
+          reason: dailyReturnDecision.reason,
+        });
+      } else {
+        hints.push({
+          action: "complete_quest",
+          questId,
+          npcId: npc?.id ?? "",
+          npcRef: npc?.id ?? "",
+          priority: npc && distance2d(self, npc) <= QUEST_SEND_RANGE ? 0.9 : 0.78,
+          reason: `${questId} is ready to turn in`,
+        });
+      }
     }
 
-    const talentSpend = this.describeRecommendedTalentSpends(self)[0];
+    const talentSpend = this.describeRecommendedTalentSpends(self, options.profile)[0];
     if (talentSpend) {
       hints.push({
         action: "select_talent",
@@ -3810,7 +5770,32 @@ class AgentBridgeSession {
       });
     }
 
-    for (const offer of availableQuestHints.slice(0, 3)) {
+    if (!options.skipOptionalBossDailies && this.isActiveDailySignalQuest(self)) {
+      const dailyBossTarget = this.findRunnerDailyBossQuestTarget(self);
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        DAILY_SIGNAL_QUEST_ID,
+        dailyBossTarget?.npc ?? null,
+        dailyBossTarget
+          ? `${dailyBossTarget.npc.name} matches active quest ${DAILY_SIGNAL_QUEST_ID}`
+          : `${DAILY_SIGNAL_QUEST_ID} is active and the runner daily boss target is not visible yet`,
+      );
+      if (dailyBossDecision) {
+        hints.push({
+          action: dailyBossDecision.action,
+          npcId: dailyBossTarget?.npc.id ?? DAILY_BOSS_NPC_ID,
+          npcRef: cleanText(dailyBossDecision.npcRef, 96) || DAILY_BOSS_NPC_ID,
+          questId: DAILY_SIGNAL_QUEST_ID,
+          routeId: cleanText(dailyBossDecision.text, 80) || undefined,
+          priority: dailyBossDecision.action === "travel_route" ? 0.9 : 0.92,
+          reason: dailyBossDecision.reason,
+        });
+      }
+    }
+
+    for (const offer of availableQuestHints
+      .filter((hint) => !(options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(getString(hint.questId))))
+      .slice(0, 3)) {
       hints.push({
         action: "accept_quest",
         questId: getString(offer.questId),
@@ -3821,8 +5806,28 @@ class AgentBridgeSession {
       });
     }
 
-    const namedTarget = this.findNamedObjectiveTarget(self);
+    const namedTarget = this.findNamedObjectiveTarget(self, "", options);
     if (namedTarget) {
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        namedTarget.questId,
+        namedTarget.npc,
+        `${namedTarget.npc.name} is an unfinished named objective for ${namedTarget.questId}`,
+      );
+      if (dailyBossDecision) {
+        hints.push({
+          action: dailyBossDecision.action,
+          npcId: namedTarget.npc.id,
+          npcRef: cleanText(dailyBossDecision.npcRef, 96) || namedTarget.npc.id,
+          questId: namedTarget.questId,
+          routeId: cleanText(dailyBossDecision.text, 80) || undefined,
+          priority: dailyBossDecision.action === "travel_route" ? 0.8 : 0.76,
+          reason: dailyBossDecision.reason,
+        });
+        return hints
+          .sort((a, b) => getNumber(b.priority) - getNumber(a.priority))
+          .slice(0, 8);
+      }
       hints.push({
         action: "fight_npc",
         npcId: namedTarget.npc.id,
@@ -3833,8 +5838,28 @@ class AgentBridgeSession {
       });
     }
 
-    const questTarget = this.findGenericQuestTarget(self);
+    const questTarget = this.findGenericQuestTarget(self, "", options);
     if (questTarget) {
+      const dailyBossDecision = this.chooseDailyBossRunnerDecision(
+        self,
+        questTarget.questId,
+        questTarget.npc,
+        `${questTarget.npc.name} matches active quest ${questTarget.questId}`,
+      );
+      if (dailyBossDecision) {
+        hints.push({
+          action: dailyBossDecision.action,
+          npcId: questTarget.npc.id,
+          npcRef: cleanText(dailyBossDecision.npcRef, 96) || questTarget.npc.id,
+          questId: questTarget.questId,
+          routeId: cleanText(dailyBossDecision.text, 80) || undefined,
+          priority: dailyBossDecision.action === "travel_route" ? 0.72 : 0.64,
+          reason: dailyBossDecision.reason,
+        });
+        return hints
+          .sort((a, b) => getNumber(b.priority) - getNumber(a.priority))
+          .slice(0, 8);
+      }
       hints.push({
         action: "fight_npc",
         npcId: questTarget.npc.id,
@@ -3844,17 +5869,27 @@ class AgentBridgeSession {
         reason: `${questTarget.npc.name} matches active quest ${questTarget.questId}`,
       });
     }
+    const genericTargetAreaDecision = this.chooseActiveGenericQuestTargetAreaDecision(self, "", options);
+    if (genericTargetAreaDecision) {
+      const areaHint = this.toSuggestedDecision(genericTargetAreaDecision);
+      hints.push({
+        ...areaHint,
+        priority: areaHint.action === "travel_route" || areaHint.action === "move_to" ? 0.6 : 0.42,
+        reason: areaHint.reason || genericTargetAreaDecision.reason,
+      });
+    }
 
     return hints
       .sort((a, b) => getNumber(b.priority) - getNumber(a.priority))
       .slice(0, 8);
   }
 
-  private findNamedObjectiveTarget(self: RuntimePlayer, preferredQuestId = "") {
+  private findNamedObjectiveTarget(self: RuntimePlayer, preferredQuestId = "", options: { skipOptionalBossDailies?: boolean } = {}) {
     for (const quest of self.quests) {
       if (getString(quest.status) !== "active") continue;
       const questId = normalizeKnownQuestId(getString(quest.id));
       if (!questId) continue;
+      if (options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(questId)) continue;
       if (preferredQuestId && questId !== preferredQuestId) continue;
       const completed = getQuestFlagSet(getString(quest.flags));
       for (const objective of getQuestObjectives(questId)) {
@@ -3866,21 +5901,253 @@ class AgentBridgeSession {
     return null;
   }
 
-  private findGenericQuestTarget(self: RuntimePlayer, preferredQuestId = "") {
+  private findActiveGroupObjectiveNpc(self: RuntimePlayer, preferredQuestId = "") {
+    for (const quest of self.quests) {
+      if (getString(quest.status) !== "active") continue;
+      const questId = normalizeKnownQuestId(getString(quest.id));
+      if (!questId || !this.isGroupEncounterQuest(questId)) continue;
+      if (preferredQuestId && questId !== preferredQuestId) continue;
+      const completed = getQuestFlagSet(getString(quest.flags));
+      for (const objective of getQuestObjectives(questId)) {
+        if (completed.has(objective.id)) continue;
+        const npc = this.npcs.get(objective.id);
+        if (npc && isAttackable(npc) && npc.health > 0 && npc.defeatedAt <= 0) return npc;
+      }
+    }
+    return null;
+  }
+
+  private questAgentHints(questId: string): QuestAgentHints {
+    return getQuestAgentHints(questId);
+  }
+
+  private chooseGenericQuestTargetAreaDecision(self: RuntimePlayer, questId: string, options: DecisionPlanningOptions = {}) {
+    const knownQuestId = normalizeKnownQuestId(questId);
+    if (!knownQuestId || getQuestObjectives(knownQuestId).length > 0) return null;
+    const matchers = getQuestTargetMatchers(knownQuestId);
+    if (matchers.models.length === 0 && matchers.roles.length === 0 && matchers.idPrefixes.length === 0) return null;
+    const hint = this.questAgentHints(knownQuestId).targetArea;
+    if (!hint) return null;
+    const groupDecision = this.chooseGroupEncounterDecision(
+      self,
+      knownQuestId,
+      hint.point,
+      `${hint.label} are the public target area for ${knownQuestId}`,
+      options.profile,
+      options.deathCount ?? 0,
+    );
+    if (groupDecision) return groupDecision;
+    const routeDecision = this.chooseRouteToPointAreaDecision(
+      self,
+      hint.point,
+      `${hint.label} are the public target area for ${knownQuestId}; routing to reacquire safe visible targets`,
+      knownQuestId,
+    );
+    if (routeDecision) return routeDecision;
+    const patrolDecision = this.chooseGenericQuestPatrolDecision(self, knownQuestId, hint.label, hint.point);
+    if (patrolDecision) return patrolDecision;
+    return normalizeDecision({
+      action: "wait",
+      reason: `${hint.label} are the public target area for ${knownQuestId}; waiting for safe visible targets`,
+      questId: knownQuestId,
+    });
+  }
+
+  private chooseActiveGenericQuestTargetAreaDecision(self: RuntimePlayer, preferredQuestId = "", options: DecisionPlanningOptions = {}) {
+    for (const quest of self.quests) {
+      if (getString(quest.status) !== "active") continue;
+      const questId = normalizeKnownQuestId(getString(quest.id));
+      if (!questId) continue;
+      if (options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(questId)) continue;
+      if (preferredQuestId && questId !== preferredQuestId) continue;
+      const decision = this.chooseGenericQuestTargetAreaDecision(self, questId, options);
+      if (decision) return decision;
+    }
+    return null;
+  }
+
+  private chooseGenericQuestPatrolDecision(self: RuntimePlayer, questId: QuestId, label: string, fallbackCenter?: Point) {
+    const configuredPatrolPoints = this.questAgentHints(questId).patrolPoints;
+    const patrolPoints = configuredPatrolPoints.length > 0
+      ? configuredPatrolPoints
+      : fallbackCenter
+        ? generatedQuestTargetAreaPatrolPoints(fallbackCenter, label)
+        : [];
+    return this.chooseAreaPatrolDecision(
+      self,
+      questId,
+      patrolPoints,
+      `${label} are the public target area for ${questId}`,
+    );
+  }
+
+  private chooseAreaPatrolDecision(
+    self: RuntimePlayer,
+    questId: QuestId,
+    patrolPoints: QuestAgentPointHint[],
+    reasonPrefix: string,
+  ) {
+    if (!patrolPoints.length) return null;
+    const candidates = patrolPoints
+      .map((candidate, index) => {
+        const travelDistance = distance2d(self, candidate.point);
+        const pathRisk = this.scoreHostileTravelPath(self, candidate.point, HOSTILE_PATH_CORRIDOR_RADIUS);
+        const density = this.nearbyHostileCount(candidate.point, 9);
+        const dangerous = this.nearbyDangerousHostileCount(candidate.point, DANGEROUS_NEIGHBOR_RADIUS);
+        const idealDistance = 18;
+        const score = pathRisk * 4
+          + dangerous * 1.8
+          + density * 0.18
+          + Math.abs(travelDistance - idealDistance) * 0.025
+          + index * 0.01;
+        return { ...candidate, travelDistance, pathRisk, density, dangerous, score };
+      })
+      .filter((candidate) => candidate.travelDistance > 6)
+      .filter((candidate) => candidate.pathRisk <= 0.78)
+      .filter((candidate) => candidate.dangerous <= 1)
+      .sort((a, b) => a.score - b.score);
+    const best = candidates[0];
+    if (!best) return null;
+    return normalizeDecision({
+      action: "move_to",
+      reason: `${reasonPrefix}; patrolling ${best.label} to reacquire safe visible targets`,
+      questId,
+      x: best.point.x,
+      z: best.point.z,
+    });
+  }
+
+  private chooseMissingObjectiveRouteDecision(self: RuntimePlayer, preferredQuestId = "", options: DecisionPlanningOptions = {}) {
+    for (const quest of self.quests) {
+      if (getString(quest.status) !== "active") continue;
+      const questId = normalizeKnownQuestId(getString(quest.id));
+      if (!questId) continue;
+      if (options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(questId)) continue;
+      if (preferredQuestId && questId !== preferredQuestId) continue;
+      const completed = getQuestFlagSet(getString(quest.flags));
+      for (const objective of getQuestObjectives(questId)) {
+        if (completed.has(objective.id)) continue;
+        const visibleNpc = this.npcs.get(objective.id);
+        if (visibleNpc && isAttackable(visibleNpc) && visibleNpc.health > 0 && visibleNpc.defeatedAt <= 0) {
+          if (this.isGroupEncounterQuest(questId)) {
+            const groupDecision = this.chooseGroupEncounterDecision(
+              self,
+              questId,
+              visibleNpc,
+              this.isNpcAvoided(visibleNpc.id)
+                ? `${objective.label || visibleNpc.name || objective.id} is an active objective for ${questId} but was recently unsafe`
+                : `${objective.label || visibleNpc.name || objective.id} is an active objective for ${questId}`,
+              options.profile,
+              options.deathCount ?? 0,
+              objective.id,
+              { markAttempt: !options.planningOnly },
+            );
+            if (groupDecision) return groupDecision;
+            const routeDecision = this.chooseRouteToNpcAreaDecision(
+              self,
+              visibleNpc,
+              `${objective.label || visibleNpc.name || objective.id} is the active group objective for ${questId}`,
+              questId,
+            );
+            if (routeDecision) return routeDecision;
+            return normalizeDecision({
+              action: "fight_npc",
+              reason: `${objective.label || visibleNpc.name || objective.id} is the active group objective for ${questId}`,
+              questId,
+              npcRef: visibleNpc.id,
+            });
+          }
+          if (this.isNpcAvoided(visibleNpc.id)) {
+            const routeDecision = this.chooseRouteToNpcAreaDecision(
+              self,
+              visibleNpc,
+              `${objective.label || visibleNpc.name || objective.id} is an active objective for ${questId} but was recently unsafe; repositioning before retrying`,
+              questId,
+            );
+            if (routeDecision) return routeDecision;
+            return normalizeDecision({
+              action: "wait",
+              reason: `${objective.label || visibleNpc.name || objective.id} is an active objective for ${questId} but was recently unsafe; waiting near its area before retrying`,
+              questId,
+              npcRef: visibleNpc.id,
+            });
+          }
+          continue;
+        }
+        const hint = OBJECTIVE_LOCATION_HINTS[objective.id];
+        if (!hint) continue;
+        const groupDecision = this.chooseGroupEncounterDecision(
+          self,
+          questId,
+          hint.point,
+          `${objective.label || hint.label} is an active objective for ${questId} but is not currently visible`,
+          options.profile,
+          options.deathCount ?? 0,
+          objective.id,
+          { markAttempt: !options.planningOnly },
+        );
+        if (groupDecision) return groupDecision;
+        const routeDecision = this.chooseRouteToPointAreaDecision(
+          self,
+          hint.point,
+          `${objective.label || hint.label} is an active objective for ${questId} but is not currently visible; routing to its known area`,
+          questId,
+          objective.id,
+        );
+        if (routeDecision) return routeDecision;
+        const patrolDecision = this.chooseAreaPatrolDecision(
+          self,
+          questId,
+          generatedQuestTargetAreaPatrolPoints(hint.point, objective.label || hint.label),
+          `${objective.label || hint.label} is an active objective for ${questId} but is not currently visible`,
+        );
+        if (patrolDecision) {
+          return normalizeDecision({
+            ...patrolDecision,
+            npcRef: objective.id,
+          });
+        }
+        return normalizeDecision({
+          action: "wait",
+          reason: `${objective.label || hint.label} is an active objective for ${questId} but is not currently visible; waiting at its known area`,
+          questId,
+          npcRef: objective.id,
+        });
+      }
+    }
+    return null;
+  }
+
+  private findGenericQuestTarget(self: RuntimePlayer, preferredQuestId = "", options: { skipOptionalBossDailies?: boolean } = {}) {
     for (const quest of self.quests) {
       if (getString(quest.status) !== "active") continue;
       const questId = normalizeKnownQuestId(getString(quest.id));
       if (!questId || getQuestObjectives(questId).length > 0) continue;
+      if (options.skipOptionalBossDailies && this.isOptionalAutoplayQuest(questId)) continue;
       if (preferredQuestId && questId !== preferredQuestId) continue;
       const matchers = getQuestTargetMatchers(questId);
       if (matchers.models.length === 0 && matchers.roles.length === 0 && matchers.idPrefixes.length === 0) continue;
-      const npc = [...this.npcs.values()]
+      const candidates = [...this.npcs.values()]
         .filter((candidate) => isAttackable(candidate) && candidate.health > 0 && candidate.defeatedAt <= 0)
         .filter((candidate) => matchesQuestTarget(candidate, matchers))
-        .sort((a, b) => this.scoreCombatTargetCandidate(self, a) - this.scoreCombatTargetCandidate(self, b) || distance2d(self, a) - distance2d(self, b))[0];
-      if (npc) return { questId, npc };
+        .filter((candidate) => isQuestTargetAreaCandidate(questId, candidate))
+        .filter((candidate) => !this.isSuppressedGenericQuestTarget(questId, candidate))
+        .map((npc) => ({
+          npc,
+          score: this.scoreCombatTargetCandidate(self, npc),
+          avoided: this.isNpcAvoided(npc.id),
+        }))
+        .sort((a, b) => a.score - b.score || distance2d(self, a.npc) - distance2d(self, b.npc));
+      const safeTarget = candidates.find((candidate) => !candidate.avoided && candidate.score <= GENERIC_QUEST_TARGET_SAFE_SCORE);
+      if (safeTarget) return { questId, npc: safeTarget.npc };
+      const fallbackTarget = candidates.find((candidate) => !candidate.avoided && candidate.score <= GENERIC_QUEST_TARGET_FALLBACK_SCORE);
+      if (fallbackTarget) return { questId, npc: fallbackTarget.npc };
     }
     return null;
+  }
+
+  private isSuppressedGenericQuestTarget(questId: QuestId, npc: RuntimeNpc) {
+    return isGenericQuestTargetSuppressed(questId, npc.id);
   }
 
   private findSafeTrainingTarget(self: RuntimePlayer) {
@@ -3898,7 +6165,9 @@ class AgentBridgeSession {
     const approachRisk = this.scoreApproachRisk(self, npc);
     const densityPenalty = this.nearbyHostileCount(npc, 9, npc.id) * 0.08;
     const avoidPenalty = this.combatAvoidancePenalty(npc);
-    return round(clamp(pullRisk * 0.55 + approachRisk * 0.85 + densityPenalty + distancePenalty + avoidPenalty, 0, 2));
+    const areaAvoidPenalty = this.combatAreaAvoidancePenalty(npc);
+    const crowdedCasterPenalty = npc.combatStyle === "caster" && this.nearbyHostileCount(npc, CROWDED_PULL_RADIUS, npc.id) >= 2 ? 0.16 : 0;
+    return round(clamp(pullRisk * 0.55 + approachRisk * 0.85 + densityPenalty + distancePenalty + avoidPenalty + areaAvoidPenalty + crowdedCasterPenalty, 0, 2));
   }
 
   private describeCombatMath(self: RuntimePlayer) {
@@ -3927,10 +6196,59 @@ class AgentBridgeSession {
     const kind = cleanText(record.kind, 20) || "say";
     if (!sessionId || sessionId === this.room?.sessionId || identityType === "npc" || !text) return;
     const now = Date.now();
+    const player = this.players.get(sessionId);
+    const entry: AgentCommandSocialChat = {
+      sessionId,
+      name: cleanText(record.name, 48) || player?.name || "player",
+      identityType,
+      isAgent: Boolean(player?.isAgent),
+      text: makeChatLine(text),
+      kind,
+      observedAt: now,
+    };
     this.pendingSocialMessages = [
       ...this.pendingSocialMessages.filter((entry) => now - entry.observedAt <= SOCIAL_MESSAGE_TTL_MS).slice(-7),
-      { sessionId, name: cleanText(record.name, 48) || "player", identityType, text, kind, observedAt: now },
+      entry,
     ];
+    this.rememberActiveCommandChat(entry);
+  }
+
+  private handleCombatEvent(message: unknown) {
+    this.remember(`combat:${messageSummary(message)}`);
+    this.recordRecentNpcPlayerCombat(message as CombatEvent);
+  }
+
+  private recordRecentNpcPlayerCombat(event: CombatEvent) {
+    const record = asRecord(event);
+    const sourceId = getString(record.sourceId);
+    const target = asRecord(record.target);
+    const targetKind = getString(target.kind);
+    const targetId = getString(target.id);
+    if (!sourceId || !targetId) return;
+
+    const sourceNpc = this.npcs.get(sourceId);
+    const now = Date.now();
+    if (targetKind === "player" && sourceNpc) {
+      this.recentNpcPlayerCombat.set(sourceNpc.id, {
+        lastAt: now,
+        playerSessionId: targetId,
+        direction: "npc_to_player",
+        defeated: Boolean(record.defeated),
+      });
+      this.pruneRecentNpcPlayerCombat(now);
+      return;
+    }
+
+    const targetNpc = targetKind === "npc" ? this.npcs.get(targetId) : null;
+    if (targetNpc && !sourceNpc) {
+      this.recentNpcPlayerCombat.set(targetNpc.id, {
+        lastAt: now,
+        playerSessionId: sourceId,
+        direction: "player_to_npc",
+        defeated: Boolean(record.defeated),
+      });
+      this.pruneRecentNpcPlayerCombat(now);
+    }
   }
 
   private rememberQuestMessage(kind: QuestMemory["kind"], message: unknown) {
@@ -4174,7 +6492,7 @@ export class AgentBridgeManager {
 }
 
 class BridgeHttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly details: AnyRecord | null = null) {
     super(message);
   }
 }
@@ -4188,7 +6506,7 @@ export function actionResultHttpStatus(result: { ok: boolean; status?: string })
 
 export function writeBridgeError(res: ServerResponse, error: unknown) {
   if (error instanceof BridgeHttpError) {
-    writeBridgeJson(res, error.status, { ok: false, error: error.message });
+    writeBridgeJson(res, error.status, { ok: false, error: error.message, ...(error.details ?? {}) });
     return;
   }
   writeBridgeJson(res, 500, { ok: false, error: errorMessage(error) });
@@ -4368,29 +6686,64 @@ function normalizeCommandKind(value: unknown): AgentCommandKind {
 
 function normalizeCommandProfile(value: unknown, legacyBehavior: unknown, kind: AgentCommandKind): AgentCommandProfile {
   const record = asRecord(value);
-  const legacy = normalizeProfileToken(legacyBehavior);
-  const defaultPriority = defaultCommandPriority(kind);
-  const legacyPriority: AgentCommandPriority = legacy && legacy !== "safe" ? legacy : defaultPriority;
+  const scheme = premadeProfileForScheme(legacyBehavior, kind);
   return {
-    priority: normalizeProfileEnum(record.priority, ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"], legacyPriority),
-    role: normalizeProfileEnum(record.role, ["auto", "tank", "healer", "dps", "support"], DEFAULT_COMMAND_PROFILE.role),
-    spec: normalizeProfileEnum(record.spec, ["auto", "brawler_tank", "brawler_dps", "caster_fire", "caster_frost", "utility_ranger", "utility_support"], DEFAULT_COMMAND_PROFILE.spec),
-    partyMode: normalizeProfileEnum(record.partyMode ?? record.party, ["auto", "grouper", "lone_wolf", "follow_leader"], DEFAULT_COMMAND_PROFILE.partyMode),
-    risk: normalizeProfileEnum(record.risk, ["safe", "normal", "bold"], legacy === "safe" ? "safe" : DEFAULT_COMMAND_PROFILE.risk),
-    social: normalizeProfileEnum(record.social, ["quiet", "normal", "chatty"], legacy === "social" ? "normal" : DEFAULT_COMMAND_PROFILE.social),
+    priority: normalizeProfileEnum(record.priority, ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"], scheme.priority),
+    role: normalizeProfileEnum(record.role, ["auto", "tank", "healer", "dps", "support"], scheme.role),
+    spec: normalizeProfileEnum(record.spec, ["auto", "brawler_tank", "brawler_dps", "caster_fire", "caster_frost", "utility_ranger", "utility_support"], scheme.spec),
+    partyMode: normalizeProfileEnum(record.partyMode ?? record.party, ["auto", "grouper", "lone_wolf", "follow_leader"], scheme.partyMode),
+    risk: normalizeProfileEnum(record.risk, ["safe", "normal", "bold"], scheme.risk),
+    social: normalizeProfileEnum(record.social, ["quiet", "normal", "chatty"], scheme.social),
   };
 }
 
-function normalizeProfileToken(value: unknown): AgentCommandPriority | "safe" | "" {
+function premadeProfileForScheme(value: unknown, kind: AgentCommandKind): AgentCommandProfile {
   const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  if (text === "quester" || text === "quest") return "quester";
-  if (text === "farmer" || text === "farm") return "farmer";
-  if (text === "boss_hunter" || text === "boss") return "boss_hunter";
-  if (text === "looter" || text === "loot") return "looter";
-  if (text === "completionist" || text === "complete") return "completionist";
-  if (text === "social") return "social";
-  if (text === "survivor" || text === "safe") return "safe";
-  return "";
+  const base: AgentCommandProfile = {
+    ...DEFAULT_COMMAND_PROFILE,
+    priority: defaultCommandPriority(kind),
+  };
+  switch (text) {
+    case "mainline":
+    case "mainline_quester":
+    case "quest":
+    case "quester":
+      return { ...base, priority: "quester", risk: "normal" };
+    case "farmer":
+    case "farm":
+      return { ...base, priority: "farmer", risk: "normal" };
+    case "boss":
+    case "boss_hunter":
+    case "raider":
+      return { ...base, priority: "boss_hunter", partyMode: "grouper", risk: "bold" };
+    case "looter":
+    case "loot":
+      return { ...base, priority: "looter", risk: "normal" };
+    case "completionist":
+    case "complete":
+      return { ...base, priority: "completionist", risk: "normal" };
+    case "social":
+      return { ...base, priority: "social", social: "normal" };
+    case "survivor":
+    case "safe":
+      return { ...base, priority: "auto", risk: "safe" };
+    case "healer":
+      return { ...base, priority: "quester", role: "healer", spec: "utility_support", partyMode: "grouper", risk: "safe" };
+    case "tank":
+      return { ...base, priority: "quester", role: "tank", spec: "brawler_tank", partyMode: "grouper", risk: "normal" };
+    case "dps":
+      return { ...base, priority: "quester", role: "dps", spec: "brawler_dps", risk: "normal" };
+    case "support":
+      return { ...base, priority: "quester", role: "support", spec: "utility_support", partyMode: "grouper", risk: "safe" };
+    case "grouper":
+    case "group":
+      return { ...base, priority: "quester", partyMode: "grouper", risk: "normal" };
+    case "lone_wolf":
+    case "solo":
+      return { ...base, priority: "quester", partyMode: "lone_wolf", risk: "safe" };
+    default:
+      return base;
+  }
 }
 
 function normalizeProfileEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -4480,11 +6833,13 @@ function normalizeCommandStopWhen(value: unknown): AgentCommandStopWhen {
 
 function normalizeCommandConstraints(value: unknown): AgentCommandConstraints {
   const record = asRecord(value);
+  const hasMaxDeaths = Object.prototype.hasOwnProperty.call(record, "maxDeaths");
+  const hasMaxSafetyStops = Object.prototype.hasOwnProperty.call(record, "maxSafetyStops");
   return {
     noWalletActions: Boolean(record.noWalletActions),
     noPaidActions: Boolean(record.noPaidActions),
-    maxDeaths: Math.min(99, Math.max(0, nonNegativeInt(record.maxDeaths))),
-    maxSafetyStops: Math.min(99, Math.max(0, nonNegativeInt(record.maxSafetyStops))),
+    maxDeaths: hasMaxDeaths ? Math.min(99, Math.max(0, nonNegativeInt(record.maxDeaths))) : DEFAULT_COMMAND_MAX_DEATHS,
+    maxSafetyStops: hasMaxSafetyStops ? Math.min(99, Math.max(0, nonNegativeInt(record.maxSafetyStops))) : DEFAULT_COMMAND_MAX_SAFETY_STOPS,
     allowedActions: normalizeDecisionActionList(record.allowedActions),
     disallowedActions: normalizeDecisionActionList(record.disallowedActions),
   };
@@ -4575,6 +6930,185 @@ function normalizeKnownQuestId(value: string): QuestId | null {
   return (QUEST_IDS as readonly string[]).includes(value) ? value as QuestId : null;
 }
 
+export function hasAgentQuestStatus(quests: unknown, questId: string, statuses: readonly string[]) {
+  const knownQuestId = normalizeKnownQuestId(questId);
+  const entries = Array.isArray(quests) ? quests : [];
+  if (!knownQuestId || statuses.length === 0) return false;
+  return entries.some((entry) => {
+    const quest = asRecord(entry);
+    return getString(quest.id) === knownQuestId && statuses.includes(getString(quest.status));
+  });
+}
+
+export function isGroupGatedEncounterType(value: unknown) {
+  const encounterType = cleanText(value, 20);
+  return encounterType === "group" || encounterType === "raid" || encounterType === "daily_boss";
+}
+
+export function shouldSkipOptionalBossDailyCommand(kind: unknown, priority: unknown) {
+  const commandKind = cleanText(kind, 40);
+  const commandPriority = cleanText(priority, 40);
+  if (commandPriority === "boss_hunter" || commandPriority === "completionist") return false;
+  return commandKind === "finish_next_quest" || commandKind === "play_for" || commandKind === "run_goals";
+}
+
+export function resolveIncompleteRequiredQuestIdForQuests(
+  quests: ReadonlyArray<AgentQuestLike>,
+  questId: string,
+  seen = new Set<string>(),
+): QuestId | "" {
+  const knownQuestId = normalizeKnownQuestId(questId);
+  if (!knownQuestId || seen.has(knownQuestId)) return "";
+  seen.add(knownQuestId);
+
+  const requiredQuestId = normalizeKnownQuestId(getString((QUESTS[knownQuestId] as AnyRecord).requiredQuestId));
+  if (!requiredQuestId) return "";
+
+  const earlierRequiredQuestId = resolveIncompleteRequiredQuestIdForQuests(quests, requiredQuestId, seen);
+  if (earlierRequiredQuestId) return earlierRequiredQuestId;
+
+  return hasAgentQuestStatus(quests, requiredQuestId, ["completed"]) ? "" : requiredQuestId;
+}
+
+export function getQuestAgentHints(questId: string): QuestAgentHints {
+  const knownQuestId = normalizeKnownQuestId(questId);
+  const hints = knownQuestId ? asRecord((QUESTS[knownQuestId] as AnyRecord).agentHints) : {};
+  const targetAreaRecord = asRecord(hints.targetArea);
+  const targetAreaPoint = asPoint(targetAreaRecord.point);
+  const targetArea = targetAreaPoint
+    ? { label: cleanText(targetAreaRecord.label, 80) || `${knownQuestId} target area`, point: targetAreaPoint }
+    : undefined;
+  const patrolPoints = Array.isArray(hints.patrolPoints)
+    ? hints.patrolPoints
+      .map((entry): QuestAgentPointHint | null => {
+        const record = asRecord(entry);
+        const point = asPoint(record.point);
+        return point ? { label: cleanText(record.label, 80) || "patrol point", point } : null;
+      })
+      .filter((entry): entry is QuestAgentPointHint => Boolean(entry))
+    : [];
+  return {
+    targetArea,
+    patrolPoints,
+    avoidGenericTargetNpcIds: stringList(hints.avoidGenericTargetNpcIds),
+  };
+}
+
+export function isGenericQuestTargetSuppressed(questId: string, npcId: string) {
+  return getQuestAgentHints(questId).avoidGenericTargetNpcIds.includes(npcId);
+}
+
+export function isQuestTargetAreaCandidate(
+  questId: string,
+  pointLike: Point,
+  maxDistance = GENERIC_QUEST_TARGET_AREA_RADIUS,
+) {
+  const targetArea = getQuestAgentHints(questId).targetArea;
+  return !targetArea || distance2d(pointLike, targetArea.point) <= maxDistance;
+}
+
+export function generatedQuestTargetAreaPatrolPoints(center: Point, label = "target area"): QuestAgentPointHint[] {
+  const radius = GENERIC_QUEST_TARGET_AREA_PATROL_RADIUS;
+  return [
+    { label: `${label} north sweep`, point: { x: center.x, z: center.z - radius } },
+    { label: `${label} east sweep`, point: { x: center.x + radius, z: center.z } },
+    { label: `${label} south sweep`, point: { x: center.x, z: center.z + radius } },
+    { label: `${label} west sweep`, point: { x: center.x - radius, z: center.z } },
+    { label: `${label} center sweep`, point: center },
+  ].map((entry) => ({ label: entry.label, point: point(entry.point) }));
+}
+
+export function countHealthyQuestParticipantsNear(
+  participants: ReadonlyArray<AgentParticipantLike>,
+  pointLike: Point,
+  radius: number,
+  questId: string,
+  minHealthRatio = GROUP_ENCOUNTER_PRESS_HEALTH_RATIO,
+) {
+  const knownQuestId = normalizeKnownQuestId(questId);
+  if (!knownQuestId) return 0;
+
+  const seen = new Set<string>();
+  let count = 0;
+  for (const participant of participants) {
+    const sessionId = getString(participant.sessionId);
+    if (sessionId && seen.has(sessionId)) continue;
+    if (sessionId) seen.add(sessionId);
+    if (!hasAgentQuestStatus(participant.quests, knownQuestId, ["active"])) continue;
+
+    const health = getNumber(participant.health);
+    const maxHealth = getNumber(participant.maxHealth);
+    if (health <= 0 || maxHealth <= 0 || health / maxHealth < minHealthRatio) continue;
+
+    const x = readFiniteNumber(participant.x);
+    const z = readFiniteNumber(participant.z);
+    if (x === undefined || z === undefined) continue;
+    if (distance2d({ x, z }, pointLike) > radius) continue;
+
+    count += 1;
+  }
+  return count;
+}
+
+function normalizeKnownItemId(value: string): ItemId | null {
+  return Object.prototype.hasOwnProperty.call(ITEMS, value) ? value as ItemId : null;
+}
+
+function scoreEquipmentStats(stats: Partial<Record<StatKey, number>>, profile: AgentCommandProfile = DEFAULT_COMMAND_PROFILE) {
+  const weights = equipmentStatWeightsForProfile(profile);
+  return round((Object.entries(stats) as Array<[StatKey, number | undefined]>)
+    .reduce((score, [statKey, value]) => score + (value ?? 0) * weights[statKey], 0));
+}
+
+function equipmentStatWeightsForProfile(profile: AgentCommandProfile): Record<StatKey, number> {
+  if (profile.role === "tank" || profile.spec === "brawler_tank") {
+    return {
+      maxHealth: 0.24,
+      maxMana: 0.04,
+      strength: 1.18,
+      dexterity: 0.7,
+      magic: 0.55,
+    };
+  }
+  if (profile.role === "dps" || profile.spec === "brawler_dps") {
+    return {
+      maxHealth: 0.13,
+      maxMana: 0.04,
+      strength: 1.38,
+      dexterity: 0.92,
+      magic: 0.7,
+    };
+  }
+  if (profile.role === "healer" || profile.role === "support" || profile.spec === "utility_support") {
+    return {
+      maxHealth: 0.48,
+      maxMana: 0.14,
+      strength: 0.5,
+      dexterity: 0.65,
+      magic: 1.1,
+    };
+  }
+  if (profile.spec === "caster_fire" || profile.spec === "caster_frost") {
+    return {
+      maxHealth: 0.12,
+      maxMana: 0.18,
+      strength: 0.5,
+      dexterity: 0.7,
+      magic: 1.42,
+    };
+  }
+  if (profile.spec === "utility_ranger") {
+    return {
+      maxHealth: 0.13,
+      maxMana: 0.08,
+      strength: 0.72,
+      dexterity: 1.35,
+      magic: 0.82,
+    };
+  }
+  return EQUIPMENT_STAT_WEIGHTS;
+}
+
 function getQuestFlagSet(value: string) {
   return new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean));
 }
@@ -4592,6 +7126,44 @@ function resolveRoute(value: string) {
   if (landmark) return [landmark];
   const landmarkEntry = Object.entries(PUBLIC_LANDMARKS).find(([id]) => routeId.includes(normalizeRouteId(id)));
   return landmarkEntry ? [landmarkEntry[1]] : null;
+}
+
+export function routeQueueFromPosition(route: readonly Point[], position: Point) {
+  if (route.length <= 1) return [...route];
+  const first = route[0] as Point;
+  const firstDistance = distance2d(position, first);
+  let bestIndex = 0;
+  let bestDistance = firstDistance;
+  for (let index = 1; index < route.length; index += 1) {
+    const candidate = route[index] as Point;
+    const candidateDistance = distance2d(position, candidate);
+    if (candidateDistance < bestDistance) {
+      bestIndex = index;
+      bestDistance = candidateDistance;
+    }
+  }
+  return bestIndex > 0 && bestDistance + 8 < firstDistance ? route.slice(bestIndex) : [...route];
+}
+
+function routeArrivalDistance(routeId: string) {
+  if (routeId === DAILY_BOSS_ROUTE_ID) return 12;
+  if (routeId === DAILY_BOSS_RETURN_ROUTE_ID) return 8;
+  if (routeId === "route-post-to-signal-ridge"
+    || routeId === "route-post-to-signal-post"
+    || routeId === "plaza-to-signal-ridge"
+    || routeId === "signal-post-to-static-lot"
+    || routeId === "signal-ridge-to-static-lot"
+    || routeId === "uplink-shack-to-static-lot") return 8;
+  if (routeId === "plaza-to-route-post" || routeId === "loop-farm-to-route-post") return 6;
+  return 2;
+}
+
+export function npcInteractionRouteStopDistance(sendRange: number, arrivalDistance = LOCAL_NAV_ARRIVAL_DISTANCE) {
+  const safeSendRange = Number.isFinite(sendRange) && sendRange > 0 ? sendRange : QUEST_SEND_RANGE;
+  const safeArrivalDistance = Number.isFinite(arrivalDistance) && arrivalDistance > 0
+    ? arrivalDistance
+    : LOCAL_NAV_ARRIVAL_DISTANCE;
+  return Math.max(1.4, safeSendRange - safeArrivalDistance - 0.5);
 }
 
 function normalizeRouteId(value: string) {
@@ -4735,6 +7307,135 @@ function distance2d(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
+function pointAlongVector(origin: Point, through: Point, distance: number): Point {
+  const dx = through.x - origin.x;
+  const dz = through.z - origin.z;
+  const length = Math.hypot(dx, dz) || 1;
+  return { x: round(origin.x + (dx / length) * distance), z: round(origin.z + (dz / length) * distance) };
+}
+
+function rotatePointAround(origin: Point, through: Point, radians: number, distance: number): Point {
+  const dx = through.x - origin.x;
+  const dz = through.z - origin.z;
+  const length = Math.hypot(dx, dz) || 1;
+  const ux = dx / length;
+  const uz = dz / length;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    x: round(origin.x + (ux * cos - uz * sin) * distance),
+    z: round(origin.z + (ux * sin + uz * cos) * distance),
+  };
+}
+
+function findLocalCollisionRoute(start: Point, target: Point, goalRange: number): Point[] {
+  if (distance2d(start, target) > LOCAL_NAV_MAX_DISTANCE) return [];
+
+  const minX = snapGrid(Math.min(start.x, target.x) - LOCAL_NAV_MARGIN);
+  const maxX = snapGrid(Math.max(start.x, target.x) + LOCAL_NAV_MARGIN);
+  const minZ = snapGrid(Math.min(start.z, target.z) - LOCAL_NAV_MARGIN);
+  const maxZ = snapGrid(Math.max(start.z, target.z) + LOCAL_NAV_MARGIN);
+  const startCell = nearestFreeLocalNavCell(start, minX, maxX, minZ, maxZ);
+  if (!startCell) return [];
+
+  const queue: Point[] = [startCell];
+  const previous = new Map<string, Point | null>([[localNavKey(startCell), null]]);
+  let queueIndex = 0;
+  let goal: Point | null = null;
+
+  while (queueIndex < queue.length && previous.size < LOCAL_NAV_MAX_NODES) {
+    const current = queue[queueIndex++] as Point;
+    if (distance2d(current, target) <= goalRange && isLocalNavFreePoint(current)) {
+      goal = current;
+      break;
+    }
+
+    for (const next of localNavNeighbors(current, target, minX, maxX, minZ, maxZ)) {
+      const key = localNavKey(next);
+      if (previous.has(key)) continue;
+      previous.set(key, current);
+      queue.push(next);
+    }
+  }
+
+  if (!goal) return [];
+
+  const path: Point[] = [];
+  for (let current: Point | null = goal; current; current = previous.get(localNavKey(current)) ?? null) {
+    path.push(current);
+  }
+  path.reverse();
+  return sampleLocalNavRoute(path);
+}
+
+function localNavNeighbors(current: Point, target: Point, minX: number, maxX: number, minZ: number, maxZ: number) {
+  const neighbors: Point[] = [];
+  for (const dx of [-LOCAL_NAV_GRID_SIZE, 0, LOCAL_NAV_GRID_SIZE]) {
+    for (const dz of [-LOCAL_NAV_GRID_SIZE, 0, LOCAL_NAV_GRID_SIZE]) {
+      if (dx === 0 && dz === 0) continue;
+      const next = { x: snapGrid(current.x + dx), z: snapGrid(current.z + dz) };
+      if (next.x < minX || next.x > maxX || next.z < minZ || next.z > maxZ) continue;
+      if (!isLocalNavFreePoint(next)) continue;
+      neighbors.push(next);
+    }
+  }
+  return neighbors.sort((a, b) => distance2d(a, target) - distance2d(b, target));
+}
+
+function sampleLocalNavRoute(path: Point[]) {
+  const route: Point[] = [];
+  for (let index = 1; index < path.length; index += 1) {
+    const previous = path[index - 1] as Point;
+    const current = path[index] as Point;
+    const next = path[index + 1];
+    const previousDx = roundGrid(current.x - previous.x);
+    const previousDz = roundGrid(current.z - previous.z);
+    const nextDx = next ? roundGrid(next.x - current.x) : Number.NaN;
+    const nextDz = next ? roundGrid(next.z - current.z) : Number.NaN;
+    if (!next || previousDx !== nextDx || previousDz !== nextDz || index % 4 === 0) {
+      route.push(point(current));
+    }
+  }
+  return route;
+}
+
+function nearestFreeLocalNavCell(start: Point, minX: number, maxX: number, minZ: number, maxZ: number) {
+  const resolved = resolveWorldCollision(start.x, start.z, PLAYER.radius);
+  const snapped = { x: snapGrid(resolved.x), z: snapGrid(resolved.z) };
+  if (snapped.x >= minX && snapped.x <= maxX && snapped.z >= minZ && snapped.z <= maxZ && isLocalNavFreePoint(snapped)) {
+    return snapped;
+  }
+
+  for (let radius = LOCAL_NAV_GRID_SIZE; radius <= 2.5; radius += LOCAL_NAV_GRID_SIZE) {
+    for (let dx = -radius; dx <= radius; dx += LOCAL_NAV_GRID_SIZE) {
+      for (let dz = -radius; dz <= radius; dz += LOCAL_NAV_GRID_SIZE) {
+        const candidate = { x: snapGrid(resolved.x + dx), z: snapGrid(resolved.z + dz) };
+        if (candidate.x < minX || candidate.x > maxX || candidate.z < minZ || candidate.z > maxZ) continue;
+        if (isLocalNavFreePoint(candidate)) return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function isLocalNavFreePoint(pointLike: Point) {
+  const resolved = resolveWorldCollision(pointLike.x, pointLike.z, PLAYER.radius);
+  return distance2d(resolved, pointLike) <= LOCAL_NAV_FREE_TOLERANCE;
+}
+
+function localNavKey(pointLike: Point) {
+  return `${pointLike.x.toFixed(1)},${pointLike.z.toFixed(1)}`;
+}
+
+function snapGrid(value: number) {
+  return Math.round(value / LOCAL_NAV_GRID_SIZE) * LOCAL_NAV_GRID_SIZE;
+}
+
+function roundGrid(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
 function asPoint(value: unknown): Point | null {
   const record = asRecord(value);
   const x = readFiniteNumber(record.x);
@@ -4832,6 +7533,182 @@ function makeChatLine(value: unknown) {
 function formatEstimateSeconds(milliseconds: number) {
   if (!Number.isFinite(milliseconds)) return "safe";
   return `${round(milliseconds / 1000)}s`;
+}
+
+function describeCommandPlaytime(command: AgentCommandState, now = Date.now()) {
+  const elapsedSeconds = Math.max(0, Math.min(command.maxSeconds, Math.ceil(((command.finishedAt || now) - command.startedAt) / 1000)));
+  const previousUsedSeconds = Math.max(
+    0,
+    command.budget.rollingDailySeconds - command.usage.remainingSeconds - command.maxSeconds,
+  );
+  const dailyUsedSeconds = Math.min(command.budget.rollingDailySeconds, previousUsedSeconds + elapsedSeconds);
+  return {
+    requestedSeconds: command.requestedMaxSeconds,
+    sessionCapReached: command.requestedMaxSeconds > command.maxSeconds,
+    session: {
+      status: command.status,
+      startedAt: new Date(command.startedAt).toISOString(),
+      finishedAt: command.finishedAt ? new Date(command.finishedAt).toISOString() : "",
+      requestedSeconds: command.requestedMaxSeconds,
+      maxSeconds: command.maxSeconds,
+      usedSeconds: elapsedSeconds,
+      remainingSeconds: Math.max(0, command.maxSeconds - elapsedSeconds),
+    },
+    daily: {
+      tier: command.budget.tier,
+      totalSeconds: command.budget.rollingDailySeconds,
+      usedSeconds: dailyUsedSeconds,
+      remainingSeconds: Math.max(0, command.budget.rollingDailySeconds - dailyUsedSeconds),
+      windowStartedAt: command.usage.windowStartedAt,
+    },
+  };
+}
+
+function buildAgentCommandRecap(
+  command: AgentCommandState,
+  questChanges: Array<{ id: string; before: string; after: string }>,
+  inventoryChanges: Array<{ itemId: string; before: number; after: number }>,
+  playtime: ReturnType<typeof describeCommandPlaytime>,
+  budgetAdvice: string,
+) {
+  const social = buildAgentCommandSocialRecap(command);
+  const defeatedCounts = countReportTargets(command.reports, (report) => {
+    if (report.action !== "fight_npc") return false;
+    return report.stoppedBecause === "target_defeated" || /\btarget defeated\b/i.test(report.summary);
+  }, "enemy");
+  const lootCounts = countReportTargets(command.reports, (report) => report.action === "loot", "corpse");
+  const completedQuests = uniqueRecapStrings(questChanges
+    .filter((change) => change.after === "completed" || change.after.startsWith("completed"))
+    .map((change) => change.id));
+  const inventoryDeltas = inventoryChanges.map((change) => ({
+    itemId: change.itemId,
+    before: change.before,
+    after: change.after,
+    delta: change.after - change.before,
+  }));
+  const parts = [
+    defeatedCounts.length ? `defeated ${formatCountedTargets(defeatedCounts)}` : "",
+    lootCounts.length ? `looted ${formatCountedTargets(lootCounts)}` : "",
+    completedQuests.length ? `finished ${formatHumanList(completedQuests)}` : "",
+    inventoryDeltas.length ? `inventory ${inventoryDeltas.map((change) => `${change.delta > 0 ? "+" : ""}${change.delta} ${change.itemId}`).join(", ")}` : "",
+  ].filter(Boolean);
+  const actionSentence = parts.length
+    ? `I ${formatHumanList(parts)}.`
+    : `I ran ${command.kind.replace(/_/g, " ")} with no major quest, loot, or combat changes recorded.`;
+  const stoppedText = command.stoppedBecause
+    ? `${command.status} (${command.stoppedBecause.replace(/_/g, " ")})`
+    : command.status;
+  const sessionText = `Stopped after ${formatRecapDuration(playtime.session.usedSeconds)} as ${stoppedText}.`;
+  const socialText = social.summary ? ` ${social.summary}` : "";
+  const adviceText = budgetAdvice ? ` ${budgetAdvice}` : "";
+  return {
+    summary: `${actionSentence} ${sessionText}${socialText}${adviceText}`,
+    defeated: defeatedCounts,
+    looted: lootCounts,
+    completedQuests,
+    inventoryChanges: inventoryDeltas,
+    social,
+    playtime: {
+      sessionUsedSeconds: playtime.session.usedSeconds,
+      sessionMaxSeconds: playtime.session.maxSeconds,
+      sessionRemainingSeconds: playtime.session.remainingSeconds,
+      dailyUsedSeconds: playtime.daily.usedSeconds,
+      dailyRemainingSeconds: playtime.daily.remainingSeconds,
+      dailySeconds: playtime.daily.totalSeconds,
+      tier: playtime.daily.tier,
+      sessionCapReached: playtime.sessionCapReached,
+    },
+    budgetAdvice,
+  };
+}
+
+export function buildAgentCommandSocialRecap(command: { social?: AgentCommandSocialMemory }, now = Date.now()) {
+  const players = [...(command.social?.players.values() ?? [])]
+    .sort((left, right) => left.closestDistance - right.closestDistance || right.lastSeenAt - left.lastSeenAt || left.name.localeCompare(right.name))
+    .slice(0, 8)
+    .map((player) => ({
+      sessionId: player.sessionId,
+      name: player.name,
+      identityType: player.identityType,
+      isAgent: player.isAgent,
+      closestDistance: Number.isFinite(player.closestDistance) ? round(player.closestDistance) : null,
+      lastSeenAgoMs: Math.max(0, now - player.lastSeenAt),
+    }));
+  const chat = (command.social?.chat ?? [])
+    .slice(-6)
+    .map((entry) => ({
+      sessionId: entry.sessionId,
+      name: entry.name,
+      identityType: entry.identityType,
+      isAgent: entry.isAgent,
+      kind: entry.kind,
+      text: entry.text,
+      observedAgoMs: Math.max(0, now - entry.observedAt),
+    }));
+  const nearbyAgentCount = players.filter((player) => player.isAgent).length;
+  const nearbyHumanCount = players.length - nearbyAgentCount;
+  const playerSummary = players.length
+    ? `I saw ${formatHumanList(players.slice(0, 4).map((player) => `${player.name}${player.isAgent ? " (agent)" : ""}`))} nearby.`
+    : "";
+  const chatSummary = chat.length
+    ? `Chat included ${formatHumanList(chat.slice(-3).map((entry) => `${entry.name}: "${entry.text}"`))}.`
+    : "";
+  return {
+    nearbyPlayers: players,
+    nearbyPlayerCount: players.length,
+    nearbyAgentCount,
+    nearbyHumanCount,
+    recentChat: chat,
+    summary: [playerSummary, chatSummary].filter(Boolean).join(" "),
+  };
+}
+
+function countReportTargets(reports: ActionReport[], predicate: (report: ActionReport) => boolean, fallback: string) {
+  const counts = new Map<string, number>();
+  for (const report of reports) {
+    if (!predicate(report)) continue;
+    const target = cleanText(report.target, 64) || fallback;
+    counts.set(target, (counts.get(target) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([target, count]) => ({ target, count }))
+    .sort((left, right) => right.count - left.count || left.target.localeCompare(right.target))
+    .slice(0, 8);
+}
+
+function formatCountedTargets(values: Array<{ target: string; count: number }>) {
+  return values.map((entry) => entry.count > 1 ? `${entry.count} ${pluralizeLabel(entry.target)}` : `1 ${entry.target}`).join(", ");
+}
+
+function pluralizeLabel(value: string) {
+  if (/\d/.test(value) || value.endsWith("s")) return value;
+  return `${value}s`;
+}
+
+function formatHumanList(values: string[]) {
+  if (values.length <= 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+}
+
+function uniqueRecapStrings(values: string[]) {
+  return [...new Set(values.map((value) => cleanText(value, 96)).filter(Boolean))];
+}
+
+function formatRecapDuration(seconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  if (safeSeconds < 60) return `${safeSeconds}s`;
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainder = safeSeconds % 60;
+  return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
+function getAgentCommandBudgetAdvice(budget: AgentCommandBudget, requestedSeconds: number) {
+  const sessionCapReached = requestedSeconds > budget.maxCommandSeconds;
+  if (!sessionCapReached && budget.tier !== "base") return "";
+  const commandMinutes = Math.ceil(budget.maxCommandSeconds / 60);
+  const dailyMinutes = Math.ceil(budget.rollingDailySeconds / 60);
+  return `This wallet is on the ${budget.tier} autoplay tier (${commandMinutes} minute commands, ${dailyMinutes} rolling daily minutes). Add 25M MFERGPT on Base to unlock longer sessions and Season 0 agent points; progress still saves below the gate.`;
 }
 
 function messageSummary(value: unknown) {

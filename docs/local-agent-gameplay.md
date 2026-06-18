@@ -150,6 +150,7 @@ Command scenarios to cover locally:
 - `farm_until` with `profile.priority: "farmer"`, an item id such as a hog drop, and a small `targetCount`; expect combat, loot, and `inventoryChanges`.
 - `run_goals` with goals such as `{ "type": "quest_completed", "questId": "mfergpt-checkin" }`; expect `goalProgress` to show satisfied and unsatisfied goals.
 - Stop an active command through `/agent-command-stop`; expect `status: "stopped"` and a final recap.
+- Run any command with a second local player/agent nearby or chatting; expect `recap.social` and top-level `social` to include nearby players/agents and recent public chat.
 
 The repeatable hosted-command smoke runner launches all wallet-file agents through the bridge, starts commands inside one supervisor run, writes optional watchable status JSON, and stops cleanly:
 
