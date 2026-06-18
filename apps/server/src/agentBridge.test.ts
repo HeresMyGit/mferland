@@ -4,6 +4,7 @@ import {
   actionResultHttpStatus,
   buildAgentCommandSocialRecap,
   countHealthyQuestParticipantsNear,
+  describeEquipmentChanges,
   generatedQuestTargetAreaPatrolPoints,
   getQuestAgentHints,
   isGroupGatedEncounterType,
@@ -91,6 +92,33 @@ test("agent command social recap summarizes nearby players and chat", () => {
   assert.match(recap.summary, /playerone/);
   assert.match(recap.summary, /questbot \(agent\)/);
   assert.match(recap.summary, /daily boss later/);
+});
+
+test("agent command equipment changes summarize loadout updates", () => {
+  const changes = describeEquipmentChanges(
+    [
+      { slot: "weapon", itemId: "training-stick", chainTokenId: "", chainTier: 1 },
+      { slot: "chest", itemId: "threadbare-hoodie", chainTokenId: "", chainTier: 1 },
+    ],
+    [
+      { slot: "weapon", itemId: "chain-bonker", chainTokenId: "42", chainTier: 2 },
+      { slot: "chest", itemId: "threadbare-hoodie", chainTokenId: "", chainTier: 1 },
+      { slot: "trinket", itemId: "signal-charm", chainTokenId: "", chainTier: 1 },
+    ],
+  );
+
+  assert.deepEqual(changes, [
+    {
+      slot: "trinket",
+      before: null,
+      after: { itemId: "signal-charm", chainTokenId: "", chainTier: 1 },
+    },
+    {
+      slot: "weapon",
+      before: { itemId: "training-stick", chainTokenId: "", chainTier: 1 },
+      after: { itemId: "chain-bonker", chainTokenId: "42", chainTier: 2 },
+    },
+  ]);
 });
 
 test("structured quest goals resolve unfinished prerequisites before accepting later quests", () => {

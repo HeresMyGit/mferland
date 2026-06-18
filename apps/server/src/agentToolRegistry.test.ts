@@ -37,6 +37,8 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
   assert.ok(output.properties.usage);
   assert.ok(output.properties.social);
   assert.ok(output.properties.combat);
+  assert.ok(output.properties.finalState);
+  assert.ok(output.properties.equipmentChanges);
   assert.ok(output.properties.sandbox);
   assert.ok(output.properties.goalProgress);
   assert.ok(output.properties.behaviorScheme);

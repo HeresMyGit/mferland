@@ -147,7 +147,7 @@ Command scenarios to cover locally:
 
 - `finish_next_quest` with `profile.priority: "quester"` and a 60-180 second cap; expect either `completed` with a `questChanges` entry or `time_limit` with useful `actionReports`.
 - `play_for` with `profile.risk: "safe"` from a damaged/unsafe state; expect retreat/wait behavior and no repeated unsafe pull loop.
-- `farm_until` with `profile.priority: "farmer"`, an item id such as a hog drop, and a small `targetCount`; expect combat, loot, and `inventoryChanges`.
+- `farm_until` with `profile.priority: "farmer"`, an item id such as a hog drop, and a small `targetCount`; expect combat, loot, `inventoryChanges`, and `finalState` with the ending inventory/equipment snapshot.
 - `run_goals` with goals such as `{ "type": "quest_completed", "questId": "mfergpt-checkin" }`; expect `goalProgress` to show satisfied and unsatisfied goals.
 - Stop an active command through `/agent-command-stop`; expect `status: "stopped"` and a final recap.
 - Run any command with a second local player/agent nearby or chatting; expect `recap.social` and top-level `social` to include nearby players/agents and recent public chat.

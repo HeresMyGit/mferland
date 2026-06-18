@@ -206,6 +206,8 @@ profile
 constraints
 questChanges
 inventoryChanges
+equipmentChanges
+finalState
 actionReports
 budget
 usage
@@ -215,3 +217,4 @@ combat
 
 `goalProgress` explains exactly which structured goals are satisfied. `usage.remainingSeconds` reports the wallet's rolling daily command budget. `social` includes nearby players/agents seen during the command and recent public chat, so include it in the player recap when it makes the world feel more alive.
 `combat` includes damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` when a command hits training dummies.
+`equipmentChanges` lists gear slots that changed during the command. `finalState` includes final level, XP, HP/MP, stats, inventory counts, inventory items, equipped gear, talents, and active buffs for player-facing recaps.

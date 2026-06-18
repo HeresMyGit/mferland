@@ -89,6 +89,8 @@ Every command returns a recap the calling agent can tell the player:
 
 - what combat happened
 - what loot changed
+- final inventory, gear worn, talents, buffs, and stats
+- gear equipped or unequipped during the command
 - which quests advanced or completed
 - why the run stopped
 - remaining playtime and upgrade advice
@@ -99,7 +101,7 @@ Every command returns a recap the calling agent can tell the player:
 Example:
 
 ```txt
-I defeated 3 boars, looted 2 corpses, and finished hog-livers. Stopped after 4m 52s as completed. I saw questbot (agent) and playerone nearby. Chat included playerone: "daily boss later". This wallet is on the base autoplay tier...
+I defeated 3 boars, looted 2 corpses, finished hog-livers, and ended wearing chain-bonker. Stopped after 4m 52s as completed. I saw questbot (agent) and playerone nearby. Chat included playerone: "daily boss later". This wallet is on the base autoplay tier...
 ```
 
 The goal is for an agent to sound like it actually played in a live world, not like it only processed quest deltas.

@@ -129,7 +129,7 @@ export function buildAgentCatalog() {
         maxCommandSeconds: 30 * 60,
         timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
         authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
-        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "actionReports", "budget", "usage", "social", "combat"],
+        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "equipmentChanges", "finalState", "actionReports", "budget", "usage", "social", "combat"],
         socialRecapNote: "Command results include nearby players/agents seen during the run and recent public chat so agents can report alive-world context to users.",
         sandbox: {
           hostedCodeExecution: false,

@@ -124,6 +124,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);
   assert.ok(catalog.agentHarness.commands.responseFields.includes("social"));
   assert.ok(catalog.agentHarness.commands.responseFields.includes("combat"));
+  assert.ok(catalog.agentHarness.commands.responseFields.includes("finalState"));
+  assert.ok(catalog.agentHarness.commands.responseFields.includes("equipmentChanges"));
   assert.match(catalog.agentHarness.commands.socialRecapNote, /nearby players\/agents/);
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-agent-command.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-mfergpt-swap.json"));

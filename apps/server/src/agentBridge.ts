@@ -222,6 +222,62 @@ type QuestSnapshotSummary = {
   required: number;
 };
 
+type PlayerInventorySummary = {
+  itemId: string;
+  count: number;
+  chainTokenId: string;
+  chainTier: number;
+};
+
+type PlayerEquipmentSummary = {
+  slot: string;
+  itemId: string;
+  chainTokenId: string;
+  chainTier: number;
+};
+
+type PlayerTalentSummary = {
+  talentId: string;
+  rank: number;
+};
+
+type PlayerActiveBuffSummary = {
+  id: string;
+  stacks: number;
+  expiresAt: number;
+};
+
+type PlayerFinalStateSummary = {
+  level: number;
+  xp: number;
+  talentPoints: number;
+  health: number;
+  maxHealth: number;
+  mana: number;
+  maxMana: number;
+  position: Point;
+  stats: {
+    strength: number;
+    dexterity: number;
+    magic: number;
+    healthRegenPer5: number;
+    manaRegenPer5: number;
+    walkSpeed: number;
+    runSpeed: number;
+  };
+  inventoryCounts: Record<string, number>;
+  inventory: PlayerInventorySummary[];
+  equipment: PlayerEquipmentSummary[];
+  talents: PlayerTalentSummary[];
+  activeBuffs: PlayerActiveBuffSummary[];
+};
+
+type EquipmentChangeSummary = {
+  slot: string;
+  before: Omit<PlayerEquipmentSummary, "slot"> | null;
+  after: Omit<PlayerEquipmentSummary, "slot"> | null;
+};
+
 type PlayerActionSnapshot = {
   health: number;
   maxHealth: number;
@@ -229,9 +285,15 @@ type PlayerActionSnapshot = {
   maxMana: number;
   level: number;
   xp: number;
+  talentPoints: number;
   position: Point;
+  stats: PlayerFinalStateSummary["stats"];
   quests: QuestSnapshotSummary[];
   inventoryCounts: Record<string, number>;
+  inventory: PlayerInventorySummary[];
+  equipment: PlayerEquipmentSummary[];
+  talents: PlayerTalentSummary[];
+  activeBuffs: PlayerActiveBuffSummary[];
   attackerIds: string[];
 };
 
@@ -2938,11 +3000,15 @@ class AgentBridgeSession {
       const inventoryChanges = command.startSnapshot && command.lastSnapshot
         ? describeInventoryCountChanges(command.startSnapshot.inventoryCounts, command.lastSnapshot.inventoryCounts)
         : [];
+      const equipmentChanges = command.startSnapshot && command.lastSnapshot
+        ? describeEquipmentChanges(command.startSnapshot.equipment, command.lastSnapshot.equipment)
+        : [];
       const self = this.self();
       const goalProgress = self ? this.describeCommandGoalProgress(command, self) : [];
       const playtime = describeCommandPlaytime(command, now);
       const budgetAdvice = getAgentCommandBudgetAdvice(command.budget, command.requestedMaxSeconds);
-      const recap = buildAgentCommandRecap(command, questChanges, inventoryChanges, playtime, budgetAdvice);
+      const finalState = self ? this.describeFinalState(self) : (command.lastSnapshot ? snapshotToFinalState(command.lastSnapshot) : null);
+      const recap = buildAgentCommandRecap(command, questChanges, inventoryChanges, equipmentChanges, finalState, playtime, budgetAdvice);
       const summary = [
         recap.summary,
         `${command.kind} ${command.status}`,
@@ -2951,6 +3017,7 @@ class AgentBridgeSession {
         goalProgress.length ? `goals ${goalProgress.filter((goal) => goal.satisfied).length}/${goalProgress.length}` : "",
         questChanges.length ? `quests ${questChanges.map((change) => `${change.id} ${change.before}->${change.after}`).join(", ")}` : "",
         inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
+        equipmentChanges.length ? `equipment ${formatEquipmentChanges(equipmentChanges)}` : "",
       ].filter(Boolean).join("; ");
     return {
       ok: command.status !== "failed",
@@ -2973,6 +3040,8 @@ class AgentBridgeSession {
         recap,
         social: recap.social,
         combat: recap.combat,
+        finalState,
+        equipmentChanges,
         status: command.status,
         stoppedBecause: command.stoppedBecause,
         summary,
@@ -2991,6 +3060,8 @@ class AgentBridgeSession {
           recap,
           social: recap.social,
           combat: recap.combat,
+          finalState,
+          equipmentChanges,
         },
       durationMs,
         requestedMaxSeconds: command.requestedMaxSeconds,
@@ -3166,12 +3237,6 @@ class AgentBridgeSession {
   }
 
   private snapshotPlayer(self: RuntimePlayer): PlayerActionSnapshot {
-    const inventoryCounts: Record<string, number> = {};
-    for (const item of self.inventory) {
-      const itemId = getString(item.id);
-      if (!itemId) continue;
-      inventoryCounts[itemId] = (inventoryCounts[itemId] ?? 0) + getNumber(item.count);
-    }
     return {
       health: self.health,
       maxHealth: self.maxHealth,
@@ -3179,9 +3244,23 @@ class AgentBridgeSession {
       maxMana: self.maxMana,
       level: self.level,
       xp: self.xp,
+      talentPoints: self.talentPoints,
       position: point(self),
+      stats: {
+        strength: round(self.strength),
+        dexterity: round(self.dexterity),
+        magic: round(self.magic),
+        healthRegenPer5: round(self.healthRegenPer5),
+        manaRegenPer5: round(self.manaRegenPer5),
+        walkSpeed: round(self.walkSpeed),
+        runSpeed: round(self.runSpeed),
+      },
       quests: this.questSummaries(self),
-      inventoryCounts,
+      inventoryCounts: describeInventoryCounts(self.inventory),
+      inventory: this.describeInventory(self),
+      equipment: this.describeEquipment(self),
+      talents: this.describeTalents(self),
+      activeBuffs: this.describeActiveBuffs(self),
       attackerIds: this.getAttackers(self).map((npc) => npc.id),
     };
   }
@@ -5477,7 +5556,34 @@ class AgentBridgeSession {
       .slice(0, 12);
   }
 
-  private describeInventory(self: RuntimePlayer) {
+  private describeFinalState(self: RuntimePlayer): PlayerFinalStateSummary {
+    return {
+      level: self.level,
+      xp: self.xp,
+      talentPoints: self.talentPoints,
+      health: round(self.health),
+      maxHealth: round(self.maxHealth),
+      mana: round(self.mana),
+      maxMana: round(self.maxMana),
+      position: { x: round(self.x), z: round(self.z) },
+      stats: {
+        strength: round(self.strength),
+        dexterity: round(self.dexterity),
+        magic: round(self.magic),
+        healthRegenPer5: round(self.healthRegenPer5),
+        manaRegenPer5: round(self.manaRegenPer5),
+        walkSpeed: round(self.walkSpeed),
+        runSpeed: round(self.runSpeed),
+      },
+      inventoryCounts: describeInventoryCounts(self.inventory),
+      inventory: this.describeInventory(self).filter((item) => item.count > 0),
+      equipment: this.describeEquipment(self).filter((slot) => slot.itemId),
+      talents: this.describeTalents(self),
+      activeBuffs: this.describeActiveBuffs(self),
+    };
+  }
+
+  private describeInventory(self: RuntimePlayer): PlayerInventorySummary[] {
     return self.inventory.map((item) => ({
       itemId: getString(item.id),
       count: getNumber(item.count),
@@ -5486,13 +5592,32 @@ class AgentBridgeSession {
     }));
   }
 
-  private describeEquipment(self: RuntimePlayer) {
+  private describeEquipment(self: RuntimePlayer): PlayerEquipmentSummary[] {
     return self.equipment.map((slot) => ({
       slot: getString(slot.slot),
       itemId: getString(slot.itemId),
       chainTokenId: getString(slot.chainTokenId),
       chainTier: getNumber(slot.chainTier, 1),
     }));
+  }
+
+  private describeTalents(self: RuntimePlayer): PlayerTalentSummary[] {
+    return self.talents
+      .map((talent) => ({
+        talentId: getString(talent.id ?? talent.talentId),
+        rank: getNumber(talent.rank),
+      }))
+      .filter((talent) => talent.talentId && talent.rank > 0);
+  }
+
+  private describeActiveBuffs(self: RuntimePlayer): PlayerActiveBuffSummary[] {
+    return self.activeBuffs
+      .map((buff) => ({
+        id: getString(buff.id),
+        stacks: getNumber(buff.stacks, 1),
+        expiresAt: getNumber(buff.expiresAt),
+      }))
+      .filter((buff) => buff.id);
   }
 
   private describeSpendableTalents(self: RuntimePlayer) {
@@ -7071,6 +7196,16 @@ function questProgressLabel(quest: QuestSnapshotSummary) {
   return `${quest.status}:${quest.progress}/${quest.required}`;
 }
 
+function describeInventoryCounts(inventory: AnyRecord[]) {
+  const inventoryCounts: Record<string, number> = {};
+  for (const item of inventory) {
+    const itemId = getString(item.id);
+    if (!itemId) continue;
+    inventoryCounts[itemId] = (inventoryCounts[itemId] ?? 0) + getNumber(item.count);
+  }
+  return inventoryCounts;
+}
+
 function describeInventoryCountChanges(before: Record<string, number>, after: Record<string, number>) {
   const itemIds = new Set([...Object.keys(before), ...Object.keys(after)]);
   return [...itemIds]
@@ -7082,6 +7217,74 @@ function describeInventoryCountChanges(before: Record<string, number>, after: Re
     .filter((change) => change.before !== change.after)
     .sort((a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before) || a.itemId.localeCompare(b.itemId))
     .slice(0, 12);
+}
+
+export function describeEquipmentChanges(before: PlayerEquipmentSummary[], after: PlayerEquipmentSummary[]): EquipmentChangeSummary[] {
+  const beforeBySlot = equipmentBySlot(before);
+  const afterBySlot = equipmentBySlot(after);
+  const slots = new Set([...beforeBySlot.keys(), ...afterBySlot.keys()]);
+  return [...slots]
+    .sort()
+    .map((slot) => {
+      const beforeEntry = compactEquipmentSummary(beforeBySlot.get(slot));
+      const afterEntry = compactEquipmentSummary(afterBySlot.get(slot));
+      return { slot, before: beforeEntry, after: afterEntry };
+    })
+    .filter((change) => !equipmentSummaryEqual(change.before, change.after));
+}
+
+function equipmentBySlot(equipment: PlayerEquipmentSummary[]) {
+  const bySlot = new Map<string, PlayerEquipmentSummary>();
+  for (const entry of equipment) {
+    if (!entry.slot) continue;
+    bySlot.set(entry.slot, entry);
+  }
+  return bySlot;
+}
+
+function compactEquipmentSummary(entry: PlayerEquipmentSummary | undefined): Omit<PlayerEquipmentSummary, "slot"> | null {
+  if (!entry?.itemId) return null;
+  return {
+    itemId: entry.itemId,
+    chainTokenId: entry.chainTokenId,
+    chainTier: entry.chainTier,
+  };
+}
+
+function equipmentSummaryEqual(left: Omit<PlayerEquipmentSummary, "slot"> | null, right: Omit<PlayerEquipmentSummary, "slot"> | null) {
+  if (!left || !right) return left === right;
+  return left.itemId === right.itemId
+    && left.chainTokenId === right.chainTokenId
+    && left.chainTier === right.chainTier;
+}
+
+function formatEquipmentChanges(changes: EquipmentChangeSummary[]) {
+  return changes
+    .map((change) => {
+      const before = change.before?.itemId || "empty";
+      const after = change.after?.itemId || "empty";
+      return `${change.slot} ${before}->${after}`;
+    })
+    .join(", ");
+}
+
+function snapshotToFinalState(snapshot: PlayerActionSnapshot): PlayerFinalStateSummary {
+  return {
+    level: snapshot.level,
+    xp: snapshot.xp,
+    talentPoints: snapshot.talentPoints,
+    health: round(snapshot.health),
+    maxHealth: round(snapshot.maxHealth),
+    mana: round(snapshot.mana),
+    maxMana: round(snapshot.maxMana),
+    position: { x: round(snapshot.position.x), z: round(snapshot.position.z) },
+    stats: snapshot.stats,
+    inventoryCounts: snapshot.inventoryCounts,
+    inventory: snapshot.inventory.filter((item) => item.count > 0),
+    equipment: snapshot.equipment.filter((slot) => slot.itemId),
+    talents: snapshot.talents,
+    activeBuffs: snapshot.activeBuffs,
+  };
 }
 
 function normalizeKnownQuestId(value: string): QuestId | null {
@@ -7726,6 +7929,8 @@ function buildAgentCommandRecap(
   command: AgentCommandState,
   questChanges: Array<{ id: string; before: string; after: string }>,
   inventoryChanges: Array<{ itemId: string; before: number; after: number }>,
+  equipmentChanges: EquipmentChangeSummary[],
+  finalState: PlayerFinalStateSummary | null,
   playtime: ReturnType<typeof describeCommandPlaytime>,
   budgetAdvice: string,
 ) {
@@ -7750,6 +7955,7 @@ function buildAgentCommandRecap(
     lootCounts.length ? `looted ${formatCountedTargets(lootCounts)}` : "",
     completedQuests.length ? `finished ${formatHumanList(completedQuests)}` : "",
     inventoryDeltas.length ? `inventory ${inventoryDeltas.map((change) => `${change.delta > 0 ? "+" : ""}${change.delta} ${change.itemId}`).join(", ")}` : "",
+    equipmentChanges.length ? `equipment ${formatEquipmentChanges(equipmentChanges)}` : "",
     combat.damageDone > 0 ? `dealt ${combat.damageDone} damage (${combat.dps} DPS${combat.trainingDummyDps > 0 ? `, ${combat.trainingDummyDps} dummy DPS` : ""})` : "",
   ].filter(Boolean);
   const actionSentence = parts.length
@@ -7767,6 +7973,8 @@ function buildAgentCommandRecap(
     looted: lootCounts,
     completedQuests,
     inventoryChanges: inventoryDeltas,
+    equipmentChanges,
+    finalState,
     social,
     combat,
     playtime: {

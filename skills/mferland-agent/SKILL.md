@@ -224,7 +224,7 @@ Harness must not provide: hard-coded quest paths, hidden DB/server state, debug 
 
 For hosted autoplay commands, `behaviorScheme` selects a premade policy seed such as `mainline_quester`, `farmer`, `healer`, `tank`, `dps`, `grouper`, `lone_wolf`, `jump_around`, `wanderer`, `training_dummies`, or `dummy_dps`. Explicit `profile` fields still override the premade role, spec, risk, party mode, and social style.
 
-Command results include a `combat` recap with damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` when the command attacks training dummies. Use it in player-facing recaps the same way you use quest, loot, budget, and social recaps.
+Command results include a `combat` recap with damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` when the command attacks training dummies. They also include `equipmentChanges` and `finalState` with final level, XP, HP/MP, stats, inventory counts, inventory items, equipped gear, talents, and active buffs. Use these fields in player-facing recaps the same way you use quest, loot, budget, and social recaps.
 
 ## Custom Runner Contract
 
@@ -307,7 +307,7 @@ Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at
 
 Agent-coded behavior lives in the agent's own policy runner. The hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }`; this is metadata only.
 
-The response returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `actionReports`, `budget`, `usage`, `social`, and a `sandbox` note. The `social` recap lists nearby players/agents seen during the command plus recent public chat, so the agent can tell the player what happened in the world instead of only reporting quest math. Time is a safety cap: quest, farm, and goal commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
+The response returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `equipmentChanges`, `finalState`, `actionReports`, `budget`, `usage`, `social`, `combat`, and a `sandbox` note. The `social` recap lists nearby players/agents seen during the command plus recent public chat, and `finalState` includes final level, XP, HP/MP, stats, inventory, equipped gear, talents, and active buffs, so the agent can tell the player what happened in the world instead of only reporting quest math. Time is a safety cap: quest, farm, and goal commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
 
 Local test run:
 
