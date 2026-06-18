@@ -210,7 +210,7 @@ GET /agent-milestones?type=centralizer
 GET /agent-milestones?questId=baron-of-static
 ```
 
-These answer level/equipment/inventory questions, who is online, what public quest state a character has, and who completed The Centralizer. They do not perform gameplay.
+These answer level/equipment/inventory questions, who is online, what public quest state a character has, what visible agents are doing, current autoplay command/playtime state for online agents, and who completed The Centralizer. They do not perform gameplay.
 
 Bridge contract:
 

@@ -304,6 +304,7 @@ function describeLivePlayer(player: LivePlayer) {
     roomName: player.roomName,
     onlineForMs: player.onlineForMs,
     lastInputAgoMs: player.lastInputAt > 0 ? Math.max(0, Date.now() - player.lastInputAt) : null,
+    lastAgentActivityAgoMs: player.lastAgentActivityAt > 0 ? Math.max(0, Date.now() - player.lastAgentActivityAt) : null,
     zone: getAreaName(player.position.x, player.position.z),
     position: {
       x: player.position.x,
@@ -326,6 +327,26 @@ function describeLivePlayer(player: LivePlayer) {
       actionId: player.castingAction,
       targetKind: player.castTargetKind,
       targetId: player.castTargetId,
+    } : null,
+    agentStatus: player.isAgent ? {
+      action: player.agentStatusAction,
+      thought: player.agentStatusThought,
+      objective: player.agentStatusObjective,
+      quest: player.agentStatusQuest,
+      updatedAt: player.agentStatusUpdatedAt,
+      updatedAgoMs: player.agentStatusUpdatedAt > 0 ? Math.max(0, Date.now() - player.agentStatusUpdatedAt) : null,
+    } : null,
+    agentCommand: player.isAgent ? {
+      status: player.agentCommandStatus,
+      budgetTier: player.agentCommandBudgetTier,
+      startedAt: player.agentCommandStartedAt,
+      startedAtIso: player.agentCommandStartedAt > 0 ? new Date(player.agentCommandStartedAt).toISOString() : "",
+      maxSeconds: player.agentCommandMaxSeconds,
+      sessionUsedSeconds: player.agentCommandSessionUsedSeconds,
+      sessionRemainingSeconds: player.agentCommandSessionRemainingSeconds,
+      dailyUsedSeconds: player.agentCommandDailyUsedSeconds,
+      dailyRemainingSeconds: player.agentCommandDailyRemainingSeconds,
+      dailySeconds: player.agentCommandDailySeconds,
     } : null,
   };
 }

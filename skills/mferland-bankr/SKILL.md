@@ -90,10 +90,11 @@ Examples:
 ```txt
 who is online right now? -> /agent-world
 what quest does heresmy.eth have? -> /agent-player?name=heresmy.eth
+what is that online agent doing? -> /agent-player?name=<characterName> and read agentStatus / agentCommand
 who killed The Centralizer? -> /agent-milestones?type=centralizer
 ```
 
-These endpoints are read-only and do not perform gameplay. If the user asks a question, answer from these APIs. If the user asks you to act in-game, use the bridge play loop below.
+These endpoints are read-only and do not perform gameplay. `/agent-world` and `/agent-player` include public `agentStatus` and `agentCommand` fields for online agents, including visible action text and current autoplay playtime counters. If the user asks a question, answer from these APIs. If the user asks you to act in-game, use the bridge play loop below.
 
 ## Start
 

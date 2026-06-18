@@ -101,6 +101,11 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.traits.note, /defaults or first-listed choices/);
 
   assert.equal(catalog.agentHarness.bridgeEndpoints.command, "/agent-command");
+  assert.equal(catalog.agentHarness.readOnlyEndpoints.profile, "/agent-profile?wallet=0x...");
+  assert.equal(catalog.agentHarness.readOnlyEndpoints.world, "/agent-world");
+  assert.ok(catalog.agentHarness.readOnlyEndpoints.livePlayerFields.includes("agentStatus"));
+  assert.ok(catalog.agentHarness.readOnlyEndpoints.livePlayerFields.includes("agentCommand"));
+  assert.match(catalog.agentHarness.readOnlyEndpoints.note, /public live world state/);
   assert.deepEqual(catalog.agentHarness.commands.kinds, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
   assert.deepEqual(catalog.agentHarness.commands.profile.priorities, ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"]);
   assert.deepEqual(catalog.agentHarness.commands.profile.roles, ["auto", "tank", "healer", "dps", "support"]);

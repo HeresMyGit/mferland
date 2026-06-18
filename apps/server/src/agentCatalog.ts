@@ -89,6 +89,15 @@ export function buildAgentCatalog() {
         commandStop: "/agent-command-stop",
         stop: "/agent-stop",
       },
+      readOnlyEndpoints: {
+        profile: "/agent-profile?wallet=0x...",
+        world: "/agent-world",
+        playerByWallet: "/agent-player?wallet=0x...",
+        playerByName: "/agent-player?name=...",
+        milestones: "/agent-milestones?questId=baron-of-static",
+        livePlayerFields: ["agentStatus", "agentCommand", "lastAgentActivityAgoMs", "currentQuest", "questCounts", "equipment", "activeCast"],
+        note: "Use these GET endpoints for saved character facts and public live world state before starting a bridge session. /agent-world and /agent-player include public agent status and autoplay command/playtime fields for online agents.",
+      },
       commands: {
         kinds: ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"],
         stopWhen: ["any", "all"],

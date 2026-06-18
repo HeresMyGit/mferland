@@ -506,6 +506,11 @@ export type AdminPlayerSnapshot = {
   lastChatAt: number;
   lastInteractAt: number;
   lastAgentActivityAt: number;
+  agentStatusAction: string;
+  agentStatusThought: string;
+  agentStatusObjective: string;
+  agentStatusQuest: string;
+  agentStatusUpdatedAt: number;
   agentCommandStatus: string;
   agentCommandBudgetTier: string;
   agentCommandStartedAt: number;
@@ -4246,6 +4251,11 @@ function snapshotPlayers({
       lastChatAt: lastChatAt.get(sessionId) ?? 0,
       lastInteractAt: lastInteractAt.get(sessionId) ?? 0,
       lastAgentActivityAt: lastAgentActivityAt.get(sessionId) ?? 0,
+      agentStatusAction: player.agentStatusAction,
+      agentStatusThought: player.agentStatusThought,
+      agentStatusObjective: player.agentStatusObjective,
+      agentStatusQuest: player.agentStatusQuest,
+      agentStatusUpdatedAt: player.agentStatusUpdatedAt,
       agentCommandStatus: agentCommandBudget.status,
       agentCommandBudgetTier: agentCommandBudget.budgetTier,
       agentCommandStartedAt: agentCommandBudget.startedAt,

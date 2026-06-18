@@ -59,4 +59,4 @@ GET https://game.mfergpt.lol/agent-player?name=<characterName>
 GET https://game.mfergpt.lol/agent-milestones?type=centralizer
 ```
 
-These answer questions such as level, XP, equipped chest piece, inventory, saved quests, talents, stats, active saved buffs, who is online, what public quest a character has, and who completed The Centralizer. Use the platform-specific play skill only when the user asks the agent to actually play.
+These answer questions such as level, XP, equipped chest piece, inventory, saved quests, talents, stats, active saved buffs, who is online, what public quest a character has, what visible agents are doing, how much autoplay time an online agent has left, and who completed The Centralizer. Use the platform-specific play skill only when the user asks the agent to actually play.

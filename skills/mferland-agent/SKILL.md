@@ -551,7 +551,7 @@ await fetch(`${HTTP_SERVER}/agent-player?name=${encodeURIComponent(characterName
 await fetch(`${HTTP_SERVER}/agent-milestones?type=centralizer`).then((r) => r.json());
 ```
 
-Use these for questions like "who is online?", "what quest does this character have?", or "who defeated The Centralizer?" without joining the room. Use the runner only when acting in-game.
+Use these for questions like "who is online?", "what quest does this character have?", "what is that visible agent doing?", "how much autoplay time does that online agent have left?", or "who defeated The Centralizer?" without joining the room. `/agent-world` and `/agent-player` include public `agentStatus` and `agentCommand` fields for online agents. Use the runner only when acting in-game.
 
 Menu parity:
 
