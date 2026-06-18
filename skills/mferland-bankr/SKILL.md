@@ -12,8 +12,9 @@ Hard rules:
 - Do not install, download, curl, or run `mferland-agent` files.
 - Do not run `npm`, `ts-node`, `mferland-agent-runner.ts`, or a Colyseus client.
 - Do not ask the user for `BANKR_API_KEY`; that is only for external runners, not Bankr Terminal/X.
-- Do not stop after `/agent-start`. Starting only logs the bridge player in; playing requires an observe/action loop.
-- Use one action per poll. Treat HTTP `202` action responses as accepted/in progress, then keep observing.
+- Do not stop after `/agent-start`. Starting only logs the bridge player in; playing requires `/agent-command` command mode or, for manual/debug cases, an observe/action loop.
+- For X timeline or chat requests like "play for 5 minutes", "do next quest", "farm rabbits", or "train DPS", prefer `/agent-command` command mode and return its recap.
+- In the manual action loop, use one action per poll. Treat HTTP `202` action responses as accepted/in progress, then keep observing.
 - Do not print `sessionToken`, signatures, or bearer headers in user-visible chat.
 
 ## Auth
@@ -120,57 +121,19 @@ Watch with:
 https://game.mfergpt.lol/agent-view?wallet=<walletAddress>
 ```
 
-## Play Loop
+## Default Autoplay Command Mode
 
-For the requested duration, repeat:
+For timeline-friendly task-bounded play, use `/agent-command` instead of manually polling `/agent-action` for every step. It still uses the same wallet-authenticated bridge player and normal room messages; it just lets the bridge run a bounded sequence and return a recap.
 
-```txt
-GET /agent-observe?bridgeSessionId=...&view=bankr
-choose exactly one action from actionSchema/availableActions/hints/current quest state
-POST /agent-action
-wait about 2-3 seconds
-repeat
-```
-
-Always include:
+Use command mode for requests like:
 
 ```txt
-Authorization: Bearer <sessionToken>
+play for 5 minutes
+do the next quest
+farm hog livers until you get 3
+farm rabbits for 2 minutes then continue questing
+train on dummies and report DPS
 ```
-
-Action request shape:
-
-```json
-{
-  "bridgeSessionId": "...",
-  "action": "fight_npc",
-  "reason": "Quest target is isolated and safe.",
-  "npcRef": "wild-hog-grub"
-}
-```
-
-Bankr-friendly aliases are accepted: `npcId` for `npcRef`, `playerId` for `playerRef`, `abilityId` for `actionId`, `routeId` for `text`, and `tokenId` for `text` on `register_chain_gear`.
-
-`/agent-action` is durable. The bridge treats high-level actions as permission to handle short mechanical continuation with normal game messages: move into range, stop for stationary casts, keep a selected fight target, route to quest turn-ins, loot a defeated target, and use emergency survival reflexes. The HTTP response may wait several seconds before returning a report.
-
-For `fight_npc`, prefer targets with low `approachRiskScore` and `pullRiskScore`, even if another target is a little closer. The bridge may report `safe_approach ... via loop-farm`, `claim-pile-edge`, `route-post`, or another staging point before fighting. That is expected: it is avoiding a direct run through hostile density while still executing Bankr's chosen target.
-
-Read these response fields:
-
-```txt
-summary
-stoppedBecause
-report
-suggestedNextAction
-continuePrompt
-durationMs
-```
-
-If `status` is `in_progress`, the bridge is still carrying out the chosen action. Observe again or continue with `suggestedNextAction` if step budget allows. If `status` is `completed`, pick the next action from `suggestedNextAction`, `hints`, or fresh observe state. If `status` is `safety_stop`, observe before pulling another enemy.
-
-## Command Mode
-
-For task-bounded autoplay, use `/agent-command` instead of manually polling `/agent-action` for every step. It still uses the same wallet-authenticated bridge player and normal room messages; it just lets the bridge run a bounded sequence and return a recap.
 
 Start:
 
@@ -178,7 +141,8 @@ Start:
 {
   "operation": "start",
   "bridgeSessionId": "...",
-  "command": "finish_next_quest",
+  "command": "play_for",
+  "behaviorScheme": "mainline_quester",
   "profile": {
     "priority": "quester",
     "role": "support",
@@ -189,7 +153,7 @@ Start:
     "noWalletActions": true,
     "noPaidActions": true
   },
-  "maxSeconds": 900
+  "maxSeconds": 300
 }
 ```
 
@@ -243,6 +207,56 @@ Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at
 The response includes `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `equipmentChanges`, `finalState`, `actionReports`, `budget`, `social`, `combat`, and persisted rolling-window `usage`. Use `summary` directly when possible; if reporting in your own words, include useful `social` details such as nearby players/agents and public chat that happened during the run, plus `finalState` gear/inventory/talent details when the player asks what the agent ended with.
 
 Time limits are safety guards, not the main success condition. `finish_next_quest` ends when a newly completed quest is observed, `finish_quest` ends when that quest is completed, `farm_until` ends when the inventory target is reached, `run_goals` ends when the declared goals satisfy `stopWhen`, and `play_for` ends on time. The server caps a single command by MFERGPT-holding tier: base wallets get 5 minutes, 25M MFERGPT gets 15 minutes, and 100M+ gets 30 minutes. Rolling 24-hour command usage is persisted by wallet, and reserved seconds expire after the command timebox plus a short grace period.
+
+## Manual Action Loop
+
+Use this lower-level loop only when the user asks for a single specific live action, when command mode cannot express the request, or when debugging. For a normal timeline "play for N minutes" request, use command mode above.
+
+For manual action play, repeat:
+
+```txt
+GET /agent-observe?bridgeSessionId=...&view=bankr
+choose exactly one action from actionSchema/availableActions/hints/current quest state
+POST /agent-action
+wait about 2-3 seconds
+repeat
+```
+
+Always include:
+
+```txt
+Authorization: Bearer <sessionToken>
+```
+
+Action request shape:
+
+```json
+{
+  "bridgeSessionId": "...",
+  "action": "fight_npc",
+  "reason": "Quest target is isolated and safe.",
+  "npcRef": "wild-hog-grub"
+}
+```
+
+Bankr-friendly aliases are accepted: `npcId` for `npcRef`, `playerId` for `playerRef`, `abilityId` for `actionId`, `routeId` for `text`, and `tokenId` for `text` on `register_chain_gear`.
+
+`/agent-action` is durable. The bridge treats high-level actions as permission to handle short mechanical continuation with normal game messages: move into range, stop for stationary casts, keep a selected fight target, route to quest turn-ins, loot a defeated target, and use emergency survival reflexes. The HTTP response may wait several seconds before returning a report.
+
+For `fight_npc`, prefer targets with low `approachRiskScore` and `pullRiskScore`, even if another target is a little closer. The bridge may report `safe_approach ... via loop-farm`, `claim-pile-edge`, `route-post`, or another staging point before fighting. That is expected: it is avoiding a direct run through hostile density while still executing Bankr's chosen target.
+
+Read these response fields:
+
+```txt
+summary
+stoppedBecause
+report
+suggestedNextAction
+continuePrompt
+durationMs
+```
+
+If `status` is `in_progress`, the bridge is still carrying out the chosen action. Observe again or continue with `suggestedNextAction` if step budget allows. If `status` is `completed`, pick the next action from `suggestedNextAction`, `hints`, or fresh observe state. If `status` is `safety_stop`, observe before pulling another enemy.
 
 ## Context Boundary
 
