@@ -118,6 +118,7 @@ test("agent tool payment parser accepts zero-value EIP-3009 payloads", async () 
   const usage = buildToolUsageReport("mferland-mfergpt-swap", payment, Date.now() - 25);
   assert.equal(usage.verification_type, "eip3009_authorization");
   assert.equal(usage.eip3009.caller_address, CALLER);
+  assert.equal(usage.eip3009.chain_id, 8453);
   assert.equal(usage.eip3009.value, "0");
 
   process.env.MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID = "123";

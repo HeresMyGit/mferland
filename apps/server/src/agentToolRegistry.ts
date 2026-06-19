@@ -269,7 +269,7 @@ export async function verifyZeroPriceToolPayment(
   try {
     const recovered = normalizeAddress(await recoverTypedDataAddress({
       domain: {
-        name: process.env.MFERLAND_TOOL_EIP3009_TOKEN_NAME || "USDC",
+        name: process.env.MFERLAND_TOOL_EIP3009_TOKEN_NAME || "USD Coin",
         version: process.env.MFERLAND_TOOL_EIP3009_TOKEN_VERSION || "2",
         chainId: BASE_CHAIN_ID,
         verifyingContract: getAddress(BASE_USDC_ADDRESS) as Address,
@@ -303,6 +303,7 @@ export function buildToolUsageReport(tool: AgentToolSlug, payment: NonNullable<R
     eip3009: {
       caller_address: payment.authorization.from,
       signature: payment.signature,
+      chain_id: BASE_CHAIN_ID,
       from: payment.authorization.from,
       to: payment.authorization.to,
       value: payment.authorization.value,

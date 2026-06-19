@@ -44,7 +44,7 @@ MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID
 MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID
 ```
 
-Tool registry variables can be absent in local/dev mode, but production OpenSea/ERC-8257 usage reporting requires the OpenSea key, registry/tool ids, operator address, and valid zero-value EIP-3009 `X-Payment` headers.
+Tool registry variables can be absent in local/dev mode, but production OpenSea/ERC-8257 usage reporting requires the OpenSea key, registry/tool ids, operator address, and valid zero-value EIP-3009 `X-Payment` headers. Sign those headers against the Base USDC EIP-712 domain `name: "USD Coin"`, `version: "2"`, chain id `8453`, and verifying contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
 
 ## Pre-Deploy Checks On Host
 

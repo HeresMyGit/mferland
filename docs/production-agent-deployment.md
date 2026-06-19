@@ -106,7 +106,7 @@ MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
 
-With those set, callers can retry tool requests with a pre-signed zero-value EIP-3009 `X-Payment` header. The server verifies the signature locally, executes the tool, and reports usage to OpenSea with `verification_type: "eip3009_authorization"`. Missing or failed usage reporting must not fail a successful gameplay or swap response.
+With those set, callers can retry tool requests with a pre-signed zero-value EIP-3009 `X-Payment` header. The signature must use the Base USDC EIP-712 domain `name: "USD Coin"`, `version: "2"`, chain id `8453`, and verifying contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. The server verifies the signature locally, executes the tool, and reports usage to OpenSea with `verification_type: "eip3009_authorization"` and `eip3009.chain_id`. Missing or failed usage reporting must not fail a successful gameplay or swap response.
 
 ## Live Mac Mini Upgrade
 
