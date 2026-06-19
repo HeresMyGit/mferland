@@ -36,7 +36,9 @@ MFERLAND_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI=25000000000000000000000000
 MFERLAND_AGENT_SEASON0_POINT_MULTIPLIER
 BASE_RPC_URL or configured Base RPC provider
 MFERLAND_MFERGPT_TOKEN_ADDRESS
+MFERLAND_TOOL_CREATOR_ADDRESS
 MFERLAND_TOOL_OPERATOR_ADDRESS
+MFERLAND_TOOL_REGISTRY_ADDRESS
 OPENSEA_API_KEY
 MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID
 MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID
@@ -76,7 +78,7 @@ curl -fsS https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-
 Expected:
 
 - `/agent-catalog` lists command kinds, profiles, schemes, goals, constraints, controller metadata, swap/router details, and Season 0 agent balance requirements.
-- both `.well-known/ai-tool` manifests return stable JSON.
+- both `.well-known/ai-tool` manifests return stable JSON without self-referential hash fields; validate and hash the exact served files with `npx @opensea/tool-sdk validate` and `npx @opensea/tool-sdk hash` before registering them onchain.
 - hosted skills include the main default skill, compatibility skill URLs, plus the advanced runner `SKILL.md`, runner scripts, package file, and tsconfig.
 
 ## Gameplay Smoke Tests

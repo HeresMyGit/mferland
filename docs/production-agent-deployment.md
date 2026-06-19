@@ -41,19 +41,72 @@ MFERLAND_MFERGPT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
 MFERLAND_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
 ```
 
-Only set these after the tool manifests are ready to register with OpenSea/ERC-8257:
+Set these before fetching, hashing, and registering the final OpenSea/ERC-8257 manifests:
 
 ```sh
+MFERLAND_TOOL_CREATOR_ADDRESS="0x..."
 MFERLAND_TOOL_OPERATOR_ADDRESS="0x..."
+```
+
+Set these after the registration transactions assign tool IDs:
+
+```sh
 MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
 MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
 MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
 
-`MFERLAND_TOOL_OPERATOR_ADDRESS` must be the `payTo` address used in the zero-value EIP-3009 `X-Payment` challenge. Without it, the manifest can still be served, but the swap tool should not be considered production-callable.
+`MFERLAND_TOOL_CREATOR_ADDRESS` must match the wallet used for `register`; it is part of the manifest hash and should not change after registration without an `update-metadata` transaction. `MFERLAND_TOOL_OPERATOR_ADDRESS` must be the `payTo` address used in the zero-value EIP-3009 `X-Payment` challenge and the zero-price x402 pricing recipient in the manifest. Without it, the manifest can still be served with a zero-address fallback, but the tools should not be considered production-callable.
 
 The gate only controls Season 0 earning for declared agents. Agents below 25M MFERGPT can still play, save progress, complete quests, loot, and fight bosses.
+
+## OpenSea / ERC-8257 Tool Registration
+
+Register the public OpenSea tools after the `.well-known` manifests are deployed and smoke-tested. For now, register two tools:
+
+- `mferland-agent-command`: the single gameplay command tool. It covers `start`, `status`, and `stop` operations for bounded autoplay.
+- `mferland-mfergpt-swap`: the wallet-action swap helper. It covers quote and result reporting for Base ETH to MFERGPT swaps.
+
+Do not register every read-only facts endpoint as a separate tool unless OpenSea or Bankr specifically asks for that later. The read-only APIs remain useful public context, but the durable agent tool surface should stay focused on actions that need attribution and usage reporting.
+
+Fetch, validate, hash, and register the exact manifest JSON served by production:
+
+```sh
+# Configure and restart production first so MFERLAND_TOOL_CREATOR_ADDRESS
+# and MFERLAND_TOOL_OPERATOR_ADDRESS are present in the served manifests.
+
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json > /tmp/mferland-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json > /tmp/mferland-mfergpt-swap.json
+
+npx @opensea/tool-sdk validate /tmp/mferland-agent-command.json
+npx @opensea/tool-sdk validate /tmp/mferland-mfergpt-swap.json
+npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
+npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+npx @opensea/tool-sdk hash /tmp/mferland-agent-command.json
+npx @opensea/tool-sdk hash /tmp/mferland-mfergpt-swap.json
+
+PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json \
+  --network base
+
+PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json \
+  --network base
+```
+
+The manifest hash is computed over the full served manifest, so the served JSON must not include a self-referential hash field. Use the SDK `hash` output and the registration transaction/logs as the source of truth for the onchain `manifestHash` and assigned `toolId`.
+
+After registration, set these production variables and restart the server once:
+
+```sh
+MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
+MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
+OPENSEA_API_KEY="..."
+```
+
+With those set, callers can retry tool requests with a pre-signed zero-value EIP-3009 `X-Payment` header. The server verifies the signature locally, executes the tool, and reports usage to OpenSea with `verification_type: "eip3009_authorization"`. Missing or failed usage reporting must not fail a successful gameplay or swap response.
 
 ## Live Mac Mini Upgrade
 
@@ -347,7 +400,7 @@ Before public announcement:
 13. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
 14. Confirm the agent can see nearby human players and agents.
 15. Confirm no local-only auth bypass or test-only env is enabled.
-16. Confirm both `.well-known/ai-tool` manifests return stable hashes.
+16. Confirm both `.well-known/ai-tool` manifests validate with `npx @opensea/tool-sdk validate` and produce the expected SDK hashes.
 17. Confirm `/agent-mfergpt-swap-quote` returns `402` without `X-Payment` and succeeds with a controlled valid zero-value EIP-3009 header.
 18. Confirm `/agent-command` can start a short `play_for` command, return status, and stop cleanly.
 19. Confirm a command recap includes `social.nearbyPlayers`, `social.recentChat`, and a readable `summary` when another player or agent is nearby or chatting.

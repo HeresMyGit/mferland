@@ -12,16 +12,30 @@ import {
 const CALLER = "0x0000000000000000000000000000000000000abc";
 const OPERATOR = "0x0000000000000000000000000000000000000def";
 
-test("agent tool manifest documents command endpoint with keccak hash", () => {
+type JsonSchema = {
+  type?: string | string[];
+  enum?: string[];
+  description?: string;
+  minimum?: number;
+  maximum?: number;
+  properties?: Record<string, JsonSchema>;
+};
+
+test("agent tool manifest documents command endpoint with OpenSea registry shape", () => {
   const manifest = buildAgentToolManifestDocument("mferland-agent-command", "https://game.mfergpt.lol/");
 
-  assert.equal(manifest.url, "https://game.mfergpt.lol/agent-command");
-  assert.match(manifest.manifest_hash, /^0x[0-9a-f]{64}$/);
-  assert.equal(manifest.manifest_hash, manifest.manifest_hash_keccak256);
-  assert.deepEqual(manifest.pricing, { type: "free", network: "base", maxAmountRequired: "0" });
-  const input = manifest.input_schema as {
-    properties: Record<string, { enum?: string[]; description?: string; maximum?: number; properties?: Record<string, { enum?: string[] }> }>;
-  };
+  assert.equal(manifest.type, "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1");
+  assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-command");
+  assert.equal(manifest.creatorAddress, "0x0000000000000000000000000000000000000000");
+  assert.equal("manifest_hash" in manifest, false);
+  assert.equal("manifest_hash_keccak256" in manifest, false);
+  assert.deepEqual(manifest.pricing, [{
+    amount: "0",
+    asset: "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    recipient: "eip155:8453:0x0000000000000000000000000000000000000000",
+    protocol: "x402",
+  }]);
+  const input = manifest.inputs as { properties: Record<string, JsonSchema> };
   assert.deepEqual(input.properties.command.enum, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
   assert.match(input.properties.goals.description ?? "", /Freeform player objectives/);
   assert.ok(input.properties.behaviorScheme.enum?.includes("jump_around"));
@@ -32,7 +46,12 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
   assert.equal(input.properties.objective, undefined);
   assert.equal(input.properties.codeChunk, undefined);
   assert.equal(input.properties.maxSeconds.maximum, 1800);
-  const output = manifest.output_schema as { properties: Record<string, unknown> };
+  const constraints = input.properties.constraints.properties ?? {};
+  assert.deepEqual(constraints.maxDeaths.type, ["number", "null"]);
+  assert.deepEqual(constraints.maxSafetyStops.type, ["number", "null"]);
+  assert.equal(constraints.maxDeaths.maximum, 99);
+  assert.match(constraints.maxDeaths.description ?? "", /normal autoplay/);
+  const output = manifest.outputs as { properties: Record<string, unknown> };
   assert.ok(output.properties.result);
   assert.ok(output.properties.usage);
   assert.ok(output.properties.social);
@@ -46,9 +65,9 @@ test("agent tool manifest documents command endpoint with keccak hash", () => {
 
 test("agent tool manifest documents MFERGPT swap route outputs", () => {
   const manifest = buildAgentToolManifestDocument("mferland-mfergpt-swap", "https://game.mfergpt.lol/");
-  const output = manifest.output_schema as { properties: Record<string, unknown> };
+  const output = manifest.outputs as { properties: Record<string, unknown> };
 
-  assert.equal(manifest.url, "https://game.mfergpt.lol/agent-mfergpt-swap-quote");
+  assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-mfergpt-swap-quote");
   assert.ok(output.properties.inputToken);
   assert.ok(output.properties.outputToken);
   assert.ok(output.properties.transaction);
@@ -88,6 +107,9 @@ test("agent tool payment parser accepts zero-value EIP-3009 payloads", async () 
   assert.equal(payment.authorization.from, CALLER);
   assert.equal(payment.authorization.to, OPERATOR);
   assert.equal(isZeroPriceToolPaymentUsable(payment), true);
+  const base64Payment = parseToolPaymentHeader(Buffer.from(JSON.stringify(payload)).toString("base64"));
+  assert.ok(base64Payment);
+  assert.equal(isZeroPriceToolPaymentUsable(base64Payment), true);
 
   const usage = buildToolUsageReport("mferland-mfergpt-swap", payment, Date.now() - 25);
   assert.equal(usage.verification_type, "eip3009_authorization");

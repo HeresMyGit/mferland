@@ -1,8 +1,6 @@
 import {
   getAddress,
-  keccak256,
   recoverTypedDataAddress,
-  stringToHex,
   type Address,
 } from "viem";
 import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
@@ -10,25 +8,26 @@ import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 export type AgentToolSlug = "mferland-agent-command" | "mferland-mfergpt-swap";
 
 type ToolManifest = {
+  type: "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1";
   name: string;
   description: string;
   version: string;
-  url: string;
-  input_schema: unknown;
-  output_schema: unknown;
+  endpoint: string;
+  inputs: unknown;
+  outputs: unknown;
+  creatorAddress: string;
   pricing: {
-    type: "free";
-    network: "base";
-    maxAmountRequired: "0";
-  };
-  access: {
-    type: "open";
-  };
+    amount: "0";
+    asset: string;
+    recipient: string;
+    protocol: "x402";
+  }[];
   tags: string[];
 };
 
 const BASE_CHAIN_ID = 8453;
 const BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const TOOL_MANIFEST_TYPE = "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1";
 const DEFAULT_OPERATOR_ADDRESS = "0x0000000000000000000000000000000000000000";
 const EIP3009_TYPES = {
   TransferWithAuthorization: [
@@ -47,11 +46,12 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
   const baseUrl = normalizeOrigin(origin);
   if (slug === "mferland-agent-command") {
     return {
+      type: TOOL_MANIFEST_TYPE,
       name: "mferland-agent-command",
       description: "Start, poll, and stop bounded mferland gameplay commands for wallet-authenticated agents.",
       version: "0.1.0",
-      url: `${baseUrl}/agent-command`,
-      input_schema: {
+      endpoint: `${baseUrl}/agent-command`,
+      inputs: {
         type: "object",
         additionalProperties: false,
         properties: {
@@ -100,8 +100,18 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
             properties: {
               noWalletActions: { type: "boolean" },
               noPaidActions: { type: "boolean" },
-              maxDeaths: { type: "number" },
-              maxSafetyStops: { type: "number" },
+              maxDeaths: {
+                type: ["number", "null"],
+                minimum: 0,
+                maximum: 99,
+                description: "Omit or set null for normal autoplay. Set 0 to stop on the first death, or a positive number for a hard death cap.",
+              },
+              maxSafetyStops: {
+                type: ["number", "null"],
+                minimum: 0,
+                maximum: 99,
+                description: "Omit or set null for normal autoplay. Set 0 to stop on the first safety retreat, or a positive number for a hard safety cap.",
+              },
               allowedActions: { type: "array", items: { type: "string" } },
               disallowedActions: { type: "array", items: { type: "string" } },
             },
@@ -122,18 +132,19 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
         },
         required: ["operation", "bridgeSessionId"],
       },
-      output_schema: commandOutputSchema(),
+      outputs: commandOutputSchema(),
+      creatorAddress: getManifestCreatorAddress(),
       pricing: freePricing(),
-      access: { type: "open" },
       tags: ["mferland", "game", "agent", "autoplay", "wallet"],
     };
   }
   return {
+    type: TOOL_MANIFEST_TYPE,
     name: "mferland-mfergpt-swap",
     description: "Build and report Base ETH to MFERGPT swap transactions for mferland agents.",
     version: "0.1.0",
-    url: `${baseUrl}/agent-mfergpt-swap-quote`,
-    input_schema: {
+    endpoint: `${baseUrl}/agent-mfergpt-swap-quote`,
+    inputs: {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -147,7 +158,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       },
       required: ["operation", "walletAddress"],
     },
-    output_schema: {
+    outputs: {
       type: "object",
       additionalProperties: true,
       properties: {
@@ -166,20 +177,14 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       },
       required: ["ok"],
     },
+    creatorAddress: getManifestCreatorAddress(),
     pricing: freePricing(),
-    access: { type: "open" },
     tags: ["mferland", "mfergpt", "swap", "uniswap", "base"],
   };
 }
 
 export function buildAgentToolManifestDocument(slug: AgentToolSlug, origin: string) {
-  const manifest = buildAgentToolManifest(slug, origin);
-  const hash = manifestHash(manifest);
-  return {
-    ...manifest,
-    manifest_hash: hash,
-    manifest_hash_keccak256: hash,
-  };
+  return buildAgentToolManifest(slug, origin);
 }
 
 export function getAgentToolSlug(value: string): AgentToolSlug | null {
@@ -370,20 +375,20 @@ function commandOutputSchema() {
   };
 }
 
-function freePricing() {
-  return { type: "free", network: "base", maxAmountRequired: "0" } as const;
+function freePricing(): ToolManifest["pricing"] {
+  const recipient = normalizeOperatorAddress(process.env.MFERLAND_TOOL_OPERATOR_ADDRESS || "");
+  return [{
+    amount: "0",
+    asset: `eip155:${BASE_CHAIN_ID}/erc20:${BASE_USDC_ADDRESS.toLowerCase()}`,
+    recipient: `eip155:${BASE_CHAIN_ID}:${recipient}`,
+    protocol: "x402",
+  }];
 }
 
-function manifestHash(manifest: ToolManifest) {
-  return keccak256(stringToHex(JSON.stringify(sortJson(manifest))));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, entry]) => [key, sortJson(entry)]));
+function getManifestCreatorAddress() {
+  return normalizeAddress(process.env.MFERLAND_TOOL_CREATOR_ADDRESS)
+    || normalizeAddress(process.env.MFERLAND_TOOL_OPERATOR_ADDRESS)
+    || DEFAULT_OPERATOR_ADDRESS;
 }
 
 function normalizeOrigin(origin: string) {
