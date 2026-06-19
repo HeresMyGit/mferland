@@ -92,6 +92,7 @@ import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferGptSwapMenu } from "./components/MferGptSwapMenu";
 import { MferPortrait } from "./components/MferPortrait";
+import { MovableWindow } from "./components/MovableWindow";
 import { PotionShopPanel } from "./components/PotionShopPanel";
 import { RespecPanel } from "./components/RespecPanel";
 import { TrashVendorPanel } from "./components/TrashVendorPanel";
@@ -1879,7 +1880,7 @@ function GameShell({
             onSettingsChange={setSettings}
           />
           {traitsNpc && localPlayer && (
-            <section className="floating-menu-overlay traits-anchor" role="dialog" aria-label="traits">
+            <MovableWindow id="hud.traits" as="section" className="floating-menu-overlay traits-anchor" role="dialog" aria-label="traits">
               <TraitsPanel
                 npc={traitsNpc}
                 player={localPlayer}
@@ -1887,10 +1888,10 @@ function GameShell({
                 onClose={() => setTraitsNpcId(null)}
                 onUpdateTraits={updateTraits}
               />
-            </section>
+            </MovableWindow>
           )}
           {potionShopNpc && (
-            <section className="floating-menu-overlay potion-shop-anchor" role="dialog" aria-label="potion shop">
+            <MovableWindow id="hud.potion-shop" as="section" className="floating-menu-overlay potion-shop-anchor" role="dialog" aria-label="potion shop">
               <PotionShopPanel
                 npc={potionShopNpc}
                 player={localPlayer ?? null}
@@ -1899,10 +1900,10 @@ function GameShell({
                 onPurchasePotionShopItem={purchasePotionShopItem}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
-            </section>
+            </MovableWindow>
           )}
           {trashVendorNpc && (
-            <section className="floating-menu-overlay trash-vendor-anchor" role="dialog" aria-label="trash vendor">
+            <MovableWindow id="hud.trash-vendor" as="section" className="floating-menu-overlay trash-vendor-anchor" role="dialog" aria-label="trash vendor">
               <TrashVendorPanel
                 npc={trashVendorNpc}
                 player={localPlayer ?? null}
@@ -1911,10 +1912,10 @@ function GameShell({
                 onSellTrashItems={sellTrashItems}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
-            </section>
+            </MovableWindow>
           )}
           {respecNpc && (
-            <section className="floating-menu-overlay respec-anchor" role="dialog" aria-label="respec">
+            <MovableWindow id="hud.respec" as="section" className="floating-menu-overlay respec-anchor" role="dialog" aria-label="respec">
               <RespecPanel
                 npc={respecNpc}
                 player={localPlayer ?? null}
@@ -1923,17 +1924,17 @@ function GameShell({
                 onRespecTalents={respecTalents}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
-            </section>
+            </MovableWindow>
           )}
           {swapNpc && (
-            <section className="floating-menu-overlay swap-anchor" role="dialog" aria-label="swap">
+            <MovableWindow id="hud.swap" as="section" className="floating-menu-overlay swap-anchor" role="dialog" aria-label="swap">
               <MferGptSwapMenu
                 defaultExpanded
                 onClose={() => setSwapNpcId(null)}
                 surface="swap_mfer"
                 variant="npc"
               />
-            </section>
+            </MovableWindow>
           )}
           <MobileControls
             inputRef={mobileMoveInputRef}

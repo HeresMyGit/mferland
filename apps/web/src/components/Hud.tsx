@@ -70,6 +70,7 @@ import { Quest } from "./hud/Quest";
 import { TargetFrame } from "./hud/TargetFrame";
 import { type ActionSlot, type DragState, isItemActionSlot, makeItemActionSlot } from "./hud/types";
 import { CryptoStorePanel } from "./CryptoStorePanel";
+import { MOVABLE_WINDOW_RESET_EVENT, MovableWindow, resetMovableWindows } from "./MovableWindow";
 import { MferPortrait } from "./MferPortrait";
 import { fetchSeasonReferralSummary, type SeasonReferralSummary } from "../seasonReferrals";
 import { copyTextToClipboard } from "../clipboard";
@@ -109,6 +110,7 @@ const BASE_CHAIN_RPC_URL = TRAIT_CHANGE_BASE_RPC_URL;
 const IS_PRODUCTION_BUILD = Boolean(import.meta.env?.PROD);
 const SEASON_PASS_OWNERSHIP_REFRESH_MS = 60_000;
 const REFERRALS_BADGE_SEEN_KEY = "mferland.referralsBadgeSeen:v1";
+const HUD_HIDDEN_WIDGETS_STORAGE_KEY = "mferland:hiddenHudWidgets:v1";
 const BALANCE_OF_SELECTOR = "0x70a08231";
 const EMPTY_SEASON_PASS_OWNERSHIP: SeasonPassOwnershipState = {
   state: "idle",
@@ -291,6 +293,8 @@ export function Hud({
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<HudTooltipState | null>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  const chatLogRef = useRef<HTMLDivElement>(null);
+  const shouldStickChatToBottomRef = useRef(true);
   const [now, setNow] = useState(() => Date.now());
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [isQuestLogOpen, setIsQuestLogOpen] = useState(false);
@@ -308,6 +312,7 @@ export function Hud({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeQuestId, setActiveQuestId] = useState<QuestId | null>(null);
   const [showCompletedQuests, setShowCompletedQuests] = useState(false);
+  const [isQuestTrackerHidden, setIsQuestTrackerHidden] = useState(() => readQuestTrackerHidden());
   const [exploredCells, setExploredCells] = useState<Set<string>>(() => new Set());
   const exploredCellKeyRef = useRef("");
   const minimapHubRefs = useRef(new Map<string, HTMLElement>());
@@ -372,6 +377,7 @@ export function Hud({
   const activeQuestGuidance = getActiveQuestGuidance(activeQuest, npcs, localPlayer);
   const primaryActiveQuestTarget = getPrimaryQuestGuidanceTarget(activeQuestGuidance, localPlayer);
   const hasTrackedQuests = trackedQuests.length > 0;
+  const showQuestTracker = hasTrackedQuests && !isQuestTrackerHidden;
   const clockMinute = Math.floor(now / 60000);
   const clockLabel = useMemo(
     () => new Date(clockMinute * 60000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -387,6 +393,22 @@ export function Hud({
     const timeout = window.setTimeout(() => setNow(Date.now()), hudTickDelay);
     return () => window.clearTimeout(timeout);
   }, [hudTickDelay, now]);
+
+  useEffect(() => {
+    const chatLog = chatLogRef.current;
+    if (!chatLog || !shouldStickChatToBottomRef.current) return;
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }, [chat.length]);
+
+  useEffect(() => {
+    function handleUiReset() {
+      clearHiddenHudWidgets();
+      setIsQuestTrackerHidden(false);
+    }
+
+    window.addEventListener(MOVABLE_WINDOW_RESET_EVENT, handleUiReset);
+    return () => window.removeEventListener(MOVABLE_WINDOW_RESET_EVENT, handleUiReset);
+  }, []);
 
   useEffect(() => {
     if (agentFocusedQuestId && activeQuestId !== agentFocusedQuestId) {
@@ -961,6 +983,17 @@ export function Hud({
     setDropSlot(null);
   }
 
+  function hideQuestTracker() {
+    setIsQuestTrackerHidden(true);
+    writeQuestTrackerHidden(true);
+  }
+
+  function handleChatLogScroll() {
+    const chatLog = chatLogRef.current;
+    if (!chatLog) return;
+    shouldStickChatToBottomRef.current = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight <= 24;
+  }
+
   return (
     <div
       className={hudClassName}
@@ -974,7 +1007,7 @@ export function Hud({
       onMouseOutCapture={handleTooltipMouseOut}
       onClickCapture={handleTooltipClick}
     >
-      <section className="player-card">
+      <MovableWindow id="hud.player-card" as="section" className="player-card">
         <button
           className="portrait"
           type="button"
@@ -1004,7 +1037,7 @@ export function Hud({
           </div>
           <ActiveBuffStrip buffs={activeBuffs} now={now} />
         </div>
-      </section>
+      </MovableWindow>
 
       {localPlayer?.castingAction && (
         <CastBar
@@ -1014,24 +1047,34 @@ export function Hud({
         />
       )}
 
-      <section className={hasTrackedQuests ? "quest-panel" : "quest-panel compact"}>
-        <div className="quest-panel-header">
-          <h2>{hasTrackedQuests ? "errands" : "errands"}</h2>
-          <button type="button" title="errand log" aria-label="Open errand log" onClick={() => setIsQuestLogOpen(true)}>
-            <BookOpen size={17} />
-          </button>
-        </div>
-        {hasTrackedQuests ? trackedQuests.map((quest) => (
-          <Quest
-            key={quest.id}
-            quest={quest}
-            active={quest.id === activeQuestId}
-            onActivate={setActiveQuestId}
-          />
-        )) : (
-          <p className="quest-empty">nothing running</p>
-        )}
-      </section>
+      {showQuestTracker && (
+        <MovableWindow
+          id="hud.quest-tracker"
+          as="section"
+          className="quest-panel"
+          allowInteractiveDrag
+        >
+          <div className="quest-panel-header">
+            <h2>errands</h2>
+            <div className="quest-panel-header-actions">
+              <button type="button" title="errand log" aria-label="Open errand log" onClick={() => setIsQuestLogOpen(true)}>
+                <BookOpen size={17} />
+              </button>
+              <button type="button" title="Hide errands" aria-label="Hide errands widget" onClick={hideQuestTracker}>
+                <X size={17} />
+              </button>
+            </div>
+          </div>
+          {trackedQuests.map((quest) => (
+            <Quest
+              key={quest.id}
+              quest={quest}
+              active={quest.id === activeQuestId}
+              onActivate={setActiveQuestId}
+            />
+          ))}
+        </MovableWindow>
+      )}
 
       {questOffer && (
         <QuestOfferPanel
@@ -1058,7 +1101,7 @@ export function Hud({
       )}
 
       {lootWindow && (
-        <section className="loot-panel">
+        <MovableWindow id="hud.loot" as="section" className="loot-panel">
           <button className="quest-offer-close" type="button" title="Close loot" aria-label="Close loot" onClick={onCloseLootWindow}>
             <X size={17} />
           </button>
@@ -1083,7 +1126,7 @@ export function Hud({
             <Package size={17} />
             grab all
           </button>
-        </section>
+        </MovableWindow>
       )}
 
       {selectedTarget && selectedTargetUnit && (
@@ -1096,7 +1139,7 @@ export function Hud({
       )}
 
       {cryptoStoreNpc && (
-        <section className="floating-menu-overlay crypto-store-anchor" role="dialog" aria-label="crypto store">
+        <MovableWindow id="hud.crypto-store" as="section" className="floating-menu-overlay crypto-store-anchor" role="dialog" aria-label="crypto store">
           <CryptoStorePanel
             npc={cryptoStoreNpc}
             playerLevel={localPlayer?.level ?? 1}
@@ -1104,10 +1147,10 @@ export function Hud({
             onRegisterChainGear={onRegisterChainGear}
             onAnalyticsEvent={onCryptoStoreAnalytics}
           />
-        </section>
+        </MovableWindow>
       )}
 
-      <section className="minimap-panel">
+      <MovableWindow id="hud.minimap" as="section" className="minimap-panel">
         <div className="minimap-header">
           <h2>mferland</h2>
           <button type="button" title="Map (M)" aria-label="Open map" onClick={() => setIsMapOpen(true)}>
@@ -1191,11 +1234,11 @@ export function Hud({
           <span>mfers: {playerCount}</span>
           <span>{clockLabel}</span>
         </div>
-      </section>
+      </MovableWindow>
 
       {isMapOpen && (
         <section className="world-map-overlay" role="dialog" aria-label="World map">
-          <div className="world-map-panel">
+          <MovableWindow id="hud.world-map" className="world-map-panel">
             <div className="world-map-header">
               <div>
                 <strong>mferland</strong>
@@ -1277,12 +1320,12 @@ export function Hud({
                 />
               ))}
             </div>
-          </div>
+          </MovableWindow>
         </section>
       )}
 
       {isQuestLogOpen && (
-        <section className="floating-menu-overlay quest-log-anchor" role="dialog" aria-label="errand log">
+        <MovableWindow id="hud.quest-log" as="section" className="floating-menu-overlay quest-log-anchor" role="dialog" aria-label="errand log">
           <div className="quest-log-panel">
             <div className="world-map-header">
               <div>
@@ -1327,11 +1370,11 @@ export function Hud({
               )}
             </div>
           </div>
-        </section>
+        </MovableWindow>
       )}
 
       {isCharacterOpen && (
-        <section className="floating-menu-overlay character-anchor" role="dialog" aria-label="Character">
+        <MovableWindow id="hud.character" as="section" className="floating-menu-overlay character-anchor" role="dialog" aria-label="Character">
           <div className="character-panel">
             <div className="world-map-header">
               <div>
@@ -1456,12 +1499,12 @@ export function Hud({
               </div>
             )}
           </div>
-        </section>
+        </MovableWindow>
       )}
 
       {isReferralInfoOpen && (
         <section className="hud-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Referral details">
-          <div className="hud-confirm-dialog referral-info-dialog">
+          <MovableWindow id="hud.referral-info" className="hud-confirm-dialog referral-info-dialog">
             <div className="world-map-header">
               <div>
                 <strong>referrals</strong>
@@ -1484,13 +1527,13 @@ export function Hud({
             <p>
               Removing a referral frees the slot and removes referral bonus points from both wallets. Base Season Points earned by playing stay untouched.
             </p>
-          </div>
+          </MovableWindow>
         </section>
       )}
 
       {pendingReferralRemoval && (
         <section className="hud-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Remove referral">
-          <div className="hud-confirm-dialog referral-confirm-dialog">
+          <MovableWindow id="hud.referral-remove" className="hud-confirm-dialog referral-confirm-dialog">
             <div className="world-map-header">
               <div>
                 <strong>remove referral</strong>
@@ -1514,12 +1557,12 @@ export function Hud({
                 remove referral
               </button>
             </div>
-          </div>
+          </MovableWindow>
         </section>
       )}
 
       {isAbilitiesOpen && (
-        <section className="floating-menu-overlay abilities-anchor" role="dialog" aria-label="moves">
+        <MovableWindow id="hud.abilities" as="section" className="floating-menu-overlay abilities-anchor" role="dialog" aria-label="moves">
           <div className="abilities-panel">
             <div className="world-map-header">
               <div>
@@ -1540,11 +1583,11 @@ export function Hud({
               onSelectTalent={onSelectTalent}
             />
           </div>
-        </section>
+        </MovableWindow>
       )}
 
       {isInventoryOpen && (
-        <section className="floating-menu-overlay inventory-anchor" role="dialog" aria-label="stash">
+        <MovableWindow id="hud.inventory" as="section" className="floating-menu-overlay inventory-anchor" role="dialog" aria-label="stash">
           <div className="inventory-panel">
             <div className="world-map-header">
               <div>
@@ -1612,23 +1655,23 @@ export function Hud({
               )}
             </div>
           </div>
-        </section>
+        </MovableWindow>
       )}
 
       {isSettingsOpen && (
-        <section className="floating-menu-overlay settings-anchor" role="dialog" aria-label="Settings">
+        <MovableWindow id="hud.settings" as="section" className="floating-menu-overlay settings-anchor" role="dialog" aria-label="Settings">
           <SettingsPanel
             settings={settings}
             debugToolsAvailable={debugToolsAvailable}
             onChange={onSettingsChange}
             onClose={() => setIsSettingsOpen(false)}
           />
-        </section>
+        </MovableWindow>
       )}
 
       {!hideChatPanel && (
-        <section className="chat-panel">
-          <div className="chat-log">
+        <MovableWindow id="hud.chat" as="section" className="chat-panel" allowInteractiveDrag>
+          <div className="chat-log" ref={chatLogRef} onScroll={handleChatLogScroll}>
             {chat.length === 0 ? (
               <p className="muted">gm mfers</p>
             ) : chat.map((message, index) => message.kind === "emote" ? (
@@ -1655,7 +1698,7 @@ export function Hud({
               onChange={(event) => setDraft(event.target.value)}
             />
           </form>
-        </section>
+        </MovableWindow>
       )}
 
       <section className="hotbar">
@@ -1689,7 +1732,7 @@ export function Hud({
       )}
 
       {isEmotesOpen && (
-        <section className="emote-popout" role="menu" aria-label="emotes">
+        <MovableWindow id="hud.emotes" as="section" className="emote-popout" role="menu" aria-label="emotes">
           {EMOTE_OPTIONS.map(({ id, Icon }) => (
             <button
               key={id}
@@ -1704,7 +1747,7 @@ export function Hud({
               <span>{EMOTES[id].label}</span>
             </button>
           ))}
-        </section>
+        </MovableWindow>
       )}
 
       <section className="menu-dock">
@@ -1839,6 +1882,13 @@ function SettingsPanel({
           disabled={!settings.audio.enabled}
           onChange={(value) => updateAudioSetting("volume", value)}
         />
+      </section>
+
+      <section className="settings-section">
+        <strong>Interface</strong>
+        <button type="button" className="settings-reset-ui-button" onClick={resetMovableWindows}>
+          Reset UI
+        </button>
       </section>
 
       {debugToolsAvailable && (
@@ -2397,7 +2447,7 @@ function QuestOfferPanel({
   onDismiss: () => void;
 }) {
   return (
-    <section className="quest-dialogue-panel offer" role="dialog" aria-label={`Quest offer: ${offer.title}`} data-testid="quest-offer-panel">
+    <MovableWindow id="hud.quest-offer" as="section" className="quest-dialogue-panel offer" role="dialog" aria-label={`Quest offer: ${offer.title}`} data-testid="quest-offer-panel">
       <button className="quest-offer-close" type="button" title="Dismiss" aria-label="Dismiss quest offer" onClick={onDismiss}>
         <X size={17} />
       </button>
@@ -2423,7 +2473,7 @@ function QuestOfferPanel({
           i'm in
         </button>
       </div>
-    </section>
+    </MovableWindow>
   );
 }
 
@@ -2437,7 +2487,7 @@ function QuestTurnInPanel({
   onDismiss: () => void;
 }) {
   return (
-    <section className="quest-dialogue-panel turn-in" role="dialog" aria-label={`Quest turn-in: ${turnIn.title}`} data-testid="quest-turn-in-panel">
+    <MovableWindow id="hud.quest-turn-in" as="section" className="quest-dialogue-panel turn-in" role="dialog" aria-label={`Quest turn-in: ${turnIn.title}`} data-testid="quest-turn-in-panel">
       <button className="quest-offer-close" type="button" title="Close" aria-label="Close quest turn-in" onClick={onDismiss}>
         <X size={17} />
       </button>
@@ -2463,7 +2513,7 @@ function QuestTurnInPanel({
           done
         </button>
       </div>
-    </section>
+    </MovableWindow>
   );
 }
 
@@ -2485,7 +2535,7 @@ function QuestStatusPanel({
   }
 
   return (
-    <section className="quest-dialogue-panel status" role="dialog" aria-label={`Quest status: ${notice.title}`} data-testid="quest-status-panel">
+    <MovableWindow id="hud.quest-status" as="section" className="quest-dialogue-panel status" role="dialog" aria-label={`Quest status: ${notice.title}`} data-testid="quest-status-panel">
       <button className="quest-offer-close" type="button" title="Close" aria-label="Close quest status" onClick={onDismiss}>
         <X size={17} />
       </button>
@@ -2513,7 +2563,7 @@ function QuestStatusPanel({
           Close
         </button>
       </div>
-    </section>
+    </MovableWindow>
   );
 }
 
@@ -2727,6 +2777,39 @@ function writeReferralsBadgeSeen() {
     window.localStorage.setItem(REFERRALS_BADGE_SEEN_KEY, "1");
   } catch {
     // Ignore blocked storage. The badge is cosmetic.
+  }
+}
+
+function readQuestTrackerHidden() {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(HUD_HIDDEN_WIDGETS_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return Boolean(parsed && typeof parsed === "object" && (parsed as { questTracker?: unknown }).questTracker === true);
+  } catch {
+    return false;
+  }
+}
+
+function writeQuestTrackerHidden(hidden: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(HUD_HIDDEN_WIDGETS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const next = parsed && typeof parsed === "object" ? { ...parsed, questTracker: hidden } : { questTracker: hidden };
+    window.localStorage.setItem(HUD_HIDDEN_WIDGETS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // UI layout preferences are optional.
+  }
+}
+
+function clearHiddenHudWidgets() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(HUD_HIDDEN_WIDGETS_STORAGE_KEY);
+  } catch {
+    // UI layout preferences are optional.
   }
 }
 

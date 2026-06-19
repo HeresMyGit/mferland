@@ -14,6 +14,7 @@ import { generateMferTraitsForActor, resolveMferTraitsForPlayer } from "../../ga
 import { type RenderPerformanceProfile } from "../../game/performance";
 import { ActorModelPortrait } from "../ActorModelPortrait";
 import { MferPortrait } from "../MferPortrait";
+import { MovableWindow } from "../MovableWindow";
 import { AbilityIcon } from "./GameIcon";
 import { ItemIcon } from "./ItemIcon";
 import { formatTooltipLabel } from "./utils";
@@ -62,7 +63,7 @@ export function TargetFrame({
   );
 
   return (
-    <section className={`target-frame ${disposition}`}>
+    <MovableWindow id="hud.target-frame" as="section" className={`target-frame ${disposition}`}>
       <div className="target-portrait">
         {portraitImage ? (
           <img className="npc-portrait-image" src={portraitImage} alt={`${unit.name} portrait`} draggable={false} />
@@ -83,7 +84,7 @@ export function TargetFrame({
         </div>
         <TargetEffectStrip effects={targetEffects} now={now} />
       </div>
-    </section>
+    </MovableWindow>
   );
 }
 

@@ -50,6 +50,29 @@
   pointer-events: auto;
 }
 
+.movable-window {
+  pointer-events: auto;
+  touch-action: auto;
+}
+
+.movable-window-custom-position {
+  position: absolute !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+.movable-window-dragging {
+  z-index: 140 !important;
+  cursor: grabbing;
+  user-select: none;
+}
+
+.movable-window-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
 .player-card,
 .target-frame,
 .cast-bar,
@@ -681,6 +704,12 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.quest-panel-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
 }
 
 .quest-panel.compact .quest-panel-header {

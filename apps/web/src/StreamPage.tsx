@@ -33,6 +33,7 @@ import { Hud } from "./components/Hud";
 import { MferGptSwapMenu } from "./components/MferGptSwapMenu";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MIXAMO_URLS, getMferAnimationClips } from "./components/MferAvatar";
+import { MovableWindow } from "./components/MovableWindow";
 import { ItemIcon } from "./components/hud/ItemIcon";
 import { getActionSlotKey, type ActionSlot } from "./components/hud/types";
 import { TownScene } from "./game/TownScene";
@@ -741,7 +742,7 @@ function AgentThoughtPanel({ player }: { player: PlayerSnapshot | null }) {
   const quest = player.agentStatusQuest || getFocusedQuestText(player);
 
   return (
-    <section className={`agent-thought-panel${stale ? " stale" : ""}`} aria-label="agent thinking">
+    <MovableWindow id="agent-view.thought" as="section" className={`agent-thought-panel${stale ? " stale" : ""}`} aria-label="agent thinking">
       <header>
         <span>thinking</span>
         <strong>{player.name}</strong>
@@ -761,7 +762,7 @@ function AgentThoughtPanel({ player }: { player: PlayerSnapshot | null }) {
           <b>{quest}</b>
         </p>
       )}
-    </section>
+    </MovableWindow>
   );
 }
 
@@ -831,7 +832,7 @@ function StreamAgentPlaytimePanel({ player, focusedWalletAddress }: { player: Pl
 
   return (
     <>
-    <section className="stream-agent-playtime-panel" aria-label="agent play time">
+    <MovableWindow id="agent-view.playtime" as="section" className="stream-agent-playtime-panel" aria-label="agent play time">
       <header>
         <div>
           <span>play time</span>
@@ -854,7 +855,7 @@ function StreamAgentPlaytimePanel({ player, focusedWalletAddress }: { player: Pl
         fallback={hasBudget ? `${formatDuration(dailyRemaining)} left` : "waiting"}
       />
       <MferGptSwapMenu defaultExpanded={false} surface="agent_viewer_playtime" variant="embedded" />
-    </section>
+    </MovableWindow>
     {detailsOpen && (
       <StreamPlaytimeDetailsDialog
         sessionMax={sessionMax}
@@ -885,7 +886,7 @@ function StreamPlaytimeDetailsDialog({
   onClose: () => void;
 }) {
   return (
-    <section className="quest-dialogue-panel stream-playtime-info-dialog" role="dialog" aria-label="Agent play time details">
+    <MovableWindow id="agent-view.playtime-details" as="section" className="quest-dialogue-panel stream-playtime-info-dialog" role="dialog" aria-label="Agent play time details">
       <button className="quest-offer-close" type="button" title="Close" aria-label="Close play time details" onClick={onClose}>
         <X size={17} />
       </button>
@@ -914,7 +915,7 @@ function StreamPlaytimeDetailsDialog({
           close
         </button>
       </div>
-    </section>
+    </MovableWindow>
   );
 }
 

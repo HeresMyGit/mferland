@@ -121,6 +121,10 @@ button {
   pointer-events: none;
 }
 
+.agent-thought-panel.movable-window {
+  pointer-events: auto;
+}
+
 .agent-thought-panel.stale {
   border-color: rgba(255, 248, 224, 0.18);
   opacity: 0.74;
