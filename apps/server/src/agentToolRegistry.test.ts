@@ -26,6 +26,8 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
 
   assert.equal(manifest.type, "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-command");
+  assert.equal(manifest.image, "https://game.mfergpt.lol/agent-tools/icon.png");
+  assert.equal(manifest.featuredImage, "https://game.mfergpt.lol/agent-tools/16x9.jpeg");
   assert.equal(manifest.creatorAddress, "0x0000000000000000000000000000000000000000");
   assert.equal("manifest_hash" in manifest, false);
   assert.equal("manifest_hash_keccak256" in manifest, false);
@@ -68,6 +70,8 @@ test("agent tool manifest documents MFERGPT swap route outputs", () => {
   const output = manifest.outputs as { properties: Record<string, unknown> };
 
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-mfergpt-swap-quote");
+  assert.equal(manifest.image, "https://game.mfergpt.lol/agent-tools/icon.png");
+  assert.equal(manifest.featuredImage, "https://game.mfergpt.lol/agent-tools/16x9.jpeg");
   assert.ok(output.properties.inputToken);
   assert.ok(output.properties.outputToken);
   assert.ok(output.properties.transaction);

@@ -13,6 +13,8 @@ type ToolManifest = {
   description: string;
   version: string;
   endpoint: string;
+  image: string;
+  featuredImage: string;
   inputs: unknown;
   outputs: unknown;
   creatorAddress: string;
@@ -51,6 +53,8 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       description: "Start, poll, and stop bounded mferland gameplay commands for wallet-authenticated agents.",
       version: "0.1.0",
       endpoint: `${baseUrl}/agent-command`,
+      image: `${baseUrl}/agent-tools/icon.png`,
+      featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
       inputs: {
         type: "object",
         additionalProperties: false,
@@ -144,6 +148,8 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
     description: "Build and report Base ETH to MFERGPT swap transactions for mferland agents.",
     version: "0.1.0",
     endpoint: `${baseUrl}/agent-mfergpt-swap-quote`,
+    image: `${baseUrl}/agent-tools/icon.png`,
+    featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
     inputs: {
       type: "object",
       additionalProperties: false,
