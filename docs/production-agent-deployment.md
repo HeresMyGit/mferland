@@ -1,6 +1,6 @@
 # Production Agent Deployment
 
-This note is for deploying the public mferland agent MVP on `game.mfergpt.lol`.
+This note is for deploying the public mferland agent autoplay harness on `game.mfergpt.lol`.
 
 The Mac mini is already the live production game server. For live upgrades, do not reinstall the server service unless it is missing; merge the branch into the existing `main` checkout, migrate, rebuild, restart, and smoke-check the running service.
 
@@ -76,7 +76,8 @@ Merge and deploy:
 git fetch origin
 git checkout main
 git pull --ff-only
-git merge --no-ff origin/codex/local-agent-gameplay
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-origin/codex/update-agent-harness-autoplay}"
+git merge --no-ff "$DEPLOY_BRANCH"
 
 npm install
 node apps/server/scripts/migrate.mjs
