@@ -42,6 +42,27 @@ export const MOVABLE_WINDOW_RESET_EVENT = "mferland:movable-windows-reset";
 const MOVABLE_WINDOW_LONG_PRESS_MS = 340;
 const MOVABLE_WINDOW_MOVE_TOLERANCE = 6;
 const MOVABLE_WINDOW_VIEWPORT_PADDING = 8;
+const MOVABLE_WINDOW_MOBILE_BREAKPOINT = 640;
+const MOVABLE_WINDOW_MOBILE_RESERVED_TOP = 148;
+const MOBILE_TOP_RESERVED_WINDOW_IDS = new Set([
+  "hud.quest-tracker",
+  "hud.quest-log",
+  "hud.loot",
+  "hud.crypto-store",
+  "hud.world-map",
+  "hud.character",
+  "hud.referral-info",
+  "hud.referral-remove",
+  "hud.abilities",
+  "hud.traits",
+  "hud.swap",
+  "hud.potion-shop",
+  "hud.trash-vendor",
+  "hud.respec",
+  "hud.quest-offer",
+  "hud.quest-turn-in",
+  "hud.quest-status",
+]);
 
 export function MovableWindow({
   id,
@@ -82,7 +103,7 @@ export function MovableWindow({
     const element = elementRef.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
-    const nextPosition = getClampedMovableWindowPosition(rect.left, rect.top, rect.width, rect.height);
+    const nextPosition = getClampedMovableWindowPosition(id, rect.left, rect.top, rect.width, rect.height);
     if (nextPosition.x === position.x && nextPosition.y === position.y) return;
     setPosition(nextPosition);
     writeMovableWindowPosition(id, nextPosition);
@@ -95,7 +116,7 @@ export function MovableWindow({
       setPosition((current) => {
         if (!current) return current;
         const rect = element.getBoundingClientRect();
-        const nextPosition = getClampedMovableWindowPosition(rect.left, rect.top, rect.width, rect.height);
+        const nextPosition = getClampedMovableWindowPosition(id, rect.left, rect.top, rect.width, rect.height);
         if (nextPosition.x === current.x && nextPosition.y === current.y) return current;
         writeMovableWindowPosition(id, nextPosition);
         return nextPosition;
@@ -124,6 +145,7 @@ export function MovableWindow({
 
       event.preventDefault();
       setPosition(getClampedMovableWindowPosition(
+        id,
         event.clientX - drag.offsetX,
         event.clientY - drag.offsetY,
         drag.width,
@@ -138,6 +160,7 @@ export function MovableWindow({
       window.clearTimeout(drag.timer);
       if (drag.active) {
         const nextPosition = getClampedMovableWindowPosition(
+          id,
           drag.currentX - drag.offsetX,
           drag.currentY - drag.offsetY,
           drag.width,
@@ -221,6 +244,7 @@ export function MovableWindow({
       drag.active = true;
       setDragging(true);
       setPosition(getClampedMovableWindowPosition(
+        id,
         drag.currentX - drag.offsetX,
         drag.currentY - drag.offsetY,
         drag.width,
@@ -293,7 +317,7 @@ function readMovableWindowPosition(id: string): MovableWindowPosition | null {
   const positions = readMovableWindowPositions();
   const position = positions[id];
   if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
-  return getClampedMovableWindowPosition(position.x, position.y, 80, 60);
+  return getClampedMovableWindowPosition(id, position.x, position.y, 80, 60);
 }
 
 function writeMovableWindowPosition(id: string, position: MovableWindowPosition) {
@@ -319,14 +343,23 @@ function readMovableWindowPositions(): Record<string, MovableWindowPosition> {
   }
 }
 
-function getClampedMovableWindowPosition(x: number, y: number, width: number, height: number): MovableWindowPosition {
+function getClampedMovableWindowPosition(id: string, x: number, y: number, width: number, height: number): MovableWindowPosition {
   if (typeof window === "undefined") return { x, y };
+  const minY = getMovableWindowMinY(id);
   const maxX = Math.max(MOVABLE_WINDOW_VIEWPORT_PADDING, window.innerWidth - Math.min(width, window.innerWidth) - MOVABLE_WINDOW_VIEWPORT_PADDING);
-  const maxY = Math.max(MOVABLE_WINDOW_VIEWPORT_PADDING, window.innerHeight - Math.min(height, window.innerHeight) - MOVABLE_WINDOW_VIEWPORT_PADDING);
+  const maxY = Math.max(minY, window.innerHeight - Math.min(height, window.innerHeight) - MOVABLE_WINDOW_VIEWPORT_PADDING);
   return {
     x: Math.round(Math.min(Math.max(MOVABLE_WINDOW_VIEWPORT_PADDING, x), maxX)),
-    y: Math.round(Math.min(Math.max(MOVABLE_WINDOW_VIEWPORT_PADDING, y), maxY)),
+    y: Math.round(Math.min(Math.max(minY, y), maxY)),
   };
+}
+
+function getMovableWindowMinY(id: string) {
+  if (typeof window === "undefined") return MOVABLE_WINDOW_VIEWPORT_PADDING;
+  if (window.innerWidth > MOVABLE_WINDOW_MOBILE_BREAKPOINT || !MOBILE_TOP_RESERVED_WINDOW_IDS.has(id)) {
+    return MOVABLE_WINDOW_VIEWPORT_PADDING;
+  }
+  return Math.max(MOVABLE_WINDOW_VIEWPORT_PADDING, MOVABLE_WINDOW_MOBILE_RESERVED_TOP);
 }
 
 function isMovableWindowHardIgnoredTarget(target: EventTarget) {

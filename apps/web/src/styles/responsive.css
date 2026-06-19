@@ -567,3 +567,420 @@
     top: max(166px, calc(env(safe-area-inset-top) + 160px));
   }
 }
+
+@media (max-width: 640px) {
+  .player-card {
+    top: max(8px, calc(env(safe-area-inset-top) + 8px));
+    left: max(8px, calc(env(safe-area-inset-left) + 8px));
+    grid-template-columns: 44px minmax(0, 138px);
+    gap: 7px;
+    max-width: calc(100vw - 126px - env(safe-area-inset-right));
+    padding: 6px 8px 6px 6px;
+  }
+
+  .portrait {
+    width: 44px;
+    height: 44px;
+    padding: 4px;
+  }
+
+  .player-vitals {
+    width: auto;
+    min-width: 0;
+  }
+
+  .player-vitals strong {
+    max-width: 138px;
+    margin-bottom: 3px;
+    font-size: 13px;
+  }
+
+  .player-name-row {
+    gap: 6px;
+  }
+
+  .player-name-row span {
+    font-size: 10px;
+  }
+
+  .bar {
+    height: 14px;
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 12px;
+  }
+
+  .bar.xp {
+    display: none;
+  }
+
+  .active-buff-strip {
+    min-height: 0;
+    margin-top: 4px;
+  }
+
+  .active-buff {
+    width: 22px;
+    height: 22px;
+  }
+
+  .active-buff .item-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .target-frame {
+    top: max(78px, calc(env(safe-area-inset-top) + 78px));
+    left: max(8px, calc(env(safe-area-inset-left) + 8px));
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 7px;
+    width: min(264px, calc(100vw - 126px - env(safe-area-inset-right)));
+    padding: 6px 8px 6px 6px;
+    transform: none;
+  }
+
+  .target-portrait {
+    width: 42px;
+    height: 42px;
+    padding: 4px;
+  }
+
+  .target-vitals strong {
+    max-width: none;
+    font-size: 13px;
+  }
+
+  .target-vitals em {
+    max-width: none;
+    margin-bottom: 3px;
+    font-size: 10px;
+  }
+
+  .target-health {
+    width: 100%;
+    height: 15px;
+    font-size: 10px;
+  }
+
+  .target-effect-strip {
+    min-height: 0;
+    margin-top: 3px;
+    gap: 3px;
+  }
+
+  .target-effect,
+  .target-effect .item-icon,
+  .target-effect .ability-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .minimap-panel {
+    top: max(8px, calc(env(safe-area-inset-top) + 8px));
+    right: max(8px, calc(env(safe-area-inset-right) + 8px));
+    width: 104px;
+    gap: 0;
+  }
+
+  .minimap-header {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    z-index: 10;
+  }
+
+  .minimap-header h2,
+  .online-row {
+    display: none;
+  }
+
+  .minimap-header button {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+  }
+
+  .minimap {
+    width: 98px;
+    height: 98px;
+    border-width: 4px;
+  }
+
+  .minimap-ring {
+    inset: 31px;
+  }
+
+  .minimap-cardinal {
+    width: 15px;
+    height: 15px;
+    font-size: 8px;
+  }
+
+  .menu-dock {
+    top: auto;
+    right: max(8px, calc(env(safe-area-inset-right) + 8px));
+    bottom: max(64px, calc(env(safe-area-inset-bottom) + 64px));
+    display: grid;
+    gap: 6px;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .menu-dock .menu-dock-toggle {
+    display: grid;
+  }
+
+  .menu-dock-actions {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 7px);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: calc(100vh - 190px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 190px - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    padding: 2px;
+    scrollbar-width: none;
+  }
+
+  .menu-dock:not(.open) .menu-dock-actions {
+    display: none;
+  }
+
+  .menu-dock-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .menu-dock button {
+    grid-template-rows: 1fr;
+    width: 52px;
+    height: 46px;
+    padding: 5px;
+  }
+
+  .menu-dock button svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .menu-dock button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .dock-badge {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    font-size: 10px;
+  }
+
+  .quest-panel {
+    top: max(148px, calc(env(safe-area-inset-top) + 148px));
+    left: max(8px, calc(env(safe-area-inset-left) + 8px));
+    width: min(284px, calc(100vw - 88px - env(safe-area-inset-right)));
+    max-height: 168px;
+    overflow-y: auto;
+    padding: 9px;
+  }
+
+  .quest-panel.compact {
+    width: 136px;
+    padding: 6px 7px;
+  }
+
+  .quest-panel h2 {
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
+  .quest-panel-header button {
+    width: 25px;
+    height: 25px;
+  }
+
+  .floating-menu-overlay {
+    left: max(8px, calc(env(safe-area-inset-left) + 8px));
+    top: max(148px, calc(env(safe-area-inset-top) + 148px));
+  }
+
+  .floating-menu-overlay.inventory-anchor,
+  .floating-menu-overlay.settings-anchor {
+    top: auto;
+    bottom: max(74px, calc(env(safe-area-inset-bottom) + 74px));
+  }
+
+  .quest-log-anchor {
+    right: auto;
+  }
+
+  .quest-log-anchor.movable-window-custom-position {
+    top: max(148px, calc(env(safe-area-inset-top) + 148px)) !important;
+  }
+
+  .quest-log-panel {
+    width: min(318px, calc(100vw - 86px - env(safe-area-inset-right)));
+    max-height: calc(100vh - 292px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 292px - env(safe-area-inset-bottom));
+    padding: 10px;
+  }
+
+  .quest-log-panel .world-map-header {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .quest-log-panel .world-map-header strong {
+    font-size: 16px;
+  }
+
+  .quest-log-panel .world-map-header span,
+  .quest-log-toggle {
+    font-size: 10px;
+  }
+
+  .quest-log-list {
+    max-height: calc(100vh - 374px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 374px - env(safe-area-inset-bottom));
+  }
+
+  .chat-panel {
+    left: max(10px, calc(env(safe-area-inset-left) + 10px));
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 76px));
+    width: min(320px, calc(100vw - 86px - env(safe-area-inset-right)));
+  }
+
+  .chat-log {
+    height: 58px;
+    padding: 8px 10px 5px;
+    gap: 4px;
+  }
+
+  .chat-log p {
+    font-size: 11px;
+  }
+
+  .chat-panel form {
+    padding: 6px;
+  }
+
+  .chat-panel input {
+    height: 30px;
+    padding: 0 9px;
+    font-size: 16px;
+  }
+
+  .hotbar {
+    bottom: max(10px, calc(env(safe-area-inset-bottom) + 8px));
+    max-width: calc(100vw - 18px);
+    overflow-x: auto;
+    padding: 0 2px 3px;
+    scrollbar-width: none;
+  }
+
+  .hotbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .action-slot {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 46px;
+  }
+
+  .action-slot .item-icon,
+  .action-slot .ability-icon,
+  .action-drag-ghost .item-icon,
+  .action-drag-ghost .ability-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .slot-key {
+    right: 4px;
+    bottom: 4px;
+    font-size: 9px;
+  }
+
+  .emote-popout {
+    right: max(66px, calc(env(safe-area-inset-right) + 66px));
+    bottom: max(126px, calc(env(safe-area-inset-bottom) + 126px));
+    gap: 6px;
+  }
+
+  .emote-popout-button {
+    grid-template-rows: 1fr;
+    width: 48px;
+    height: 44px;
+    padding: 5px;
+  }
+
+  .emote-popout-button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .cast-bar {
+    bottom: max(212px, calc(env(safe-area-inset-bottom) + 212px));
+    width: min(240px, calc(100vw - 98px));
+  }
+
+  .status-pill {
+    top: max(4px, calc(env(safe-area-inset-top) + 4px));
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 420px) {
+  .player-card {
+    grid-template-columns: 42px minmax(0, 124px);
+  }
+
+  .player-vitals strong {
+    max-width: 124px;
+  }
+
+  .target-frame {
+    width: calc(100vw - 126px - env(safe-area-inset-right));
+  }
+
+  .minimap {
+    width: 92px;
+    height: 92px;
+  }
+
+  .minimap-panel {
+    width: 98px;
+  }
+
+  .menu-dock button {
+    width: 48px;
+    height: 44px;
+  }
+
+  .chat-panel,
+  .quest-log-panel,
+  .quest-panel {
+    width: calc(100vw - 80px - env(safe-area-inset-right));
+  }
+
+  .hotbar {
+    gap: 3px;
+  }
+
+  .action-slot {
+    width: 40px;
+    height: 44px;
+  }
+}

@@ -783,6 +783,16 @@
   gap: 8px;
 }
 
+.menu-dock-actions {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+
+.menu-dock .menu-dock-toggle {
+  display: none;
+}
+
 .menu-dock button {
   position: relative;
   display: grid;

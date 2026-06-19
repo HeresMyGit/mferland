@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -310,6 +310,7 @@ export function Hud({
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
   const [isEmotesOpen, setIsEmotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeQuestId, setActiveQuestId] = useState<QuestId | null>(null);
   const [showCompletedQuests, setShowCompletedQuests] = useState(false);
   const [isQuestTrackerHidden, setIsQuestTrackerHidden] = useState(() => readQuestTrackerHidden());
@@ -349,6 +350,7 @@ export function Hud({
   const showSeasonPoints = localPlayer?.identityType === "wallet";
   const effectiveCharacterPanelTab: CharacterPanelTab = characterWalletAddress ? characterPanelTab : "gear";
   const showReferralsBadge = Boolean(characterWalletAddress && !hasSeenReferralsBadge);
+  const mobileMenuBadge = talentPointCount > 0 ? String(talentPointCount) : showReferralsBadge ? "!" : "";
   const levelProgress = useMemo(() => getLevelProgress(localPlayer?.xp ?? 0), [localPlayer?.xp]);
   const healthPercent = percent(localPlayer?.health ?? 100, localPlayer?.maxHealth ?? 100);
   const lowHealth = Boolean(localPlayer && localPlayer.health > 0 && healthPercent <= LOW_HEALTH_PERCENT);
@@ -557,6 +559,10 @@ export function Hud({
     setIsCharacterOpen((open) => !open);
   }
 
+  function closeMobileMenu() {
+    setIsMobileMenuOpen(false);
+  }
+
   useEffect(() => {
     if (!localPlayer || !isMapOpen) return;
     revealExploredCells(localPlayer);
@@ -660,6 +666,7 @@ export function Hud({
     isAbilitiesOpen,
     isEmotesOpen,
     isSettingsOpen,
+    isMobileMenuOpen,
     lootWindow,
     questOffer,
     questTurnIn,
@@ -692,6 +699,10 @@ export function Hud({
     }
     if (questOffer) {
       onDismissQuestOffer();
+      return true;
+    }
+    if (isMobileMenuOpen) {
+      setIsMobileMenuOpen(false);
       return true;
     }
     if (isInventoryOpen) {
@@ -1750,37 +1761,105 @@ export function Hud({
         </MovableWindow>
       )}
 
-      <section className="menu-dock">
-        <button type="button" title="Character (C)" onClick={toggleCharacterPanel}>
-          <UserRound size={25} />
-          <span>Character</span>
-          {showReferralsBadge && <em className="dock-badge referral" aria-hidden="true">!</em>}
+      <section className={isMobileMenuOpen ? "menu-dock open" : "menu-dock"} aria-label="game menu">
+        <button
+          type="button"
+          className="menu-dock-toggle"
+          title={isMobileMenuOpen ? "Close menu" : "Menu"}
+          aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+          aria-controls="hud-menu-dock-actions"
+          aria-expanded={isMobileMenuOpen}
+          onClick={() => setIsMobileMenuOpen((open) => !open)}
+        >
+          {isMobileMenuOpen ? <X size={25} /> : <Menu size={25} />}
+          <span>Menu</span>
+          {mobileMenuBadge && (
+            <em className={`dock-badge${talentPointCount > 0 ? "" : " referral"}`} aria-hidden="true">
+              {mobileMenuBadge}
+            </em>
+          )}
         </button>
-        <button type="button" title="stash (B/I)" onClick={() => setIsInventoryOpen((open) => !open)}>
-          <Package size={25} />
-          <span>stash</span>
-        </button>
-        <button type="button" title="moves (N)" onClick={() => setIsAbilitiesOpen((open) => !open)}>
-          <Sparkles size={25} />
-          <span>moves</span>
-          {talentPointCount > 0 && <em className="dock-badge">{talentPointCount}</em>}
-        </button>
-        <button type="button" title="Emotes" onClick={() => setIsEmotesOpen((open) => !open)}>
-          <PartyPopper size={25} />
-          <span>emotes</span>
-        </button>
-        <button type="button" title="errand log (L)" onClick={() => setIsQuestLogOpen((open) => !open)}>
-          <BookOpen size={25} />
-          <span>errands</span>
-        </button>
-        <button type="button" title="Settings" onClick={() => setIsSettingsOpen((open) => !open)}>
-          <Settings size={25} />
-          <span>Settings</span>
-        </button>
-        <button type="button" title="Leave" onClick={onExit}>
-          <LogOut size={25} />
-          <span>Leave</span>
-        </button>
+        <div id="hud-menu-dock-actions" className="menu-dock-actions">
+          <button
+            type="button"
+            title="Character (C)"
+            onClick={() => {
+              toggleCharacterPanel();
+              closeMobileMenu();
+            }}
+          >
+            <UserRound size={25} />
+            <span>Character</span>
+            {showReferralsBadge && <em className="dock-badge referral" aria-hidden="true">!</em>}
+          </button>
+          <button
+            type="button"
+            title="stash (B/I)"
+            onClick={() => {
+              setIsInventoryOpen((open) => !open);
+              closeMobileMenu();
+            }}
+          >
+            <Package size={25} />
+            <span>stash</span>
+          </button>
+          <button
+            type="button"
+            title="moves (N)"
+            onClick={() => {
+              setIsAbilitiesOpen((open) => !open);
+              closeMobileMenu();
+            }}
+          >
+            <Sparkles size={25} />
+            <span>moves</span>
+            {talentPointCount > 0 && <em className="dock-badge">{talentPointCount}</em>}
+          </button>
+          <button
+            type="button"
+            title="Emotes"
+            onClick={() => {
+              setIsEmotesOpen((open) => !open);
+              closeMobileMenu();
+            }}
+          >
+            <PartyPopper size={25} />
+            <span>emotes</span>
+          </button>
+          <button
+            type="button"
+            title="errand log (L)"
+            onClick={() => {
+              setIsQuestLogOpen((open) => !open);
+              closeMobileMenu();
+            }}
+          >
+            <BookOpen size={25} />
+            <span>errands</span>
+          </button>
+          <button
+            type="button"
+            title="Settings"
+            onClick={() => {
+              setIsSettingsOpen((open) => !open);
+              closeMobileMenu();
+            }}
+          >
+            <Settings size={25} />
+            <span>Settings</span>
+          </button>
+          <button
+            type="button"
+            title="Leave"
+            onClick={() => {
+              closeMobileMenu();
+              onExit();
+            }}
+          >
+            <LogOut size={25} />
+            <span>Leave</span>
+          </button>
+        </div>
       </section>
 
       <div className={`status-pill ${connectionStatus}`}>
