@@ -165,12 +165,18 @@ export type SeasonLeaderboardEntry = {
   referralBonusPoints: number;
 };
 
+export type SeasonLeaderboardMode = "seasonPoints" | "totalXp";
+
 export type SeasonLeaderboardSnapshot = {
   ok: true;
   seasonId: typeof SEASON_0_ID;
+  mode: SeasonLeaderboardMode;
   generatedAt: string;
   dailyPointCap: typeof SEASON_0_DAILY_POINT_CAP;
   totalPointCap: typeof SEASON_0_TOTAL_POINT_CAP;
+  totalEntries: number;
+  totalSeasonPoints: number;
+  totalXp: number;
   entries: SeasonLeaderboardEntry[];
 };
 
@@ -1057,16 +1063,20 @@ export async function saveCharacterProgressWithSeason0Reward(
 
 export async function getSeason0Leaderboard({
   limit = 100,
+  mode = "seasonPoints",
   now = new Date(),
 }: {
   limit?: number;
+  mode?: SeasonLeaderboardMode;
   now?: Date;
 } = {}): Promise<SeasonLeaderboardSnapshot> {
   const db = getRequiredDatabase();
   const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 250);
   const dayStart = getSeasonDayStart(now);
   const dayStartIso = dayStart.toISOString();
-  const rows = await db.execute<SeasonLeaderboardQueryRow>(sql`
+  const normalizedMode = mode === "totalXp" ? "totalXp" : "seasonPoints";
+  const rows = normalizedMode === "totalXp"
+    ? await db.execute<SeasonLeaderboardQueryRow>(sql`
     WITH totals AS (
       SELECT
         lower(nullif(sre.wallet_address, '')) AS wallet_address,
@@ -1083,7 +1093,116 @@ export async function getSeason0Leaderboard({
       WHERE sre.season_id = ${SEASON_0_ID}
       GROUP BY lower(nullif(sre.wallet_address, ''))
     ),
-	    ranked AS (
+    referral_totals AS (
+      SELECT
+        sr.referrer_wallet_address AS wallet_address,
+        count(*)::int AS referral_count,
+        count(*) FILTER (WHERE sr.status = 'active' OR ${SEASON_0_REFERRAL_ACTIVATION_POINTS} <= 0)::int AS activated_referral_count,
+        coalesce(sum(sr.referrer_bonus_points), 0)::int AS referral_bonus_points
+      FROM season_referrals sr
+      JOIN account_wallets referrer_wallet
+        ON lower(referrer_wallet.wallet_address) = sr.referrer_wallet_address
+       AND CASE
+        WHEN referrer_wallet.registered_client_kind IN ('human', 'agent') THEN referrer_wallet.registered_client_kind
+        WHEN referrer_wallet.wallet_type = 'agent' THEN 'agent'
+        ELSE 'human'
+       END = 'human'
+      WHERE sr.season_id = ${SEASON_0_ID}
+      GROUP BY sr.referrer_wallet_address
+    ),
+    wallet_characters AS (
+      SELECT
+        lower(account_wallets.wallet_address) AS wallet_address,
+        CASE
+          WHEN account_wallets.registered_client_kind IN ('human', 'agent') THEN account_wallets.registered_client_kind
+          WHEN account_wallets.wallet_type = 'agent' THEN 'agent'
+          WHEN account_wallets.wallet_type = 'human' THEN 'human'
+          ELSE ''
+        END AS client_kind,
+        coalesce(account_character.name, accounts.display_name, 'mfer') AS character_name,
+        coalesce(account_character.avatar_seed, 1)::int AS avatar_seed,
+        coalesce(account_character.appearance_traits, '{}'::jsonb) AS appearance_traits,
+        coalesce(account_character.level, 1)::int AS level,
+        coalesce(account_character.xp, 0)::int AS xp,
+        coalesce(totals.season_points, 0)::int AS season_points,
+        coalesce(totals.daily_points, 0)::int AS daily_points,
+        coalesce(totals.pending_points, 0)::int AS pending_points,
+        coalesce(totals.approved_points, 0)::int AS approved_points,
+        coalesce(totals.distributed_points, 0)::int AS distributed_points,
+        coalesce(totals.events, 0)::int AS events,
+        totals.last_event_at,
+        coalesce(referral_totals.referral_count, 0)::int AS referral_count,
+        coalesce(referral_totals.activated_referral_count, 0)::int AS activated_referral_count,
+        coalesce(referral_totals.referral_bonus_points, 0)::int AS referral_bonus_points,
+        account_character.updated_at
+      FROM account_wallets
+      JOIN accounts ON accounts.id = account_wallets.account_id
+      JOIN LATERAL (
+        SELECT c.name, c.avatar_seed, c.appearance_traits, c.level, c.xp, c.updated_at
+        FROM characters c
+        WHERE c.account_id = accounts.id
+        ORDER BY c.updated_at DESC
+        LIMIT 1
+      ) account_character ON true
+      LEFT JOIN totals ON totals.wallet_address = lower(account_wallets.wallet_address)
+      LEFT JOIN referral_totals ON referral_totals.wallet_address = lower(account_wallets.wallet_address)
+    ),
+    ranked AS (
+      SELECT
+        wallet_characters.*,
+        rank() OVER (
+          ORDER BY wallet_characters.xp DESC, wallet_characters.season_points DESC, wallet_characters.updated_at ASC NULLS LAST, wallet_characters.wallet_address ASC
+        )::int AS rank,
+        count(*) OVER()::int AS total_entries,
+        coalesce(sum(wallet_characters.season_points) OVER(), 0)::int AS total_season_points,
+        coalesce(sum(wallet_characters.xp) OVER(), 0)::int AS total_xp
+      FROM wallet_characters
+      WHERE wallet_characters.wallet_address IS NOT NULL
+    )
+    SELECT
+      rank,
+      wallet_address,
+      client_kind,
+      character_name,
+      avatar_seed,
+      appearance_traits,
+      level,
+      xp,
+      season_points,
+      daily_points,
+      pending_points,
+      approved_points,
+      distributed_points,
+      events,
+      last_event_at,
+      referral_count,
+      activated_referral_count,
+      referral_bonus_points,
+      total_entries,
+      total_season_points,
+      total_xp
+    FROM ranked
+    ORDER BY xp DESC, season_points DESC, updated_at ASC NULLS LAST, wallet_address ASC
+    LIMIT ${safeLimit}
+  `)
+    : await db.execute<SeasonLeaderboardQueryRow>(sql`
+    WITH totals AS (
+      SELECT
+        lower(nullif(sre.wallet_address, '')) AS wallet_address,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status IN ('pending', 'approved', 'distributed')), 0)::int AS season_points,
+        coalesce(sum(sre.points) FILTER (
+          WHERE sre.status IN ('pending', 'approved', 'distributed') AND sre.created_at >= ${dayStartIso}::timestamptz
+        ), 0)::int AS daily_points,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status = 'pending'), 0)::int AS pending_points,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status = 'approved'), 0)::int AS approved_points,
+        coalesce(sum(sre.points) FILTER (WHERE sre.status = 'distributed'), 0)::int AS distributed_points,
+        count(*) FILTER (WHERE sre.status IN ('pending', 'approved', 'distributed'))::int AS events,
+        max(sre.created_at) FILTER (WHERE sre.status IN ('pending', 'approved', 'distributed')) AS last_event_at
+      FROM season_reward_events sre
+      WHERE sre.season_id = ${SEASON_0_ID}
+      GROUP BY lower(nullif(sre.wallet_address, ''))
+    ),
+    ranked AS (
 	      SELECT
 	        totals.*,
 	        rank() OVER (
@@ -1132,7 +1251,10 @@ export async function getSeason0Leaderboard({
 	      ranked.last_event_at,
 	      coalesce(referral_totals.referral_count, 0)::int AS referral_count,
 	      coalesce(referral_totals.activated_referral_count, 0)::int AS activated_referral_count,
-	      coalesce(referral_totals.referral_bonus_points, 0)::int AS referral_bonus_points
+	      coalesce(referral_totals.referral_bonus_points, 0)::int AS referral_bonus_points,
+      count(*) OVER()::int AS total_entries,
+      coalesce(sum(ranked.season_points) OVER(), 0)::int AS total_season_points,
+      coalesce(sum(coalesce(account_character.xp, event_character.xp, 0)) OVER(), 0)::int AS total_xp
 	    FROM ranked
 	    LEFT JOIN account_wallets ON lower(account_wallets.wallet_address) = ranked.wallet_address
 	    LEFT JOIN accounts ON accounts.id = account_wallets.account_id
@@ -1156,14 +1278,20 @@ export async function getSeason0Leaderboard({
     ORDER BY ranked.season_points DESC, ranked.last_event_at ASC NULLS LAST, ranked.wallet_address ASC
     LIMIT ${safeLimit}
   `);
+  const entries = Array.from(rows).map(mapSeasonLeaderboardEntry);
+  const firstRow = Array.from(rows)[0];
 
   return {
     ok: true,
     seasonId: SEASON_0_ID,
+    mode: normalizedMode,
     generatedAt: now.toISOString(),
     dailyPointCap: SEASON_0_DAILY_POINT_CAP,
     totalPointCap: SEASON_0_TOTAL_POINT_CAP,
-    entries: Array.from(rows).map(mapSeasonLeaderboardEntry),
+    totalEntries: toLeaderboardNumber(firstRow?.total_entries) || entries.length,
+    totalSeasonPoints: toLeaderboardNumber(firstRow?.total_season_points) || entries.reduce((sum, entry) => sum + entry.seasonPoints, 0),
+    totalXp: toLeaderboardNumber(firstRow?.total_xp) || entries.reduce((sum, entry) => sum + entry.xp, 0),
+    entries,
   };
 }
 
@@ -1625,6 +1753,9 @@ type SeasonLeaderboardQueryRow = {
   referral_count?: unknown;
   activated_referral_count?: unknown;
   referral_bonus_points?: unknown;
+  total_entries?: unknown;
+  total_season_points?: unknown;
+  total_xp?: unknown;
 };
 
 type SeasonReferralSummaryQueryRow = {

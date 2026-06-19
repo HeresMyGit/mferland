@@ -33,6 +33,7 @@ import {
   getWalletCharacterProfile,
   getWalletClientKindMismatchForWallet,
   PersistenceUnavailableError,
+  type SeasonLeaderboardMode,
 } from "./persistence.js";
 import { assertLocalOnlyRuntimeSafety } from "./localSafety.js";
 import {
@@ -398,8 +399,9 @@ async function handleSeasonLeaderboard(req: IncomingMessage, requestUrl: URL, re
   }
 
   const limit = normalizeLeaderboardLimit(requestUrl.searchParams.get("limit"));
+  const mode = normalizeLeaderboardMode(requestUrl.searchParams.get("mode") ?? requestUrl.searchParams.get("view"));
   try {
-    const payload = await getSeason0Leaderboard({ limit });
+    const payload = await getSeason0Leaderboard({ limit, mode });
     const body = JSON.stringify(payload);
     res.writeHead(200, {
       "content-type": "application/json",
@@ -932,6 +934,12 @@ function normalizeLeaderboardLimit(value: string | null) {
   const limit = Number(value ?? 100);
   if (!Number.isFinite(limit)) return 100;
   return Math.min(Math.max(Math.floor(limit), 1), 250);
+}
+
+function normalizeLeaderboardMode(value: string | null): SeasonLeaderboardMode {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "totalxp" || normalized === "total-xp" || normalized === "xp") return "totalXp";
+  return "seasonPoints";
 }
 
 function normalizePublicIdentityType(value: unknown) {

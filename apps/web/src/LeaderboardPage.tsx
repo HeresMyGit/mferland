@@ -12,10 +12,13 @@ import {
 import { MferPortrait } from "./components/MferPortrait";
 import { resolveMferTraitsForPlayer } from "./game/mferTraits";
 
+type LeaderboardMode = "seasonPoints" | "totalXp";
+
 type LeaderboardEntry = {
   rank: number;
   walletAddress: string;
   characterName: string;
+  clientKind: "human" | "agent" | "";
   avatarSeed: number;
   appearanceTraits: MferAppearanceTraits;
   level: number;
@@ -35,9 +38,13 @@ type LeaderboardEntry = {
 type LeaderboardSnapshot = {
   ok: true;
   seasonId: string;
+  mode: LeaderboardMode;
   generatedAt: string;
   dailyPointCap: number;
   totalPointCap: number;
+  totalEntries: number;
+  totalSeasonPoints: number;
+  totalXp: number;
   entries: LeaderboardEntry[];
 };
 
@@ -62,22 +69,31 @@ const LEADERBOARD_REFRESH_MS = 30_000;
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 export function LeaderboardPage() {
+  const [mode, setMode] = useState<LeaderboardMode>(() => getLeaderboardModeFromLocation());
   const [snapshot, setSnapshot] = useState<LeaderboardSnapshot | null>(null);
   const [burnStats, setBurnStats] = useState<MferGptBurnStats | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [burnError, setBurnError] = useState("");
   const entries = snapshot?.entries ?? [];
+  const activeMode = snapshot?.mode ?? mode;
+  const isXpMode = activeMode === "totalXp";
   const totalPointCap = snapshot?.totalPointCap ?? SEASON_0_TOTAL_POINT_CAP;
   const dailyPointCap = snapshot?.dailyPointCap ?? SEASON_0_DAILY_POINT_CAP;
+  const totalEntries = snapshot?.totalEntries ?? entries.length;
+  const totalSeasonPoints = snapshot?.totalSeasonPoints ?? entries.reduce((sum, entry) => sum + entry.seasonPoints, 0);
+  const totalXp = snapshot?.totalXp ?? entries.reduce((sum, entry) => sum + entry.xp, 0);
+  const progressMax = isXpMode
+    ? Math.max(1, ...entries.map((entry) => entry.xp))
+    : totalPointCap;
 
   const loadLeaderboard = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const response = await fetch(getLeaderboardApiUrl(), { cache: "no-store" });
+      const response = await fetch(getLeaderboardApiUrl(mode), { cache: "no-store" });
       const payload = await response.json().catch(() => null) as unknown;
       if (!response.ok) throw new Error(getLeaderboardErrorMessage(payload, response.status));
-      const next = normalizeLeaderboardSnapshot(payload);
+      const next = normalizeLeaderboardSnapshot(payload, mode);
       setSnapshot(next);
       setError("");
     } catch (loadError) {
@@ -93,13 +109,17 @@ export function LeaderboardPage() {
       setBurnStats(null);
       setBurnError(loadError instanceof Error ? loadError.message : "Unable to load burn stats.");
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     void loadLeaderboard();
     const refreshId = window.setInterval(() => void loadLeaderboard(), LEADERBOARD_REFRESH_MS);
     return () => window.clearInterval(refreshId);
   }, [loadLeaderboard]);
+
+  useEffect(() => {
+    writeLeaderboardModeToLocation(mode);
+  }, [mode]);
 
   return (
     <main className="leaderboard-page">
@@ -122,34 +142,55 @@ export function LeaderboardPage() {
       </header>
 
       <section className="leaderboard-metrics" aria-label="Season summary">
-        <Metric icon={<Users size={20} />} label="players" value={formatNumber(entries.length)} />
-        <Metric icon={<Crown size={20} />} label="season cap" value={formatNumber(totalPointCap)} />
-        <Metric icon={<Clock3 size={20} />} label="daily cap" value={formatNumber(dailyPointCap)} />
+        <Metric icon={<Users size={20} />} label="players" value={formatNumber(totalEntries)} />
+        <Metric icon={<Crown size={20} />} label={isXpMode ? "total XP" : "season points"} value={formatNumber(isXpMode ? totalXp : totalSeasonPoints)} />
+        <Metric icon={<Clock3 size={20} />} label={isXpMode ? "season cap" : "daily cap"} value={formatNumber(isXpMode ? totalPointCap : dailyPointCap)} />
       </section>
 
       <BurnTracker stats={burnStats} error={burnError} />
 
       <section className="leaderboard-board" aria-label="Leaderboard standings">
         <div className="leaderboard-board-head">
-          <div>
-            <strong>standings</strong>
+          <div className="leaderboard-board-title">
+            <strong>{isXpMode ? "total XP standings" : "season standings"}</strong>
             <span>{formatUpdatedAt(snapshot?.generatedAt)}</span>
           </div>
-          {error && <p role="alert">{error}</p>}
+          <div className="leaderboard-board-actions">
+            <div className="leaderboard-mode-toggle" aria-label="Leaderboard view">
+              <button
+                type="button"
+                className={mode === "seasonPoints" ? "active" : ""}
+                aria-pressed={mode === "seasonPoints"}
+                onClick={() => setMode("seasonPoints")}
+              >
+                Season Points
+              </button>
+              <button
+                type="button"
+                className={mode === "totalXp" ? "active" : ""}
+                aria-pressed={mode === "totalXp"}
+                onClick={() => setMode("totalXp")}
+              >
+                Total XP
+              </button>
+            </div>
+            {error && <p role="alert">{error}</p>}
+          </div>
         </div>
 
         {!snapshot && isRefreshing ? (
           <div className="leaderboard-state">loading leaderboard</div>
         ) : entries.length === 0 ? (
-          <div className="leaderboard-state">no season points logged yet</div>
+          <div className="leaderboard-state">{isXpMode ? "no registered players yet" : "no season points logged yet"}</div>
         ) : (
           <ol className="leaderboard-list">
             {entries.map((entry, index) => (
               <LeaderboardRow
-                key={`${entry.walletAddress}:${entry.rank}:${entry.seasonPoints}`}
+                key={`${activeMode}:${entry.walletAddress}:${entry.rank}:${isXpMode ? entry.xp : entry.seasonPoints}`}
                 entry={entry}
                 index={index}
-                totalPointCap={totalPointCap}
+                mode={activeMode}
+                progressMax={progressMax}
               />
             ))}
           </ol>
@@ -216,19 +257,26 @@ function Metric({
 function LeaderboardRow({
   entry,
   index,
-  totalPointCap,
+  mode,
+  progressMax,
 }: {
   entry: LeaderboardEntry;
   index: number;
-  totalPointCap: number;
+  mode: LeaderboardMode;
+  progressMax: number;
 }) {
   const traits = useMemo(
     () => resolveMferTraitsForPlayer(entry.avatarSeed, entry.appearanceTraits),
     [entry.appearanceTraits, entry.avatarSeed],
   );
-  const progress = totalPointCap > 0 ? Math.min(100, Math.round((entry.seasonPoints / totalPointCap) * 1000) / 10) : 0;
+  const primaryValue = mode === "totalXp" ? entry.xp : entry.seasonPoints;
+  const progress = progressMax > 0 ? Math.min(100, Math.round((primaryValue / progressMax) * 1000) / 10) : 0;
   const rank = entry.rank || index + 1;
   const isTopThree = rank <= 3;
+  const clientKindLabel = entry.clientKind === "agent" ? "agent" : entry.clientKind === "human" ? "human" : "";
+  const secondaryLabel = mode === "totalXp"
+    ? "XP earned"
+    : entry.dailyPoints > 0 ? `+${formatNumber(entry.dailyPoints)} today` : `${entry.events} logs`;
 
   return (
     <li className={`leaderboard-row ${isTopThree ? `top-${rank}` : ""}`}>
@@ -242,7 +290,10 @@ function LeaderboardRow({
 
       <div className="leaderboard-player">
         <strong>{entry.characterName}</strong>
-        <span>{formatShortAddress(entry.walletAddress)} · lvl {entry.level}</span>
+        <span>
+          {formatShortAddress(entry.walletAddress)} · lvl {entry.level}
+          {clientKindLabel && <em className={`leaderboard-client-kind ${clientKindLabel}`}>{clientKindLabel}</em>}
+        </span>
       </div>
 
       <div className="leaderboard-progress" aria-label={`${progress}% of season cap`}>
@@ -252,8 +303,9 @@ function LeaderboardRow({
       <ReferralBadge entry={entry} />
 
       <div className="leaderboard-points">
-        <strong>{formatNumber(entry.seasonPoints)}</strong>
-        <span>{entry.dailyPoints > 0 ? `+${formatNumber(entry.dailyPoints)} today` : `${entry.events} logs`}</span>
+        <strong>{formatNumber(primaryValue)}</strong>
+        <span>{secondaryLabel}</span>
+        {mode === "totalXp" && <small>{formatNumber(entry.seasonPoints)} season pts</small>}
       </div>
     </li>
   );
@@ -289,8 +341,12 @@ function ReferralBadge({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-function getLeaderboardApiUrl() {
-  return `${getServerHttpBase()}/season/leaderboard?limit=${LEADERBOARD_LIMIT}`;
+function getLeaderboardApiUrl(mode: LeaderboardMode) {
+  const params = new URLSearchParams({
+    limit: String(LEADERBOARD_LIMIT),
+    mode,
+  });
+  return `${getServerHttpBase()}/season/leaderboard?${params.toString()}`;
 }
 
 function getBurnStatsApiUrl() {
@@ -318,15 +374,20 @@ async function fetchMferGptBurnStats() {
   return normalizeMferGptBurnStats(payload);
 }
 
-function normalizeLeaderboardSnapshot(value: unknown): LeaderboardSnapshot {
+function normalizeLeaderboardSnapshot(value: unknown, fallbackMode: LeaderboardMode): LeaderboardSnapshot {
   if (!isRecord(value) || value.ok !== true) throw new Error("Leaderboard response was not valid.");
+  const entries = toArray(value.entries).map(normalizeLeaderboardEntry).filter((entry): entry is LeaderboardEntry => Boolean(entry));
   return {
     ok: true,
     seasonId: toStringValue(value.seasonId) || SEASON_0_ID,
+    mode: normalizeLeaderboardModeValue(value.mode, fallbackMode),
     generatedAt: toStringValue(value.generatedAt) || new Date().toISOString(),
     dailyPointCap: toNumber(value.dailyPointCap) || SEASON_0_DAILY_POINT_CAP,
     totalPointCap: toNumber(value.totalPointCap) || SEASON_0_TOTAL_POINT_CAP,
-    entries: toArray(value.entries).map(normalizeLeaderboardEntry).filter((entry): entry is LeaderboardEntry => Boolean(entry)),
+    totalEntries: toNumber(value.totalEntries) || entries.length,
+    totalSeasonPoints: toNumber(value.totalSeasonPoints) || entries.reduce((sum, entry) => sum + entry.seasonPoints, 0),
+    totalXp: toNumber(value.totalXp) || entries.reduce((sum, entry) => sum + entry.xp, 0),
+    entries,
   };
 }
 
@@ -334,11 +395,12 @@ function normalizeLeaderboardEntry(value: unknown): LeaderboardEntry | null {
   if (!isRecord(value)) return null;
   const walletAddress = toStringValue(value.walletAddress);
   const seasonPoints = toNumber(value.seasonPoints);
-  if (!walletAddress || seasonPoints <= 0) return null;
+  if (!walletAddress) return null;
   return {
     rank: toNumber(value.rank),
     walletAddress,
     characterName: toStringValue(value.characterName) || "mfer",
+    clientKind: normalizeClientKind(value.clientKind),
     avatarSeed: normalizeAvatarSeed(toNumber(value.avatarSeed) || 1),
     appearanceTraits: normalizeMferAppearanceTraits(value.appearanceTraits, {}),
     level: toNumber(value.level) || 1,
@@ -354,6 +416,34 @@ function normalizeLeaderboardEntry(value: unknown): LeaderboardEntry | null {
     activatedReferralCount: toNumber(value.activatedReferralCount),
     referralBonusPoints: toNumber(value.referralBonusPoints),
   };
+}
+
+function getLeaderboardModeFromLocation(): LeaderboardMode {
+  if (typeof window === "undefined") return "seasonPoints";
+  return normalizeLeaderboardModeValue(new URLSearchParams(window.location.search).get("view"));
+}
+
+function writeLeaderboardModeToLocation(mode: LeaderboardMode) {
+  const url = new URL(window.location.href);
+  if (mode === "totalXp") {
+    url.searchParams.set("view", "xp");
+  } else {
+    url.searchParams.delete("view");
+  }
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl !== currentUrl) window.history.replaceState(null, "", nextUrl);
+}
+
+function normalizeLeaderboardModeValue(value: unknown, fallback: LeaderboardMode = "seasonPoints"): LeaderboardMode {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "totalxp" || normalized === "total-xp" || normalized === "xp") return "totalXp";
+  if (normalized === "seasonpoints" || normalized === "season-points" || normalized === "season") return "seasonPoints";
+  return fallback;
+}
+
+function normalizeClientKind(value: unknown): LeaderboardEntry["clientKind"] {
+  return value === "agent" || value === "human" ? value : "";
 }
 
 function normalizeMferGptBurnStats(value: unknown): MferGptBurnStats {
