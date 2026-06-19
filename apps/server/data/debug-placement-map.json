@@ -403,33 +403,33 @@
       "source": "spawnNpcs:wild-hog-tusk"
     },
     "building:mfers": {
-      "x": -18,
-      "z": -8,
-      "rotation": 0.4,
+      "x": -16.8,
+      "z": -15.5,
+      "rotation": 0.8256241304365687,
       "kind": "building",
       "label": "Town building: MFERS",
       "source": "world/shared.ts"
     },
     "building:dao": {
-      "x": 18,
-      "z": -7.5,
-      "rotation": -0.45,
+      "x": 20.2,
+      "z": -10.8,
+      "rotation": -1.079811779536266,
       "kind": "building",
       "label": "Town building: DAO",
       "source": "world/shared.ts"
     },
     "building:wearables": {
-      "x": -18,
-      "z": 11,
-      "rotation": -0.2,
+      "x": -17.5,
+      "z": 16,
+      "rotation": 2.3114482587377294,
       "kind": "building",
       "label": "Town building: WEARABLES",
       "source": "world/shared.ts"
     },
     "building:shop": {
-      "x": 18,
-      "z": 10.5,
-      "rotation": 0.25,
+      "x": 16.8,
+      "z": 17,
+      "rotation": -2.362111580898372,
       "kind": "building",
       "label": "Town building: SHOP",
       "source": "world/shared.ts"
@@ -437,7 +437,7 @@
     "building:barracks": {
       "x": -25.5,
       "z": -33.8,
-      "rotation": 1.28,
+      "rotation": 0.6463353005432635,
       "kind": "building",
       "label": "Town building: BARRACKS",
       "source": "world/shared.ts"
@@ -445,7 +445,7 @@
     "building:keep": {
       "x": 25.5,
       "z": -33.8,
-      "rotation": -1.28,
+      "rotation": -0.6463353005432635,
       "kind": "building",
       "label": "Town building: KEEP",
       "source": "world/shared.ts"
@@ -453,7 +453,7 @@
     "building:gallery": {
       "x": -36,
       "z": 17.5,
-      "rotation": 1.5,
+      "rotation": 2.0232712163569637,
       "kind": "building",
       "label": "Town building: GALLERY",
       "source": "world/shared.ts"
@@ -461,7 +461,7 @@
     "building:arcade": {
       "x": 36,
       "z": 17.5,
-      "rotation": -1.5,
+      "rotation": -2.0232712163569637,
       "kind": "building",
       "label": "Town building: ARCADE",
       "source": "world/shared.ts"
@@ -469,7 +469,7 @@
     "building:inn": {
       "x": -16,
       "z": 36.5,
-      "rotation": 2.82,
+      "rotation": 2.728463821311392,
       "kind": "building",
       "label": "Town building: INN",
       "source": "world/shared.ts"
@@ -477,7 +477,7 @@
     "building:forge": {
       "x": 16,
       "z": 36.5,
-      "rotation": -2.82,
+      "rotation": -2.728463821311392,
       "kind": "building",
       "label": "Town building: FORGE",
       "source": "world/shared.ts"
@@ -1191,7 +1191,7 @@
     "building:mfers": {
       "x": -16.8,
       "z": -15.5,
-      "rotation": 0.8377580409572781,
+      "rotation": 0.8256241304365687,
       "kind": "building",
       "label": "Town building: MFERS",
       "source": "world/shared.ts"
@@ -1199,7 +1199,7 @@
     "building:dao": {
       "x": 20.2,
       "z": -10.8,
-      "rotation": -0.9773843811168246,
+      "rotation": -1.079811779536266,
       "kind": "building",
       "label": "Town building: DAO",
       "source": "world/shared.ts"
@@ -1207,7 +1207,7 @@
     "building:wearables": {
       "x": -17.5,
       "z": 16,
-      "rotation": -0.8552113334772214,
+      "rotation": 2.3114482587377294,
       "kind": "building",
       "label": "Town building: WEARABLES",
       "source": "world/shared.ts"
@@ -1215,7 +1215,7 @@
     "building:shop": {
       "x": 16.8,
       "z": 17,
-      "rotation": 0.7504915783575616,
+      "rotation": -2.362111580898372,
       "kind": "building",
       "label": "Town building: SHOP",
       "source": "world/shared.ts"
@@ -1223,7 +1223,7 @@
     "building:barracks": {
       "x": -25.5,
       "z": -33.8,
-      "rotation": 1.28,
+      "rotation": 0.6463353005432635,
       "kind": "building",
       "label": "Town building: BARRACKS",
       "source": "world/shared.ts"
@@ -1231,7 +1231,7 @@
     "building:keep": {
       "x": 25.5,
       "z": -33.8,
-      "rotation": -1.28,
+      "rotation": -0.6463353005432635,
       "kind": "building",
       "label": "Town building: KEEP",
       "source": "world/shared.ts"
@@ -1239,7 +1239,7 @@
     "building:gallery": {
       "x": -36,
       "z": 17.5,
-      "rotation": 1.5,
+      "rotation": 2.0232712163569637,
       "kind": "building",
       "label": "Town building: GALLERY",
       "source": "world/shared.ts"
@@ -1247,7 +1247,7 @@
     "building:arcade": {
       "x": 36,
       "z": 17.5,
-      "rotation": -1.5,
+      "rotation": -2.0232712163569637,
       "kind": "building",
       "label": "Town building: ARCADE",
       "source": "world/shared.ts"
@@ -1255,7 +1255,7 @@
     "building:inn": {
       "x": -16,
       "z": 36.5,
-      "rotation": 2.82,
+      "rotation": 2.728463821311392,
       "kind": "building",
       "label": "Town building: INN",
       "source": "world/shared.ts"
@@ -1263,7 +1263,7 @@
     "building:forge": {
       "x": 16,
       "z": 36.5,
-      "rotation": -2.82,
+      "rotation": -2.728463821311392,
       "kind": "building",
       "label": "Town building: FORGE",
       "source": "world/shared.ts"
