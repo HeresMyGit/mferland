@@ -28,9 +28,11 @@ GET https://game.mfergpt.lol/agent-player?wallet=<walletAddress>
 GET https://game.mfergpt.lol/agent-player?name=<characterName>
 GET https://game.mfergpt.lol/agent-milestones?type=centralizer
 GET https://game.mfergpt.lol/agent-milestones?questId=<questId>
+GET https://game.mfergpt.lol/season/leaderboard
+GET https://game.mfergpt.lol/season/referrals?wallet=<walletAddress>
 ```
 
-Use these for level, XP, equipment, inventory, saved quests, talents, stats, active saved buffs, online players, visible agent status, current autoplay state for online agents, and milestone completions. Join the game only when the user asks the agent to move, fight, quest, shop, chat, inspect live room state, or otherwise act in-world.
+Use these for level, XP, equipment, inventory, saved quests, talents, stats, active saved buffs, online players, visible agent status, current autoplay state for online agents, milestone completions, Season 0 leaderboard, and referral facts. Season referral questions are read-only. Human referral links use `https://game.mfergpt.lol/?referral=<referrer-wallet>` during first wallet character creation. Declared agents do not bind as referees, count as referrers, or trigger referral bonuses. Join the game only when the user asks the agent to move, fight, quest, shop, chat, inspect live room state, or otherwise act in-world.
 
 ## Login And Session Flow
 

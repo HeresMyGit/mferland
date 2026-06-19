@@ -1,5 +1,6 @@
 import { seeded } from "./random";
 import {
+  RESPEC_MFER_NPC_ID,
   hasExplicitMferAppearanceTraits,
   normalizeMferAppearanceTraits,
   type MferAppearanceTraits,
@@ -363,6 +364,18 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
     traits.hat_under_headphones = "headband_green_white";
     traits.shirt = "hoodie_down_blue";
     traits.watch = "sub_turquoise";
+    traits.chain = "silver";
+    delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === RESPEC_MFER_NPC_ID) {
+    traits.type = "plain";
+    traits.eyes = "shades";
+    traits.headphones = "black_square";
+    traits.hat_under_headphones = "cap_monochrome";
+    traits.shirt = "hoodie_down_gray";
+    traits.watch = "sub_black";
     traits.chain = "silver";
     delete traits.hat_over_headphones;
     return;

@@ -8,6 +8,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const accounts = pgTable("accounts", {
@@ -22,10 +23,12 @@ export const accountWallets = pgTable("account_wallets", {
   accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
   walletAddress: text("wallet_address").primaryKey(),
   walletType: text("wallet_type").notNull().default("external"),
+  registeredClientKind: text("registered_client_kind").notNull().default(""),
   primaryWallet: boolean("primary_wallet").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("account_wallets_account_id_idx").on(table.accountId),
+  index("account_wallets_registered_client_kind_idx").on(table.registeredClientKind),
 ]);
 
 export const inviteCodes = pgTable("invite_codes", {
@@ -128,6 +131,25 @@ export const seasonRewardEvents = pgTable("season_reward_events", {
 }, (table) => [
   index("season_reward_events_wallet_idx").on(table.seasonId, table.walletAddress, table.createdAt),
   index("season_reward_events_status_idx").on(table.seasonId, table.status, table.createdAt),
+]);
+
+export const seasonReferrals = pgTable("season_referrals", {
+  id: text("id").primaryKey(),
+  seasonId: text("season_id").notNull(),
+  referrerWalletAddress: text("referrer_wallet_address").notNull(),
+  referrerCharacterId: text("referrer_character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  refereeWalletAddress: text("referee_wallet_address").notNull(),
+  refereeCharacterId: text("referee_character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  postActivationBasePoints: integer("post_activation_base_points").notNull().default(0),
+  referrerBonusPoints: integer("referrer_bonus_points").notNull().default(0),
+  refereeBonusPoints: integer("referee_bonus_points").notNull().default(0),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("season_referrals_referrer_idx").on(table.seasonId, table.referrerWalletAddress, table.createdAt),
+  uniqueIndex("season_referrals_referee_unique_idx").on(table.seasonId, table.refereeWalletAddress),
 ]);
 
 export const cryptoPurchaseEvents = pgTable("crypto_purchase_events", {

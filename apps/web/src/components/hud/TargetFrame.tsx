@@ -3,6 +3,7 @@ import {
   type ActionId,
   type ActiveBuffSnapshot,
   POTION_SHOP_NPC_ID,
+  RESPEC_MFER_NPC_ID,
   TRASH_VENDOR_NPC_ID,
   getNpcDisposition,
   type NpcSnapshot,
@@ -182,6 +183,7 @@ function roleLabel(npc: NpcSnapshot) {
   if (npc.id === "swap-mfer") return "swap";
   if (npc.id === POTION_SHOP_NPC_ID) return "potions";
   if (npc.id === TRASH_VENDOR_NPC_ID) return "trash";
+  if (npc.id === RESPEC_MFER_NPC_ID) return "respec";
   if (npc.id === "hogwatch-mfer") return "claimwatch";
   if (npc.id === "field-guide-mfer") return "route post";
   if (npc.id === "pen-keeper-mfer") return "claim booth";

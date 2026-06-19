@@ -3,6 +3,7 @@ import { ArrowLeft, Clock3, Crown, Flame, RefreshCw, ShieldCheck, Users } from "
 import {
   SEASON_0_DAILY_POINT_CAP,
   SEASON_0_ID,
+  SEASON_0_REFERRAL_MAX_REFEREES,
   SEASON_0_TOTAL_POINT_CAP,
   normalizeAvatarSeed,
   normalizeMferAppearanceTraits,
@@ -26,6 +27,9 @@ type LeaderboardEntry = {
   distributedPoints: number;
   events: number;
   lastEventAt: string;
+  referralCount: number;
+  activatedReferralCount: number;
+  referralBonusPoints: number;
 };
 
 type LeaderboardSnapshot = {
@@ -245,11 +249,43 @@ function LeaderboardRow({
         <span style={{ width: `${progress}%` }} />
       </div>
 
+      <ReferralBadge entry={entry} />
+
       <div className="leaderboard-points">
         <strong>{formatNumber(entry.seasonPoints)}</strong>
         <span>{entry.dailyPoints > 0 ? `+${formatNumber(entry.dailyPoints)} today` : `${entry.events} logs`}</span>
       </div>
     </li>
+  );
+}
+
+function ReferralBadge({ entry }: { entry: LeaderboardEntry }) {
+  const count = Math.min(SEASON_0_REFERRAL_MAX_REFEREES, Math.max(0, entry.referralCount));
+  const activeCount = Math.min(count, Math.max(0, entry.activatedReferralCount));
+  const slots = Array.from({ length: SEASON_0_REFERRAL_MAX_REFEREES }, (_, index) => {
+    const isFilled = index < count;
+    const isActive = index < activeCount;
+    return <span key={index} className={isActive ? "active" : isFilled ? "filled" : ""} />;
+  });
+  const bonusLabel = entry.referralBonusPoints > 0
+    ? `+${formatNumber(entry.referralBonusPoints)} bonus`
+    : `${activeCount} active`;
+
+  return (
+    <div
+      className="leaderboard-referrals"
+      aria-label={`${entry.referralCount} referrals, ${entry.activatedReferralCount} active`}
+      title={`${entry.referralCount}/${SEASON_0_REFERRAL_MAX_REFEREES} referrals, ${entry.activatedReferralCount} active`}
+    >
+      <div className="leaderboard-referral-label">
+        <Users size={14} />
+        <span>{entry.referralCount} refs</span>
+      </div>
+      <div className="leaderboard-referral-meter" aria-hidden="true">
+        {slots}
+      </div>
+      <em>{bonusLabel}</em>
+    </div>
   );
 }
 
@@ -314,6 +350,9 @@ function normalizeLeaderboardEntry(value: unknown): LeaderboardEntry | null {
     distributedPoints: toNumber(value.distributedPoints),
     events: toNumber(value.events),
     lastEventAt: toStringValue(value.lastEventAt),
+    referralCount: toNumber(value.referralCount),
+    activatedReferralCount: toNumber(value.activatedReferralCount),
+    referralBonusPoints: toNumber(value.referralBonusPoints),
   };
 }
 

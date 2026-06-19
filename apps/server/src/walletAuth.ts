@@ -30,6 +30,53 @@ type AgentSession = {
   expiresAt: number;
 };
 
+export type AgentAuthRecovery =
+  | "request_fresh_challenge"
+  | "retry_with_complete_proof"
+  | "retry_with_exact_challenge_message"
+  | "retry_with_valid_signature"
+  | "use_matching_wallet"
+  | "use_matching_session_token";
+
+export type AgentSessionErrorCode =
+  | "valid_wallet_address_required"
+  | "missing_or_malformed_proof"
+  | "challenge_not_found_or_consumed"
+  | "challenge_expired"
+  | "wallet_mismatch"
+  | "message_mismatch"
+  | "invalid_signature"
+  | "missing_session_token"
+  | "malformed_session_token"
+  | "agent_session_not_found_or_expired"
+  | "agent_session_wallet_mismatch";
+
+type AgentAuthFailureDiagnostics = {
+  walletAddress: string;
+  nonce: string;
+  messageLength: number;
+  messageHashPrefix: string;
+  signatureLength: number;
+  challengeAgeMs?: number;
+  challengeExpiresInMs?: number;
+  expectedWalletAddress?: string;
+  expectedMessageLength?: number;
+  expectedMessageHashPrefix?: string;
+};
+
+type AgentAuthFailure = {
+  ok: false;
+  code: AgentSessionErrorCode;
+  recovery: AgentAuthRecovery;
+  diagnostics: AgentAuthFailureDiagnostics;
+};
+
+export type WalletAuthProofVerification = { ok: true } | AgentAuthFailure;
+export type AgentSessionTokenVerification =
+  | { ok: true }
+  | { ok: false; code: AgentSessionErrorCode; recovery: AgentAuthRecovery };
+export type AgentSessionResult = AgentSessionResponse & { diagnostics?: AgentAuthFailureDiagnostics };
+
 const pendingWalletAuthChallenges = new Map<string, PendingWalletAuthChallenge>();
 const agentSessions = new Map<string, AgentSession>();
 
@@ -79,29 +126,100 @@ export function createWalletAuthChallenge(walletAddress: string, domain: string)
 }
 
 export async function verifyWalletAuthProof(walletAddress: string, proof: WalletAuthProof | undefined): Promise<boolean> {
+  return (await verifyWalletAuthProofDetailed(walletAddress, proof)).ok;
+}
+
+export async function verifyWalletAuthProofDetailed(
+  walletAddress: string,
+  proof: WalletAuthProof | undefined,
+): Promise<WalletAuthProofVerification> {
   const normalizedWallet = normalizeWalletAddress(walletAddress);
-  if (!normalizedWallet || !isWalletAuthProof(proof)) return false;
+  const diagnostics = makeAuthDiagnostics(normalizedWallet, proof);
+  if (!normalizedWallet) {
+    return {
+      ok: false,
+      code: "valid_wallet_address_required",
+      recovery: "request_fresh_challenge",
+      diagnostics,
+    };
+  }
+  if (!isWalletAuthProof(proof)) {
+    return {
+      ok: false,
+      code: "missing_or_malformed_proof",
+      recovery: "retry_with_complete_proof",
+      diagnostics,
+    };
+  }
 
   const challenge = pendingWalletAuthChallenges.get(proof.nonce);
-  if (!challenge) return false;
-  pendingWalletAuthChallenges.delete(proof.nonce);
+  if (!challenge) {
+    return {
+      ok: false,
+      code: "challenge_not_found_or_consumed",
+      recovery: "request_fresh_challenge",
+      diagnostics,
+    };
+  }
 
-  if (Date.now() > challenge.expiresAt) return false;
-  if (challenge.walletAddress !== normalizedWallet) return false;
-  if (challenge.message !== proof.message) return false;
+  const now = Date.now();
+  const challengeDiagnostics = {
+    ...diagnostics,
+    challengeAgeMs: now - challenge.issuedAt,
+    challengeExpiresInMs: challenge.expiresAt - now,
+    expectedWalletAddress: challenge.walletAddress,
+    expectedMessageLength: challenge.message.length,
+    expectedMessageHashPrefix: hashTextPrefix(challenge.message),
+  };
+
+  if (now > challenge.expiresAt) {
+    pendingWalletAuthChallenges.delete(proof.nonce);
+    return {
+      ok: false,
+      code: "challenge_expired",
+      recovery: "request_fresh_challenge",
+      diagnostics: challengeDiagnostics,
+    };
+  }
+  if (challenge.walletAddress !== normalizedWallet) {
+    return {
+      ok: false,
+      code: "wallet_mismatch",
+      recovery: "use_matching_wallet",
+      diagnostics: challengeDiagnostics,
+    };
+  }
+  if (challenge.message !== proof.message) {
+    return {
+      ok: false,
+      code: "message_mismatch",
+      recovery: "retry_with_exact_challenge_message",
+      diagnostics: challengeDiagnostics,
+    };
+  }
 
   try {
-    return await verifyMessage({
+    const ok = await verifyMessage({
       address: normalizedWallet as `0x${string}`,
       message: challenge.message,
       signature: proof.signature as `0x${string}`,
     });
+    if (ok) {
+      pendingWalletAuthChallenges.delete(proof.nonce);
+      return { ok: true };
+    }
   } catch {
-    return false;
+    // Fall through to the structured invalid-signature response below.
   }
+  return {
+    ok: false,
+    code: "invalid_signature",
+    recovery: "retry_with_valid_signature",
+    diagnostics: challengeDiagnostics,
+  };
 }
 
-export async function createAgentSession(walletAddress: string, proof: WalletAuthProof | undefined): Promise<AgentSessionResponse> {
+export async function createAgentSession(walletAddress: string, proof: WalletAuthProof | undefined): Promise<AgentSessionResult> {
   const normalizedWallet = normalizeWalletAddress(walletAddress);
   if (!normalizedWallet) {
     return {
@@ -110,16 +228,23 @@ export async function createAgentSession(walletAddress: string, proof: WalletAut
       sessionToken: "",
       expiresAt: "",
       error: "valid wallet address required",
+      code: "valid_wallet_address_required",
+      recovery: "request_fresh_challenge",
+      diagnostics: makeAuthDiagnostics("", proof),
     };
   }
 
-  if (!await verifyWalletAuthProof(normalizedWallet, proof)) {
+  const verification = await verifyWalletAuthProofDetailed(normalizedWallet, proof);
+  if (!verification.ok) {
     return {
       ok: false,
       walletAddress: normalizedWallet,
       sessionToken: "",
       expiresAt: "",
       error: "valid signed wallet challenge required",
+      code: verification.code,
+      recovery: verification.recovery,
+      diagnostics: verification.diagnostics,
     };
   }
 
@@ -145,20 +270,41 @@ export async function createAgentSession(walletAddress: string, proof: WalletAut
 }
 
 export function verifyAgentSessionToken(walletAddress: string, sessionToken: string | undefined): boolean {
+  return verifyAgentSessionTokenDetailed(walletAddress, sessionToken).ok;
+}
+
+export function verifyAgentSessionTokenDetailed(
+  walletAddress: string,
+  sessionToken: string | undefined,
+): AgentSessionTokenVerification {
   const normalizedWallet = normalizeWalletAddress(walletAddress);
-  const normalizedToken = normalizeAgentSessionToken(sessionToken);
-  if (!normalizedWallet || !normalizedToken) return false;
+  if (!normalizedWallet) {
+    return { ok: false, code: "valid_wallet_address_required", recovery: "request_fresh_challenge" };
+  }
+  const rawToken = typeof sessionToken === "string" ? sessionToken.trim() : "";
+  if (!rawToken) {
+    return { ok: false, code: "missing_session_token", recovery: "request_fresh_challenge" };
+  }
+  const normalizedToken = normalizeAgentSessionToken(rawToken);
+  if (!normalizedToken) {
+    return { ok: false, code: "malformed_session_token", recovery: "request_fresh_challenge" };
+  }
 
   const now = Date.now();
   pruneAgentSessions(now);
   const tokenHash = hashAgentSessionToken(normalizedToken);
   const session = agentSessions.get(tokenHash);
-  if (!session) return false;
+  if (!session) {
+    return { ok: false, code: "agent_session_not_found_or_expired", recovery: "request_fresh_challenge" };
+  }
   if (now > session.expiresAt) {
     agentSessions.delete(tokenHash);
-    return false;
+    return { ok: false, code: "agent_session_not_found_or_expired", recovery: "request_fresh_challenge" };
   }
-  return session.walletAddress === normalizedWallet;
+  if (session.walletAddress !== normalizedWallet) {
+    return { ok: false, code: "agent_session_wallet_mismatch", recovery: "use_matching_session_token" };
+  }
+  return { ok: true };
 }
 
 export function normalizeWalletAuthDomain(value: string) {
@@ -203,6 +349,23 @@ function isWalletAuthProof(value: WalletAuthProof | undefined): value is WalletA
 
 function isNonce(value: string) {
   return /^[a-f0-9]{32}$/.test(value);
+}
+
+function makeAuthDiagnostics(walletAddress: string, proof: WalletAuthProof | undefined): AgentAuthFailureDiagnostics {
+  const nonce = typeof proof?.nonce === "string" ? proof.nonce : "";
+  const message = typeof proof?.message === "string" ? proof.message : "";
+  const signature = typeof proof?.signature === "string" ? proof.signature : "";
+  return {
+    walletAddress,
+    nonce,
+    messageLength: message.length,
+    messageHashPrefix: message ? hashTextPrefix(message) : "",
+    signatureLength: signature.length,
+  };
+}
+
+function hashTextPrefix(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 function normalizeAgentSessionToken(value: string | undefined) {

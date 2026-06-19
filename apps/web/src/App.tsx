@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector } from "wagmi";
 import {
@@ -9,6 +9,7 @@ import {
   ITEMS,
   LOOT,
   POTION_SHOP_NPC_ID,
+  RESPEC_MFER_NPC_ID,
   SWAP_MFER_NPC_ID,
   TRAITS_MFER_NPC_ID,
   TRASH_VENDOR_NPC_ID,
@@ -33,6 +34,7 @@ import {
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
+  type ClientRespecTalents,
   type ClientSelectTalent,
   type ClientSellTrashItems,
   type ClientUpdateTraits,
@@ -51,11 +53,15 @@ import {
 import {
   fetchWalletAuthChallenge,
   fetchWalletCharacterProfile,
+  getReferralWalletAddressFromSearch,
   getStoredInviteCode,
+  getStoredReferralWalletAddress,
   getStoredName,
   makeGuestIdentity,
+  makeReferralInviteUrl,
   makeWalletIdentity,
   rememberInviteCode,
+  rememberReferralWalletAddress,
   rememberName,
 } from "./auth/identity";
 import {
@@ -79,6 +85,7 @@ import { initializeAnalytics, trackEvent, type AnalyticsProperties } from "./ana
 import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type CaptureCameraState, type CaptureInputState, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
+import { copyTextToClipboard } from "./clipboard";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { MobileControls } from "./components/MobileControls";
@@ -86,6 +93,7 @@ import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferGptSwapMenu } from "./components/MferGptSwapMenu";
 import { MferPortrait } from "./components/MferPortrait";
 import { PotionShopPanel } from "./components/PotionShopPanel";
+import { RespecPanel } from "./components/RespecPanel";
 import { TrashVendorPanel } from "./components/TrashVendorPanel";
 import { TraitsPanel } from "./components/TraitsPanel";
 import { LeaderboardPage } from "./LeaderboardPage";
@@ -134,6 +142,7 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "crypto", label: "Crypto", x: 3.8, z: 22, yaw: 0 },
   { id: "potion", label: "Potion", x: 7.4, z: 24, yaw: 0 },
   { id: "trash", label: "Trash", x: 11.1, z: 24, yaw: 0 },
+  { id: "respec", label: "Respec", x: 14.8, z: 24, yaw: 0 },
   { id: "traits", label: "Traits", x: -3.7, z: 24, yaw: 0 },
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
@@ -207,8 +216,17 @@ function getLinkedInviteCode() {
   return params.get("invite")?.trim() || params.get("code")?.trim() || "";
 }
 
+function getLinkedReferralWalletAddress() {
+  if (typeof window === "undefined") return "";
+  return getReferralWalletAddressFromSearch(window.location.search);
+}
+
 function getInitialInviteCode() {
   return getLinkedInviteCode() || getStoredInviteCode();
+}
+
+function getInitialReferralWalletAddress() {
+  return getLinkedReferralWalletAddress() || getStoredReferralWalletAddress();
 }
 
 function isCryptoStoreEnabled() {
@@ -237,6 +255,10 @@ function isPotionShopNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsho
 
 function isTrashVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return npc?.id === TRASH_VENDOR_NPC_ID;
+}
+
+function isRespecMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return npc?.id === RESPEC_MFER_NPC_ID;
 }
 
 export function App() {
@@ -344,6 +366,8 @@ function AuthGate({
   const [showWalletConnectors, setShowWalletConnectors] = useState(false);
   const [showAnonWarning, setShowAnonWarning] = useState(false);
   const [inviteCode, setInviteCode] = useState(() => getInitialInviteCode());
+  const [referralWalletAddress, setReferralWalletAddress] = useState(() => getInitialReferralWalletAddress());
+  const [authReferralCopyStatus, setAuthReferralCopyStatus] = useState("");
   const [walletProfile, setWalletProfile] = useState<WalletProfileState>({ status: "idle" });
   const [isWalletAuthPending, setIsWalletAuthPending] = useState(false);
   const walletProfileRequestRef = useRef(0);
@@ -370,6 +394,7 @@ function AuthGate({
   const walletProfileLoading = isWalletProfilePending(isConnected, walletProfile);
   const walletProfileError = walletProfile.status === "error" ? walletProfile.message : null;
   const walletNeedsCreation = isConnected && walletProfile.status === "new";
+  const connectedReferralInviteUrl = useMemo(() => address ? makeReferralInviteUrl(address) : "", [address]);
   const canCreateAfterProfileError = canCreateWalletCharacterAfterProfileError({
     hasAddress: Boolean(address),
     profilePending: walletProfileLoading,
@@ -457,6 +482,13 @@ function AuthGate({
   }, []);
 
   useEffect(() => {
+    const linkedReferral = getLinkedReferralWalletAddress();
+    if (!linkedReferral) return;
+    rememberReferralWalletAddress(linkedReferral);
+    setReferralWalletAddress(linkedReferral);
+  }, []);
+
+  useEffect(() => {
     if (trackedMainMenuRef.current) return;
     trackedMainMenuRef.current = true;
     trackEvent("main_menu_viewed", {
@@ -497,6 +529,10 @@ function AuthGate({
   useEffect(() => {
     if (isConnected) setShowWalletConnectors(false);
   }, [isConnected]);
+
+  useEffect(() => {
+    setAuthReferralCopyStatus("");
+  }, [connectedReferralInviteUrl]);
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -559,6 +595,7 @@ function AuthGate({
           message: challenge.message,
           signature,
         },
+        referralWalletAddress,
       ));
     } catch (error) {
       if (!isUserRejectedWalletRequest(error)) {
@@ -665,6 +702,12 @@ function AuthGate({
     });
   }
 
+  async function copyConnectedReferralInviteUrl() {
+    if (!connectedReferralInviteUrl) return;
+    const copied = await copyTextToClipboard(connectedReferralInviteUrl);
+    setAuthReferralCopyStatus(copied ? "copied" : "copy failed");
+  }
+
   function enterLocalDebugWallet() {
     const debugName = cleanName || "debug mfer";
     rememberName(debugName);
@@ -679,6 +722,8 @@ function AuthGate({
       LOCAL_DEBUG_WALLET_ADDRESS,
       stableHash(`${LOCAL_DEBUG_WALLET_ADDRESS}:${debugName}`),
       true,
+      undefined,
+      "",
     ));
   }
 
@@ -759,6 +804,19 @@ function AuthGate({
           <div className="connected-wallet-card" title={address}>
             <span>connected wallet</span>
             <code>{address}</code>
+          </div>
+        )}
+
+        {isConnected && connectedReferralInviteUrl && (
+          <div className="auth-referral-card" title={connectedReferralInviteUrl}>
+            <div>
+              <span>referral link</span>
+              <code>{connectedReferralInviteUrl}</code>
+            </div>
+            <button type="button" aria-label="copy referral link" onClick={() => void copyConnectedReferralInviteUrl()}>
+              {authReferralCopyStatus === "copied" ? <Check size={15} /> : <Copy size={15} />}
+              {authReferralCopyStatus || "copy"}
+            </button>
           </div>
         )}
 
@@ -1105,6 +1163,7 @@ function GameShell({
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
   const [potionShopNpcId, setPotionShopNpcId] = useState<string | null>(null);
   const [trashVendorNpcId, setTrashVendorNpcId] = useState<string | null>(null);
+  const [respecNpcId, setRespecNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
@@ -1177,6 +1236,10 @@ function GameShell({
   const trashVendorNpc = useMemo(
     () => trashVendorNpcId ? room.npcs.get(trashVendorNpcId) ?? null : null,
     [trashVendorNpcId, room.npcs, room.snapshotRevision],
+  );
+  const respecNpc = useMemo(
+    () => respecNpcId ? room.npcs.get(respecNpcId) ?? null : null,
+    [respecNpcId, room.npcs, room.snapshotRevision],
   );
   const swapNpc = useMemo(
     () => swapNpcId ? room.npcs.get(swapNpcId) ?? null : null,
@@ -1266,6 +1329,11 @@ function GameShell({
     trackEvent("trash_vendor_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("trash_vendor_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openRespecPanel = useCallback((npc: NpcSnapshot) => {
+    setRespecNpcId(npc.id);
+    trackEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const openSwapMfer = useCallback((npc: NpcSnapshot) => {
     setSwapNpcId(npc.id);
     trackEvent("mfergpt_swap_panel_opened", { surface: "swap_mfer", npcId: npc.id, npcRole: npc.role }, { local: true });
@@ -1284,11 +1352,12 @@ function GameShell({
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
       if (isPotionShopNpc(selectedNpc)) openPotionShop(selectedNpc);
       if (isTrashVendorNpc(selectedNpc)) openTrashVendor(selectedNpc);
+      if (isRespecMferNpc(selectedNpc)) openRespecPanel(selectedNpc);
       if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
       if (isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1299,10 +1368,11 @@ function GameShell({
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
     if (isPotionShopNpc(nearestNpc)) openPotionShop(nearestNpc);
     if (isTrashVendorNpc(nearestNpc)) openTrashVendor(nearestNpc);
+    if (isRespecMferNpc(nearestNpc)) openRespecPanel(nearestNpc);
     if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
     if (isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1391,6 +1461,10 @@ function GameShell({
     audio.play("inventoryLoot");
     room.sendSellTrashItems(message);
   }, [audio, room.sendSellTrashItems]);
+  const respecTalents = useCallback((message: ClientRespecTalents) => {
+    audio.play("uiConfirm");
+    room.sendRespecTalents(message);
+  }, [audio, room.sendRespecTalents]);
   const selectTalent = useCallback((message: ClientSelectTalent) => {
     audio.play("uiConfirm");
     room.sendSelectTalent(message);
@@ -1790,6 +1864,8 @@ function GameShell({
             onRegisterChainGear={registerChainGear}
             onCryptoStoreAnalytics={room.sendAnalyticsEvent}
             onSelectTalent={selectTalent}
+            seasonReferralRemoveResult={room.seasonReferralRemoveResult}
+            onRemoveSeasonReferral={room.sendRemoveSeasonReferral}
             onCloseLootWindow={room.closeLootWindow}
             onCloseCryptoStore={() => setCryptoStoreNpcId(null)}
             onSendChat={sendChat}
@@ -1833,6 +1909,18 @@ function GameShell({
                 result={room.trashVendorSellResult}
                 onClose={() => setTrashVendorNpcId(null)}
                 onSellTrashItems={sellTrashItems}
+                onAnalyticsEvent={room.sendAnalyticsEvent}
+              />
+            </section>
+          )}
+          {respecNpc && (
+            <section className="floating-menu-overlay respec-anchor" role="dialog" aria-label="respec">
+              <RespecPanel
+                npc={respecNpc}
+                player={localPlayer ?? null}
+                result={room.talentRespecResult}
+                onClose={() => setRespecNpcId(null)}
+                onRespecTalents={respecTalents}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </section>

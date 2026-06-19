@@ -12,6 +12,8 @@ import {
 const GUEST_ID_KEY = "mferland.guestId";
 const NAME_KEY = "mferland.name";
 const INVITE_CODE_KEY = "mferland.inviteCode";
+const REFERRAL_WALLET_KEY = "mferland.referralWallet";
+const REFERRAL_INVITE_BASE_URL = "https://game.mfergpt.lol/";
 
 export function getOrCreateGuestId(): string {
   const existing = localStorage.getItem(GUEST_ID_KEY);
@@ -40,6 +42,27 @@ export function rememberInviteCode(inviteCode: string) {
   if (normalized) localStorage.setItem(INVITE_CODE_KEY, normalized);
 }
 
+export function getStoredReferralWalletAddress(): string {
+  return localStorage.getItem(REFERRAL_WALLET_KEY) || "";
+}
+
+export function rememberReferralWalletAddress(walletAddress: string) {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (normalized) localStorage.setItem(REFERRAL_WALLET_KEY, normalized);
+}
+
+export function getReferralWalletAddressFromSearch(search: string): string {
+  return normalizeWalletAddress(new URLSearchParams(search).get("referral")?.trim());
+}
+
+export function makeReferralInviteUrl(walletAddress: string): string {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) return "";
+  const url = new URL(REFERRAL_INVITE_BASE_URL);
+  url.searchParams.set("referral", normalized);
+  return url.toString();
+}
+
 export function makeGuestIdentity(name: string): JoinOptions {
   const guestId = getOrCreateGuestId();
   return {
@@ -56,6 +79,7 @@ export function makeWalletIdentity(
   avatarSeed = stableHash(`${walletAddress}:${name}`),
   createCharacter = false,
   walletAuth?: WalletAuthProof,
+  referralWalletAddress = getStoredReferralWalletAddress(),
 ): JoinOptions {
   return {
     name,
@@ -65,6 +89,7 @@ export function makeWalletIdentity(
     avatarSeed: normalizeAvatarSeed(avatarSeed),
     createCharacter,
     inviteCode: getStoredInviteCode(),
+    referralWalletAddress: createCharacter ? referralWalletAddress : undefined,
   };
 }
 
@@ -104,6 +129,9 @@ export async function fetchWalletCharacterProfile(walletAddress: string): Promis
   return {
     exists: Boolean(payload?.exists && payload.character),
     character: payload?.character ?? null,
+    registeredClientKind: payload?.registeredClientKind === "human" || payload?.registeredClientKind === "agent"
+      ? payload.registeredClientKind
+      : payload?.character?.registeredClientKind ?? "",
   };
 }
 

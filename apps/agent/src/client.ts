@@ -20,6 +20,7 @@ import {
   type ChatMessage,
   type ClientAgentStatus,
   type ClientInput,
+  type ClientRemoveSeasonReferral,
   type CombatEvent,
   type CombatActionId,
   type EquipmentSlotId,
@@ -40,6 +41,7 @@ import {
   type QuestSnapshot,
   type TalentId,
   type TalentRankSnapshot,
+  type TalentRespecResult,
   type TargetSelection,
   type TrashVendorItemId,
   type TrashVendorSellResult,
@@ -209,6 +211,7 @@ export class MferlandAgentClient {
   private recentChat: ChatMessage[] = [];
   private recentCombatEvents: CombatEvent[] = [];
   private potionShopResults: PotionShopPurchaseResult[] = [];
+  private talentRespecResults: TalentRespecResult[] = [];
   private trashVendorResults: TrashVendorSellResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
@@ -328,6 +331,7 @@ export class MferlandAgentClient {
         "useItem",
         "selectTalent",
         "updateTraits",
+        "respecTalents",
         "registerChainGear",
         "purchasePotionShopItem",
         "sellTrashItems",
@@ -606,6 +610,22 @@ export class MferlandAgentClient {
     }, "trash vendor sale");
     const result = this.trashVendorResults.at(-1);
     if (!result?.ok) throw new Error(result?.error || "trash vendor sale failed");
+    return result;
+  }
+
+  removeSeasonReferral(message: ClientRemoveSeasonReferral) {
+    this.room?.send("removeSeasonReferral", message);
+  }
+
+  async respecTalents(payment: MferGptPaymentProof) {
+    const previousResultCount = this.talentRespecResults.length;
+    this.room?.send("respecTalents", { payment });
+    await this.waitFor(() => this.talentRespecResults.length > previousResultCount, {
+      timeoutMs: 95_000,
+      intervalMs: 250,
+    }, "talent respec");
+    const result = this.talentRespecResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "talent respec failed");
     return result;
   }
 
@@ -892,6 +912,9 @@ export class MferlandAgentClient {
     room.onMessage("persistenceStatus", () => undefined);
     room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
       this.potionShopResults = [...this.potionShopResults.slice(-8), message];
+    });
+    room.onMessage("talentRespecResult", (message: TalentRespecResult) => {
+      this.talentRespecResults = [...this.talentRespecResults.slice(-8), message];
     });
     room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
       this.trashVendorResults = [...this.trashVendorResults.slice(-8), message];

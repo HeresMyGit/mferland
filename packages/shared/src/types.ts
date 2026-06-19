@@ -137,6 +137,7 @@ export type JoinOptions = {
   avatarSeed?: number;
   createCharacter?: boolean;
   inviteCode?: string;
+  referralWalletAddress?: string;
 };
 
 export type WalletAuthProof = {
@@ -152,6 +153,9 @@ export type WalletAuthChallengeResponse = {
   message: string;
   expiresAt: string;
   error?: string;
+  code?: string;
+  recovery?: string;
+  requestId?: string;
 };
 
 export type AgentSessionResponse = {
@@ -160,7 +164,12 @@ export type AgentSessionResponse = {
   sessionToken: string;
   expiresAt: string;
   error?: string;
+  code?: string;
+  recovery?: string;
+  requestId?: string;
 };
+
+export type WalletClientKind = "human" | "agent";
 
 export type WalletCharacterPreview = {
   name: string;
@@ -172,11 +181,13 @@ export type WalletCharacterPreview = {
   createdAt: string;
   updatedAt: string;
   nameLocked: boolean;
+  registeredClientKind: WalletClientKind | "";
 };
 
 export type WalletCharacterProfileResponse = {
   exists: boolean;
   character: WalletCharacterPreview | null;
+  registeredClientKind?: WalletClientKind | "";
 };
 
 export type ClientInput = {
@@ -450,6 +461,20 @@ export type TraitUpdateResult = {
   error?: string;
 };
 
+export type ClientRespecTalents = {
+  payment?: MferGptPaymentProof;
+};
+
+export type TalentRespecResult = {
+  ok: boolean;
+  refundedTalentPoints: number;
+  talentPoints: number;
+  paymentAmountWei: string;
+  chainId: number;
+  txHash?: string;
+  error?: string;
+};
+
 export type ClientPurchasePotionShopItem = {
   itemId: PotionShopItemId;
   quantity?: PotionShopPurchaseQuantity;
@@ -491,6 +516,26 @@ export type TrashVendorSellResult = {
   error?: string;
 };
 
+export type ClientRemoveSeasonReferral = {
+  refereeWalletAddress: string;
+};
+
+export type SeasonReferralRemoveResult = {
+  ok: boolean;
+  status: "removed" | "invalid_wallet" | "not_found" | "wallet_required" | "no_database" | "error";
+  referrerWalletAddress: string;
+  refereeWalletAddress: string;
+  removedReferrerBonusPoints: number;
+  removedReferrerDailyPoints: number;
+  removedRefereeBonusPoints: number;
+  removedRefereeDailyPoints: number;
+  referrerSeason0Points: number;
+  referrerSeason0DailyPoints: number;
+  refereeSeason0Points: number;
+  refereeSeason0DailyPoints: number;
+  error?: string;
+};
+
 export type ClientCombatAction = {
   actionId: CombatActionId;
   target?: TargetSelection | null;
@@ -525,9 +570,11 @@ export type AgentObservation = {
     | "useItem"
     | "selectTalent"
     | "updateTraits"
+    | "respecTalents"
     | "registerChainGear"
     | "purchasePotionShopItem"
     | "sellTrashItems"
+    | "removeSeasonReferral"
     | CombatActionId
   >;
 };

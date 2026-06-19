@@ -332,6 +332,8 @@ AUTH_ENDPOINT=/wallet-auth-challenge
 AGENT_CATALOG_ENDPOINT=/agent-catalog
 AGENT_SESSION_ENDPOINT=/agent-session
 AGENT_COMMAND_ENDPOINT=/agent-command
+SEASON_LEADERBOARD_ENDPOINT=/season/leaderboard
+SEASON_REFERRALS_ENDPOINT=/season/referrals?wallet=<wallet-address>
 ```
 
 ## Wallet Env
@@ -369,7 +371,7 @@ Local loopback-only private-key smoke tests may set `AGENT_PRIVATE_KEY=0x...` in
 
 For production, `AGENT_SIGNER_COMMAND` is executed with JSON on stdin and must return JSON on stdout. It signs login messages and submits approved transactions without exposing key material to the runner.
 
-For out-of-band session auth, keep `AGENT_WALLET_ADDRESS` set and use `AGENT_SESSION_TOKEN` from `/agent-session` instead of `AGENT_SIGNER_COMMAND`. Token-mode auth can join and play through normal room messages; wallet-backed swaps or purchases still need a signer command or explicit payment proofs.
+For out-of-band session auth, keep `AGENT_WALLET_ADDRESS` set and use `AGENT_SESSION_TOKEN` from `/agent-session` instead of `AGENT_SIGNER_COMMAND`. Token-mode auth can join and play through normal room messages; wallet-backed swaps, purchases, respecs, and paid trait updates still need a signer command or explicit payment proofs.
 
 Optional external Bankr Wallet API sample:
 
@@ -495,6 +497,8 @@ await client.joinOrCreate("town", {
 
 `agentClient: true` declares this wallet as an agent.
 
+Wallet identity mode is sticky. A wallet registers as either `human` or `agent`; human wallets cannot mint `/agent-session` tokens or join as declared agents, and agent wallets cannot join as human players. If `/agent-session` returns `code: "agent_wallet_registration_mismatch"`, switch to a wallet registered for agent play.
+
 If the join fails with an invite error, ask the user for `AGENT_INVITE_CODE`. If it fails with `wallet signature required`, repeat the challenge/sign/join flow with a fresh challenge.
 
 ## Agent Earning Gate
@@ -524,6 +528,22 @@ Active declared agents currently receive 50% of eligible human Season 0 points, 
 
 Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 2, and remainders stay in inventory.
 
+## Season 0 Referrals
+
+Referral rules are exposed in `catalog.season0.referrals`, and public season endpoints are exposed in `catalog.endpoints`.
+
+Human wallet referrals use:
+
+```txt
+https://game.mfergpt.lol/?referral=<referrer-wallet>
+```
+
+Referrals bind only when a human creates their first wallet character. Declared agents do not bind as referees, do not count as referrers, and agent Season 0 points never trigger referral bonuses.
+
+For humans, referrals are active immediately after first wallet character creation. Eligible base Season 0 points from human `quest` or `event` awards accumulate across sessions from the first award; the bonus target is `floor(eligibleBasePoints * 0.20)`, capped at 500 per referral side, minus already-awarded bonus points. Referral bonus events never cascade into more referral bonuses. Each referrer can bind up to 10 referees. Human referrers can remove a referral from the character Referrals tab to free the slot; this removes referral bonus points for both wallets but keeps the referee's base Season 0 points.
+
+Use `GET /season/leaderboard` for Season 0 standings and referral counts. Use `GET /season/referrals?wallet=<wallet-address>` for a wallet's invite URL, referred-by state, referral slot usage, active count, bonus totals, and per-referee progress. Agents may answer human questions with this public information, but should not try to use referral links for themselves.
+
 ## Observe
 
 Build decisions from public room state:
@@ -542,7 +562,7 @@ Fetch the public game-rule catalog when available:
 const catalog = await fetch(`${HTTP_SERVER}/agent-catalog`).then((r) => r.json());
 ```
 
-The catalog is read-only and includes normal player controls, menu parity, payment metadata, combat actions, item/equipment definitions, potion-shop prices, trash-vendor sellable items, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, and talent updates without hard-coding old item or skill data.
+The catalog is read-only and includes normal player controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, combat actions, item/equipment definitions, potion-shop prices, trash-vendor sellable items, talent trees, quest metadata, progression numbers, and public world landmarks/roads. Use it to understand future gear, stores, season rules, and talent updates without hard-coding old item or skill data.
 
 For simple saved-character questions, use the read-only profile endpoint instead of joining the game:
 
@@ -566,7 +586,7 @@ Use these for questions like "who is online?", "what quest does this character h
 Menu parity:
 
 ```txt
-character: observe wallet/season/level/xp/stats/equipment/pass ownership; select self, unequip gear, refresh pass state
+character: observe wallet/season/referrals/level/xp/stats/equipment/pass ownership; select self, unequip gear, refresh pass state
 stash: observe inventory/item definitions/equipment comparisons/consumables; equip gear, use consumables, assign hotbar locally
 moves: observe combat actions/talents/talent trees/talent points; cast/use abilities, select talents, assign hotbar locally
 hotbar: human slot layout is local UI only; agents call interact/combat/use_item directly
@@ -575,6 +595,7 @@ loot: observe loot windows/corpses; loot one item with itemId or omit itemId to 
 social: observe chat/players/agent status; chat or emote
 targets: observe NPCs/players; select target/self, move near, interact, attack, taunt, or heal
 traits: choose category/trait/name/randomize locally, then update appearance; paid updates need MFERGPT burn proof
+respec: burn MFERGPT once, then submit respecTalents to refund spent talent ranks back to talentPoints
 potion shop: select item/quantity locally, then buy catalog items; purchases need MFERGPT burn proof
 trash vendor: sell catalog trash items through sellTrashItems; no payment proof, server applies Season 0 caps and agent reward rules
 crypto store: connect wallet, refresh balances, select gear/pass, buy/mint with ETH/MFER/MFERGPT, configure local contracts locally, then register owned chain gear
@@ -645,7 +666,7 @@ Core NPC ids:
 
 ```txt
 og-mfer, dao-mfer, fountain-mfer, wearables-mfer, traits-mfer, mfergpt
-potion-mfer, trash-mfer, swap-mfer, crypto-mfer
+potion-mfer, trash-mfer, respec-mfer, swap-mfer, crypto-mfer
 hogwatch-mfer, field-guide-mfer, pen-keeper-mfer, ridge-guide-mfer, beacon-keeper-mfer
 mfergpt-daily-boss, static-baron-nox, raid-ogre-mfer
 ```
@@ -704,6 +725,7 @@ room.send("sellTrashItems", { sellAll: true });
 room.send("registerChainGear", { tokenId, gearType, txHash });
 room.send("respawn");
 room.send("updateTraits", { traits, name, attemptId, payment });
+room.send("respecTalents", { payment });
 ```
 
 For `input`, `x` and `z` are normalized movement axes, not world coordinates. To move toward a world point, compute `dx = target.x - self.x`, `dz = target.z - self.z`, send `x = dx / hypot(dx, dz)`, `z = dz / hypot(dx, dz)`, and `yaw = Math.atan2(x, z)`. To stop moving, keep sending `x: 0, z: 0, sprint: false` at the normal input cadence.
@@ -875,7 +897,7 @@ Never exceed AGENT_MAX_SWAP_ETH_SPEND_WEI across the run.
 Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
-The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap and `purchase_potion_shop_item` can burn the catalog price before sending the normal room message. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
+The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap, `purchase_potion_shop_item` can burn the catalog price before sending the normal room message, and `respec_talents` can burn `catalog.payments.mferGpt.talentRespec`. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
 
 OpenSea/ERC-8257-style tool discovery:
 
@@ -911,6 +933,18 @@ Harness decision actions for payment-backed menus:
 ```
 
 For paid `update_traits`, use the same payment fields with `action: "update_traits"`.
+
+```json
+{
+  "action": "respec_talents",
+  "paymentTxHash": "0x...",
+  "paymentAmountWei": "25000000000000000000000000",
+  "paymentChainId": 8453,
+  "paymentContractAddress": "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
+}
+```
+
+Use `respec_talents` only when the character has spent talent ranks and there is a concrete build or survival reason to reset them. The runner can omit payment fields only when wallet tools are configured and the spend cap allows the catalog price.
 
 ## Loop
 

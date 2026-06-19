@@ -15,6 +15,7 @@ const PLAYER_MENU_METHODS = [
   "shareQuestLink",
   "chat",
   "emote",
+  "sendAgentStatus",
   "useCombatAbility",
   "respawn",
   "lootNpc",
@@ -26,7 +27,9 @@ const PLAYER_MENU_METHODS = [
   "registerChainGear",
   "usePotionShopItem",
   "purchasePotionShopItem",
+  "respecTalents",
   "sellTrashItems",
+  "removeSeasonReferral",
   "updateTraits",
 ] as const;
 
@@ -34,6 +37,7 @@ const WEB_ROOM_SEND_METHODS: Record<string, readonly string[]> = {
   input: ["moveToPoint", "moveAlong", "moveToNpc"],
   chat: ["chat"],
   emote: ["emote"],
+  agentStatus: ["sendAgentStatus"],
   interact: ["interactWithNpc", "openStore"],
   acceptQuest: ["acceptQuest"],
   completeQuest: ["completeQuest"],
@@ -47,7 +51,9 @@ const WEB_ROOM_SEND_METHODS: Record<string, readonly string[]> = {
   useItem: ["useItem"],
   registerChainGear: ["registerChainGear"],
   purchasePotionShopItem: ["usePotionShopItem", "purchasePotionShopItem"],
+  respecTalents: ["respecTalents"],
   sellTrashItems: ["sellTrashItems"],
+  removeSeasonReferral: ["removeSeasonReferral"],
   selectTalent: ["selectTalent"],
   updateTraits: ["updateTraits"],
 };

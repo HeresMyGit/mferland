@@ -1899,6 +1899,59 @@ button {
   overflow-wrap: anywhere;
 }
 
+.auth-referral-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 216, 88, 0.32);
+  border-radius: 6px;
+  background: rgba(73, 54, 15, 0.34);
+}
+
+.auth-referral-card > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.auth-referral-card span {
+  color: #ffe28a;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.auth-referral-card code {
+  color: #fff8dc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-referral-card button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 248, 220, 0.18);
+  border-radius: 6px;
+  color: #17130c;
+  background: var(--mfer-yellow);
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
 .character-auth-panel {
   display: grid;
   grid-template-columns: 74px minmax(0, 1fr);

@@ -19,6 +19,8 @@ import {
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
+  type ClientRemoveSeasonReferral,
+  type ClientRespecTalents,
   type ClientSelectTalent,
   type ClientSellTrashItems,
   type ClientShareQuestLink,
@@ -39,7 +41,9 @@ import {
   type QuestSnapshot,
   type QuestStatusNotice,
   type QuestTurnIn,
+  type SeasonReferralRemoveResult,
   type TalentRankSnapshot,
+  type TalentRespecResult,
   type TraitUpdateResult,
   type TrashVendorSellResult,
   isElixirBuffId,
@@ -184,7 +188,9 @@ export function useTownRoom(identity: JoinOptions) {
   const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
   const [traitUpdateResult, setTraitUpdateResult] = useState<TraitUpdateResult | null>(null);
   const [potionShopPurchaseResult, setPotionShopPurchaseResult] = useState<PotionShopPurchaseResult | null>(null);
+  const [talentRespecResult, setTalentRespecResult] = useState<TalentRespecResult | null>(null);
   const [trashVendorSellResult, setTrashVendorSellResult] = useState<TrashVendorSellResult | null>(null);
+  const [seasonReferralRemoveResult, setSeasonReferralRemoveResult] = useState<SeasonReferralRemoveResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
   const roomRef = useRef<Room<RuntimeTownState> | null>(null);
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
@@ -434,8 +440,14 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
           setPotionShopPurchaseResult(message);
         });
+        room.onMessage("talentRespecResult", (message: TalentRespecResult) => {
+          setTalentRespecResult(message);
+        });
         room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
           setTrashVendorSellResult(message);
+        });
+        room.onMessage("seasonReferralRemoveResult", (message: SeasonReferralRemoveResult) => {
+          setSeasonReferralRemoveResult(message);
         });
 
         room.onMessage("persistenceStatus", (message: Partial<PersistenceStatus>) => {
@@ -616,8 +628,14 @@ export function useTownRoom(identity: JoinOptions) {
   const sendPurchasePotionShopItem = useCallback((message: ClientPurchasePotionShopItem) => {
     roomRef.current?.send("purchasePotionShopItem", message);
   }, []);
+  const sendRespecTalents = useCallback((message: ClientRespecTalents) => {
+    roomRef.current?.send("respecTalents", message);
+  }, []);
   const sendSellTrashItems = useCallback((message: ClientSellTrashItems) => {
     roomRef.current?.send("sellTrashItems", message);
+  }, []);
+  const sendRemoveSeasonReferral = useCallback((message: ClientRemoveSeasonReferral) => {
+    roomRef.current?.send("removeSeasonReferral", message);
   }, []);
 
   const sendDebugRegisterChainGear = useCallback((message: ClientDebugRegisterChainGear) => {
@@ -714,7 +732,9 @@ export function useTownRoom(identity: JoinOptions) {
     debugPlacementMap,
     traitUpdateResult,
     potionShopPurchaseResult,
+    talentRespecResult,
     trashVendorSellResult,
+    seasonReferralRemoveResult,
     persistenceStatus,
     leaveAndWait,
     sendInput,
@@ -737,7 +757,9 @@ export function useTownRoom(identity: JoinOptions) {
     sendUseItem,
     sendRegisterChainGear,
     sendPurchasePotionShopItem,
+    sendRespecTalents,
     sendSellTrashItems,
+    sendRemoveSeasonReferral,
     sendDebugRegisterChainGear,
     sendDebugUpdateChainGearTier,
     sendSelectTalent,

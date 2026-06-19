@@ -1,11 +1,12 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
-import { MAX_PLAYERS, ROOM_NAME } from "@mferland/shared";
+import { MAX_PLAYERS, ROOM_NAME, type AgentSessionResponse } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
 import { areAgentsEnabled } from "./agentAccess.js";
 import { AgentBridgeManager } from "./agentBridge.js";
@@ -26,7 +27,13 @@ import { recordAnalyticsEvent, type AnalyticsProperties } from "./analytics.js";
 import { getCryptoMarketQuoteSnapshot, startCryptoMarketQuotePoller } from "./crypto/marketQuotes.js";
 import { getMferGptBurnStats } from "./crypto/mferGptBurnStats.js";
 import { closeDatabase } from "./db/client.js";
-import { getSeason0Leaderboard, getWalletCharacterProfile, PersistenceUnavailableError } from "./persistence.js";
+import {
+  getSeason0Leaderboard,
+  getSeasonReferralSummary,
+  getWalletCharacterProfile,
+  getWalletClientKindMismatchForWallet,
+  PersistenceUnavailableError,
+} from "./persistence.js";
 import { assertLocalOnlyRuntimeSafety } from "./localSafety.js";
 import {
   areDebugMessagesEnabled,
@@ -36,7 +43,7 @@ import {
   readDebugPlacementMap,
   TownRoom,
 } from "./rooms/TownRoom.js";
-import { createAgentSession, createWalletAuthChallenge } from "./walletAuth.js";
+import { createAgentSession, createWalletAuthChallenge, type AgentSessionResult } from "./walletAuth.js";
 
 const ROOM_STATE_ENCODER_BUFFER_BYTES = 512 * 1024;
 const WEB_DIST_DIR = fileURLToPath(new URL("../../web/dist/", import.meta.url));
@@ -203,6 +210,11 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (url === "/season/referrals") {
+    void handleSeasonReferrals(req, requestUrl, res);
+    return;
+  }
+
   if (url === "/wallet-character") {
     void getWalletCharacterProfile(requestUrl.searchParams.get("wallet") ?? "")
       .then((character) => {
@@ -212,6 +224,7 @@ const server = createServer((req, res) => {
         res.end(JSON.stringify({
           exists: Boolean(character),
           character,
+          registeredClientKind: character?.registeredClientKind ?? "",
         }));
       })
       .catch((error) => {
@@ -417,6 +430,53 @@ async function handleSeasonLeaderboard(req: IncomingMessage, requestUrl: URL, re
   }
 }
 
+async function handleSeasonReferrals(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+  writeCorsHeaders(res);
+  writeNoStoreHeaders(res);
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, { "allow": "GET, HEAD", "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    return;
+  }
+
+  try {
+    const payload = await getSeasonReferralSummary({
+      walletAddress: requestUrl.searchParams.get("wallet") ?? "",
+    });
+    const body = JSON.stringify(payload);
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  } catch (error) {
+    console.error("Failed to load season referrals", error);
+    const status = error instanceof Error && error.message === "valid wallet required"
+      ? 400
+      : error instanceof PersistenceUnavailableError ? 503 : 500;
+    const body = JSON.stringify({
+      ok: false,
+      error: status === 400
+        ? "valid wallet required"
+        : status === 503 ? "wallet persistence unavailable" : "unable to load referrals",
+      referrals: [],
+    });
+    res.writeHead(status, {
+      "content-type": "application/json",
+      "content-length": Buffer.byteLength(body),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    res.end(body);
+  }
+}
+
 async function handlePublicAnalyticsEvent(req: IncomingMessage, res: ServerResponse) {
   writeCorsHeaders(res);
   if (req.method !== "POST") {
@@ -482,14 +542,27 @@ async function handleWalletAuthChallenge(req: IncomingMessage, res: ServerRespon
 async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
   writeCorsHeaders(res);
   writeNoStoreHeaders(res);
+  const requestId = randomUUID();
   if (!areAgentsEnabled()) {
     res.writeHead(403, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false, error: "agent access disabled" }));
+    res.end(JSON.stringify({
+      ok: false,
+      error: "agent access disabled",
+      code: "agent_access_disabled",
+      recovery: "enable_agent_access",
+      requestId,
+    }));
     return;
   }
   if (req.method !== "POST") {
     res.writeHead(405, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+    res.end(JSON.stringify({
+      ok: false,
+      error: "method not allowed",
+      code: "method_not_allowed",
+      recovery: "post_agent_session",
+      requestId,
+    }));
     return;
   }
 
@@ -499,7 +572,13 @@ async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
   } catch (error) {
     const status = error instanceof RequestBodyTooLargeError ? 413 : 400;
     res.writeHead(status, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: false, error: status === 413 ? "payload too large" : "invalid json" }));
+    res.end(JSON.stringify({
+      ok: false,
+      error: status === 413 ? "payload too large" : "invalid json",
+      code: status === 413 ? "payload_too_large" : "invalid_json",
+      recovery: "post_valid_agent_session_json",
+      requestId,
+    }));
     return;
   }
 
@@ -510,8 +589,59 @@ async function handleAgentSession(req: IncomingMessage, res: ServerResponse) {
       : "";
   const proof = normalizeAgentSessionProof(payload);
   const session = await createAgentSession(walletAddress, proof);
+  if (!session.ok) {
+    console.warn("[agent-session] auth failed", {
+      requestId,
+      walletAddress: session.walletAddress,
+      code: session.code,
+      recovery: session.recovery,
+      diagnostics: session.diagnostics,
+    });
+  } else {
+    try {
+      const mismatch = await getWalletClientKindMismatchForWallet(session.walletAddress, "agent");
+      if (mismatch) {
+        const code = "agent_wallet_registration_mismatch";
+        const recovery = "use_agent_registered_wallet";
+        console.warn("[agent-session] wallet registration blocked", {
+          requestId,
+          walletAddress: session.walletAddress,
+          code,
+          recovery,
+        });
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          ok: false,
+          walletAddress: session.walletAddress,
+          sessionToken: "",
+          expiresAt: "",
+          error: mismatch,
+          code,
+          recovery,
+          requestId,
+        }));
+        return;
+      }
+    } catch (error) {
+      const code = "wallet_persistence_unavailable";
+      const recovery = "retry_or_report_request_id";
+      console.error("Failed to check agent wallet registration", error);
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        ok: false,
+        walletAddress: session.walletAddress,
+        sessionToken: "",
+        expiresAt: "",
+        error: "wallet persistence unavailable",
+        code,
+        recovery,
+        requestId,
+      }));
+      return;
+    }
+  }
   res.writeHead(session.ok ? 200 : 400, { "content-type": "application/json" });
-  res.end(JSON.stringify(session));
+  res.end(JSON.stringify(toPublicAgentSessionResponse(session, requestId)));
 }
 
 async function handleAgentToolManifest(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
@@ -749,6 +879,12 @@ function normalizeAgentSessionProof(payload: Partial<AgentSessionPayload> | null
   const message = typeof proof?.message === "string" ? proof.message : "";
   const signature = typeof proof?.signature === "string" ? proof.signature : "";
   return { nonce, message, signature };
+}
+
+function toPublicAgentSessionResponse(session: AgentSessionResult, requestId: string): AgentSessionResponse {
+  const { diagnostics: _diagnostics, ...publicSession } = session;
+  if (publicSession.ok) return publicSession;
+  return { ...publicSession, requestId };
 }
 
 class RequestBodyTooLargeError extends Error {}

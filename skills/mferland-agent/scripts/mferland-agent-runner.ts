@@ -293,6 +293,7 @@ const DECISION_ACTIONS = [
   "purchase_potion_shop_item",
   "sell_trash_items",
   "update_traits",
+  "respec_talents",
   "emote",
   "chat",
   "share_quest_link",
@@ -1256,6 +1257,7 @@ class MferlandRunner {
         animation: self.animation,
         castingAction: self.castingAction,
         talentPoints: self.talentPoints,
+        spentTalentRanks: this.getSpentTalentRanks(self),
         characterStats: {
           maxHealth: round(self.maxHealth),
           maxMana: round(self.maxMana),
@@ -1339,14 +1341,17 @@ class MferlandRunner {
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
         "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
         "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
+        "Season point caps, referral rules, and public season endpoints are in catalog.season0 and catalog.endpoints. Agents do not bind, count, or earn human referral bonuses.",
+        "If a human asks about referrals, explain the human-only wallet link format, immediate referral earning from eligible human base Season 0 quest/event points, cumulative 20% bonus, 500 bonus cap per side, 10-referral limit, no cascade, that human referrers can remove a referral from the Referrals tab to reclaim the slot and remove referral bonus points, and the /season/leaderboard and /season/referrals?wallet=... endpoints.",
         "Do not chase a perfect pull forever. If only the current target is attacking, health is not critical, and self.combatMath says the fight is favorable, keep attacking instead of repeatedly retreating.",
         "Retreat when health is critical, multiple adds make the combat math unfavorable, or the route would run deeper into a pack.",
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
-        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, and sell_trash_items through normal room messages when the observation shows a useful reason.",
+        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, sell_trash_items, and respec_talents through normal room messages when the observation shows a useful reason.",
         "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH. In uniswap-v4 mode this uses the same Base ETH to MFERGPT route as swap-mfer.",
-        "Paid shop and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "Paid shop, respec, and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item and respec_talents can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "Use respec_talents at respec-mfer only when resetting spent talent ranks has a clear build/survival reason. Do not casually burn MFERGPT just to reshuffle talents.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
         "For update_traits, choose a traits object from catalog.traits only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
@@ -1399,6 +1404,8 @@ class MferlandRunner {
     const itemDefinitions = Object.values(items).map(asRecord);
     return {
       source: "agent-catalog",
+      endpoints: this.catalog.endpoints ?? {},
+      season0: this.catalog.season0 ?? {},
       controls: this.catalog.controls ?? {},
       menus: this.catalog.menus ?? {},
       payments: this.catalog.payments ?? {},
@@ -1686,6 +1693,10 @@ class MferlandRunner {
     const [tree, nodeId] = talentId.split(":");
     const legacy = self.talents.find((talent) => getString(talent.tree) === tree && getString(talent.nodeId) === nodeId);
     return legacy ? getNumber(legacy.rank) : 0;
+  }
+
+  private getSpentTalentRanks(self: RuntimePlayer) {
+    return self.talents.reduce((sum, talent) => sum + Math.max(0, Math.floor(getNumber(talent.rank))), 0);
   }
 
   private getMissingTalentRequirement(self: RuntimePlayer, talent: AnyRecord) {
@@ -2133,6 +2144,7 @@ class MferlandRunner {
       "swap_eth_for_mfergpt",
       "register_chain_gear",
       "update_traits",
+      "respec_talents",
     ].includes(action);
   }
 
@@ -2741,6 +2753,23 @@ class MferlandRunner {
         this.lastAction = `purchase_potion_shop_item ${itemId} x${quantity}`;
         return;
       }
+      case "respec_talents": {
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("respec-mfer");
+        if (npc && distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_respec ${npc.id}`;
+          return;
+        }
+        if (this.getSpentTalentRanks(self) <= 0) {
+          this.lastAction = "respec_skip_no_spent_talents";
+          return;
+        }
+        const payment = await this.resolveTalentRespecPayment(decision);
+        this.clearEngagement();
+        this.send("respecTalents", { payment });
+        this.lastAction = "respec_talents";
+        return;
+      }
       case "sell_trash_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("trash-mfer");
         if (!npc) throw new Error("sell_trash_items requires trash-mfer to be visible in room state");
@@ -2908,6 +2937,8 @@ class MferlandRunner {
         return itemId ? `next: buying ${itemId}` : "";
       case "update_traits":
         return "next: updating traits";
+      case "respec_talents":
+        return "next: resetting talents";
       case "respawn":
         return "next: respawning";
       default:
@@ -3024,6 +3055,29 @@ class MferlandRunner {
     const price = this.getPotionShopPrice(itemId, quantity);
     this.reserveMferGptSpend(price.amountWei);
     return this.walletTools.burn(price.amountWei, price.label);
+  }
+
+  private async resolveTalentRespecPayment(decision: Decision) {
+    const explicitPayment = this.buildPaymentProof(decision);
+    if (explicitPayment) {
+      this.reserveMferGptSpend(explicitPayment.amountWei);
+      return explicitPayment;
+    }
+    if (!this.walletTools) {
+      throw new Error("respec_talents requires payment proof or configured MFERGPT wallet tools");
+    }
+    const price = this.getTalentRespecPrice();
+    this.reserveMferGptSpend(price.amountWei);
+    return this.walletTools.burn(price.amountWei, price.label);
+  }
+
+  private getTalentRespecPrice() {
+    const mferGpt = asRecord(asRecord(this.catalog?.payments).mferGpt);
+    const respec = asRecord(mferGpt.talentRespec);
+    const amountWei = normalizePositiveIntegerString(respec.amountWei);
+    const label = cleanText(respec.amountLabel, 80) || cleanText(respec.label, 80) || `${amountWei} wei MFERGPT`;
+    if (!amountWei) throw new Error("catalog missing MFERGPT price for talent respec");
+    return { amountWei, label };
   }
 
   private getPotionShopPrice(itemId: string, quantity: number) {

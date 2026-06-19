@@ -96,6 +96,7 @@ export async function buildAgentProfile(walletAddress: string) {
       ok: true,
       exists: true,
       walletAddress: normalizedWallet,
+      registeredClientKind: character.registeredClientKind,
       generatedAt: new Date().toISOString(),
       source: "persisted_character",
       note: "Read-only saved profile. Use /agent-observe for live HP, position, aggro, nearby NPCs, chat, loot windows, cooldowns, and active room state.",
@@ -115,6 +116,7 @@ export async function buildAgentProfile(walletAddress: string) {
       character: {
         id: character.characterId,
         name: character.name,
+        registeredClientKind: character.registeredClientKind,
         avatarSeed: character.avatarSeed,
         appearanceTraits: character.appearanceTraits,
         level: character.level,

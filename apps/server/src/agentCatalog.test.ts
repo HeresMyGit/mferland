@@ -28,8 +28,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
   assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems"]);
-  assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits"]);
-  assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "registerChainGear"]);
+  assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents", "removeSeasonReferral"]);
+  assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "respecTalents", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
     "connectWallet",
     "refreshWalletBalances",
@@ -53,13 +53,16 @@ test("agent catalog documents normal player menu controls", () => {
     "configureLocalCryptoContracts",
   ]);
 
-  assert.deepEqual(catalog.menus.character.controls, ["selectSelfTarget", "unequipItem", "refreshSeasonPassOwnership"]);
+  assert.deepEqual(catalog.menus.character.controls, ["selectSelfTarget", "unequipItem", "refreshSeasonPassOwnership", "removeSeasonReferral"]);
   assert.deepEqual(catalog.menus.stash.controls, ["equipItem", "useItem", "setHotbarSlot"]);
   assert.deepEqual(catalog.menus.moves.controls, ["combatAction", "selectTalent", "setHotbarSlot"]);
   assert.deepEqual(catalog.menus.hotbar.controls, ["setHotbarSlot", "interact", "combatAction", "useItem"]);
   assert.deepEqual(catalog.menus.errands.controls, ["setQuestFocus", "toggleCompletedQuestVisibility", "acceptQuest", "completeQuest", "cancelQuest", "shareQuestLink"]);
   assert.deepEqual(catalog.menus.potionShop.controls, ["selectPotionShopItem", "selectPotionShopQuantity", "purchasePotionShopItem"]);
   assert.equal(catalog.menus.potionShop.paidControlRequiresPaymentProof, true);
+  assert.deepEqual(catalog.menus.respec.controls, ["respecTalents"]);
+  assert.equal(catalog.menus.respec.npcId, "respec-mfer");
+  assert.equal(catalog.menus.respec.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.trashVendor.controls, ["sellTrashItems"]);
   assert.equal(catalog.menus.trashVendor.paidControlRequiresPaymentProof, false);
   assert.deepEqual(catalog.menus.traits.controls, ["selectTraitCategory", "setTrait", "clearTrait", "randomizeTraits", "updateTraits"]);
@@ -82,11 +85,33 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.menus.settings.controls, ["setGraphicsQuality", "setAudio", "setNameplates", "toggleDebugLocalOnly"]);
   assert.deepEqual(catalog.menus.system.controls, ["respawn", "leave"]);
 
+  assert.equal(catalog.endpoints.seasonLeaderboard, "/season/leaderboard");
+  assert.equal(catalog.endpoints.seasonReferrals, "/season/referrals?wallet={walletAddress}");
+  assert.equal(catalog.endpoints.agentSession, "/agent-session");
+  assert.deepEqual(catalog.walletIdentity.registeredClientKinds, ["human", "agent"]);
+  assert.match(catalog.walletIdentity.invariant, /Human wallets cannot mint agent sessions/);
+  assert.equal(catalog.walletIdentity.agentSessionMismatch.code, "agent_wallet_registration_mismatch");
+  assert.equal(catalog.walletIdentity.agentSessionMismatch.recovery, "use_agent_registered_wallet");
+  assert.deepEqual(catalog.walletIdentity.profileFields, ["registeredClientKind"]);
+  assert.equal(catalog.season0.dailyPointCap, 500);
+  assert.equal(catalog.season0.totalPointCap, 10000);
+  assert.equal(catalog.season0.referrals.humanOnly, true);
+  assert.equal(catalog.season0.referrals.agentsEligible, false);
+  assert.equal(catalog.season0.referrals.activationPoints, 0);
+  assert.equal(catalog.season0.referrals.bonusRatePercent, 20);
+  assert.equal(catalog.season0.referrals.maxBonusPointsPerReferralSide, 500);
+  assert.equal(catalog.season0.referrals.maxRefereesPerReferrer, 10);
+  assert.equal(catalog.season0.referrals.referrerCanRemove, true);
+  assert.equal(catalog.season0.referrals.noCascade, true);
+  assert.deepEqual(catalog.season0.pointSources.eligibleBaseSources, ["quest", "event"]);
+
   assert.equal(catalog.payments.mferGpt.chainId, 8453);
   assert.equal(catalog.payments.mferGpt.tokenAddress, "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07");
   assert.equal(catalog.payments.mferGpt.uniswapV4Pool.hooks, "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC");
   assert.equal(catalog.payments.mferGpt.swap.route, "Base ETH -> WETH -> MFERGPT via Uniswap v4 Universal Router");
   assert.equal(catalog.payments.mferGpt.swap.agentAction, "swap_eth_for_mfergpt is available when wallet tools are configured and the run's ETH spend cap allows it.");
+  assert.equal(catalog.payments.mferGpt.talentRespec.amountWei, "25000000000000000000000000");
+  assert.equal(catalog.payments.mferGpt.talentRespec.message, "respecTalents");
   assert.equal(catalog.payments.mferGpt.season0AgentRequiredBalanceWei, "25000000000000000000000000");
   assert.match(catalog.payments.mferGpt.season0AgentHumanHelp, /swap-mfer/);
   assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
