@@ -1,5 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { CombatActionId, NpcSnapshot, PlayerSnapshot, TargetSelection } from "@mferland/shared";
+import type { ClientAgentStatus, ClientInput, CombatActionId, NpcSnapshot, PlayerSnapshot, TargetSelection } from "@mferland/shared";
 import type { useTownRoom } from "./useTownRoom";
 
 type RealGameCaptureRoom = ReturnType<typeof useTownRoom>;
@@ -25,6 +25,19 @@ type DebugTravelView = {
   yaw: number;
   nonce: number;
 };
+type RealGameCaptureInputRef = {
+  current: {
+    input: ClientInput;
+    receivedAt: number;
+  } | null;
+};
+type RealGameCaptureCameraRef = {
+  current: {
+    position: { x: number; y: number; z: number };
+    target: { x: number; y: number; z: number };
+    fov?: number;
+  } | null;
+};
 
 declare global {
   interface Window {
@@ -32,10 +45,13 @@ declare global {
       status: string;
       sessionId: string | null;
       boost: (level?: number) => boolean;
+      input: (x: number, z: number, yaw: number, sprint?: boolean, jump?: boolean) => boolean;
+      camera: (message: { position: { x: number; y: number; z: number }; target: { x: number; y: number; z: number }; fov?: number } | null) => boolean;
       teleport: (x: number, z: number, yaw?: number) => boolean;
       setupNpc: (message: RealGameCaptureNpcSetup) => boolean;
       selectTarget: (target: TargetSelection | null) => boolean;
       combatAction: (actionId: CombatActionId, target?: TargetSelection | null) => boolean;
+      agentStatus: (message: ClientAgentStatus) => boolean;
       chat: (text: string) => boolean;
       snapshot: () => {
         players: PlayerSnapshot[];
@@ -48,11 +64,15 @@ declare global {
 export function installRealGameCaptureBridge({
   roomRef,
   selectedTargetRef,
+  captureInputRef,
+  captureCameraRef,
   setSelectedTarget,
   setDebugTravelView,
 }: {
   roomRef: MutableRefObject<RealGameCaptureRoom>;
   selectedTargetRef: MutableRefObject<TargetSelection | null>;
+  captureInputRef?: RealGameCaptureInputRef;
+  captureCameraRef?: RealGameCaptureCameraRef;
   setSelectedTarget: Dispatch<SetStateAction<TargetSelection | null>>;
   setDebugTravelView: Dispatch<SetStateAction<DebugTravelView | null>>;
 }) {
@@ -67,8 +87,28 @@ export function installRealGameCaptureBridge({
       roomRef.current.sendDebugBoostPlayer({ level, maxTalents: true });
       return true;
     },
+    input(x: number, z: number, yaw: number, sprint = false, jump = false) {
+      const input: ClientInput = {
+        seq: Date.now(),
+        x,
+        z,
+        yaw,
+        sprint,
+        jump,
+      };
+      if (captureInputRef) captureInputRef.current = { input, receivedAt: Date.now() };
+      roomRef.current.sendInput(input);
+      return true;
+    },
+    camera(message: RealGameCaptureCameraRef["current"]) {
+      if (!captureCameraRef) return false;
+      captureCameraRef.current = message;
+      return true;
+    },
     teleport(x: number, z: number, yaw = 0) {
       roomRef.current.sendDebugTeleport({ x, z, yaw });
+      if (captureInputRef) captureInputRef.current = null;
+      if (captureCameraRef) captureCameraRef.current = null;
       setSelectedTarget(null);
       setDebugTravelView({ x, z, yaw, nonce: Date.now() });
       return true;
@@ -84,6 +124,10 @@ export function installRealGameCaptureBridge({
     combatAction(actionId: CombatActionId, target: TargetSelection | null = selectedTargetRef.current) {
       if (target) setSelectedTarget(target);
       roomRef.current.sendCombatAction({ actionId, target });
+      return true;
+    },
+    agentStatus(message: ClientAgentStatus) {
+      roomRef.current.sendAgentStatus(message);
       return true;
     },
     chat(text: string) {

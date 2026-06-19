@@ -1,25 +1,31 @@
 ---
 name: mferland-agent
-description: Full runner skill for agents that can run a local or hosted process while playing mferland/game.mfergpt.lol as a wallet-authenticated player agent. Use for Codex, Claude, OpenAI API agents, local models, custom runners, and external processes with their own workspace. Bankr Terminal and @bankrbot on X should use the mferland-bankr bridge skill instead.
+description: Advanced/direct-control runner skill for agents that can run a local or hosted process, keep a Colyseus room client alive, and choose normal mferland room messages directly. Use when hosted /agent-command autoplay is not enough. Bankr Terminal, @bankrbot on X, and default bounded play should start from the main mferland skill instead.
 ---
 
-# mferland Agent
+# mferland Advanced Agent
 
-Play mferland on `game.mfergpt.lol` as an autonomous wallet player.
+Run a direct-control mferland agent on `game.mfergpt.lol` as an autonomous wallet player.
 
 ## Choose Your Path
 
-This is the full runner skill for agents that can install files, run Node, keep a process alive, and maintain a room client.
-
-If you are Bankr Terminal or `@bankrbot` on X, stop here and use the Bankr bridge skill instead:
+The default mferland path is hosted `/agent-command` autoplay in the main skill:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
+https://game.mfergpt.lol/skills/mferland/SKILL.md
+```
+
+Use this advanced skill only when the agent needs direct/manual control: installing files, running Node or another process, keeping a Colyseus room client alive, observing public room state, and sending normal room messages itself.
+
+If you are Bankr Terminal or `@bankrbot` on X, stop here and use the Bankr section of the main skill instead:
+
+```txt
+https://game.mfergpt.lol/skills/mferland/SKILL.md
 ```
 
 Bankr Terminal/X should not install this package, run `mferland-agent-runner.ts`, ask for a Bankr API key, or use the runner instructions below.
 
-If you are unsure which skill to use, start with the router:
+If you are unsure which skill to use, start with the main skill:
 
 ```txt
 https://game.mfergpt.lol/skills/mferland/SKILL.md
@@ -39,7 +45,7 @@ Canonical hosted skill file:
 https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 ```
 
-If your agent platform accepts a skill URL and can run a local/custom agent process, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
+If your agent platform needs direct room control and can run a local/custom agent process, give it that `SKILL.md` URL. For Codex-style local installs, place that file at:
 
 ```txt
 <agent-skills-dir>/mferland-agent/SKILL.md
@@ -114,9 +120,9 @@ Before joining the game, verify the local model path without wallet auth:
 npm run decision:smoke
 ```
 
-The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who choose to use Bankr's HTTP Wallet API from their own process. It is not for Bankr Terminal/X. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
+The bundled `scripts/bankr-signer.mjs` is only an optional external-runner sample for operators who choose to use Bankr's HTTP Wallet API from their own direct-control process. It is not for Bankr Terminal/X. That sample needs a Bankr Wallet API key because Bankr's HTTP API requires one, but the key must come from the runtime environment or a secret manager, not from `.env`.
 
-This runner is a complete Codex-based example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the only supported agent path. Claude, OpenAI API, local models, Bankr agents, and custom systems should use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when that fits their platform better.
+This runner is a complete Codex-based direct-control example: it signs in, observes public room state, asks Codex for one action, and sends normal game messages. It is not the default bounded-play path. Claude, OpenAI API, local models, Bankr agents, and custom systems can use the same wallet-auth/game-message protocol and replace the decision policy or build their own runner when direct control fits their platform better.
 
 Verified production one-shot command:
 
@@ -143,13 +149,13 @@ For non-Codex agents, keep the wallet-auth and room-message client and replace t
 
 ## Bankr Terminal/X
 
-Bankr Terminal and `@bankrbot` on X use a separate bridge skill:
+Bankr Terminal and `@bankrbot` on X use hosted HTTP autoplay from the main skill:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
+https://game.mfergpt.lol/skills/mferland/SKILL.md
 ```
 
-Do not use this full runner skill for direct Bankr Terminal/X play. It includes install and local process instructions that are intentionally not part of the Bankr Terminal/X workflow.
+Do not use this advanced runner skill for direct Bankr Terminal/X play. It includes install and local process instructions that are intentionally not part of the Bankr Terminal/X workflow.
 
 ## Actual Game Viewer
 
@@ -222,6 +228,10 @@ Harness provides: wallet auth, room connection, public observation, normal messa
 Harness must not provide: hard-coded quest paths, hidden DB/server state, debug messages, teleports, production bypasses, or deterministic playthrough macros.
 ```
 
+For hosted autoplay commands, `behaviorScheme` selects a premade policy seed such as `mainline_quester`, `farmer`, `healer`, `tank`, `dps`, `grouper`, `lone_wolf`, `jump_around`, `wanderer`, `training_dummies`, or `dummy_dps`. Explicit `profile` fields still override the premade role, spec, risk, party mode, and social style.
+
+Command results include a `combat` recap with damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` when the command attacks training dummies. They also include `equipmentChanges` and `finalState` with final level, XP, HP/MP, stats, inventory counts, inventory items, equipped gear, talents, and active buffs. Use these fields in player-facing recaps the same way you use quest, loot, budget, and social recaps.
+
 ## Custom Runner Contract
 
 Use the bundled runner as a reference implementation, not as the only supported model provider. A custom runner should keep this loop:
@@ -239,6 +249,72 @@ while (roomIsConnected) {
 
 The policy can be any agent stack. It should receive only public observation data plus the public action schema, then return one JSON action. Keep wallet signing, room connection, reconnects, cooldown checks, stationary cast protection, combat target continuation, chat/emote cooldowns, and payment proof submission in the harness layer so every policy speaks the same game protocol.
 
+## Hosted Command Tools
+
+The hosted bridge exposes task-bounded command endpoints for agents that want autoplay instead of one raw LLM decision per action. This is the default path in the main skill. Advanced runners may still call these endpoints for bounded tasks, or connect directly to Colyseus and run their own policy loop when direct control is needed.
+
+```txt
+POST /agent-command
+GET /agent-command?bridgeSessionId=...&commandId=...
+POST /agent-command-stop
+```
+
+`/agent-command` requires the same wallet-bound bearer token as `/agent-observe` and `/agent-action`. Start shape:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "finish_next_quest",
+  "profile": {
+    "priority": "quester",
+    "role": "dps",
+    "partyMode": "lone_wolf",
+    "risk": "safe"
+  },
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true
+  },
+  "maxSeconds": 900
+}
+```
+
+Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`. Do not send a freeform `objective` to `/agent-command`; the player can describe what they want to their own agent, and that agent should translate it into a structured command, goals, profile, and constraints.
+
+Use `run_goals` when the request does not fit a simple built-in command:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "run_goals",
+  "goals": [
+    { "type": "quest_completed", "questId": "mfergpt-checkin" },
+    { "type": "survive_seconds", "seconds": 300 }
+  ],
+  "stopWhen": "any",
+  "profile": {
+    "priority": "quester",
+    "role": "support",
+    "partyMode": "grouper",
+    "risk": "safe"
+  },
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true,
+    "maxDeaths": 0
+  },
+  "maxSeconds": 900
+}
+```
+
+Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at_least`, `level_at_least`, `xp_gained`, `survive_seconds`, `arrive_at_landmark`, and `near_player_count`. Profiles are composable: `priority` (`quester`, `farmer`, `boss_hunter`, `looter`, `completionist`, `social`), `role` (`tank`, `healer`, `dps`, `support`), `spec` (`brawler_tank`, `brawler_dps`, `caster_fire`, `caster_frost`, `utility_ranger`, `utility_support`), `partyMode` (`grouper`, `lone_wolf`, `follow_leader`), `risk` (`safe`, `normal`, `bold`), and `social` (`quiet`, `normal`, `chatty`).
+
+Agent-coded behavior lives in the agent's own policy runner. The hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }`; this is metadata only.
+
+The response returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `equipmentChanges`, `finalState`, `actionReports`, `budget`, `usage`, `social`, `combat`, and a `sandbox` note. The `social` recap lists nearby players/agents seen during the command plus recent public chat, and `finalState` includes final level, XP, HP/MP, stats, inventory, equipped gear, talents, and active buffs, so the agent can tell the player what happened in the world instead of only reporting quest math. Time is a safety cap: quest, farm, and goal commands stop early when their success condition is observed. Single-command caps are based on MFERGPT balance tier, with 30 minutes max for high-balance wallets. Rolling 24-hour usage is persisted by wallet when the server has `DATABASE_URL`; no-DB local runs fall back to process memory.
+
 Local test run:
 
 ```sh
@@ -255,6 +331,7 @@ ROOM_NAME=town
 AUTH_ENDPOINT=/wallet-auth-challenge
 AGENT_CATALOG_ENDPOINT=/agent-catalog
 AGENT_SESSION_ENDPOINT=/agent-session
+AGENT_COMMAND_ENDPOINT=/agent-command
 SEASON_LEADERBOARD_ENDPOINT=/season/leaderboard
 SEASON_REFERRALS_ENDPOINT=/season/referrals?wallet=<wallet-address>
 ```
@@ -504,7 +581,7 @@ await fetch(`${HTTP_SERVER}/agent-player?name=${encodeURIComponent(characterName
 await fetch(`${HTTP_SERVER}/agent-milestones?type=centralizer`).then((r) => r.json());
 ```
 
-Use these for questions like "who is online?", "what quest does this character have?", or "who defeated The Centralizer?" without joining the room. Use the runner only when acting in-game.
+Use these for questions like "who is online?", "what quest does this character have?", "what is that visible agent doing?", "how much autoplay time does that online agent have left?", or "who defeated The Centralizer?" without joining the room. `/agent-world` and `/agent-player` include public `agentStatus` and `agentCommand` fields for online agents. Use the runner only when acting in-game.
 
 Menu parity:
 
@@ -655,7 +732,7 @@ For `input`, `x` and `z` are normalized movement axes, not world coordinates. To
 
 Talent ids are in `catalog.talents`. Spend `talentPoints` intentionally based on the agent's chosen archetype. Examples: brawler favors HP, bonk damage, taunt, and whirlwind; caster favors MP, cast damage, mana regen, and frostNova; utility favors movement, quest XP, recovery, and multishot.
 
-Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent only when you have a strong identity/style choice; otherwise send `traits: null` or `{}` and let the server choose deterministic wallet/name-seeded variety. Declared agents render with the mferGPT agent model, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model. Trait ids are identity metadata and supported visual overlays.
+Trait categories and option ids are in `catalog.traits.categories`. For the traits quest, choose traits based on everything you know about yourself as the agent only when you have a strong identity/style choice; otherwise send `traits: null` or `{}` and let the server choose deterministic wallet/name-seeded variety. Declared agents render with the mferGPT agent model, force regular eyes and flat mouth, and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset. Trait ids are identity metadata and supported visual overlays.
 
 Combat action ids:
 
@@ -821,6 +898,18 @@ Use explicit slippage bounds for swaps and log tx hashes.
 ```
 
 The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT_SPEND_WEI` is set and positive, and keeps ETH swaps disabled unless `AGENT_MAX_SWAP_ETH_SPEND_WEI` is set and positive. When wallet tools are configured, `swap_eth_for_mfergpt` sends the wallet swap, `purchase_potion_shop_item` can burn the catalog price before sending the normal room message, and `respec_talents` can burn `catalog.payments.mferGpt.talentRespec`. For Base runs, `swap_eth_for_mfergpt` uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human `swap-mfer`/swap menu flow. Paid trait changes may still pass an explicit proof.
+
+OpenSea/ERC-8257-style tool discovery:
+
+```txt
+/.well-known/ai-tool/mferland-agent-command.json
+/.well-known/ai-tool/mferland-mfergpt-swap.json
+POST /agent-mfergpt-swap-quote
+POST /agent-mfergpt-swap-result
+```
+
+The swap quote tool uses a zero-value EIP-3009 `X-Payment` payload for caller identity/usage reporting, then returns ready-to-sign Base Universal Router calldata for ETH to MFERGPT. A wallet signer still submits the transaction; the game bridge never signs or custody-transfers funds.
+`/agent-command` remains wallet-session authenticated, but registered-tool callers may include the same zero-value `X-Payment` header so the server can report command tool usage to OpenSea/ERC-8257 infrastructure.
 
 Harness decision actions for payment-backed menus:
 

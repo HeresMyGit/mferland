@@ -1034,10 +1034,16 @@ button.quest-row {
   place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
   color: #fff4ba;
   background: rgba(0, 0, 0, 0.38);
+  line-height: 1;
+}
+
+.quest-offer-close svg {
+  display: block;
 }
 
 .quest-accept-btn {

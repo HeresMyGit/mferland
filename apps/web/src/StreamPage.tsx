@@ -1,5 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
+import { Info, ListChecks, X } from "lucide-react";
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -29,6 +30,7 @@ import {
 } from "@mferland/shared";
 import { makeGuestIdentity, rememberInviteCode } from "./auth/identity";
 import { Hud } from "./components/Hud";
+import { MferGptSwapMenu } from "./components/MferGptSwapMenu";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MIXAMO_URLS, getMferAnimationClips } from "./components/MferAvatar";
 import { ItemIcon } from "./components/hud/ItemIcon";
@@ -61,6 +63,7 @@ const STREAM_ACTION_SLOTS: ActionSlot[] = ["attack", null, null, null, null, nul
 const STREAM_MODEL_URL = "/models/mferGPT.glb";
 const STREAM_PRICE_POLL_MS = 30_000;
 const STREAM_DEX_CHAIN = "base";
+const STREAM_SEASON0_NOTICE_STORAGE_KEY = "mferland:streamSeason0NoticeDismissed:v1";
 const STREAM_PRICE_TOKENS = [
   {
     id: "mfergpt",
@@ -138,6 +141,7 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
   const [settings, setSettings] = useState<GameSettings>(STREAM_SETTINGS);
   const [loaderComplete, setLoaderComplete] = useState(false);
   const [gameCanvasEpoch, setGameCanvasEpoch] = useState(0);
+  const [season0NoticeDismissed, setSeason0NoticeDismissed] = useState(readStreamSeason0NoticeDismissed);
   const audio = useMemo(() => new GameAudio(), []);
   const playedCombatEventIdsRef = useRef(new Set<string>());
   const playedExperienceEventIdsRef = useRef(new Set<string>());
@@ -287,6 +291,10 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
     });
   }, [room.leaveAndWait]);
   const handleLoaderComplete = useCallback(() => setLoaderComplete(true), []);
+  const dismissSeason0Notice = useCallback(() => {
+    writeStreamSeason0NoticeDismissed();
+    setSeason0NoticeDismissed(true);
+  }, []);
   const markGameCanvasFrame = useCallback(() => {
     lastGameFrameAtRef.current = Date.now();
   }, []);
@@ -403,6 +411,8 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
       )}
 
       {agentView && <AgentThoughtPanel player={focusedPlayer} />}
+      {agentView && <StreamAgentPlaytimePanel player={focusedPlayer} focusedWalletAddress={streamFocus.wallet} />}
+      {!season0NoticeDismissed && <StreamSeason0Notice onDismiss={dismissSeason0Notice} />}
     </>
   );
 
@@ -755,6 +765,201 @@ function AgentThoughtPanel({ player }: { player: PlayerSnapshot | null }) {
   );
 }
 
+function StreamAgentPlaytimePanel({ player, focusedWalletAddress }: { player: PlayerSnapshot | null; focusedWalletAddress: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [profileBudget, setProfileBudget] = useState<StreamAgentBudget | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const walletAddress = player?.walletAddress || focusedWalletAddress || "";
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setProfileBudget(null);
+      return;
+    }
+
+    let disposed = false;
+    let timer: number | null = null;
+    const loadBudget = async () => {
+      try {
+        const url = new URL("/agent-profile", getStreamAgentApiHttpBase());
+        url.searchParams.set("wallet", walletAddress);
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) throw new Error(`agent-profile ${response.status}`);
+        const payload = await response.json();
+        if (!disposed) setProfileBudget(readStreamAgentBudget(payload));
+      } catch {
+        if (!disposed) setProfileBudget(null);
+      }
+    };
+
+    void loadBudget();
+    timer = window.setInterval(() => void loadBudget(), 10_000);
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [walletAddress]);
+
+  if (!walletAddress || (player && !player.isAgent && !focusedWalletAddress)) return null;
+
+  const liveSessionMax = Math.max(0, Math.floor(player?.agentCommandMaxSeconds || 0));
+  const hasLiveBudget = liveSessionMax > 0 || (player?.agentCommandDailySeconds ?? 0) > 0;
+  const sessionMax = hasLiveBudget ? liveSessionMax : profileBudget?.session.maxSeconds ?? 0;
+  const sessionElapsed = player?.agentCommandStatus === "running" && player.agentCommandStartedAt > 0 && liveSessionMax > 0
+    ? Math.min(sessionMax, Math.max(0, Math.ceil((now - player.agentCommandStartedAt) / 1000)))
+    : hasLiveBudget
+      ? Math.max(0, Math.floor(player?.agentCommandSessionUsedSeconds || 0))
+      : 0;
+  const sessionRemaining = hasLiveBudget
+    ? Math.max(0, sessionMax - sessionElapsed)
+    : Math.max(0, profileBudget?.session.remainingSeconds ?? sessionMax);
+  const dailyTotal = hasLiveBudget
+    ? Math.max(0, Math.floor(player?.agentCommandDailySeconds || 0))
+    : profileBudget?.daily.totalSeconds ?? 0;
+  const profileDailyUsed = Math.max(0, dailyTotal - (profileBudget?.daily.remainingSeconds ?? dailyTotal));
+  const dailyUsed = hasLiveBudget ? Math.max(0, Math.min(dailyTotal, Math.floor(player?.agentCommandDailyUsedSeconds || 0) + (
+    player?.agentCommandStatus === "running" ? Math.max(0, sessionElapsed - Math.floor(player.agentCommandSessionUsedSeconds || 0)) : 0
+  ))) : profileDailyUsed;
+  const dailyRemaining = Math.max(0, dailyTotal - dailyUsed);
+  const hasBudget = sessionMax > 0 || dailyTotal > 0;
+  const tier = player?.agentCommandBudgetTier || profileBudget?.tier || "";
+
+  return (
+    <>
+    <section className="stream-agent-playtime-panel" aria-label="agent play time">
+      <header>
+        <div>
+          <span>play time</span>
+          <strong>{tier ? formatBudgetTier(tier) : "checking"}</strong>
+        </div>
+        <button type="button" aria-label="play time details" aria-expanded={detailsOpen} onClick={() => setDetailsOpen(true)}>
+          <Info size={14} />
+        </button>
+      </header>
+      <StreamPlaytimeMeter
+        label="session"
+        usedSeconds={sessionElapsed}
+        totalSeconds={sessionMax}
+        fallback={hasBudget ? `${formatDuration(sessionRemaining)} left` : "waiting"}
+      />
+      <StreamPlaytimeMeter
+        label="daily"
+        usedSeconds={dailyUsed}
+        totalSeconds={dailyTotal}
+        fallback={hasBudget ? `${formatDuration(dailyRemaining)} left` : "waiting"}
+      />
+      <MferGptSwapMenu defaultExpanded={false} surface="agent_viewer_playtime" variant="embedded" />
+    </section>
+    {detailsOpen && (
+      <StreamPlaytimeDetailsDialog
+        sessionMax={sessionMax}
+        sessionRemaining={sessionRemaining}
+        dailyTotal={dailyTotal}
+        dailyRemaining={dailyRemaining}
+        tier={tier}
+        onClose={() => setDetailsOpen(false)}
+      />
+    )}
+    </>
+  );
+}
+
+function StreamPlaytimeDetailsDialog({
+  sessionMax,
+  sessionRemaining,
+  dailyTotal,
+  dailyRemaining,
+  tier,
+  onClose,
+}: {
+  sessionMax: number;
+  sessionRemaining: number;
+  dailyTotal: number;
+  dailyRemaining: number;
+  tier: string;
+  onClose: () => void;
+}) {
+  return (
+    <section className="quest-dialogue-panel stream-playtime-info-dialog" role="dialog" aria-label="Agent play time details">
+      <button className="quest-offer-close" type="button" title="Close" aria-label="Close play time details" onClick={onClose}>
+        <X size={17} />
+      </button>
+      <div className="quest-dialogue-heading">
+        <span>Agent autoplay</span>
+        <strong>play time limits</strong>
+      </div>
+      <p>
+        Autoplay uses a per-command cap and a rolling daily cap based on the agent wallet's MFERGPT balance.
+      </p>
+      <div className="quest-dialogue-detail">
+        <ListChecks size={17} />
+        <span>
+          <b>current wallet</b>
+          <em>{formatBudgetTier(tier || "base")} / {formatDuration(sessionMax)} command cap / {formatDuration(sessionRemaining)} command time left / {formatDuration(dailyTotal)} daily cap / {formatDuration(dailyRemaining)} daily time left</em>
+        </span>
+      </div>
+      <div className="stream-playtime-rules">
+        <span><b>0 MFERGPT</b><em>5 minute commands / 20 rolling daily minutes / no Season 0 agent points</em></span>
+        <span><b>25M MFERGPT</b><em>15 minute commands / 60 rolling daily minutes / Season 0 agent points enabled</em></span>
+        <span><b>100M MFERGPT</b><em>30 minute commands / 180 rolling daily minutes</em></span>
+        <span><b>500M MFERGPT</b><em>30 minute commands / 360 rolling daily minutes</em></span>
+      </div>
+      <div className="quest-dialogue-actions">
+        <button className="quest-secondary-btn" type="button" onClick={onClose}>
+          close
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function StreamPlaytimeMeter({
+  label,
+  usedSeconds,
+  totalSeconds,
+  fallback,
+}: {
+  label: string;
+  usedSeconds: number;
+  totalSeconds: number;
+  fallback: string;
+}) {
+  const percent = totalSeconds > 0 ? Math.min(100, Math.max(0, (usedSeconds / totalSeconds) * 100)) : 0;
+  return (
+    <div className="stream-playtime-meter">
+      <div>
+        <span>{label}</span>
+        <em>{totalSeconds > 0 ? `${formatDuration(usedSeconds)} / ${formatDuration(totalSeconds)}` : fallback}</em>
+      </div>
+      <i aria-hidden="true"><b style={{ width: `${percent}%` }} /></i>
+    </div>
+  );
+}
+
+function StreamSeason0Notice({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <section className="stream-season0-notice" aria-label="Season 0 agent rewards notice">
+      <header>
+        <div>
+          <span>Agent Rewards</span>
+          <strong>25M MFERGPT gate</strong>
+        </div>
+        <button className="stream-season0-close" type="button" aria-label="dismiss Season 0 notice" onClick={onDismiss}>x</button>
+      </header>
+      <p>
+        Declared agents need 25M MFERGPT on Base before Season 0 points accrue. Progress still saves below the gate.
+      </p>
+      <MferGptSwapMenu defaultExpanded={false} surface="agent_viewer_notice" variant="embedded" />
+      <p className="stream-season0-footnote">humans can also use swap-mfer in town</p>
+    </section>
+  );
+}
+
 type StreamRecentTarget = {
   eventId: string;
   seenAt: number;
@@ -774,6 +979,55 @@ type StreamDexPair = {
   priceUsd?: string | null;
   priceChange?: Partial<Record<"m5" | "h1" | "h6" | "h24", number | string | null>>;
 };
+
+type StreamAgentBudget = {
+  tier: string;
+  session: {
+    maxSeconds: number;
+    remainingSeconds: number;
+  };
+  daily: {
+    totalSeconds: number;
+    remainingSeconds: number;
+  };
+};
+
+function readStreamAgentBudget(payload: unknown): StreamAgentBudget | null {
+  if (!payload || typeof payload !== "object") return null;
+  const budget = (payload as { commandBudget?: unknown }).commandBudget;
+  if (!budget || typeof budget !== "object") return null;
+  const record = budget as Record<string, unknown>;
+  const session = record.session && typeof record.session === "object" ? record.session as Record<string, unknown> : {};
+  const daily = record.daily && typeof record.daily === "object" ? record.daily as Record<string, unknown> : {};
+  return {
+    tier: typeof record.tier === "string" ? record.tier : "",
+    session: {
+      maxSeconds: readStreamNumber(session.maxSeconds),
+      remainingSeconds: readStreamNumber(session.remainingSeconds),
+    },
+    daily: {
+      totalSeconds: readStreamNumber(daily.totalSeconds),
+      remainingSeconds: readStreamNumber(daily.remainingSeconds),
+    },
+  };
+}
+
+function readStreamNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function getStreamAgentApiHttpBase() {
+  const configured = String(import.meta.env.VITE_SERVER_URL ?? "").trim();
+  if (configured) return configured.replace(/^ws:/, "http:").replace(/^wss:/, "https:").replace(/\/+$/, "");
+
+  if (import.meta.env.DEV) {
+    const protocol = window.location.protocol === "https:" ? "https" : "http";
+    return `${protocol}://${window.location.hostname}:2567`;
+  }
+
+  return window.location.origin;
+}
 
 function useStreamPriceQuotes(): StreamPriceState {
   const [prices, setPrices] = useState<StreamPriceState>({ state: "loading", pairs: [], error: "" });
@@ -879,6 +1133,34 @@ function formatAgentStatusAge(ageMs: number) {
   if (ageMs < 1500) return "now";
   if (ageMs < 60_000) return `${Math.round(ageMs / 1000)}s`;
   return `${Math.round(ageMs / 60_000)}m`;
+}
+
+function formatBudgetTier(tier: string) {
+  switch (tier) {
+    case "mfergpt_25m":
+      return "25M tier";
+    case "mfergpt_100m":
+      return "100M tier";
+    case "mfergpt_500m":
+      return "500M tier";
+    case "base":
+      return "base tier";
+    default:
+      return tier.replace(/^mfergpt_/, "").replace(/_/g, " ") || "checking";
+  }
+}
+
+function formatDuration(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  const remainingSeconds = total % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const hourMinutes = minutes % 60;
+    return `${hours}h${hourMinutes > 0 ? ` ${hourMinutes}m` : ""}`;
+  }
+  if (minutes > 0) return `${minutes}m${remainingSeconds > 0 ? ` ${remainingSeconds}s` : ""}`;
+  return `${remainingSeconds}s`;
 }
 
 function clampPercent(value: number) {
@@ -1070,6 +1352,22 @@ function distanceSq2d(
   const dx = a.x - b.x;
   const dz = a.z - b.z;
   return dx * dx + dz * dz;
+}
+
+function readStreamSeason0NoticeDismissed() {
+  try {
+    return window.localStorage.getItem(STREAM_SEASON0_NOTICE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeStreamSeason0NoticeDismissed() {
+  try {
+    window.localStorage.setItem(STREAM_SEASON0_NOTICE_STORAGE_KEY, "1");
+  } catch {
+    // Ignored: dismissal is only a local viewer preference.
+  }
 }
 
 function noop() {}

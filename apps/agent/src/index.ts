@@ -1,13 +1,14 @@
 import { parseArgs } from "node:util";
 import { QUEST_IDS, stableHash } from "@mferland/shared";
 import { MferlandAgentClient, delay } from "./client.js";
+import { runAgentCommandPlaytest } from "./commandPlaytest.js";
 import { assertLocalAgentSafety, summarizeDatabaseUrl } from "./localSafety.js";
 import { runLlmGameAgent, type LlmProvider } from "./llmPolicy.js";
 import { MferGptBurner } from "./mferGptPayment.js";
 import { runLocalAgentPlaytest, type PlaytestScope } from "./playtest.js";
 import { loadAgentWallets, summarizeWallets, type AgentWallet } from "./wallets.js";
 
-type AgentMode = "ambient" | "playtest" | "llm";
+type AgentMode = "ambient" | "playtest" | "llm" | "command-playtest";
 
 type AgentConfig = {
   mode: AgentMode;
@@ -29,6 +30,13 @@ type AgentConfig = {
   llmSteps: number;
   llmDecisionIntervalMs: number;
   llmDecisionTimeoutMs: number;
+  commandMaxSeconds: number;
+  commandMaxRuntimeMs: number;
+  commandPollMs: number;
+  commandOutputFile?: string;
+  commandProfile: string;
+  command: string;
+  commandQuestId: string;
 };
 
 const agents: MferlandAgentClient[] = [];
@@ -47,6 +55,7 @@ console.log(`Agent server: ${config.serverUrl}`);
 console.log(`Agent database guard: ${summarizeDatabaseUrl(process.env.DATABASE_URL)}`);
 console.log(`Agent declaration: ${config.agentClient ? "agent wallet client" : "wallet client"}`);
 if (config.mode === "playtest") console.log(`Agent playtest scope: ${config.playtestScope}`);
+if (config.mode === "command-playtest") console.log("Agent command playtest: hosted /agent-command supervisor");
 if (config.mode === "llm") console.log(`Agent LLM provider: ${config.llmProvider} (${config.llmModel})`);
 
 const wallets = await loadAgentWallets({
@@ -61,6 +70,22 @@ for (const wallet of summarizeWallets(wallets)) {
 }
 
 try {
+  if (config.mode === "command-playtest") {
+    const result = await runAgentCommandPlaytest(wallets, {
+      serverUrl: config.serverUrl,
+      baseName: config.baseName,
+      maxSeconds: config.commandMaxSeconds,
+      maxRuntimeMs: config.commandMaxRuntimeMs,
+      pollMs: config.commandPollMs,
+      outputFile: config.commandOutputFile,
+      profilePreset: config.commandProfile,
+      command: config.command,
+      questId: config.commandQuestId,
+    });
+    console.log(JSON.stringify(result, null, 2));
+    await shutdown(result.ok ? 0 : 1);
+  }
+
   for (let index = 0; index < wallets.length; index += 1) {
     const wallet = wallets[index];
     if (!wallet) continue;
@@ -201,6 +226,13 @@ function readConfig(): AgentConfig {
       "llm-steps": { type: "string", default: process.env.AGENT_LLM_STEPS ?? "80" },
       "llm-interval-ms": { type: "string", default: process.env.AGENT_LLM_DECISION_INTERVAL_MS ?? "1200" },
       "llm-timeout-ms": { type: "string", default: process.env.AGENT_LLM_DECISION_TIMEOUT_MS ?? "60000" },
+      "command-max-seconds": { type: "string", default: process.env.AGENT_COMMAND_MAX_SECONDS ?? String(24 * 60 * 60) },
+      "command-max-runtime-ms": { type: "string", default: process.env.AGENT_COMMAND_MAX_RUNTIME_MS ?? String(30 * 60 * 1000) },
+      "command-poll-ms": { type: "string", default: process.env.AGENT_COMMAND_POLL_MS ?? "5000" },
+      "command-output-file": { type: "string", default: process.env.AGENT_COMMAND_OUTPUT_FILE },
+      "command-profile": { type: "string", default: process.env.AGENT_COMMAND_PROFILE ?? "quester" },
+      command: { type: "string", default: process.env.AGENT_COMMAND ?? "finish_next_quest" },
+      "command-quest-id": { type: "string", default: process.env.AGENT_COMMAND_QUEST_ID ?? "" },
     },
     allowPositionals: false,
   });
@@ -226,12 +258,19 @@ function readConfig(): AgentConfig {
     llmSteps: readPositiveInt(values["llm-steps"], 80),
     llmDecisionIntervalMs: readPositiveInt(values["llm-interval-ms"], 1200),
     llmDecisionTimeoutMs: readPositiveInt(values["llm-timeout-ms"], 60_000),
+    commandMaxSeconds: readPositiveInt(values["command-max-seconds"], 24 * 60 * 60),
+    commandMaxRuntimeMs: readPositiveInt(values["command-max-runtime-ms"], 30 * 60 * 1000),
+    commandPollMs: readPositiveInt(values["command-poll-ms"], 5000),
+    commandOutputFile: values["command-output-file"],
+    commandProfile: cleanCommandProfile(values["command-profile"] ?? "quester"),
+    command: cleanCommand(values.command ?? "finish_next_quest"),
+    commandQuestId: cleanQuestId(values["command-quest-id"] ?? ""),
   };
 }
 
 function normalizeMode(value: string | undefined): AgentMode {
-  if (value === "playtest" || value === "ambient" || value === "llm") return value;
-  throw new Error("AGENT_MODE/--mode must be ambient, playtest, or llm.");
+  if (value === "playtest" || value === "ambient" || value === "llm" || value === "command-playtest") return value;
+  throw new Error("AGENT_MODE/--mode must be ambient, playtest, llm, or command-playtest.");
 }
 
 function normalizePlaytestScope(value: string | undefined): PlaytestScope {
@@ -266,6 +305,18 @@ function cleanModel(value: string) {
 
 function cleanObjective(value: string) {
   return value.trim().slice(0, 800) || "Play mferland as a normal wallet player.";
+}
+
+function cleanCommandProfile(value: string) {
+  return value.replace(/[^\w.,-]/g, "").trim().slice(0, 80) || "quester";
+}
+
+function cleanCommand(value: string) {
+  return value.replace(/[^\w.-]/g, "").trim().slice(0, 40) || "finish_next_quest";
+}
+
+function cleanQuestId(value: string) {
+  return value.replace(/[^\w.-]/g, "").trim().slice(0, 80);
 }
 
 function round(value: number) {

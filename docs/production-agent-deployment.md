@@ -1,6 +1,6 @@
 # Production Agent Deployment
 
-This note is for deploying the public mferland agent MVP on `game.mfergpt.lol`.
+This note is for deploying the public mferland agent autoplay harness on `game.mfergpt.lol`.
 
 The Mac mini is already the live production game server. For live upgrades, do not reinstall the server service unless it is missing; merge the branch into the existing `main` checkout, migrate, rebuild, restart, and smoke-check the running service.
 
@@ -21,6 +21,8 @@ Deploy the server code that includes:
 - sticky wallet identity mode through `account_wallets.registered_client_kind` (`human` or `agent`); `/agent-session` returns `agent_wallet_registration_mismatch` when a human-registered wallet tries to mint an agent token
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
 - public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
+- bounded bridge command endpoints: `/agent-command` and `/agent-command-stop`
+- ERC-8257/OpenSea-style tool manifests and swap tool endpoints: `/.well-known/ai-tool/mferland-agent-command.json`, `/.well-known/ai-tool/mferland-mfergpt-swap.json`, `/agent-mfergpt-swap-quote`, and `/agent-mfergpt-swap-result`
 - public read-only agent facts APIs for simple questions without joining the live room:
   - `/agent-profile?wallet=...` saved character facts: level, XP, equipment, inventory, quests, talents, stats, and active saved buffs
   - `/agent-world` public live town facts: online players, agents/humans, areas, notable NPCs, and totals
@@ -38,6 +40,18 @@ MFERLAND_MFERGPT_PAYMENT_RPC_URL="https://mainnet.base.org"
 MFERLAND_MFERGPT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
 MFERLAND_MFERGPT_BURN_ADDRESS="0x000000000000000000000000000000000000dEaD"
 ```
+
+Only set these after the tool manifests are ready to register with OpenSea/ERC-8257:
+
+```sh
+MFERLAND_TOOL_OPERATOR_ADDRESS="0x..."
+MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
+MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
+OPENSEA_API_KEY="..."
+```
+
+`MFERLAND_TOOL_OPERATOR_ADDRESS` must be the `payTo` address used in the zero-value EIP-3009 `X-Payment` challenge. Without it, the manifest can still be served, but the swap tool should not be considered production-callable.
 
 The gate only controls Season 0 earning for declared agents. Agents below 25M MFERGPT can still play, save progress, complete quests, loot, and fight bosses.
 
@@ -62,7 +76,8 @@ Merge and deploy:
 git fetch origin
 git checkout main
 git pull --ff-only
-git merge --no-ff origin/codex/local-agent-gameplay
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-origin/codex/update-agent-harness-autoplay}"
+git merge --no-ff "$DEPLOY_BRANCH"
 
 npm install
 node apps/server/scripts/migrate.mjs
@@ -81,8 +96,15 @@ curl -fsS "https://game.mfergpt.lol/season/referrals?wallet=0x000000000000000000
 curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x0000000000000000000000000000000000000000"
 curl -fsS https://game.mfergpt.lol/agent-world
 curl -fsS "https://game.mfergpt.lol/agent-milestones?type=centralizer"
+curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
+curl -fsS https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -i -X POST https://game.mfergpt.lol/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
 ```
+
+The unauthenticated swap quote smoke should return HTTP `402` with a zero-value EIP-3009 payment challenge. A full tool-call smoke needs a valid `X-Payment` header and should be done from a controlled wallet/tool client.
 
 ## Skill Hosting
 
@@ -90,13 +112,15 @@ The public skill entry points live in this repo under `skills/`.
 
 After the branch is merged and the server is rebuilt/restarted, the game server hosts:
 
-- `https://game.mfergpt.lol/skills/mferland/SKILL.md` as the universal router.
-- `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md` as the full runner skill for Codex/local/custom agents.
-- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` as the Bankr Terminal/X bridge skill.
+- `https://game.mfergpt.lol/skills/mferland/SKILL.md` as the universal default skill for read-only facts, hosted `/agent-command` autoplay, Bankr Terminal/X constraints, and routing to advanced/local-model supplements.
+- `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md` as the advanced/direct-control runner skill for Codex/local/custom agents that need a local process and Colyseus room client.
+- `https://game.mfergpt.lol/skills/mferland-local-model/SKILL.md` as the local or constrained model supplement for direct-control runners.
+- `https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md` as a compatibility entry point for old hosted-autoplay URLs.
+- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` as a compatibility entry point for old Bankr URLs.
 
 The live game server does not need these packages to accept wallet agents, but hosting them gives third-party builders the correct playbook directly from the game domain.
 
-For the full runner skill, do not publish only `SKILL.md`. Runner agents need the complete package:
+For the advanced/direct-control runner skill, do not publish only `SKILL.md`. Runner agents need the complete package:
 
 ```txt
 mferland-agent/
@@ -107,22 +131,26 @@ mferland-agent/
     bankr-signer.mjs
     create-wallet.ts
     doctor.ts
+    generated-wallet-signer.mjs
     package.json
     tsconfig.json
     mferland-agent-runner.ts
+    ollama-local-policy.ts
 ```
 
-The primary URL to give unknown agents is the router skill:
+The primary URL to give unknown agents, hosted command/autoplay agents, and Bankr Terminal or `@bankrbot` on X is the universal default skill:
 
 - `https://game.mfergpt.lol/skills/mferland/SKILL.md`
 
-The primary URL to give local/custom runner agents is the hosted full runner skill file:
+The primary URL to give local/custom direct-control runner agents is the hosted advanced runner skill file:
 
 - `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md`
 
-The primary URL to give Bankr Terminal or `@bankrbot` on X is the Bankr bridge skill:
+The primary URL to give Ollama or constrained local-model runners is the local-model supplement, used next to the advanced runner skill:
 
-- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md`
+- `https://game.mfergpt.lol/skills/mferland-local-model/SKILL.md`
+
+Keep the old `mferland-autoplay` and `mferland-bankr` URLs hosted as compatibility stubs so external agents with saved skill URLs do not break.
 
 The supporting script files must be hosted alongside `SKILL.md` at matching relative paths:
 
@@ -131,11 +159,13 @@ The supporting script files must be hosted alongside `SKILL.md` at matching rela
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/bankr-signer.mjs`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/create-wallet.ts`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/doctor.ts`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/generated-wallet-signer.mjs`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/package.json`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/tsconfig.json`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts`
+- `https://game.mfergpt.lol/skills/mferland-agent/scripts/ollama-local-policy.ts`
 
-Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff for runner agents should be the hosted `mferland-agent/SKILL.md` file. The `SKILL.md` must document how to fetch the complete package. Bankr Terminal/X should not install the full runner package; it should use `mferland-bankr/SKILL.md`.
+Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff for direct-control runner agents should be the hosted `mferland-agent/SKILL.md` file. The `SKILL.md` must document how to fetch the complete package. Bankr Terminal/X should not install the full runner package; it should use `mferland/SKILL.md`.
 
 The public install instructions should make clear that production use requires `AGENT_ALLOW_PRODUCTION=1` and an agent-controlled wallet signer.
 
@@ -175,7 +205,7 @@ Native Bankr agents should use their platform wallet/signing capability and shou
 
 ## Bankr Bridge Endpoints
 
-Bankr Terminal/X agents that cannot run the bundled runner use the hosted bridge documented in `skills/mferland-bankr/SKILL.md`. Bankr remains the policy/brain; the bridge is the normal Colyseus room client/controller.
+Bankr Terminal/X agents that cannot run the bundled runner use hosted HTTP autoplay documented in `skills/mferland/SKILL.md`. Bankr remains the policy/brain; the bridge is the normal Colyseus room client/controller.
 
 For simple saved-character and public game-state questions, Bankr and other agents should use the read-only facts endpoints and should not start a game session:
 
@@ -188,9 +218,9 @@ GET /agent-milestones?type=centralizer
 GET /agent-milestones?questId=baron-of-static
 ```
 
-These answer level/equipment/inventory questions, who is online, what public quest state a character has, and who completed The Centralizer. They do not perform gameplay.
+These answer level/equipment/inventory questions, who is online, what public quest state a character has, what visible agents are doing, current autoplay command/playtime state for online agents, and who completed The Centralizer. They do not perform gameplay.
 
-Bridge contract:
+Bridge contract for manual/debug actions:
 
 ```txt
 POST /agent-start     { walletAddress, sessionToken, name?, objective? } -> { bridgeSessionId }
@@ -212,6 +242,10 @@ The bridge joins the live `town` room as `identityType: "wallet"` and `agentClie
 
 `/agent-action` uses durable action execution for Bankr-style chat agents: it may wait several seconds while the bridge performs short mechanical continuation for the chosen high-level action, then returns `summary`, `report`, `stoppedBecause`, `suggestedNextAction`, `continuePrompt`, and `durationMs`. The bridge may continue safe combat/movement for an already chosen target after the HTTP response, but it should not choose new quest/shop/social objectives without another Bankr action.
 
+`/agent-command` is the default autoplay surface for bounded tasks. It uses the same bridge session and normal room messages, and returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `equipmentChanges`, `finalState`, `actionReports`, `budget`, `usage`, `social`, and `combat`. `social` includes nearby players/agents seen during the command and recent public chat so calling agents can give alive-world recaps. `combat` includes damage, healing, hit count, DPS, per-target stats, and training-dummy DPS when relevant. `finalState` includes final level, XP, HP/MP, stats, inventory, equipped gear, talents, and active buffs. Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`. The command API does not accept a freeform `objective`; agents translate player requests into structured command/goals/profile/constraints before calling it. Profiles are composable through `priority`, `role`, `spec`, `partyMode`, `risk`, and `social`. The server rejects raw `codeChunk` bodies and does not execute arbitrary policy code; external agent code should run in the caller's policy runner and can pass `controller: { type: "external_policy", policyRef, policyHash }` metadata. Time caps are safety guards and budget controls, not the main success condition. When a command caller also provides a valid zero-value EIP-3009 `X-Payment`, the server reports OpenSea tool usage for the registered command tool, but normal wallet-authenticated bridge commands still work without `X-Payment`.
+
+Single-command caps are balance-tiered: base wallets get 5 minutes, 25M MFERGPT wallets get 15 minutes, and 100M+ MFERGPT wallets get 30 minutes. Rolling 24-hour command usage is stored in Postgres in `agent_command_usage`, and reserved seconds expire after the reserved command time plus a short grace period so crashed commands do not pin quota indefinitely.
+
 For combat targets, the bridge should score both target pull risk and direct-path hostile density. When a direct approach is risky, it should stage through known safe edges such as `loop-farm`, `claim-pile-edge`, or `route-post` before moving into combat range, and surface that as `safe_approach ... via ...` in reports/status.
 
 Observation should expose unspent talent/skill points clearly as `self.talentPoints`, `self.skillPoints`, and `self.unspentSkillPoints`, plus `self.spendableTalents` and `self.recommendedTalentSpends`. The bridge can suggest `select_talent` when points are available and no survival, loot, or quest turn-in action is more urgent.
@@ -221,6 +255,8 @@ Combat guidance for Bankr should be explicit: when `aggroCount > 1` and HP is be
 Compact observe should expose short-term combat memory in `combat.memory`: recent deaths, safety stops, overpulls, movement trouble, `avoidTargets`, `troubleSpots`, and `avoidRemainingMs`. Bankr should treat these as soft vetoes when choosing the next target/path unless the user explicitly asks for a risky boss or group attempt.
 
 Wallet actions stay outside the bridge because a session token cannot sign transactions. For `purchase_potion_shop_item` without proof, the bridge returns `payment_required` with the exact MFERGPT burn details; Bankr burns from the agent wallet and retries with `paymentTxHash`, `paymentAmountWei`, `paymentChainId`, and `paymentContractAddress`. Paid `update_traits` uses the same proof fields. `swap_eth_for_mfergpt` returns `wallet_action_required` with Base/token/router/fallback details so Bankr can perform the swap in its own wallet context. After Bankr buys or mints chain gear, it calls `register_chain_gear` with the owned token id.
+
+For tool-registry swap flows, `/agent-mfergpt-swap-quote` returns ready-to-sign Base Universal Router calldata for ETH to MFERGPT after the caller provides a valid zero-value EIP-3009 `X-Payment` identity proof. `/agent-mfergpt-swap-result` records a submitted tx hash for reports/recaps. The server reports command and swap tool usage to OpenSea when `OPENSEA_API_KEY`, registry address, onchain tool ids, and a valid `X-Payment` are present; failed reporting must not fail a successful tool call.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
@@ -301,7 +337,7 @@ Before public announcement:
 3. Confirm `/wallet-auth-challenge` returns a fresh challenge.
 4. Confirm `/agent-session` accepts a valid signed challenge and returns a session token.
 5. Confirm `/agent-start`, `/agent-observe`, `/agent-action`, and `/agent-stop` work with `Authorization: Bearer <sessionToken>`.
-6. Confirm `/skills/mferland/SKILL.md`, `/skills/mferland-agent/SKILL.md`, and `/skills/mferland-bankr/SKILL.md` return the expected skill files.
+6. Confirm `/skills/mferland/SKILL.md`, `/skills/mferland-agent/SKILL.md`, `/skills/mferland-local-model/SKILL.md`, `/skills/mferland-autoplay/SKILL.md`, and `/skills/mferland-bankr/SKILL.md` return the expected skill files.
 7. Confirm `mferland-agent/install.sh`, `scripts/.env.example`, `scripts/bankr-signer.mjs`, and `scripts/doctor.ts` are also hosted.
 8. Install the hosted skill package in a fresh directory.
 9. Run `npm install`, `npm run typecheck`, and `npm run doctor` from the fresh install.
@@ -311,5 +347,9 @@ Before public announcement:
 13. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
 14. Confirm the agent can see nearby human players and agents.
 15. Confirm no local-only auth bypass or test-only env is enabled.
+16. Confirm both `.well-known/ai-tool` manifests return stable hashes.
+17. Confirm `/agent-mfergpt-swap-quote` returns `402` without `X-Payment` and succeeds with a controlled valid zero-value EIP-3009 header.
+18. Confirm `/agent-command` can start a short `play_for` command, return status, and stop cleanly.
+19. Confirm a command recap includes `social.nearbyPlayers`, `social.recentChat`, and a readable `summary` when another player or agent is nearby or chatting.
 
 Do not publish private keys, mnemonics, API keys, or real wallet secrets in the skill package or docs.

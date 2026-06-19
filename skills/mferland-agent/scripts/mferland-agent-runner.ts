@@ -1354,7 +1354,7 @@ class MferlandRunner {
         "Use respec_talents at respec-mfer only when resetting spent talent ranks has a clear build/survival reason. Do not casually burn MFERGPT just to reshuffle talents.",
         "Wallet spending is disabled unless AGENT_MAX_MFERGPT_SPEND_WEI or AGENT_MAX_SWAP_ETH_SPEND_WEI is positive.",
         "If a spell has castTimeMs or requiresStationary, do not move until it lands.",
-        "For update_traits, choose a traits object from catalog.traits only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
+        "For update_traits, choose a traits object from catalog.traits only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset. For a paid update, include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
       ],
       refs: {
         npcs: Object.fromEntries(refs),
@@ -1412,7 +1412,7 @@ class MferlandRunner {
       progression: this.catalog.progression ?? {},
       traits: this.catalog.traits ?? {
         declaredAgentModel: "mfergpt",
-        note: "Agent trait catalog unavailable. Use valid mfer trait ids only for strong identity/style choices. Declared agents render with the mferGPT agent model and cannot use caps, long hair, shades, or glasses.",
+        note: "Agent trait catalog unavailable. Use valid mfer trait ids only for strong identity/style choices. Declared agents render with the mferGPT agent model and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset.",
       },
       equipmentSlots: this.catalog.equipmentSlots ?? {},
       talentTrees: this.catalog.talentTrees ?? {},
@@ -3033,13 +3033,12 @@ class MferlandRunner {
   private isAgentTraitAllowed(categoryId: string, value: string) {
     const blocked = asRecord(asRecord(this.catalog?.traits).blockedForDeclaredAgents);
     const blockedCategories = Array.isArray(blocked.categories) ? blocked.categories.map((entry) => cleanText(entry, 80)) : [];
-    if (blockedCategories.includes(categoryId) || categoryId === "long_hair") return false;
+    if (blockedCategories.includes(categoryId)) return false;
     const blockedOptions = asRecord(blocked.options);
     const categoryBlockedOptions = Array.isArray(blockedOptions[categoryId])
       ? (blockedOptions[categoryId] as unknown[]).map((entry) => cleanText(entry, 80))
       : [];
     if (categoryBlockedOptions.includes(value)) return false;
-    if (categoryId === "hat_under_headphones" && value.startsWith("cap_")) return false;
     if (categoryId === "eyes" && value !== "regular") return false;
     return true;
   }

@@ -23,6 +23,7 @@ import {
   DispositionBaseMarker,
   FrozenStatusEffect,
   LootSparkles,
+  MFER_AVATAR_WORLD_HEIGHT,
   MIXAMO_CLIPS,
   MIXAMO_URLS,
   QuestMarker,
@@ -35,6 +36,7 @@ type MferGptAvatarProps = {
   npc: NpcSnapshot;
   variant?: "npc" | "agent";
   appearanceTraits?: MferAppearanceTraits | null;
+  cleanAgentModel?: boolean;
   isTargeted?: boolean;
   isDefeated?: boolean;
   questMarker?: QuestMarkerType | null;
@@ -66,17 +68,41 @@ const NAMEPLATE_RENDER_DISTANCE_SQ = 58 * 58;
 const CHAT_BUBBLE_RENDER_DISTANCE_SQ = 48 * 48;
 const QUEST_MARKER_RENDER_DISTANCE_SQ = 54 * 54;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
+const MFER_GPT_REFERENCE_WORLD_HEIGHT = 2.95;
+const MFER_GPT_WORLD_HEIGHT = MFER_AVATAR_WORLD_HEIGHT;
+const MFER_GPT_OVERLAY_SCALE = MFER_GPT_WORLD_HEIGHT / MFER_GPT_REFERENCE_WORLD_HEIGHT;
+const MFER_GPT_HIT_RADIUS = 1.02 * MFER_GPT_OVERLAY_SCALE;
+const MFER_GPT_HIT_HEIGHT = 3.25 * MFER_GPT_OVERLAY_SCALE;
+const MFER_GPT_HIT_Y = 1.55 * MFER_GPT_OVERLAY_SCALE;
+const MFER_GPT_TARGET_RING_RADIUS = 1.22 * MFER_GPT_OVERLAY_SCALE;
+const MFER_GPT_BASE_MARKER_RADIUS = 1.12 * MFER_GPT_OVERLAY_SCALE;
+const MFER_GPT_SHADOW_SCALE: [number, number, number] = [0.96 * MFER_GPT_OVERLAY_SCALE, 0.58 * MFER_GPT_OVERLAY_SCALE, 1.08 * MFER_GPT_OVERLAY_SCALE];
+const MFER_GPT_DEFEATED_SHADOW_SCALE: [number, number, number] = [1.08 * MFER_GPT_OVERLAY_SCALE, 0.58 * MFER_GPT_OVERLAY_SCALE, 1.1 * MFER_GPT_OVERLAY_SCALE];
+const MFER_GPT_NAMEPLATE_Y = 3.08;
+const MFER_GPT_QUEST_MARKER_Y = 3.95;
+const MFER_GPT_CHAT_BUBBLE_Y = 3.76;
+const MFER_GPT_CHAT_BUBBLE_WITH_QUEST_Y = 4.72;
+const MFER_GPT_LOW_LIGHT_FILL_COLOR = new THREE.Color("#9fa6a6");
+const MFER_GPT_TYPE_LOW_LIGHT_STYLE = { emissiveColor: new THREE.Color("#ffffff"), emissiveIntensity: 0.18, useColorMap: true, maxRoughness: 0.52 };
+const MFER_GPT_VISOR_LOW_LIGHT_STYLE = { emissiveColor: new THREE.Color("#ffffff"), emissiveIntensity: 0.2, useColorMap: true, maxRoughness: 0.5 };
+const MFER_GPT_MOUTH_LOW_LIGHT_STYLE = { emissiveColor: new THREE.Color("#ffffff"), emissiveIntensity: 0.22, useColorMap: true, maxRoughness: 0.5 };
 const targetPosition = new THREE.Vector3();
-const hitGeometry = new THREE.CylinderGeometry(1.02, 1.02, 3.25, 16);
+const hitGeometry = new THREE.CylinderGeometry(MFER_GPT_HIT_RADIUS, MFER_GPT_HIT_RADIUS, MFER_GPT_HIT_HEIGHT, 16);
 const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
 const friendlyLabelColor = "#f0e9ff";
 const friendlyBadgeColor = "#9b7dff";
 const hostileLabelColor = "#ffe4df";
 const hostileBadgeColor = MFER_COLORS.hostile;
-const friendlyAntennaLightColor = new THREE.Color("#9b7dff");
-const hostileAntennaLightColor = new THREE.Color("#ff1616");
-const antennaLightBaseIntensity = 15;
-const antennaLightPulseIntensity = 18;
+const antennaLightOffColor = new THREE.Color("#050000");
+const friendlyAntennaLightColor = new THREE.Color("#8d0000");
+const hostileAntennaLightColor = new THREE.Color("#a60000");
+const antennaLightPeakIntensity = 3.2;
+const antennaLightDefeatedIntensity = 0.18;
+const antennaPointLightPeakIntensity = 5.5;
+const antennaPointLightPulseThreshold = 0.08;
+const antennaPointLightDistance = 4.2;
+const antennaPointLightDecay = 2.2;
+const antennaPointLightPosition: [number, number, number] = [0, 2.58, 0.04];
 
 hitGeometry.computeBoundingBox();
 hitGeometry.computeBoundingSphere();
@@ -103,6 +129,7 @@ function MferGptAvatarRig({
   npc,
   variant = "npc",
   appearanceTraits = null,
+  cleanAgentModel = false,
   isTargeted = false,
   isDefeated = false,
   questMarker = null,
@@ -116,6 +143,7 @@ function MferGptAvatarRig({
 }: MferGptAvatarProps & { agentTraitSourceScene?: THREE.Group | null }) {
   const groupRef = useRef<THREE.Group>(null);
   const poseRef = useRef<THREE.Group>(null);
+  const antennaPointLightRef = useRef<THREE.PointLight>(null);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const currentActionRef = useRef<THREE.AnimationAction | null>(null);
   const currentClipNameRef = useRef<string | null>(null);
@@ -128,13 +156,15 @@ function MferGptAvatarRig({
   const fbxAnimations = useLoader(FBXLoader, MIXAMO_URLS) as THREE.Group[];
   const labelColor = isHostile ? hostileLabelColor : friendlyLabelColor;
   const badgeColor = isHostile ? hostileBadgeColor : friendlyBadgeColor;
+  const antennaColor = isHostile ? hostileAntennaLightColor : friendlyAntennaLightColor;
   const avatar = useMemo(
     () => createMferGptAvatar(gltf.scene, isHostile, {
       agentTraitSourceScene,
       appearanceTraits,
       avatarSeed: npc.avatarSeed,
+      cleanAgentModel,
     }),
-    [gltf.scene, isHostile, agentTraitSourceScene, appearanceTraits, npc.avatarSeed],
+    [gltf.scene, isHostile, agentTraitSourceScene, appearanceTraits, npc.avatarSeed, cleanAgentModel],
   );
   const antennaLightMaterials = useMemo(() => getMferGptAntennaLightMaterials(avatar), [avatar]);
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
@@ -176,10 +206,16 @@ function MferGptAvatarRig({
   useFrame(({ clock }, delta) => {
     const group = groupRef.current;
     if (!group) return;
-    const antennaPulse = antennaLightBaseIntensity
-      + (Math.sin(clock.elapsedTime * 4.4) * 0.5 + 0.5) * antennaLightPulseIntensity;
+    const antennaPulse = Math.pow(Math.sin(clock.elapsedTime * 4.4) * 0.5 + 0.5, 1.8);
+    const antennaMaterialIntensity = antennaPulse * antennaLightPeakIntensity;
     for (const material of antennaLightMaterials) {
-      material.emissiveIntensity = isDefeated ? antennaLightBaseIntensity * 0.28 : antennaPulse;
+      material.emissiveIntensity = isDefeated ? antennaLightDefeatedIntensity : antennaMaterialIntensity;
+    }
+    const antennaPointLight = antennaPointLightRef.current;
+    if (antennaPointLight) {
+      antennaPointLight.intensity = !isDefeated && antennaPulse > antennaPointLightPulseThreshold
+        ? antennaPulse * antennaPointLightPeakIntensity
+        : 0;
     }
 
     if (isDefeated && !wasDefeatedRef.current) {
@@ -220,24 +256,32 @@ function MferGptAvatarRig({
       {showSignalBeacon && (
         <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />
       )}
-      <ActorBlobShadow scale={isDefeated ? [1.08, 0.58, 1.1] : [0.96, 0.58, 1.08]} />
-      {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={1.12} />}
-      {isTargeted && <TargetRing color={badgeColor} disposition={disposition} radius={1.22} />}
+      <ActorBlobShadow scale={isDefeated ? MFER_GPT_DEFEATED_SHADOW_SCALE : MFER_GPT_SHADOW_SCALE} />
+      {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={MFER_GPT_BASE_MARKER_RADIUS} />}
+      {isTargeted && <TargetRing color={badgeColor} disposition={disposition} radius={MFER_GPT_TARGET_RING_RADIUS} />}
       {isFrozen && <FrozenStatusEffect frozenUntil={npc.frozenUntil} radius={0.92} y={1.35} />}
       {isCold && <ColdStatusEffect slowedUntil={npc.slowedUntil} radius={0.92} y={1.35} />}
-      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={4.35} />}
+      {showQuestMarker && questMarker && <QuestMarker type={questMarker} y={MFER_GPT_QUEST_MARKER_Y} />}
       {showLootSparkles && <LootSparkles y={1.35} />}
       <mesh
         geometry={hitGeometry}
         material={hitMaterial}
-        position={[0, 1.55, 0]}
+        position={[0, MFER_GPT_HIT_Y, 0]}
         dispose={null}
         onPointerDown={handleTarget}
       />
       <group ref={poseRef}>
+        <pointLight
+          ref={antennaPointLightRef}
+          color={antennaColor}
+          position={antennaPointLightPosition}
+          intensity={0}
+          distance={antennaPointLightDistance}
+          decay={antennaPointLightDecay}
+        />
         <primitive object={avatar} dispose={null} />
         {showNameplate && (
-          <Billboard position={[0, 3.45, 0]}>
+          <Billboard position={[0, MFER_GPT_NAMEPLATE_Y, 0]}>
             <ActorNameplate
               title={npc.name}
               badge={isHostile ? "RED EYE" : "AGENT"}
@@ -252,7 +296,7 @@ function MferGptAvatarRig({
           </Billboard>
         )}
         {showChatBubble && chatBubble && (
-          <Billboard position={[0, showQuestMarker ? 5.14 : 4.18, 0]}>
+          <Billboard position={[0, showQuestMarker ? MFER_GPT_CHAT_BUBBLE_WITH_QUEST_Y : MFER_GPT_CHAT_BUBBLE_Y, 0]}>
             <ActorChatBubble bubble={chatBubble} />
           </Billboard>
         )}
@@ -378,6 +422,7 @@ export function createMferGptAvatar(
     agentTraitSourceScene?: THREE.Group | null;
     appearanceTraits?: MferAppearanceTraits | null;
     avatarSeed?: number;
+    cleanAgentModel?: boolean;
   } = {},
 ) {
   const scene = SkeletonUtils.clone(sourceScene) as THREE.Group;
@@ -394,6 +439,9 @@ export function createMferGptAvatar(
       const nextMaterial = material.clone();
       if (isMferGptAntennaLight(child.name, nextMaterial.name)) {
         configureMferGptAntennaLightMaterial(nextMaterial, antennaColor);
+      } else {
+        const lowLightStyle = getMferGptLowLightStyle(child.name, nextMaterial.name);
+        if (lowLightStyle) configureMferGptLowLightMaterial(nextMaterial, lowLightStyle);
       }
       return nextMaterial;
     });
@@ -404,11 +452,17 @@ export function createMferGptAvatar(
   const box = new THREE.Box3().setFromObject(scene);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const scale = size.y > 0.01 ? 2.95 / size.y : 1;
+  const scale = size.y > 0.01 ? MFER_GPT_WORLD_HEIGHT / size.y : 1;
   scene.scale.setScalar(scale);
   scene.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
   if (options.agentTraitSourceScene) {
-    graftAgentTraitMeshes(scene, options.agentTraitSourceScene, options.avatarSeed ?? 0, options.appearanceTraits ?? null);
+    graftAgentTraitMeshes(
+      scene,
+      options.agentTraitSourceScene,
+      options.avatarSeed ?? 0,
+      options.appearanceTraits ?? null,
+      options.cleanAgentModel ? new Set(["headphones_black"]) : null,
+    );
   }
   return scene;
 }
@@ -418,6 +472,7 @@ function graftAgentTraitMeshes(
   traitSourceScene: THREE.Group,
   avatarSeed: number,
   appearanceTraits: MferAppearanceTraits | null,
+  forcedTraitMeshes: Set<string> | null = null,
 ) {
   const targetSkeleton: THREE.Skeleton | null = findFirstSkeleton(robotScene);
   if (!targetSkeleton) return;
@@ -429,7 +484,7 @@ function graftAgentTraitMeshes(
     ]),
   );
   const fallbackBone = targetBoneByName.get("mixamorigHips");
-  const traitMeshes = getAgentRobotTraitMeshes(avatarSeed, appearanceTraits);
+  const traitMeshes = forcedTraitMeshes ?? getAgentRobotTraitMeshes(avatarSeed, appearanceTraits);
   const sourceScene = SkeletonUtils.clone(traitSourceScene) as THREE.Group;
   const graftGroup = new THREE.Group();
   graftGroup.name = "agent_robot_traits";
@@ -491,6 +546,32 @@ function cloneMaterial(material: THREE.Material | THREE.Material[]) {
   return material.clone();
 }
 
+type MferGptLowLightStyle = {
+  emissiveMix?: number;
+  emissiveColor?: THREE.Color;
+  emissiveIntensity: number;
+  maxRoughness?: number;
+  useColorMap?: boolean;
+};
+
+function configureMferGptLowLightMaterial(material: THREE.Material, style: MferGptLowLightStyle) {
+  if (!(material instanceof THREE.MeshStandardMaterial)) return;
+  if (style.emissiveColor) material.emissive.copy(style.emissiveColor);
+  else material.emissive.lerp(MFER_GPT_LOW_LIGHT_FILL_COLOR, style.emissiveMix ?? 0);
+  material.emissiveIntensity = style.emissiveIntensity;
+  if (style.useColorMap && material.map) material.emissiveMap = material.map;
+  if (style.maxRoughness !== undefined) material.roughness = Math.min(material.roughness, style.maxRoughness);
+  material.needsUpdate = true;
+}
+
+function getMferGptLowLightStyle(meshName: string, materialName: string): MferGptLowLightStyle | null {
+  const key = `${meshName} ${materialName}`.toLowerCase().replace(/[^a-z0-9_]+/g, "");
+  if (key.includes("type_plain") || key.includes("type_bot")) return MFER_GPT_TYPE_LOW_LIGHT_STYLE;
+  if (key.includes("eyes_bot") || key.includes("layer_8")) return MFER_GPT_VISOR_LOW_LIGHT_STYLE;
+  if (key.includes("mouth_bot") || key.includes("layer_9")) return MFER_GPT_MOUTH_LOW_LIGHT_STYLE;
+  return null;
+}
+
 function getMferGptAntennaLightMaterials(scene: THREE.Group) {
   const materials: THREE.MeshStandardMaterial[] = [];
   scene.traverse((child) => {
@@ -507,9 +588,9 @@ function getMferGptAntennaLightMaterials(scene: THREE.Group) {
 
 function configureMferGptAntennaLightMaterial(material: THREE.Material, color: THREE.Color) {
   if (!(material instanceof THREE.MeshStandardMaterial)) return;
-  material.color.copy(color);
+  material.color.copy(antennaLightOffColor);
   material.emissive.copy(color);
-  material.emissiveIntensity = antennaLightBaseIntensity;
+  material.emissiveIntensity = 0;
   material.toneMapped = false;
   material.map = null;
   material.metalness = 0;

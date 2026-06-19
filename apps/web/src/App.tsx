@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { ArrowDownUp, Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector } from "wagmi";
 import {
@@ -22,6 +22,7 @@ import {
   isAttackableNpcRole,
   isCombatActionUnlocked,
   normalizeAvatarSeed,
+  normalizeWalletAddress,
   setWorldCollisionPlacementOverrides,
   stableHash,
   type ActionId,
@@ -82,13 +83,14 @@ import {
 } from "./auth/walletProfile";
 import { initializeAnalytics, trackEvent, type AnalyticsProperties } from "./analytics";
 import { useTownRoom } from "./game/useTownRoom";
-import { TownScene, type MobileMoveInput } from "./game/TownScene";
+import { TownScene, type CaptureCameraState, type CaptureInputState, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { copyTextToClipboard } from "./clipboard";
 import { Hud } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
+import { MferGptSwapMenu } from "./components/MferGptSwapMenu";
 import { MferPortrait } from "./components/MferPortrait";
 import { PotionShopPanel } from "./components/PotionShopPanel";
 import { RespecPanel } from "./components/RespecPanel";
@@ -115,21 +117,6 @@ import {
   getExperienceSpatialVolume,
 } from "./game/audio";
 import { generateRandomMferTraits, resolveMferTraitsForPlayer, SARTOSHI_MFER_TRAITS } from "./game/mferTraits";
-import {
-  DEFAULT_SWAP_ETH_AMOUNT,
-  DEFAULT_SWAP_SLIPPAGE_PERCENT,
-  MFERGPT_BASE_TOKEN_ADDRESS,
-  executeMferGptSwap,
-  formatMferGptCompact,
-  formatSwapPrice,
-  getBaseScanTxUrl,
-  getMferGptSwapQuote,
-  makeMferGptUniswapUrl,
-  normalizeSlippageInput,
-  normalizeSwapAmountInput,
-  type MferGptSwapQuote,
-} from "./crypto/mferGptSwap";
-
 const ACTION_SLOT_COUNT = 8;
 const DEFAULT_ACTION_SLOTS: ActionSlot[] = ["attack", null, null, null, null, null, null, null];
 const ACTION_SLOT_STORAGE_KEY = "mferland:actionSlots:v4";
@@ -295,6 +282,21 @@ function GameApp() {
     const params = new URLSearchParams(window.location.search);
     if (!isRealCaptureMode()) return;
     const name = params.get("name")?.trim() || "capture mfer";
+    const captureWallet = normalizeWalletAddress(params.get("realCaptureWallet") ?? params.get("wallet") ?? "");
+    const captureAvatarSeed = Number(params.get("realCaptureAvatarSeed") ?? params.get("avatarSeed") ?? "");
+    const isAgentCapture = params.get("realCaptureAgent") === "1" || params.get("agentClient") === "1";
+    if (isAgentCapture && captureWallet) {
+      setIdentity({
+        ...makeWalletIdentity(
+          name,
+          captureWallet,
+          Number.isFinite(captureAvatarSeed) ? normalizeAvatarSeed(captureAvatarSeed) : stableHash(`${captureWallet}:${name}:capture`),
+          true,
+        ),
+        agentClient: true,
+      });
+      return;
+    }
     setIdentity(makeGuestIdentity(name));
   }, [identity]);
 
@@ -977,240 +979,6 @@ function AuthGate({
   );
 }
 
-type MferGptSwapMenuProps = {
-  defaultExpanded?: boolean;
-  onClose?: () => void;
-  surface?: string;
-  variant?: "auth" | "npc";
-};
-
-function MferGptSwapMenu({
-  defaultExpanded = false,
-  onClose,
-  surface = "auth",
-  variant = "auth",
-}: MferGptSwapMenuProps = {}) {
-  const [ethAmount, setEthAmount] = useState(DEFAULT_SWAP_ETH_AMOUNT);
-  const [slippagePercent, setSlippagePercent] = useState(DEFAULT_SWAP_SLIPPAGE_PERCENT);
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const [copiedContract, setCopiedContract] = useState(false);
-  const [quote, setQuote] = useState<MferGptSwapQuote | null>(null);
-  const [swapStatus, setSwapStatus] = useState("");
-  const [txHash, setTxHash] = useState("");
-  const [isQuoting, setIsQuoting] = useState(false);
-  const [isSwapping, setIsSwapping] = useState(false);
-  const quoteRequestRef = useRef(0);
-  const swapUrl = useMemo(() => makeMferGptUniswapUrl(ethAmount), [ethAmount]);
-  const canSwap = !isSwapping && !isQuoting && Boolean(ethAmount.trim());
-
-  useEffect(() => {
-    if (!ethAmount.trim()) {
-      setQuote(null);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void refreshQuote({ quiet: true });
-    }, 450);
-    return () => window.clearTimeout(timer);
-  }, [ethAmount, slippagePercent]);
-
-  function updateEthAmount(value: string) {
-    setEthAmount(normalizeSwapAmountInput(value));
-    setTxHash("");
-  }
-
-  function updateSlippagePercent(value: string) {
-    setSlippagePercent(normalizeSlippageInput(value));
-    setTxHash("");
-  }
-
-  function trackSwapOpen() {
-    trackEvent("mfergpt_swap_opened", {
-      surface,
-      amountSet: ethAmount.trim() !== "",
-    }, {
-      local: true,
-    });
-  }
-
-  function openSwapPanel() {
-    setIsExpanded(true);
-    trackEvent("mfergpt_swap_panel_opened", {
-      surface,
-      amountSet: ethAmount.trim() !== "",
-    }, {
-      local: true,
-    });
-  }
-
-  function closeSwapPanel() {
-    setIsExpanded(false);
-    trackEvent("mfergpt_swap_panel_closed", {
-      surface,
-      amountSet: ethAmount.trim() !== "",
-      quoted: Boolean(quote),
-      txStarted: Boolean(txHash),
-    }, {
-      local: true,
-    });
-    onClose?.();
-  }
-
-  async function refreshQuote(options: { quiet?: boolean } = {}) {
-    const requestId = quoteRequestRef.current + 1;
-    quoteRequestRef.current = requestId;
-    if (!options.quiet) setSwapStatus("checking pool...");
-    setIsQuoting(true);
-    try {
-      const nextQuote = await getMferGptSwapQuote(ethAmount, slippagePercent);
-      if (quoteRequestRef.current !== requestId) return null;
-      setQuote(nextQuote);
-      if (!options.quiet) setSwapStatus("quote refreshed");
-      return nextQuote;
-    } catch (error) {
-      if (quoteRequestRef.current !== requestId) return null;
-      setQuote(null);
-      setSwapStatus(getSwapErrorMessage(error));
-      return null;
-    } finally {
-      if (quoteRequestRef.current === requestId) setIsQuoting(false);
-    }
-  }
-
-  async function runSwap() {
-    const provider = getInjectedEthereumProvider();
-    if (!provider) {
-      setSwapStatus("wallet required");
-      trackEvent("mfergpt_swap_failed", { surface, error: "wallet required" }, { local: true });
-      return;
-    }
-
-    setIsSwapping(true);
-    setTxHash("");
-    setSwapStatus("checking pool...");
-    trackEvent("mfergpt_swap_started", { surface }, { local: true });
-    try {
-      const nextQuote = await getMferGptSwapQuote(ethAmount, slippagePercent);
-      setQuote(nextQuote);
-      setSwapStatus("confirm in wallet");
-      const nextTxHash = await executeMferGptSwap(provider, nextQuote);
-      setTxHash(nextTxHash);
-      setSwapStatus("swap confirmed");
-      trackEvent("mfergpt_swap_confirmed", {
-        surface,
-        slippageBps: nextQuote.slippageBps,
-      }, {
-        local: true,
-      });
-    } catch (error) {
-      const message = getSwapErrorMessage(error);
-      setSwapStatus(message);
-      trackEvent("mfergpt_swap_failed", { surface, error: message }, { local: true });
-    } finally {
-      setIsSwapping(false);
-    }
-  }
-
-  async function copyContractAddress() {
-    try {
-      await navigator.clipboard.writeText(MFERGPT_BASE_TOKEN_ADDRESS);
-      setCopiedContract(true);
-      window.setTimeout(() => setCopiedContract(false), 1600);
-      trackEvent("mfergpt_swap_contract_copied", { surface }, { local: true });
-    } catch {
-      setCopiedContract(false);
-    }
-  }
-
-  return (
-    <section className={`auth-swap-panel mfergpt-swap-menu ${variant === "npc" ? "in-game-swap-panel" : ""}${isExpanded ? " expanded" : ""}`} aria-label="swap ETH to MFERGPT">
-      <button className="auth-swap-toggle" type="button" aria-expanded={isExpanded} onClick={openSwapPanel}>
-        <ArrowDownUp size={18} />
-        <span>swap</span>
-      </button>
-
-      <div className="auth-swap-card">
-        <header className="auth-swap-header">
-          <div>
-            <span>base swap</span>
-            <strong>ETH to $MFERGPT</strong>
-          </div>
-          <button className="auth-swap-close" type="button" aria-label="close swap" onClick={closeSwapPanel}>
-            <X size={16} />
-          </button>
-        </header>
-
-        <label className="swap-amount-field">
-          <span>you send</span>
-          <div>
-            <input
-              aria-label="ETH amount"
-              inputMode="decimal"
-              placeholder="0.01"
-              value={ethAmount}
-              onChange={(event) => updateEthAmount(event.target.value)}
-            />
-            <em>BASE ETH</em>
-          </div>
-        </label>
-
-        <div className="swap-field-grid">
-          <label className="swap-mini-field">
-            <span>max slip</span>
-            <div>
-              <input
-                aria-label="Max slippage percent"
-                inputMode="decimal"
-                value={slippagePercent}
-                onChange={(event) => updateSlippagePercent(event.target.value)}
-              />
-              <em>%</em>
-            </div>
-          </label>
-          <button className="swap-refresh-btn" type="button" disabled={isQuoting || isSwapping} onClick={() => void refreshQuote()}>
-            <RefreshCw size={15} />
-            quote
-          </button>
-        </div>
-
-        <div className="swap-summary-row" aria-live="polite">
-          <span>you get</span>
-          <strong>{quote ? `~${formatMferGptCompact(quote.estimatedAmountOutWei)}` : "--"}</strong>
-          <em>{quote ? `min ${formatMferGptCompact(quote.minAmountOutWei)} / ${formatSwapPrice(quote.priceNative)}` : "Uniswap v4 pool"}</em>
-        </div>
-
-        <div className="swap-route-row">
-          <span>uniswap</span>
-          <code title={MFERGPT_BASE_TOKEN_ADDRESS}>{shortAddress(MFERGPT_BASE_TOKEN_ADDRESS)}</code>
-          <button type="button" title="copy contract" aria-label="copy MFERGPT contract address" onClick={() => void copyContractAddress()}>
-            {copiedContract ? <Check size={15} /> : <Copy size={15} />}
-          </button>
-        </div>
-
-        <button className="auth-swap-action" type="button" disabled={!canSwap} onClick={() => void runSwap()}>
-          <span>{isSwapping ? "swapping..." : isQuoting ? "quoting..." : "swap now"}</span>
-          <ArrowDownUp size={16} />
-        </button>
-        <div className="swap-footer-row">
-          <span className="swap-status" aria-live="polite">{swapStatus}</span>
-          {txHash ? (
-            <a href={getBaseScanTxUrl(txHash)} target="_blank" rel="noreferrer noopener">
-              basescan
-              <ExternalLink size={13} />
-            </a>
-          ) : (
-            <a href={swapUrl} target="_blank" rel="noreferrer noopener" onClick={trackSwapOpen}>
-              fallback
-              <ExternalLink size={13} />
-            </a>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function AuthOnlinePanel({
   error,
   snapshot,
@@ -1263,24 +1031,10 @@ function AuthOnlinePanel({
   );
 }
 
-function shortAddress(address: string) {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
 function getConnectedWalletAddress(data: unknown) {
   const accounts = (data as { accounts?: readonly unknown[] } | null)?.accounts;
   const firstAccount = accounts?.[0];
   return typeof firstAccount === "string" ? firstAccount : "";
-}
-
-function getSwapErrorMessage(error: unknown) {
-  if (!error || typeof error !== "object") return "swap failed";
-  const maybeError = error as { code?: unknown; cause?: unknown; shortMessage?: unknown; message?: unknown };
-  if (isUserRejectedWalletRequest(error)) return "swap rejected";
-  if (typeof maybeError.shortMessage === "string") return maybeError.shortMessage.toLowerCase();
-  if (typeof maybeError.message === "string") return maybeError.message.toLowerCase();
-  if (maybeError.cause) return getSwapErrorMessage(maybeError.cause);
-  return "swap failed";
 }
 
 type EthereumRequestProvider = {
@@ -1442,6 +1196,8 @@ function GameShell({
   const combatAudioTimeoutsRef = useRef<number[]>([]);
   const realCaptureRoomRef = useRef(room);
   const realCaptureSelectedTargetRef = useRef<TargetSelection | null>(null);
+  const realCaptureInputRef = useRef<CaptureInputState | null>(null);
+  const realCaptureCameraRef = useRef<CaptureCameraState | null>(null);
   const debugToolsAvailable = import.meta.env.DEV;
   const cryptoSmokeMode = isCryptoSmokeMode();
   const cryptoStoreEnabled = isCryptoStoreEnabled();
@@ -1501,8 +1257,10 @@ function GameShell({
     [room.npcs, room.snapshotRevision],
   );
   const debugPlacementMode = debugToolsAvailable && settings.debugPlacementEditor;
-  const hideCaptureHud = isRealCaptureMode()
-    && new URLSearchParams(window.location.search).get("realCaptureHud") === "0";
+  const realCaptureMode = isRealCaptureMode();
+  const realCaptureParams = realCaptureMode ? new URLSearchParams(window.location.search) : null;
+  const hideCaptureHud = realCaptureMode && realCaptureParams?.get("realCaptureHud") === "0";
+  const cleanCaptureAgentModel = realCaptureMode && realCaptureParams?.get("realCaptureCleanAgentModel") === "1";
   const visibleSelectedTarget = hideCaptureHud ? null : selectedTarget;
   const effectiveDebugPlacementOverrides = useMemo(
     () => ({
@@ -1998,6 +1756,8 @@ function GameShell({
       disposeCaptureBridge = installRealGameCaptureBridge({
         roomRef: realCaptureRoomRef,
         selectedTargetRef: realCaptureSelectedTargetRef,
+        captureInputRef: realCaptureInputRef,
+        captureCameraRef: realCaptureCameraRef,
         setSelectedTarget,
         setDebugTravelView,
       });
@@ -2056,6 +1816,11 @@ function GameShell({
           onChangeDebugPlacement={updateDebugPlacement}
           renderProfile={renderProfile}
           lightweightRender={cryptoSmokeMode}
+          controlsEnabled={!realCaptureMode}
+          cameraControlsEnabled={realCaptureMode}
+          cleanCaptureAgentModel={cleanCaptureAgentModel}
+          captureInputRef={realCaptureMode ? realCaptureInputRef : undefined}
+          captureCameraRef={realCaptureMode ? realCaptureCameraRef : undefined}
         />
       </Canvas>
       {renderGameLoader && <MferHeadLoader ready={!showGameLoader} renderProfile={renderProfile} onComplete={handleGameLoaderComplete} />}

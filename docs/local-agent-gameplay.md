@@ -110,7 +110,7 @@ The full playthrough keeps the same room-message-only rule, then has a lead wall
 
 ## Run LLM Agents
 
-LLM mode is for local game-playing agents. Each agent signs the wallet challenge, joins the Colyseus room, observes only normal room state, and chooses one allowlisted player action at a time. The agent code does not read the database, run repo scripts, send debug messages, teleport, or use hidden server state.
+LLM mode is for local direct-control game-playing agents. Hosted `/agent-command` is the default public play path when the agent does not need to micromanage every step; use this LLM mode to prove the lower-level room-message harness, local model policy, and action-repair behavior. Each agent signs the wallet challenge, joins the Colyseus room, observes only normal room state, and chooses one allowlisted player action at a time. The agent code does not read the database, run repo scripts, send debug messages, teleport, or use hidden server state.
 
 ```sh
 DATABASE_URL="postgresql://localhost:55432/mferland_agent_test" \
@@ -142,6 +142,41 @@ The local server exposes a public read-only agent catalog at `http://127.0.0.1:2
 Wallet identity mode is sticky in local and production runs: a wallet registers as `human` or `agent`, profile APIs expose `registeredClientKind`, and `/agent-session` returns `agent_wallet_registration_mismatch` when a human-registered wallet is used for agent auth.
 
 Local season endpoints mirror production: `GET /season/leaderboard` returns Season 0 standings plus referral counts, and `GET /season/referrals?wallet=<wallet-address>` returns invite URL, referred-by state, slot usage, active count, bonus totals, and per-referee progress. Human referral links use `?referral=<referrer-wallet>` and bind only during first wallet character creation. Human referrers can remove a referral from the character Referrals tab to free the slot and remove referral bonus points while keeping base Season 0 points intact. Declared agents do not bind as referees, do not count as referrers, and agent-earned Season 0 points never trigger referral bonuses.
+
+## Command And Tool Smoke Tests
+
+The local server also exposes the hosted bridge command/tool surfaces. This is the local proof path for the default public autoplay flow. Use it only after creating a normal `/agent-session` bearer token and starting a bridge session.
+
+Command scenarios to cover locally:
+
+- `finish_next_quest` with `profile.priority: "quester"` and a 60-180 second cap; expect either `completed` with a `questChanges` entry or `time_limit` with useful `actionReports`.
+- `play_for` with `profile.risk: "safe"` from a damaged/unsafe state; expect retreat/wait behavior and no repeated unsafe pull loop.
+- `farm_until` with `profile.priority: "farmer"`, an item id such as a hog drop, and a small `targetCount`; expect combat, loot, `inventoryChanges`, and `finalState` with the ending inventory/equipment snapshot.
+- `run_goals` with goals such as `{ "type": "quest_completed", "questId": "mfergpt-checkin" }`; expect `goalProgress` to show satisfied and unsatisfied goals.
+- Stop an active command through `/agent-command-stop`; expect `status: "stopped"` and a final recap.
+- Run any command with a second local player/agent nearby or chatting; expect `recap.social` and top-level `social` to include nearby players/agents and recent public chat.
+
+The repeatable hosted-command smoke runner launches all wallet-file agents through the bridge, starts commands inside one supervisor run, writes optional watchable status JSON, and stops cleanly:
+
+```sh
+AGENT_WALLET_FILE=.tmp/agent-command-run-wallets.json \
+AGENT_COUNT=3 \
+AGENT_COMMAND_OUTPUT_FILE=.tmp/agent-command-status.json \
+AGENT_COMMAND_PROFILE=quester \
+npm run command-playtest:local -w @mferland/agent -- --server-url ws://127.0.0.1:2567
+```
+
+Swap `AGENT_COMMAND_PROFILE` between `quester`, `farmer`, `boss_hunter`, `tank`, `healer`, `dps`, `grouper`, and `lone_wolf` for regression coverage across profile presets.
+
+Registered tool discovery to check:
+
+```sh
+curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mferland-agent-command.json
+curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -i -X POST http://127.0.0.1:2567/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
+```
+
+Without `X-Payment`, the swap quote endpoint should return `402` with a zero-value EIP-3009 challenge. With a valid local test `X-Payment` and `MFERLAND_TOOL_OPERATOR_ADDRESS`, it should return Base Universal Router calldata for ETH to MFERGPT. Do not submit this Base calldata on local Anvil; local Anvil swap/burn gameplay uses the local runner wallet tooling and `apps/web/public/crypto/local-contracts.json`.
 
 The copied skill package can also expose a loopback telemetry panel:
 
@@ -177,6 +212,17 @@ Harness behavior to expect:
 - Some local regression modes may expose a full public quest checklist to measure completion coverage. Do not copy that into the public skill or external default harness; third-party agents should infer progression from observed quest offers, quest status, turn-ins, completed messages, visible NPCs, dialogue, inventory, chat, and map context.
 - LLM run results include `llmRun.stepsTaken`, `llmRun.actionFailureCount`, `questProgress.completedQuestCount`, `totalQuestCount`, `allQuestsCompletedOnce`, and `remainingQuestIds` from the final room snapshot.
 - Optional repeatable quests are marked as optional and canceled repeatables are remembered for the current run so agents do not immediately re-accept them.
+
+## Runthrough Matrix
+
+Before sending a PR to the host machine, run as many of these as the change scope allows:
+
+- Single local bridge command: one wallet, `finish_next_quest`, verify status/summary/quest changes.
+- Multi-agent gameplay: three disposable wallets, `npm run agent:playtest:local` or `npm run agent:llm:local`, verify players join as wallet agents and cooperate through normal room messages.
+- Local Anvil economy: deploy local contracts, fund disposable wallets with fake ETH and fake/mock MFERGPT, run a swap or pre-fund path, buy potion stock, and verify the local burn address receives MFERGPT.
+- Season 0 gate: run one agent below 25M MFERGPT and one at/above the configured mock balance; verify `Agent Rewards` or `Season 0` chat reflects inactive versus active status and that progress still saves below the gate.
+- Command stop/timeout: start `play_for`, stop it manually, then run a tiny cap to confirm `time_limit` returns action reports instead of silently hanging.
+- Viewer: open `/agent-view?wallet=<wallet>` and verify the real renderer follows the agent without exposing controls.
 
 Latest local LLM playthrough notes:
 

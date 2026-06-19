@@ -43,7 +43,8 @@
     "build:agent": "npm run build -w @mferland/agent",
     "launch:build": "npm run build && npm run build:agent",
     "launch:server": "HOST=0.0.0.0 MFERLAND_SERVE_WEB_DIST=1 npm run start -w @mferland/server",
-    "typecheck": "npm run typecheck -w @mferland/shared && npm run build -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web && npm run typecheck -w @mferland/agent"
+    "typecheck": "npm run typecheck -w @mferland/shared && npm run build -w @mferland/shared && npm run typecheck -w @mferland/server && npm run typecheck -w @mferland/web && npm run typecheck -w @mferland/agent",
+    "test": "npm run test -w @mferland/shared && npm run build -w @mferland/shared && npm run test -w @mferland/server && npm run test -w @mferland/web && npm run test -w @mferland/agent"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "1.48.2"

@@ -669,7 +669,7 @@ export function makeVisibleObservation(
           current: self.appearanceTraits,
           categories: MFER_APPEARANCE_TRAIT_CATEGORIES,
           declaredAgentModel: "mfergpt",
-          guidance: "For update_traits, choose valid mfer trait ids only when they strongly fit your agent identity. If you do not have a strong choice, set traits to null or {} and the server will choose deterministic wallet/name-seeded variety. Do not fill fields with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
+          guidance: "For update_traits, choose valid mfer trait ids only when they strongly fit your agent identity. If you do not have a strong choice, set traits to null or {} and the server will choose deterministic wallet/name-seeded variety. Do not fill fields with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset.",
         },
         castingAction: self.castingAction,
         inCombat: aggroCount > 0,
@@ -813,7 +813,7 @@ export function makeVisibleObservation(
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave caps, long hair, shades, and glasses unset because those clip into the model.",
           "Season point caps, referral rules, and season endpoints are in observation.season0. Agents do not bind, count, or earn human referral bonuses.",
           "If a human asks about referrals, explain the human-only wallet link format, immediate referral earning from eligible human base Season 0 quest/event points, cumulative 20% bonus, 500 bonus cap per side, 10-referral limit, no cascade, that human referrers can remove a referral from the Referrals tab to reclaim the slot and remove referral bonus points, and the /season/leaderboard and /season/referrals?wallet=... endpoints.",
           "Use swap_eth_for_mfergpt when the wallet has ETH, MFERGPT is low, and observation.wallet.mferGptSwapConfigured is true; this sends a normal wallet transaction through observation.wallet.mferGptSwapMode, using the same Base ETH to MFERGPT route as swap-mfer when mode is uniswap-v4.",
@@ -899,7 +899,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
-          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and cannot use caps, long hair, shades, or glasses because those clip into the model.",
+          "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave caps, long hair, shades, and glasses unset because those clip into the model.",
           "Use observation.season0 for Season 0 point caps, referral rules, and public season endpoints. Agents can explain human referral rules but do not participate in referral binding, counts, or bonuses.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
           "Use respec_talents only when spent talent ranks should be reset for a better build and the MFERGPT burn flow is configured; otherwise keep earning and spend unspent points normally.",
@@ -2989,7 +2989,7 @@ function getQuestTrackerHints(self: PlayerSnapshot, memory: RunMemory) {
     if (quest.status !== "active") continue;
     const definition = QUESTS[quest.id];
     if (quest.id === "set-your-traits") {
-      hints.push("use update_traits at npcId=traits-mfer, sending traits null/{} unless you have a strong non-clipping identity choice, then complete_quest questId=set-your-traits");
+      hints.push("use update_traits at npcId=traits-mfer, sending traits null/{} unless you have a strong identity choice, then complete_quest questId=set-your-traits");
     } else if ("chatMention" in definition) {
       hints.push(`chat ${definition.chatMention}, then complete_quest questId=${quest.id} at npcId=${getQuestTurnInNpcId(quest.id)}`);
     } else if ("socialAction" in definition) {

@@ -51,6 +51,7 @@ import {
   AGENT_SEASON0_MFERGPT_MIN_BALANCE_LABEL,
   DEFAULT_AGENT_SEASON0_MFERGPT_MIN_BALANCE_WEI,
 } from "./agentMferGptGate.js";
+import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 import { readAgentSeason0PointMultiplier } from "./agentRewards.js";
 
 export function buildAgentCatalog() {
@@ -106,7 +107,7 @@ export function buildAgentCatalog() {
     controls: {
       session: ["leave"],
       movement: ["input", "respawn"],
-      social: ["chat", "emote", "shareQuestLink"],
+      social: ["chat", "emote", "agentStatus", "shareQuestLink"],
       npc: ["interact"],
       quests: ["acceptQuest", "completeQuest", "cancelQuest"],
       selection: ["selectTarget", "selectSelfTarget"],
@@ -137,6 +138,72 @@ export function buildAgentCatalog() {
         "configureLocalCryptoContracts",
       ],
     },
+    agentHarness: {
+      bridgeEndpoints: {
+        start: "/agent-start",
+        observe: "/agent-observe",
+        action: "/agent-action",
+        command: "/agent-command",
+        commandStop: "/agent-command-stop",
+        stop: "/agent-stop",
+      },
+      readOnlyEndpoints: {
+        profile: "/agent-profile?wallet=0x...",
+        world: "/agent-world",
+        playerByWallet: "/agent-player?wallet=0x...",
+        playerByName: "/agent-player?name=...",
+        milestones: "/agent-milestones?questId=baron-of-static",
+        livePlayerFields: ["agentStatus", "agentCommand", "lastAgentActivityAgoMs", "currentQuest", "questCounts", "equipment", "activeCast"],
+        note: "Use these GET endpoints for saved character facts and public live world state before starting a bridge session. /agent-world and /agent-player include public agent status and autoplay command/playtime fields for online agents.",
+      },
+      commands: {
+        kinds: ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"],
+        stopWhen: ["any", "all"],
+        profile: {
+          priorities: ["auto", "quester", "farmer", "boss_hunter", "looter", "completionist", "social"],
+          roles: ["auto", "tank", "healer", "dps", "support"],
+          specs: ["auto", "brawler_tank", "brawler_dps", "caster_fire", "caster_frost", "utility_ranger", "utility_support"],
+          partyModes: ["auto", "grouper", "lone_wolf", "follow_leader"],
+          risks: ["safe", "normal", "bold"],
+          social: ["quiet", "normal", "chatty"],
+        },
+        premadeSchemes: [...AGENT_PREMADE_BEHAVIOR_SCHEMES],
+        premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
+        goals: {
+          types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
+          note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",
+        },
+        constraints: {
+          fields: ["noWalletActions", "noPaidActions", "maxDeaths", "maxSafetyStops", "allowedActions", "disallowedActions"],
+          defaults: { maxDeaths: 2, maxSafetyStops: 8 },
+          walletSigningDefault: false,
+          note: "Hosted autoplay cannot sign wallet transactions. Use noWalletActions/noPaidActions when a player request must not spend or request wallet approval. Set maxDeaths or maxSafetyStops to 0 for a zero-failure run.",
+        },
+        controller: {
+          types: ["premade", "external_policy"],
+          note: "external_policy is metadata only. Custom agent code runs in the caller-owned harness and calls /agent-action or structured /agent-command; the hosted server does not execute code.",
+        },
+        maxCommandSeconds: 30 * 60,
+        timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
+        authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
+        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "equipmentChanges", "finalState", "actionReports", "budget", "usage", "social", "combat"],
+        socialRecapNote: "Command results include nearby players/agents seen during the run and recent public chat so agents can report alive-world context to users.",
+        sandbox: {
+          hostedCodeExecution: false,
+          codeRule: "Do not send raw code to hosted /agent-command. Agent-authored behavior code runs in the caller's external policy runner and may call /agent-action directly or request structured autoplay.",
+          externalPolicyMetadata: ["controller.type=external_policy", "controller.policyRef", "controller.policyHash"],
+        },
+      },
+      registeredTools: {
+        manifests: [
+          "/.well-known/ai-tool/mferland-agent-command.json",
+          "/.well-known/ai-tool/mferland-mfergpt-swap.json",
+        ],
+        swapQuote: "/agent-mfergpt-swap-quote",
+        swapResult: "/agent-mfergpt-swap-result",
+        xPaymentNote: "Registered tools use an ERC-8257-style manifest and accept zero-value EIP-3009 X-Payment payloads for OpenSea usage reporting.",
+      },
+    },
     menus: {
       character: {
         observes: ["walletAddress", "season0Points", "season0DailyPoints", "seasonPassOwnership", "referrals", "level", "xp", "stats", "equipment"],
@@ -166,7 +233,7 @@ export function buildAgentCatalog() {
       },
       social: {
         observes: ["chat", "nearbyPlayers", "nearbyPlayers.agentStatus"],
-        controls: ["chat", "emote"],
+        controls: ["chat", "emote", "agentStatus"],
       },
       targets: {
         observes: ["nearbyPlayers", "nearbyNpcs"],
@@ -242,7 +309,7 @@ export function buildAgentCatalog() {
       forcedForDeclaredAgents: AGENT_MFER_APPEARANCE_FORCED_TRAITS,
       blockedForDeclaredAgents: AGENT_MFER_APPEARANCE_BLOCKED_TRAITS,
       selectionGuidance: AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE,
-      note: `Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose accessories and style from the agent's identity or play archetype. Declared agents keep the robot face, so saved agent traits force regular eyes and flat mouth, and reject caps, long hair, shades, or glasses. ${AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE}`,
+      note: `Declared agents render with the mferGPT agent model. The trait form still needs valid mfer trait ids for identity metadata; choose style from the agent's identity or play archetype. Declared agents keep the robot face, so saved agent traits force regular eyes and flat mouth, and clipping-prone accessories such as caps, long hair, shades, and glasses should remain unset. ${AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE}`,
     },
     payments: {
       mferGpt: {
@@ -361,12 +428,18 @@ export function buildAgentCatalog() {
         requiredItemId?: string;
         objectives?: unknown;
         defeatNpcModels?: unknown;
+        defeatNpcRoles?: unknown;
+        defeatNpcIdPrefixes?: unknown;
         dropNpcModels?: unknown;
+        dropNpcRoles?: unknown;
+        dropNpcIdPrefixes?: unknown;
         nextQuestId?: string;
         encounterType?: string;
         groupSuggestion?: string;
         suggestedPlayerCount?: number;
         soloWarning?: string;
+        encounterPrepNpcIds?: unknown;
+        agentHints?: unknown;
       };
       return [id, {
         id,
@@ -380,7 +453,11 @@ export function buildAgentCatalog() {
         requiredQuestId: optional.requiredQuestId ?? "",
         requiredItemId: optional.requiredItemId ?? "",
         defeatNpcModels: optional.defeatNpcModels ?? [],
+        defeatNpcRoles: optional.defeatNpcRoles ?? [],
+        defeatNpcIdPrefixes: optional.defeatNpcIdPrefixes ?? [],
         dropNpcModels: optional.dropNpcModels ?? [],
+        dropNpcRoles: optional.dropNpcRoles ?? [],
+        dropNpcIdPrefixes: optional.dropNpcIdPrefixes ?? [],
         objectives: optional.objectives ?? [],
         xpReward: quest.xpReward,
         nextQuestId: optional.nextQuestId ?? "",
@@ -388,6 +465,8 @@ export function buildAgentCatalog() {
         groupSuggestion: optional.groupSuggestion ?? "",
         suggestedPlayerCount: optional.suggestedPlayerCount ?? 1,
         soloWarning: optional.soloWarning ?? "",
+        encounterPrepNpcIds: optional.encounterPrepNpcIds ?? [],
+        agentHints: optional.agentHints ?? {},
       }];
     })),
     world: {

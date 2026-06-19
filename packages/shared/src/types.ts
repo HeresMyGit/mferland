@@ -208,6 +208,15 @@ export type ClientAgentStatus = {
   thought?: string;
   objective?: string;
   quest?: string;
+  commandStatus?: string;
+  commandBudgetTier?: string;
+  commandStartedAt?: number;
+  commandMaxSeconds?: number;
+  commandSessionUsedSeconds?: number;
+  commandSessionRemainingSeconds?: number;
+  commandDailyUsedSeconds?: number;
+  commandDailyRemainingSeconds?: number;
+  commandDailySeconds?: number;
 };
 
 export type PlayerSnapshot = {
@@ -221,6 +230,15 @@ export type PlayerSnapshot = {
   agentStatusObjective: string;
   agentStatusQuest: string;
   agentStatusUpdatedAt: number;
+  agentCommandStatus: string;
+  agentCommandBudgetTier: string;
+  agentCommandStartedAt: number;
+  agentCommandMaxSeconds: number;
+  agentCommandSessionUsedSeconds: number;
+  agentCommandSessionRemainingSeconds: number;
+  agentCommandDailyUsedSeconds: number;
+  agentCommandDailyRemainingSeconds: number;
+  agentCommandDailySeconds: number;
   avatarSeed: number;
   appearanceTraits: MferAppearanceTraits;
   level: number;
@@ -341,7 +359,7 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
 > & {
   distance: number;
 };

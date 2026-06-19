@@ -21,6 +21,8 @@ import {
   type StatKey,
   type TalentRankSnapshot,
 } from "@mferland/shared";
+import { getAgentCommandBudget, getAgentCommandUsage, getLocalAgentCommandBudgetOverride } from "./agentCommandBudget.js";
+import { getAgentSeason0MferGptGateStatus } from "./agentMferGptGate.js";
 import { loadOrCreateWalletCharacter, type PersistedCharacter } from "./persistence.js";
 
 type ProfileStatKey = StatKey | "healthRegenPer5" | "manaRegenPer5" | "walkSpeed" | "runSpeed";
@@ -55,6 +57,7 @@ export async function buildAgentProfile(walletAddress: string) {
     };
   }
 
+  const commandBudget = await buildAgentCommandBudgetView(normalizedWallet);
   const character = await loadOrCreateWalletCharacter({
     walletAddress: normalizedWallet,
     displayName: "agent-profile",
@@ -71,6 +74,7 @@ export async function buildAgentProfile(walletAddress: string) {
         walletAddress: normalizedWallet,
         generatedAt: new Date().toISOString(),
         source: "persisted_character",
+        commandBudget,
         note: "No persisted wallet character exists yet. Join the game once with this wallet to create one.",
       },
     };
@@ -96,6 +100,7 @@ export async function buildAgentProfile(walletAddress: string) {
       generatedAt: new Date().toISOString(),
       source: "persisted_character",
       note: "Read-only saved profile. Use /agent-observe for live HP, position, aggro, nearby NPCs, chat, loot windows, cooldowns, and active room state.",
+      commandBudget,
       quickFacts: {
         level: character.level,
         levelLabel: levelProgress.isMaxLevel
@@ -132,6 +137,45 @@ export async function buildAgentProfile(walletAddress: string) {
       talents,
       activeBuffs,
     },
+  };
+}
+
+async function buildAgentCommandBudgetView(walletAddress: string) {
+  const localOverride = getLocalAgentCommandBudgetOverride();
+  const gate = localOverride
+    ? null
+    : await getAgentSeason0MferGptGateStatus(walletAddress).catch((error) => ({
+      eligible: false,
+      reason: "unavailable",
+      requiredWei: "25000000000000000000000000",
+      requiredLabel: "25M MFERGPT",
+      balanceLabel: "unknown",
+      balanceWei: "0",
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  const budget = localOverride ?? getAgentCommandBudget(gate?.balanceWei ?? "0");
+  const usage = await getAgentCommandUsage(walletAddress, budget);
+  const commandMinutes = Math.ceil(budget.maxCommandSeconds / 60);
+  const dailyMinutes = Math.ceil(budget.rollingDailySeconds / 60);
+  return {
+    tier: budget.tier,
+    balanceWei: budget.balanceWei,
+    maxCommandSeconds: budget.maxCommandSeconds,
+    rollingDailySeconds: budget.rollingDailySeconds,
+    usage,
+    session: {
+      maxSeconds: budget.maxCommandSeconds,
+      remainingSeconds: Math.min(budget.maxCommandSeconds, usage.remainingSeconds),
+    },
+    daily: {
+      totalSeconds: budget.rollingDailySeconds,
+      usedSeconds: Math.max(0, budget.rollingDailySeconds - usage.remainingSeconds - usage.reservedSeconds),
+      reservedSeconds: usage.reservedSeconds,
+      remainingSeconds: usage.remainingSeconds,
+      windowStartedAt: usage.windowStartedAt,
+    },
+    season0Gate: gate,
+    advice: `This wallet is on the ${budget.tier} autoplay tier (${commandMinutes} minute commands, ${dailyMinutes} rolling daily minutes). Add 25M MFERGPT on Base to unlock longer sessions and Season 0 agent points; progress still saves below the gate.`,
   };
 }
 

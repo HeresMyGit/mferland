@@ -68,6 +68,7 @@ export class PlayerState extends Schema {
   @type("string") agentStatusObjective = "";
   @type("string") agentStatusQuest = "";
   @type("number") agentStatusUpdatedAt = 0;
+  @type("string") agentCommandBudgetJson = "";
   @type("number") avatarSeed = 0;
   @type("string") appearanceTraitsJson = "";
   @type("number") level = 1;

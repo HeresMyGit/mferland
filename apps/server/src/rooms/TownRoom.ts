@@ -223,11 +223,64 @@ const DAILY_RAID_BOSS_INACTIVE_DESPAWN_MS = 5 * 60 * 1000;
 const DAILY_RAID_BOSS_SPAWN = { x: 76, z: -111, yaw: -0.35 };
 const EMOTE_MIN_INTERVAL_MS = 900;
 const CHARACTER_AUTOSAVE_INTERVAL_MS = 10_000;
+const DEFAULT_AGENT_IDLE_LOGOUT_MS = 3 * 60 * 1000;
+const AGENT_IDLE_SWEEP_INTERVAL_MS = 15_000;
+const AGENT_MOVEMENT_ACTIVITY_DISTANCE = 0.75;
 const PLAYER_ATTACK_PULL_LEASH_RANGE = Math.max(...Object.values(COMBAT.actions).map((action) => action.maxRange)) + 6;
 const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placement-map.json", import.meta.url));
 const SESSION_REPLACED_CLOSE_CODE = 4000;
+const AGENT_IDLE_CLOSE_CODE = 4001;
 const DEBUG_TRASH_VENDOR_STOCK_COUNT = 20;
 const LOCAL_DEBUG_WALLET_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
+  "agentStatus",
+  "combatAction",
+  "acceptQuest",
+  "completeQuest",
+  "cancelQuest",
+  "lootCorpse",
+  "equipItem",
+  "useItem",
+  "unequipItem",
+  "registerChainGear",
+  "purchasePotionShopItem",
+  "sellTrashItems",
+  "selectTalent",
+  "updateTraits",
+  "respawn",
+  "chat",
+  "shareQuestLink",
+  "emote",
+  "interact",
+]);
+
+export function resolveAgentIdleLogoutMs(value = process.env.MFERLAND_AGENT_IDLE_LOGOUT_MS) {
+  if (value === undefined || value.trim() === "") return DEFAULT_AGENT_IDLE_LOGOUT_MS;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : DEFAULT_AGENT_IDLE_LOGOUT_MS;
+}
+
+export function isAgentGameplayActivityMessage(messageType: string) {
+  return AGENT_GAMEPLAY_ACTIVITY_MESSAGES.has(messageType);
+}
+
+export function shouldLogOutIdleAgent({
+  isAgent,
+  joinedAt,
+  lastActivityAt,
+  now,
+  timeoutMs,
+}: {
+  isAgent: boolean;
+  joinedAt: number;
+  lastActivityAt: number;
+  now: number;
+  timeoutMs: number;
+}) {
+  if (!isAgent || timeoutMs <= 0) return false;
+  const baseline = lastActivityAt || joinedAt;
+  return baseline > 0 && now - baseline >= timeoutMs;
+}
 const CLIENT_ANALYTICS_EVENTS = new Set([
   "store_opened",
   "wallet_connect_started",
@@ -479,6 +532,21 @@ export type AdminPlayerSnapshot = {
   lastInputAt: number;
   lastChatAt: number;
   lastInteractAt: number;
+  lastAgentActivityAt: number;
+  agentStatusAction: string;
+  agentStatusThought: string;
+  agentStatusObjective: string;
+  agentStatusQuest: string;
+  agentStatusUpdatedAt: number;
+  agentCommandStatus: string;
+  agentCommandBudgetTier: string;
+  agentCommandStartedAt: number;
+  agentCommandMaxSeconds: number;
+  agentCommandSessionUsedSeconds: number;
+  agentCommandSessionRemainingSeconds: number;
+  agentCommandDailyUsedSeconds: number;
+  agentCommandDailyRemainingSeconds: number;
+  agentCommandDailySeconds: number;
   position: { x: number; y: number; z: number; yaw: number };
   animation: string;
   level: number;
@@ -566,6 +634,8 @@ export class TownRoom extends Room<TownState> {
   private readonly pendingReconnections = new Map<string, PendingReconnection>();
   private readonly replacedReconnectionSessionIds = new Set<string>();
   private readonly sessionJoinedAt = new Map<string, number>();
+  private readonly lastAgentActivityAt = new Map<string, number>();
+  private readonly lastAgentActivityPosition = new Map<string, { x: number; z: number }>();
   private readonly deadSessionIds = new Set<string>();
   private readonly pendingCombatImpacts: PendingCombatImpact[] = [];
   private readonly temporaryNpcExpiresAt = new Map<string, number>();
@@ -577,6 +647,7 @@ export class TownRoom extends Room<TownState> {
   private readonly agentSeason0GateStatuses = new Map<string, AgentSeason0MferGptGateStatus>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
+  private lastAgentIdleSweepAt = 0;
   private dailyRaidBossInactiveDespawnAt = 0;
   private dailySignalHubAssignmentId = "";
   private lastDailySignalHubSyncAt = 0;
@@ -602,6 +673,64 @@ export class TownRoom extends Room<TownState> {
     return true;
   }
 
+  private markAgentMessageActivity(sessionId: string, messageType: string, now = Date.now()) {
+    if (!isAgentGameplayActivityMessage(messageType)) return;
+    this.markAgentActivity(sessionId, now);
+  }
+
+  private markAgentActivity(sessionId: string, now = Date.now()) {
+    const player = this.state.players.get(sessionId);
+    if (!player?.isAgent) return;
+    this.lastAgentActivityAt.set(sessionId, now);
+  }
+
+  private markAgentMovementActivity(sessionId: string, player: PlayerState, now: number) {
+    if (!player.isAgent) return;
+    const previous = this.lastAgentActivityPosition.get(sessionId);
+    if (!previous) {
+      this.lastAgentActivityPosition.set(sessionId, { x: player.x, z: player.z });
+      return;
+    }
+    if (Math.hypot(player.x - previous.x, player.z - previous.z) < AGENT_MOVEMENT_ACTIVITY_DISTANCE) return;
+    this.lastAgentActivityPosition.set(sessionId, { x: player.x, z: player.z });
+    this.markAgentActivity(sessionId, now);
+  }
+
+  private disconnectIdleAgents(now: number) {
+    if (now - this.lastAgentIdleSweepAt < AGENT_IDLE_SWEEP_INTERVAL_MS) return;
+    this.lastAgentIdleSweepAt = now;
+    const timeoutMs = resolveAgentIdleLogoutMs();
+    if (timeoutMs <= 0) return;
+
+    for (const client of [...this.clients]) {
+      const player = this.state.players.get(client.sessionId);
+      if (!player?.isAgent) continue;
+      const joinedAt = this.sessionJoinedAt.get(client.sessionId) ?? 0;
+      const lastActivityAt = this.lastAgentActivityAt.get(client.sessionId) ?? 0;
+      if (!shouldLogOutIdleAgent({ isAgent: true, joinedAt, lastActivityAt, now, timeoutMs })) continue;
+      this.disconnectIdleAgent(client, player, now, timeoutMs, Math.max(0, now - (lastActivityAt || joinedAt)));
+    }
+  }
+
+  private disconnectIdleAgent(client: Client, player: PlayerState, now: number, timeoutMs: number, idleMs: number) {
+    const sessionId = client.sessionId;
+    const characterId = this.persistentCharacterIds.get(sessionId);
+    this.recordPlayerAnalyticsEvent("agent_idle_logout", sessionId, player, {
+      idleMs,
+      timeoutMs,
+      level: player.level,
+      x: Math.round(player.x),
+      z: Math.round(player.z),
+    });
+    void this.persistPlayerProgressNow(sessionId, player).catch((error) => {
+      console.error(`Failed to persist idle agent ${player.walletAddress || sessionId}`, error);
+    });
+    this.preparePlayerForReconnect(sessionId, player);
+    this.cleanupPlayerSession(sessionId, characterId);
+    client.leave(AGENT_IDLE_CLOSE_CODE, "agent idle timeout");
+    this.publishLiveMemoryStatus(now, true);
+  }
+
   onCreate() {
     activeTownRooms.add(this);
     this.setState(new TownState());
@@ -622,17 +751,21 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("combatAction", (client, message: Partial<ClientCombatAction>) => {
+      this.markAgentMessageActivity(client.sessionId, "combatAction");
       this.handleCombatAction(client, message);
     });
 
     this.onMessage("acceptQuest", (client, message: Partial<ClientAcceptQuest>) => {
+      this.markAgentMessageActivity(client.sessionId, "acceptQuest");
       this.handleAcceptQuest(client, message);
     });
 
     this.onMessage("completeQuest", (client, message: Partial<ClientCompleteQuest>) => {
+      this.markAgentMessageActivity(client.sessionId, "completeQuest");
       this.handleCompleteQuest(client, message);
     });
     this.onMessage("cancelQuest", (client, message: Partial<ClientCancelQuest>) => {
+      this.markAgentMessageActivity(client.sessionId, "cancelQuest");
       this.handleCancelQuest(client, message);
     });
 
@@ -641,34 +774,42 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("agentStatus", (client, message: Partial<ClientAgentStatus> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "agentStatus");
       this.handleAgentStatus(client, message);
     });
 
     this.onMessage("lootCorpse", (client, message: Partial<ClientLootCorpse>) => {
+      this.markAgentMessageActivity(client.sessionId, "lootCorpse");
       this.handleLootCorpse(client, message);
     });
 
     this.onMessage("equipItem", (client, message: Partial<ClientEquipItem>) => {
+      this.markAgentMessageActivity(client.sessionId, "equipItem");
       this.handleEquipItem(client, message);
     });
 
     this.onMessage("useItem", (client, message: Partial<ClientUseItem>) => {
+      this.markAgentMessageActivity(client.sessionId, "useItem");
       this.handleUseItem(client, message);
     });
 
     this.onMessage("unequipItem", (client, message: Partial<ClientUnequipItem>) => {
+      this.markAgentMessageActivity(client.sessionId, "unequipItem");
       this.handleUnequipItem(client, message);
     });
 
     this.onMessage("registerChainGear", (client, message: Partial<ClientRegisterChainGear> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "registerChainGear");
       void this.handleRegisterChainGear(client, message);
     });
 
     this.onMessage("purchasePotionShopItem", (client, message: Partial<ClientPurchasePotionShopItem> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "purchasePotionShopItem");
       void this.handlePurchasePotionShopItem(client, message);
     });
 
     this.onMessage("sellTrashItems", (client, message: Partial<ClientSellTrashItems> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "sellTrashItems");
       void this.handleSellTrashItems(client, message);
     });
 
@@ -677,6 +818,7 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("selectTalent", (client, message: Partial<ClientSelectTalent>) => {
+      this.markAgentMessageActivity(client.sessionId, "selectTalent");
       this.handleSelectTalent(client, message);
     });
 
@@ -685,6 +827,7 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("updateTraits", (client, message: Partial<ClientUpdateTraits>) => {
+      this.markAgentMessageActivity(client.sessionId, "updateTraits");
       void this.handleUpdateTraits(client, message).catch((error) => {
         const player = this.state.players.get(client.sessionId);
         client.send("traitUpdateResult", {
@@ -699,6 +842,7 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("respawn", (client) => {
+      this.markAgentMessageActivity(client.sessionId, "respawn");
       const player = this.state.players.get(client.sessionId);
       if (!player || player.health > 0) return;
       respawnPlayerAtFountain(player);
@@ -812,18 +956,22 @@ export class TownRoom extends Room<TownState> {
     });
 
     this.onMessage("chat", (client, message: { text?: string }) => {
+      this.markAgentMessageActivity(client.sessionId, "chat");
       void this.handleChatMessage(client, message);
     });
 
     this.onMessage("shareQuestLink", (client, message: Partial<ClientShareQuestLink> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "shareQuestLink");
       this.handleShareQuestLink(client, message);
     });
 
     this.onMessage("emote", (client, message: Partial<ClientEmote> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "emote");
       this.handleEmote(client, message);
     });
 
     this.onMessage("interact", (client, message: ClientInteract = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "interact");
       const player = this.state.players.get(client.sessionId);
       if (!player) return;
 
@@ -960,6 +1108,8 @@ export class TownRoom extends Room<TownState> {
 
     this.state.players.set(client.sessionId, player);
     this.sessionJoinedAt.set(client.sessionId, Date.now());
+    this.markAgentActivity(client.sessionId);
+    if (player.isAgent) this.lastAgentActivityPosition.set(client.sessionId, { x: player.x, z: player.z });
     if (identityType === "wallet" && walletAddress) {
       await this.replaceDuplicateWalletSessions(client, walletAddress);
     }
@@ -1146,6 +1296,8 @@ export class TownRoom extends Room<TownState> {
     this.lastEmoteAt.delete(sessionId);
     this.lastMferGptAt.delete(sessionId);
     this.lastInteractAt.delete(sessionId);
+    this.lastAgentActivityAt.delete(sessionId);
+    this.lastAgentActivityPosition.delete(sessionId);
     this.persistentCharacterIds.delete(sessionId);
     this.agentSeason0GateStatuses.delete(sessionId);
     if (characterId) this.cleanupCharacterSaveTracking(characterId);
@@ -1176,6 +1328,7 @@ export class TownRoom extends Room<TownState> {
         inputs: this.inputs,
         lastChatAt: this.lastChatAt,
         lastInteractAt: this.lastInteractAt,
+        lastAgentActivityAt: this.lastAgentActivityAt,
         deadSessionIds: this.deadSessionIds,
         now,
       }),
@@ -2722,6 +2875,7 @@ export class TownRoom extends Room<TownState> {
     player.agentStatusThought = sanitizeAgentStatusText(message?.thought, 260);
     player.agentStatusObjective = sanitizeAgentStatusText(message?.objective, 180);
     player.agentStatusQuest = sanitizeAgentStatusText(message?.quest, 140);
+    player.agentCommandBudgetJson = makeAgentCommandBudgetJson(message);
     player.agentStatusUpdatedAt = Date.now();
   }
 
@@ -3344,6 +3498,7 @@ export class TownRoom extends Room<TownState> {
     this.removeExpiredTemporaryNpcs(now);
     this.pruneNpcDamageTags(now);
     this.applyThreatTargets(now);
+    this.disconnectIdleAgents(now);
     const leashResetNpcIds = updateNpcs(
       this.state.npcs,
       this.state.players,
@@ -3466,6 +3621,7 @@ export class TownRoom extends Room<TownState> {
       player.x = nextPosition.x;
       player.z = nextPosition.z;
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
+      this.markAgentMovementActivity(sessionId, player, now);
     });
     this.autosaveWalletCharacters(now);
     this.publishLiveMemoryStatus(now);
@@ -3747,6 +3903,56 @@ function sanitizeSupportText(value: unknown) {
 function sanitizeAgentStatusText(value: unknown, maxLength: number) {
   if (typeof value !== "string") return "";
   return value.trim().replace(/\s+/g, " ").slice(0, maxLength);
+}
+
+function sanitizeAgentStatusNumber(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return 0;
+  return Math.min(10_000_000_000_000, Math.floor(number));
+}
+
+function makeAgentCommandBudgetJson(message: Partial<ClientAgentStatus>) {
+  const budget = {
+    status: sanitizeAgentStatusText(message?.commandStatus, 32),
+    budgetTier: sanitizeAgentStatusText(message?.commandBudgetTier, 40),
+    startedAt: sanitizeAgentStatusNumber(message?.commandStartedAt),
+    maxSeconds: sanitizeAgentStatusNumber(message?.commandMaxSeconds),
+    sessionUsedSeconds: sanitizeAgentStatusNumber(message?.commandSessionUsedSeconds),
+    sessionRemainingSeconds: sanitizeAgentStatusNumber(message?.commandSessionRemainingSeconds),
+    dailyUsedSeconds: sanitizeAgentStatusNumber(message?.commandDailyUsedSeconds),
+    dailyRemainingSeconds: sanitizeAgentStatusNumber(message?.commandDailyRemainingSeconds),
+    dailySeconds: sanitizeAgentStatusNumber(message?.commandDailySeconds),
+  };
+  return JSON.stringify(budget).slice(0, 512);
+}
+
+function parseAgentCommandBudgetJson(value: string) {
+  try {
+    const parsed = JSON.parse(value || "{}") as Record<string, unknown>;
+    return {
+      status: sanitizeAgentStatusText(parsed.status, 32),
+      budgetTier: sanitizeAgentStatusText(parsed.budgetTier, 40),
+      startedAt: sanitizeAgentStatusNumber(parsed.startedAt),
+      maxSeconds: sanitizeAgentStatusNumber(parsed.maxSeconds),
+      sessionUsedSeconds: sanitizeAgentStatusNumber(parsed.sessionUsedSeconds),
+      sessionRemainingSeconds: sanitizeAgentStatusNumber(parsed.sessionRemainingSeconds),
+      dailyUsedSeconds: sanitizeAgentStatusNumber(parsed.dailyUsedSeconds),
+      dailyRemainingSeconds: sanitizeAgentStatusNumber(parsed.dailyRemainingSeconds),
+      dailySeconds: sanitizeAgentStatusNumber(parsed.dailySeconds),
+    };
+  } catch {
+    return {
+      status: "",
+      budgetTier: "",
+      startedAt: 0,
+      maxSeconds: 0,
+      sessionUsedSeconds: 0,
+      sessionRemainingSeconds: 0,
+      dailyUsedSeconds: 0,
+      dailyRemainingSeconds: 0,
+      dailySeconds: 0,
+    };
+  }
 }
 
 function sanitizeSupportIntegerString(value: unknown) {
@@ -4323,6 +4529,7 @@ function snapshotPlayers({
   inputs,
   lastChatAt,
   lastInteractAt,
+  lastAgentActivityAt,
   deadSessionIds,
   now,
 }: {
@@ -4332,6 +4539,7 @@ function snapshotPlayers({
   inputs: Map<string, TrackedInput>;
   lastChatAt: Map<string, number>;
   lastInteractAt: Map<string, number>;
+  lastAgentActivityAt: Map<string, number>;
   deadSessionIds: Set<string>;
   now: number;
 }) {
@@ -4339,6 +4547,7 @@ function snapshotPlayers({
   players.forEach((player, sessionId) => {
     const joinedAt = sessionJoinedAt.get(sessionId) ?? 0;
     const quests = snapshotQuests(player.quests);
+    const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
     snapshots.push({
       sessionId,
       characterId: persistentCharacterIds.get(sessionId) ?? "",
@@ -4353,6 +4562,21 @@ function snapshotPlayers({
       lastInputAt: inputs.get(sessionId)?.receivedAt ?? 0,
       lastChatAt: lastChatAt.get(sessionId) ?? 0,
       lastInteractAt: lastInteractAt.get(sessionId) ?? 0,
+      lastAgentActivityAt: lastAgentActivityAt.get(sessionId) ?? 0,
+      agentStatusAction: player.agentStatusAction,
+      agentStatusThought: player.agentStatusThought,
+      agentStatusObjective: player.agentStatusObjective,
+      agentStatusQuest: player.agentStatusQuest,
+      agentStatusUpdatedAt: player.agentStatusUpdatedAt,
+      agentCommandStatus: agentCommandBudget.status,
+      agentCommandBudgetTier: agentCommandBudget.budgetTier,
+      agentCommandStartedAt: agentCommandBudget.startedAt,
+      agentCommandMaxSeconds: agentCommandBudget.maxSeconds,
+      agentCommandSessionUsedSeconds: agentCommandBudget.sessionUsedSeconds,
+      agentCommandSessionRemainingSeconds: agentCommandBudget.sessionRemainingSeconds,
+      agentCommandDailyUsedSeconds: agentCommandBudget.dailyUsedSeconds,
+      agentCommandDailyRemainingSeconds: agentCommandBudget.dailyRemainingSeconds,
+      agentCommandDailySeconds: agentCommandBudget.dailySeconds,
       position: {
         x: roundAdminNumber(player.x),
         y: roundAdminNumber(player.y),
