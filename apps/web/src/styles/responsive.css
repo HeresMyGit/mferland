@@ -275,6 +275,14 @@
     right: 16px;
   }
 
+  .auth-settings-button {
+    right: 120px;
+  }
+
+  .auth-settings-overlay {
+    right: 16px;
+  }
+
   .chat-panel {
     width: calc(100vw - 132px);
     bottom: 74px;
@@ -515,10 +523,33 @@
 }
 
 @media (max-width: 420px) {
-  .auth-agents-link {
+  .auth-agents-link,
+  .auth-settings-button {
     top: max(116px, calc(env(safe-area-inset-top) + 112px));
     min-height: 38px;
+  }
+
+  .auth-settings-button {
+    right: 112px;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+  }
+
+  .auth-agents-link {
     padding: 0 12px;
+  }
+
+  .auth-settings-overlay {
+    top: max(162px, calc(env(safe-area-inset-top) + 158px));
+    left: 16px;
+    right: 16px;
+  }
+
+  .auth-settings-overlay .settings-panel {
+    width: 100%;
+    max-height: calc(100vh - 178px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 178px - env(safe-area-inset-bottom));
   }
 
   .auth-connect-panel {

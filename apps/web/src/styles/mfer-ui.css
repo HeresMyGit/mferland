@@ -353,6 +353,7 @@
 .ability-slot-row button,
 .menu-tabs button,
 .auth-agents-link,
+.auth-settings-button,
 .auth-swap-toggle,
 .auth-swap-close,
 .swap-refresh-btn,
@@ -376,7 +377,8 @@
     0 7px 14px rgba(0, 0, 0, 0.2);
 }
 
-.auth-agents-link {
+.auth-agents-link,
+.auth-settings-button {
   position: absolute;
 }
 
@@ -393,6 +395,7 @@
 .quest-secondary-btn,
 .ability-slot-row button,
 .auth-agents-link,
+.auth-settings-button,
 .auth-swap-toggle,
 .auth-swap-close,
 .swap-refresh-btn,
@@ -502,6 +505,7 @@
 
 .primary-btn,
 .auth-agents-link,
+.auth-settings-button,
 .auth-swap-action,
 .quest-accept-btn,
 .item-use-btn,
@@ -530,6 +534,7 @@
 
 .auth-swap-toggle,
 .auth-agents-link,
+.auth-settings-button,
 .auth-swap-action {
   color: #141007;
   background:
@@ -672,6 +677,7 @@
 .ability-slot-row button::after,
 .menu-tabs button::after,
 .auth-agents-link::after,
+.auth-settings-button::after,
 .auth-swap-toggle::after,
 .auth-swap-close::after,
 .swap-refresh-btn::after,
@@ -709,6 +715,7 @@
 .ability-slot-row button > *,
 .menu-tabs button > :not(.tab-badge),
 .auth-agents-link > *,
+.auth-settings-button > *,
 .auth-swap-toggle > *,
 .auth-swap-close > *,
 .swap-refresh-btn > *,

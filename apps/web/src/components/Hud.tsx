@@ -1802,7 +1802,7 @@ export function Hud({
   );
 }
 
-function SettingsPanel({
+export function SettingsPanel({
   settings,
   debugToolsAvailable,
   onChange,

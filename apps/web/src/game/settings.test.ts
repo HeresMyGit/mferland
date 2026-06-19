@@ -17,6 +17,7 @@ test("defaults graphics quality to auto", () => {
 });
 
 test("normalizes graphics quality", () => {
+  assert.equal(normalizeGameSettings({ graphicsQuality: "potato" }).graphicsQuality, "potato");
   assert.equal(normalizeGameSettings({ graphicsQuality: "low" }).graphicsQuality, "low");
   assert.equal(normalizeGameSettings({ graphicsQuality: "medium" }).graphicsQuality, "medium");
   assert.equal(normalizeGameSettings({ graphicsQuality: "high" }).graphicsQuality, "high");

@@ -1331,6 +1331,18 @@ button {
   pointer-events: auto;
 }
 
+.mfer-loading-screen.nonblocking {
+  z-index: 3;
+  background: transparent;
+  pointer-events: none;
+}
+
+.mfer-loading-screen.nonblocking .mfer-loading-text {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(12, 10, 7, 0.48);
+}
+
 .mfer-loading-head {
   width: 200px;
   height: 200px;
@@ -1402,8 +1414,36 @@ button {
   text-transform: uppercase;
 }
 
-.auth-agents-link svg {
+.auth-settings-button {
+  position: absolute;
+  z-index: 2;
+  top: 28px;
+  right: calc(clamp(18px, 3vw, 36px) + 104px);
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 999px;
+  color: #17130c;
+}
+
+.auth-agents-link svg,
+.auth-settings-button svg {
   flex: 0 0 auto;
+}
+
+.auth-settings-overlay {
+  position: absolute;
+  z-index: 6;
+  top: 82px;
+  right: clamp(18px, 3vw, 36px);
+}
+
+.auth-settings-overlay .settings-panel {
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 110px));
+  max-height: min(560px, calc(100dvh - 110px));
 }
 
 .auth-swap-panel {

@@ -43,9 +43,9 @@ export function TownWorld({
     "/textures/timber-plaster.webp",
   ]) as THREE.Texture[];
   const barkTexture = useMemo(() => createBarkTexture(renderProfile), [renderProfile]);
-  const leafTexture = useMemo(() => createLeafTexture(renderProfile), [renderProfile]);
+  const leafTexture = useMemo(() => renderProfile.reducedWorldDetail ? null : createLeafTexture(renderProfile), [renderProfile]);
   const waterTexture = useMemo(() => createWaterTexture(renderProfile), [renderProfile]);
-  const grassTuftTexture = useMemo(() => createGrassTuftTexture(renderProfile), [renderProfile]);
+  const grassTuftTexture = useMemo(() => renderProfile.reducedWorldDetail ? null : createGrassTuftTexture(renderProfile), [renderProfile]);
   const dirtPathTexture = useMemo(() => createDirtPathTexture(renderProfile), [renderProfile]);
 
   useEffect(() => {
@@ -68,7 +68,7 @@ export function TownWorld({
 
   return (
     <group>
-      <WorldBackdrop barkTexture={barkTexture} leafTexture={leafTexture} />
+      {!renderProfile.reducedWorldDetail && leafTexture && <WorldBackdrop barkTexture={barkTexture} leafTexture={leafTexture} />}
 
       <mesh rotation-x={-Math.PI / 2} position={[0, -0.05, 0]}>
         <planeGeometry args={[TOWN_GROUND_WIDTH, TOWN_GROUND_DEPTH, 1, 1]} />
@@ -110,7 +110,7 @@ export function TownWorld({
         <meshBasicMaterial color="#635f55" />
       </mesh>
 
-      <GroundDetailLayer grassTuftTexture={grassTuftTexture} />
+      {!renderProfile.reducedWorldDetail && grassTuftTexture && <GroundDetailLayer grassTuftTexture={grassTuftTexture} />}
       <group position={fountainPlacement.position} rotation-y={fountainPlacement.rotation}>
         <Fountain stoneTexture={stoneTexture} waterTexture={waterTexture} renderProfile={renderProfile} />
       </group>
@@ -177,7 +177,7 @@ export function TownWorld({
       <DebugBannerPost id="prop:banner-ridge-entry" position={[123, 0, -91]} color={MFER_COLORS.relay} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
       <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color={MFER_COLORS.hostile} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
       <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color={MFER_COLORS.hostile} rotation={Math.PI} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
-      <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />
+      {!renderProfile.reducedWorldDetail && leafTexture && <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />}
     </group>
   );
 }

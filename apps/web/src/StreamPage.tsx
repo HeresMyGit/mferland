@@ -326,7 +326,7 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
       <Canvas
         key={`${renderProfile.cacheKey}:${gameCanvasEpoch}`}
         dpr={renderProfile.gameDpr}
-        camera={{ position: [0, 6, 10], fov: 54, near: 0.1, far: 140 }}
+        camera={{ position: [0, 6, 10], fov: 54, near: 0.1, far: renderProfile.cameraFar }}
         gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
       >
         <StreamCanvasHealth onFrame={markGameCanvasFrame} onContextLoss={remountGameCanvas} />
