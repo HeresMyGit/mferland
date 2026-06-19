@@ -903,8 +903,8 @@ The bundled decision harness keeps paid burns disabled unless `AGENT_MAX_MFERGPT
 OpenSea/ERC-8257-style tool discovery:
 
 ```txt
-/.well-known/ai-tool/mferland-agent-command.json
-/.well-known/ai-tool/mferland-mfergpt-swap.json
+/.well-known/ai-tool/mfertown-agent-command.json
+/.well-known/ai-tool/mfertown-mfergpt-swap.json
 POST /agent-mfergpt-swap-quote
 POST /agent-mfergpt-swap-result
 ```

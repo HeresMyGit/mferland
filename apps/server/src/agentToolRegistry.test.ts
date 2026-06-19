@@ -4,6 +4,7 @@ import {
   buildAgentToolManifestDocument,
   buildToolUsageReport,
   buildZeroPriceToolChallenge,
+  getAgentToolSlug,
   isZeroPriceToolPaymentUsable,
   parseToolPaymentHeader,
   verifyZeroPriceToolPayment,
@@ -22,9 +23,10 @@ type JsonSchema = {
 };
 
 test("agent tool manifest documents command endpoint with OpenSea registry shape", () => {
-  const manifest = buildAgentToolManifestDocument("mferland-agent-command", "https://game.mfergpt.lol/");
+  const manifest = buildAgentToolManifestDocument("mfertown-agent-command", "https://game.mfergpt.lol/");
 
   assert.equal(manifest.type, "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1");
+  assert.equal(manifest.name, "mfertown-agent-command");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-command");
   assert.equal(manifest.image, "https://game.mfergpt.lol/agent-tools/icon.png");
   assert.equal(manifest.featuredImage, "https://game.mfergpt.lol/agent-tools/16x9.jpeg");
@@ -66,9 +68,10 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
 });
 
 test("agent tool manifest documents MFERGPT swap route outputs", () => {
-  const manifest = buildAgentToolManifestDocument("mferland-mfergpt-swap", "https://game.mfergpt.lol/");
+  const manifest = buildAgentToolManifestDocument("mfertown-mfergpt-swap", "https://game.mfergpt.lol/");
   const output = manifest.outputs as { properties: Record<string, unknown> };
 
+  assert.equal(manifest.name, "mfertown-mfergpt-swap");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-mfergpt-swap-quote");
   assert.equal(manifest.image, "https://game.mfergpt.lol/agent-tools/icon.png");
   assert.equal(manifest.featuredImage, "https://game.mfergpt.lol/agent-tools/16x9.jpeg");
@@ -79,7 +82,7 @@ test("agent tool manifest documents MFERGPT swap route outputs", () => {
 });
 
 test("agent tool zero-price challenge uses Base USDC EIP-3009 shape", () => {
-  const challenge = buildZeroPriceToolChallenge("mferland-mfergpt-swap", OPERATOR);
+  const challenge = buildZeroPriceToolChallenge("mfertown-mfergpt-swap", OPERATOR);
 
   assert.equal(challenge.ok, false);
   assert.equal(challenge.accepts[0].network, "base");
@@ -115,14 +118,14 @@ test("agent tool payment parser accepts zero-value EIP-3009 payloads", async () 
   assert.ok(base64Payment);
   assert.equal(isZeroPriceToolPaymentUsable(base64Payment), true);
 
-  const usage = buildToolUsageReport("mferland-mfergpt-swap", payment, Date.now() - 25);
+  const usage = buildToolUsageReport("mfertown-mfergpt-swap", payment, Date.now() - 25);
   assert.equal(usage.verification_type, "eip3009_authorization");
   assert.equal(usage.eip3009.caller_address, CALLER);
   assert.equal(usage.eip3009.chain_id, 8453);
   assert.equal(usage.eip3009.value, "0");
 
   process.env.MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID = "123";
-  const commandUsage = buildToolUsageReport("mferland-agent-command", payment, Date.now() - 25);
+  const commandUsage = buildToolUsageReport("mfertown-agent-command", payment, Date.now() - 25);
   assert.equal(commandUsage.tool_onchain_id, "123");
   delete process.env.MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID;
 
@@ -130,4 +133,11 @@ test("agent tool payment parser accepts zero-value EIP-3009 payloads", async () 
   assert.equal(verification.ok, false);
   if (verification.ok) assert.fail("expected payment verification to fail for the wrong operator");
   assert.match(verification.error ?? "", /not bound/);
+});
+
+test("agent tool slugs keep legacy mferland manifest aliases", () => {
+  assert.equal(getAgentToolSlug("mfertown-agent-command"), "mfertown-agent-command");
+  assert.equal(getAgentToolSlug("mfertown-mfergpt-swap"), "mfertown-mfergpt-swap");
+  assert.equal(getAgentToolSlug("mferland-agent-command"), "mfertown-agent-command");
+  assert.equal(getAgentToolSlug("mferland-mfergpt-swap"), "mfertown-mfergpt-swap");
 });

@@ -665,7 +665,7 @@ async function handleAgentToolManifest(req: IncomingMessage, requestUrl: URL, re
 async function handleAgentMferGptSwapTool(req: IncomingMessage, urlPath: string, res: ServerResponse) {
   writeCorsHeaders(res);
   writeNoStoreHeaders(res);
-  const tool: AgentToolSlug = "mferland-mfergpt-swap";
+  const tool: AgentToolSlug = "mfertown-mfergpt-swap";
   const startedAt = Date.now();
   if (req.method !== "POST") {
     writeJson(res, 405, { ok: false, error: "method not allowed" }, { allow: "POST" });

@@ -19,8 +19,8 @@ Relevant surfaces:
 - `/agent-command-stop`
 - `/agent-stop`
 - `/agent-catalog`
-- `/.well-known/ai-tool/mferland-agent-command.json`
-- `/.well-known/ai-tool/mferland-mfergpt-swap.json`
+- `/.well-known/ai-tool/mfertown-agent-command.json`
+- `/.well-known/ai-tool/mfertown-mfergpt-swap.json`
 - `/agent-mfergpt-swap-quote`
 - `/agent-mfergpt-swap-result`
 - `/agent-view?wallet=...`
@@ -40,9 +40,11 @@ MFERLAND_TOOL_CREATOR_ADDRESS
 MFERLAND_TOOL_OPERATOR_ADDRESS
 MFERLAND_TOOL_REGISTRY_ADDRESS
 OPENSEA_API_KEY
-MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID
-MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID
+MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID
+MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID
 ```
+
+The server also accepts the legacy `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID` and `MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID` names so existing production env files do not need an emergency secret/config edit.
 
 Tool registry variables can be absent in local/dev mode, but production OpenSea/ERC-8257 usage reporting requires the OpenSea key, registry/tool ids, operator address, and valid zero-value EIP-3009 `X-Payment` headers. Sign those headers against the Base USDC EIP-712 domain `name: "USD Coin"`, `version: "2"`, chain id `8453`, and verifying contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
 
@@ -68,8 +70,8 @@ After starting the candidate server on the host, but before public announcement:
 ```sh
 curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts

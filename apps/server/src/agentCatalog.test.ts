@@ -157,8 +157,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.ok(catalog.agentHarness.commands.responseFields.includes("finalState"));
   assert.ok(catalog.agentHarness.commands.responseFields.includes("equipmentChanges"));
   assert.match(catalog.agentHarness.commands.socialRecapNote, /nearby players\/agents/);
-  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-agent-command.json"));
-  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mferland-mfergpt-swap.json"));
+  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-agent-command.json"));
+  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-mfergpt-swap.json"));
   assert.equal(catalog.agentHarness.registeredTools.swapQuote, "/agent-mfergpt-swap-quote");
   assert.match(catalog.agentHarness.registeredTools.xPaymentNote, /EIP-3009/);
 

@@ -86,8 +86,8 @@ Only set OpenSea/ERC-8257 tool reporting env after the tools are registered:
 ```sh
 MFERLAND_TOOL_OPERATOR_ADDRESS="0x..."
 MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
-MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
-MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
+MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
 
@@ -109,8 +109,8 @@ After restart:
 ```sh
 curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -i -X POST https://game.mfergpt.lol/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
 ```
@@ -135,8 +135,8 @@ Verify from one controlled agent wallet when ready:
 - Colyseus room `town` at `wss://game.mfergpt.lol`
 - `/agent-catalog`
 - `/agent-command`
-- `/.well-known/ai-tool/mferland-agent-command.json`
-- `/.well-known/ai-tool/mferland-mfergpt-swap.json`
+- `/.well-known/ai-tool/mfertown-agent-command.json`
+- `/.well-known/ai-tool/mfertown-mfergpt-swap.json`
 - `/agent-mfergpt-swap-quote`
 - `/agent-mfergpt-swap-result`
 - `/agent-view?wallet=<agent-wallet-address>`

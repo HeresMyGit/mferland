@@ -5,7 +5,7 @@ import {
 } from "viem";
 import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 
-export type AgentToolSlug = "mferland-agent-command" | "mferland-mfergpt-swap";
+export type AgentToolSlug = "mfertown-agent-command" | "mfertown-mfergpt-swap";
 
 type ToolManifest = {
   type: "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1";
@@ -42,15 +42,33 @@ const EIP3009_TYPES = {
   ],
 } as const;
 
-export const AGENT_TOOL_SLUGS: AgentToolSlug[] = ["mferland-agent-command", "mferland-mfergpt-swap"];
+export const AGENT_TOOL_SLUGS: AgentToolSlug[] = ["mfertown-agent-command", "mfertown-mfergpt-swap"];
+
+const AGENT_TOOL_ALIASES: Record<string, AgentToolSlug> = {
+  "mferland-agent-command": "mfertown-agent-command",
+  "mferland-mfergpt-swap": "mfertown-mfergpt-swap",
+};
+
+const AGENT_TOOL_ID_ENV_KEYS: Record<AgentToolSlug, string[]> = {
+  "mfertown-agent-command": [
+    "MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID",
+    "MFERTOWN_TOOL_MFERTOWN_AGENT_COMMAND_ID",
+    "MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID",
+  ],
+  "mfertown-mfergpt-swap": [
+    "MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID",
+    "MFERTOWN_TOOL_MFERTOWN_MFERGPT_SWAP_ID",
+    "MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID",
+  ],
+};
 
 export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): ToolManifest {
   const baseUrl = normalizeOrigin(origin);
-  if (slug === "mferland-agent-command") {
+  if (slug === "mfertown-agent-command") {
     return {
       type: TOOL_MANIFEST_TYPE,
-      name: "mferland-agent-command",
-      description: "Start, poll, and stop bounded mferland gameplay commands for wallet-authenticated agents.",
+      name: "mfertown-agent-command",
+      description: "Start, poll, and stop bounded mfertown gameplay commands for wallet-authenticated agents.",
       version: "0.1.0",
       endpoint: `${baseUrl}/agent-command`,
       image: `${baseUrl}/agent-tools/icon.png`,
@@ -139,13 +157,13 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       outputs: commandOutputSchema(),
       creatorAddress: getManifestCreatorAddress(),
       pricing: freePricing(),
-      tags: ["mferland", "game", "agent", "autoplay", "wallet"],
+      tags: ["mfertown", "game", "agent", "autoplay", "wallet"],
     };
   }
   return {
     type: TOOL_MANIFEST_TYPE,
-    name: "mferland-mfergpt-swap",
-    description: "Build and report Base ETH to MFERGPT swap transactions for mferland agents.",
+    name: "mfertown-mfergpt-swap",
+    description: "Build and report Base ETH to MFERGPT swap transactions for mfertown agents.",
     version: "0.1.0",
     endpoint: `${baseUrl}/agent-mfergpt-swap-quote`,
     image: `${baseUrl}/agent-tools/icon.png`,
@@ -185,7 +203,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
     },
     creatorAddress: getManifestCreatorAddress(),
     pricing: freePricing(),
-    tags: ["mferland", "mfergpt", "swap", "uniswap", "base"],
+    tags: ["mfertown", "mfergpt", "swap", "uniswap", "base"],
   };
 }
 
@@ -194,7 +212,9 @@ export function buildAgentToolManifestDocument(slug: AgentToolSlug, origin: stri
 }
 
 export function getAgentToolSlug(value: string): AgentToolSlug | null {
-  return AGENT_TOOL_SLUGS.includes(value as AgentToolSlug) ? value as AgentToolSlug : null;
+  return AGENT_TOOL_SLUGS.includes(value as AgentToolSlug)
+    ? value as AgentToolSlug
+    : AGENT_TOOL_ALIASES[value] || null;
 }
 
 export function buildZeroPriceToolChallenge(tool: AgentToolSlug, operatorAddress = process.env.MFERLAND_TOOL_OPERATOR_ADDRESS || DEFAULT_OPERATOR_ADDRESS) {
@@ -298,7 +318,7 @@ export function buildToolUsageReport(tool: AgentToolSlug, payment: NonNullable<R
     verification_type: "eip3009_authorization",
     tool_chain_id: BASE_CHAIN_ID,
     tool_registry_address: process.env.MFERLAND_TOOL_REGISTRY_ADDRESS || "",
-    tool_onchain_id: process.env[`MFERLAND_TOOL_${tool.replace(/-/g, "_").toUpperCase()}_ID`] || "",
+    tool_onchain_id: getToolOnchainId(tool),
     latency_ms: Math.max(0, Date.now() - startedAt),
     eip3009: {
       caller_address: payment.authorization.from,
@@ -312,6 +332,14 @@ export function buildToolUsageReport(tool: AgentToolSlug, payment: NonNullable<R
       nonce: payment.authorization.nonce,
     },
   };
+}
+
+function getToolOnchainId(tool: AgentToolSlug) {
+  for (const key of AGENT_TOOL_ID_ENV_KEYS[tool]) {
+    const value = process.env[key] || "";
+    if (value) return value;
+  }
+  return "";
 }
 
 export async function reportAgentToolUsage(tool: AgentToolSlug, payment: NonNullable<ReturnType<typeof parseToolPaymentHeader>>, startedAt: number) {

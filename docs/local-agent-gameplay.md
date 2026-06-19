@@ -171,8 +171,8 @@ Swap `AGENT_COMMAND_PROFILE` between `quester`, `farmer`, `boss_hunter`, `tank`,
 Registered tool discovery to check:
 
 ```sh
-curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mferland-agent-command.json
-curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -i -X POST http://127.0.0.1:2567/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 ```
 

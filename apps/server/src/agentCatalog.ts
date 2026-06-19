@@ -196,8 +196,8 @@ export function buildAgentCatalog() {
       },
       registeredTools: {
         manifests: [
-          "/.well-known/ai-tool/mferland-agent-command.json",
-          "/.well-known/ai-tool/mferland-mfergpt-swap.json",
+          "/.well-known/ai-tool/mfertown-agent-command.json",
+          "/.well-known/ai-tool/mfertown-mfergpt-swap.json",
         ],
         swapQuote: "/agent-mfergpt-swap-quote",
         swapResult: "/agent-mfergpt-swap-result",

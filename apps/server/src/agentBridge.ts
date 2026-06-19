@@ -6913,7 +6913,7 @@ async function maybeReportCommandToolUsage(req: IncomingMessage, startedAt: numb
       reason: verified.error,
     };
   }
-  const report = await reportAgentToolUsage("mferland-agent-command", payment, startedAt);
+  const report = await reportAgentToolUsage("mfertown-agent-command", payment, startedAt);
   return {
     ...report,
     callerAddress: verified.callerAddress,

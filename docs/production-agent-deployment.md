@@ -22,7 +22,7 @@ Deploy the server code that includes:
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
 - public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
 - bounded bridge command endpoints: `/agent-command` and `/agent-command-stop`
-- ERC-8257/OpenSea-style tool manifests and swap tool endpoints: `/.well-known/ai-tool/mferland-agent-command.json`, `/.well-known/ai-tool/mferland-mfergpt-swap.json`, `/agent-mfergpt-swap-quote`, and `/agent-mfergpt-swap-result`
+- ERC-8257/OpenSea-style tool manifests and swap tool endpoints: `/.well-known/ai-tool/mfertown-agent-command.json`, `/.well-known/ai-tool/mfertown-mfergpt-swap.json`, `/agent-mfergpt-swap-quote`, and `/agent-mfergpt-swap-result`
 - public read-only agent facts APIs for simple questions without joining the live room:
   - `/agent-profile?wallet=...` saved character facts: level, XP, equipment, inventory, quests, talents, stats, and active saved buffs
   - `/agent-world` public live town facts: online players, agents/humans, areas, notable NPCs, and totals
@@ -52,10 +52,12 @@ Set these after the registration transactions assign tool IDs:
 
 ```sh
 MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
-MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
-MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
+MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
+
+Existing deployments that still use `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID` and `MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID` continue to work; the `MFERTOWN` names are the preferred aliases after the tool metadata rename.
 
 `MFERLAND_TOOL_CREATOR_ADDRESS` must match the wallet used for `register`; it is part of the manifest hash and should not change after registration without an `update-metadata` transaction. `MFERLAND_TOOL_OPERATOR_ADDRESS` must be the `payTo` address used in the zero-value EIP-3009 `X-Payment` challenge and the zero-price x402 pricing recipient in the manifest. Without it, the manifest can still be served with a zero-address fallback, but the tools should not be considered production-callable.
 
@@ -65,8 +67,8 @@ The gate only controls Season 0 earning for declared agents. Agents below 25M MF
 
 Register the public OpenSea tools after the `.well-known` manifests are deployed and smoke-tested. For now, register two tools:
 
-- `mferland-agent-command`: the single gameplay command tool. It covers `start`, `status`, and `stop` operations for bounded autoplay.
-- `mferland-mfergpt-swap`: the wallet-action swap helper. It covers quote and result reporting for Base ETH to MFERGPT swaps.
+- `mfertown-agent-command`: the single gameplay command tool. It covers `start`, `status`, and `stop` operations for bounded autoplay.
+- `mfertown-mfergpt-swap`: the wallet-action swap helper. It covers quote and result reporting for Base ETH to MFERGPT swaps.
 
 Do not register every read-only facts endpoint as a separate tool unless OpenSea or Bankr specifically asks for that later. The read-only APIs remain useful public context, but the durable agent tool surface should stay focused on actions that need attribution and usage reporting.
 
@@ -76,33 +78,51 @@ Fetch, validate, hash, and register the exact manifest JSON served by production
 # Configure and restart production first so MFERLAND_TOOL_CREATOR_ADDRESS
 # and MFERLAND_TOOL_OPERATOR_ADDRESS are present in the served manifests.
 
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json > /tmp/mferland-agent-command.json
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json > /tmp/mferland-mfergpt-swap.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json > /tmp/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json > /tmp/mfertown-mfergpt-swap.json
 
-npx @opensea/tool-sdk validate /tmp/mferland-agent-command.json
-npx @opensea/tool-sdk validate /tmp/mferland-mfergpt-swap.json
-npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
-npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
-npx @opensea/tool-sdk hash /tmp/mferland-agent-command.json
-npx @opensea/tool-sdk hash /tmp/mferland-mfergpt-swap.json
+npx @opensea/tool-sdk validate /tmp/mfertown-agent-command.json
+npx @opensea/tool-sdk validate /tmp/mfertown-mfergpt-swap.json
+npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
+npx @opensea/tool-sdk hash /tmp/mfertown-agent-command.json
+npx @opensea/tool-sdk hash /tmp/mfertown-mfergpt-swap.json
 
 PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
-  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json \
   --network base
 
 PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
-  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json \
   --network base
 ```
 
 The manifest hash is computed over the full served manifest, so the served JSON must not include a self-referential hash field. Use the SDK `hash` output and the registration transaction/logs as the source of truth for the onchain `manifestHash` and assigned `toolId`.
 
+For metadata-only changes such as renaming `mferland` tools to `mfertown`, keep the existing tool IDs and run `update-metadata` after the new manifests are deployed:
+
+```sh
+npx @opensea/tool-sdk update-metadata \
+  --tool-id 145 \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json \
+  --network base \
+  --wallet-provider bankr \
+  --rpc-url https://mainnet.base.org
+
+npx @opensea/tool-sdk update-metadata \
+  --tool-id 146 \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json \
+  --network base \
+  --wallet-provider bankr \
+  --rpc-url https://mainnet.base.org
+```
+
 After registration, set these production variables and restart the server once:
 
 ```sh
 MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
-MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID="..."
-MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID="..."
+MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
 
@@ -151,8 +171,8 @@ curl -fsS https://game.mfergpt.lol/agent-world
 curl -fsS "https://game.mfergpt.lol/agent-milestones?type=centralizer"
 curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-agent-command.json
-curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mferland-mfergpt-swap.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -i -X POST https://game.mfergpt.lol/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
 ```

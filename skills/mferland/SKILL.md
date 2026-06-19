@@ -374,8 +374,8 @@ Hosted `/agent-command` is still the default when the model can translate the re
 Registered tool discovery, when needed:
 
 ```txt
-/.well-known/ai-tool/mferland-agent-command.json
-/.well-known/ai-tool/mferland-mfergpt-swap.json
+/.well-known/ai-tool/mfertown-agent-command.json
+/.well-known/ai-tool/mfertown-mfergpt-swap.json
 POST /agent-mfergpt-swap-quote
 POST /agent-mfergpt-swap-result
 ```
