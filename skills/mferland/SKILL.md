@@ -120,8 +120,7 @@ Start shape:
   },
   "constraints": {
     "noWalletActions": true,
-    "noPaidActions": true,
-    "maxDeaths": 0
+    "noPaidActions": true
   },
   "maxSeconds": 300
 }
@@ -174,8 +173,7 @@ Use `finish_next_quest`, `finish_quest`, `play_for`, or `farm_until` when the us
   },
   "constraints": {
     "noWalletActions": true,
-    "noPaidActions": true,
-    "maxDeaths": 0
+    "noPaidActions": true
   },
   "maxSeconds": 900
 }
@@ -253,11 +251,13 @@ Use constraints to honor player boundaries:
   "noWalletActions": true,
   "noPaidActions": true,
   "maxDeaths": 0,
-  "maxSafetyStops": 1,
+  "maxSafetyStops": 0,
   "allowedActions": ["move_to", "accept_quest", "complete_quest", "fight_npc", "loot", "wait"],
   "disallowedActions": ["chat"]
 }
 ```
+
+Omit `maxDeaths` and `maxSafetyStops` for normal autoplay. The hosted runner will report deaths, safety retreats, and respawns in the command result while continuing until the goal, time cap, budget cap, or a manual stop. Set one of those fields only when the user explicitly wants a hard failure cap; `0` means stop on the first matching event.
 
 Hosted autoplay does not auto-sign wallet transactions. If a command needs a swap, burn, mint, or other wallet action, the bridge returns `wallet_action_required` or `payment_required`; the caller's wallet context decides whether to sign, submit, and retry with proof.
 

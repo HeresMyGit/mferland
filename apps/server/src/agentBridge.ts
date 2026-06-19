@@ -403,8 +403,8 @@ type AgentCommandGoalProgress = AgentCommandGoal & {
 type AgentCommandConstraints = {
   noWalletActions: boolean;
   noPaidActions: boolean;
-  maxDeaths: number;
-  maxSafetyStops: number;
+  maxDeaths: number | null;
+  maxSafetyStops: number | null;
   allowedActions: string[];
   disallowedActions: string[];
 };
@@ -590,8 +590,8 @@ const GROUP_ENCOUNTER_COMBAT_MEMORY_TTL_MS = 3 * 60_000;
 const GROUP_ENCOUNTER_PREP_SKIP_AFTER_PULL_MS = 2 * 60_000;
 const GROUP_ENCOUNTER_PREP_RETRY_MS = 25_000;
 const GROUP_ENCOUNTER_PREP_CLEAR_MEMORY_MS = 90_000;
-const DEFAULT_COMMAND_MAX_DEATHS = 2;
-const DEFAULT_COMMAND_MAX_SAFETY_STOPS = 8;
+const DEFAULT_COMMAND_MAX_DEATHS = null;
+const DEFAULT_COMMAND_MAX_SAFETY_STOPS = null;
 const GROUP_ENCOUNTER_READY_RADIUS = 34;
 const GROUP_ENCOUNTER_RALLY_DISTANCE = 28;
 const GROUP_ENCOUNTER_READY_HEALTH_RATIO = 0.88;
@@ -1416,7 +1416,7 @@ class AgentBridgeSession {
         await delay(1000);
         continue;
       }
-      if (command.constraints.maxDeaths <= 0 && self.health <= 0) {
+      if (command.constraints.maxDeaths === 0 && self.health <= 0) {
         await this.finishCommand(command, "safety_stop", "constraint_max_deaths");
         break;
       }
@@ -1447,7 +1447,7 @@ class AgentBridgeSession {
         }
         if (status === "safety_stop" || result.stoppedBecause?.startsWith("retreat_")) {
           command.safetyStopCount += 1;
-          if (command.constraints.maxSafetyStops <= 0 || command.safetyStopCount >= command.constraints.maxSafetyStops) {
+          if (isCommandFailureCapReached(command.constraints.maxSafetyStops, command.safetyStopCount)) {
             await this.finishCommand(command, "safety_stop", "constraint_max_safety_stops");
             break;
           }
@@ -1456,7 +1456,7 @@ class AgentBridgeSession {
         }
         if (result.stoppedBecause === "dead") {
           command.deathCount += 1;
-          if (command.deathCount >= command.constraints.maxDeaths) {
+          if (isCommandFailureCapReached(command.constraints.maxDeaths, command.deathCount)) {
             await this.finishCommand(command, "safety_stop", "constraint_max_deaths");
             break;
           }
@@ -7212,11 +7212,24 @@ function normalizeCommandConstraints(value: unknown): AgentCommandConstraints {
   return {
     noWalletActions: Boolean(record.noWalletActions),
     noPaidActions: Boolean(record.noPaidActions),
-    maxDeaths: hasMaxDeaths ? Math.min(99, Math.max(0, nonNegativeInt(record.maxDeaths))) : DEFAULT_COMMAND_MAX_DEATHS,
-    maxSafetyStops: hasMaxSafetyStops ? Math.min(99, Math.max(0, nonNegativeInt(record.maxSafetyStops))) : DEFAULT_COMMAND_MAX_SAFETY_STOPS,
+    maxDeaths: hasMaxDeaths ? normalizeCommandFailureCap(record.maxDeaths) : DEFAULT_COMMAND_MAX_DEATHS,
+    maxSafetyStops: hasMaxSafetyStops ? normalizeCommandFailureCap(record.maxSafetyStops) : DEFAULT_COMMAND_MAX_SAFETY_STOPS,
     allowedActions: normalizeDecisionActionList(record.allowedActions),
     disallowedActions: normalizeDecisionActionList(record.disallowedActions),
   };
+}
+
+export function normalizeCommandFailureCap(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "none" || text === "unlimited" || text === "no_limit" || text === "ignore") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(99, Math.max(0, Math.floor(parsed)));
+}
+
+export function isCommandFailureCapReached(cap: number | null, count: number) {
+  return cap !== null && count >= cap;
 }
 
 function normalizeDecisionActionList(value: unknown) {

@@ -175,9 +175,9 @@ export function buildAgentCatalog() {
         },
         constraints: {
           fields: ["noWalletActions", "noPaidActions", "maxDeaths", "maxSafetyStops", "allowedActions", "disallowedActions"],
-          defaults: { maxDeaths: 2, maxSafetyStops: 8 },
+          defaults: { maxDeaths: null, maxSafetyStops: null },
           walletSigningDefault: false,
-          note: "Hosted autoplay cannot sign wallet transactions. Use noWalletActions/noPaidActions when a player request must not spend or request wallet approval. Set maxDeaths or maxSafetyStops to 0 for a zero-failure run.",
+          note: "Hosted autoplay cannot sign wallet transactions. Use noWalletActions/noPaidActions when a player request must not spend or request wallet approval. By default deaths and safety retreats are reported but do not end the command; set maxDeaths or maxSafetyStops to 0 for a zero-failure run, or to a positive number for a hard cap.",
         },
         controller: {
           types: ["premade", "external_policy"],

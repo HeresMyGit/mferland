@@ -7,10 +7,12 @@ import {
   describeEquipmentChanges,
   generatedQuestTargetAreaPatrolPoints,
   getQuestAgentHints,
+  isCommandFailureCapReached,
   isGroupGatedEncounterType,
   isGenericQuestTargetSuppressed,
   isQuestTargetAreaCandidate,
   npcInteractionRouteStopDistance,
+  normalizeCommandFailureCap,
   routeQueueFromPosition,
   resolveIncompleteRequiredQuestIdForQuests,
   shouldSkipOptionalBossDailyCommand,
@@ -30,6 +32,19 @@ test("agent commands interrupt movement-like actions after dangerous travel dama
   assert.equal(shouldInterruptMovementForDamage("move_to", 172, 91, 172), true);
   assert.equal(shouldInterruptMovementForDamage("complete_quest", 172, 91, 172), true);
   assert.equal(shouldInterruptMovementForDamage("fight_npc", 172, 91, 172), false);
+});
+
+test("agent command failure caps are unlimited by default but support explicit hard stops", () => {
+  assert.equal(normalizeCommandFailureCap(undefined), null);
+  assert.equal(normalizeCommandFailureCap(null), null);
+  assert.equal(normalizeCommandFailureCap("unlimited"), null);
+  assert.equal(normalizeCommandFailureCap(0), 0);
+  assert.equal(normalizeCommandFailureCap("2"), 2);
+  assert.equal(normalizeCommandFailureCap(250), 99);
+  assert.equal(isCommandFailureCapReached(null, 50), false);
+  assert.equal(isCommandFailureCapReached(0, 0), true);
+  assert.equal(isCommandFailureCapReached(2, 1), false);
+  assert.equal(isCommandFailureCapReached(2, 2), true);
 });
 
 test("optional boss dailies are skipped by generic autoplay unless boss-focused", () => {

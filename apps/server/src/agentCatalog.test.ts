@@ -146,6 +146,9 @@ test("agent catalog documents normal player menu controls", () => {
   assert.ok(catalog.agentHarness.commands.goals.types.includes("near_player_count"));
   assert.match(catalog.agentHarness.commands.goals.note, /freeform player requests/);
   assert.equal(catalog.agentHarness.commands.constraints.walletSigningDefault, false);
+  assert.deepEqual(catalog.agentHarness.commands.constraints.defaults, { maxDeaths: null, maxSafetyStops: null });
+  assert.match(catalog.agentHarness.commands.constraints.note, /deaths and safety retreats are reported but do not end the command/);
+  assert.match(catalog.agentHarness.commands.constraints.note, /zero-failure run/);
   assert.deepEqual(catalog.agentHarness.commands.controller.types, ["premade", "external_policy"]);
   assert.match(catalog.agentHarness.commands.controller.note, /metadata only/);
   assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);

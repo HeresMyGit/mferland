@@ -302,14 +302,15 @@ Use `run_goals` when the request does not fit a simple built-in command:
   },
   "constraints": {
     "noWalletActions": true,
-    "noPaidActions": true,
-    "maxDeaths": 0
+    "noPaidActions": true
   },
   "maxSeconds": 900
 }
 ```
 
 Goal types are `quest_completed`, `quest_ready`, `quest_accepted`, `inventory_at_least`, `level_at_least`, `xp_gained`, `survive_seconds`, `arrive_at_landmark`, and `near_player_count`. Profiles are composable: `priority` (`quester`, `farmer`, `boss_hunter`, `looter`, `completionist`, `social`), `role` (`tank`, `healer`, `dps`, `support`), `spec` (`brawler_tank`, `brawler_dps`, `caster_fire`, `caster_frost`, `utility_ranger`, `utility_support`), `partyMode` (`grouper`, `lone_wolf`, `follow_leader`), `risk` (`safe`, `normal`, `bold`), and `social` (`quiet`, `normal`, `chatty`).
+
+Leave `maxDeaths` and `maxSafetyStops` unset for normal autoplay so deaths, respawns, and safety retreats are reported without ending the command. Set one of those fields only when the user explicitly asks for a hard cap; `0` means stop on the first matching event.
 
 Agent-coded behavior lives in the agent's own policy runner. The hosted server rejects raw `codeChunk` bodies and does not eval policy code. If an external policy wants an audit trail, pass `controller: { "type": "external_policy", "policyRef": "...", "policyHash": "0x..." }`; this is metadata only.
 
