@@ -115,7 +115,7 @@ export function updateLocalVisualPlayer(
   moveLength: number,
   yaw: number,
   sprint: boolean,
-  jump: boolean,
+  jumpStarted: boolean,
   delta: number,
 ) {
   syncLocalVisualPlayerSnapshot(visual, authoritative);
@@ -148,13 +148,13 @@ export function updateLocalVisualPlayer(
   visual.emote = authoritative.emote;
   visual.emoteStartedAt = authoritative.emoteStartedAt;
   visual.emoteEndsAt = authoritative.emoteEndsAt;
-  if (!isFrozen && (moveLength > 0.01 || jump)) {
+  if (!isFrozen && (moveLength > 0.01 || jumpStarted)) {
     visual.emote = "";
     visual.emoteStartedAt = 0;
     visual.emoteEndsAt = 0;
   }
 
-  const airborne = (!isFrozen && jump) || authoritative.y > 0.05 || visual.y > 0.05;
+  const airborne = authoritative.animation === "jump" || authoritative.y > 0.05 || visual.y > 0.05;
   visual.animation = airborne ? "jump" : !isFrozen && moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
 }
 

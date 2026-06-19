@@ -197,6 +197,7 @@ function TownSceneComponent({
   const interactHeld = useRef(false);
   const tabHeld = useRef(false);
   const escapeHeld = useRef(false);
+  const jumpHeld = useRef(false);
   const localVisualPlayer = useRef<PlayerSnapshot | null>(null);
   const frameForward = useMemo(() => new THREE.Vector3(), []);
   const frameRight = useMemo(() => new THREE.Vector3(), []);
@@ -572,6 +573,8 @@ function TownSceneComponent({
     }
     const isSprinting = !localIsDead && moveLength > 0.01 && (captureInput ? Boolean(captureInput.sprint) : true);
     const isJumping = !localIsDead && (captureInput ? Boolean(captureInput.jump) : (keys.has(" ") || keys.has("space") || keys.has("spacebar")));
+    const jumpStarted = isJumping && !jumpHeld.current;
+    jumpHeld.current = isJumping;
 
     const interactPressed = keys.has("f") || keys.has("keyf");
     if (interactPressed && !interactHeld.current && localPlayer && !localIsDead) {
@@ -607,7 +610,7 @@ function TownSceneComponent({
 
     if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
       if (controlsEnabled || captureInput) {
-        updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, controlDelta);
+        updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, jumpStarted, controlDelta);
       } else {
         updateObserverVisualPlayer(localVisualPlayer.current, localPlayer, controlDelta);
       }

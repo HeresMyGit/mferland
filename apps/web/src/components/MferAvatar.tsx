@@ -335,8 +335,11 @@ export function MferAvatar({
     nextAction.play();
 
     const previousAction = currentActionRef.current;
+    const previousAnimationKey = currentAnimationKeyRef.current;
     if (previousAction && previousAction !== nextAction) {
-      const fadeDuration = options.fadeDuration ?? (state === "jump" || isEmoteAnimationKey(state) ? 0.08 : 0.18);
+      const fadeDuration = options.fadeDuration ?? (
+        state === "jump" || previousAnimationKey === "jump" ? 0.04 : isEmoteAnimationKey(state) ? 0.08 : 0.18
+      );
       if (fadeDuration > 0) nextAction.crossFadeFrom(previousAction, fadeDuration, false);
       else previousAction.stop();
     }
@@ -1059,7 +1062,7 @@ export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
     const sourceClip = fbxAnimations[index]?.animations?.[0];
     if (!sourceClip) continue;
 
-    const clip = makeInPlaceClip(sourceClip);
+    const clip = isIdleAnimationKey(state) ? makeLoopSafeIdleClip(sourceClip) : makeInPlaceClip(sourceClip);
     clip.name = config.file;
     clips.set(state, clip);
   }
@@ -1073,6 +1076,10 @@ export function getMferAnimationClips(fbxAnimations: THREE.Group[]) {
     scopedCache.set(cacheScope, clips);
   }
   return clips;
+}
+
+function isIdleAnimationKey(key: MferAnimationKey) {
+  return key === "idle" || Object.prototype.hasOwnProperty.call(MFER_IDLE_VARIANT_CLIPS, key);
 }
 
 function getMferAvatarTemplate(
@@ -1135,6 +1142,38 @@ function createMferAvatarTemplate(
 
 function getAppearanceTraitsKey(player: PlayerSnapshot | NpcSnapshot) {
   return "appearanceTraits" in player ? JSON.stringify(player.appearanceTraits ?? {}) : "";
+}
+
+function makeLoopSafeIdleClip(sourceClip: THREE.AnimationClip) {
+  const clip = sourceClip.clone();
+  for (const track of clip.tracks) {
+    if (!/mixamorigHips\.position/i.test(track.name)) continue;
+    if (!track.times?.length || !track.values || track.values.length < 3) continue;
+
+    const valueSize = track.values.length / track.times.length;
+    if (!Number.isFinite(valueSize) || valueSize < 3) continue;
+
+    const firstTime = track.times[0];
+    const lastTime = track.times[track.times.length - 1];
+    const duration = lastTime - firstTime;
+    if (duration <= 0) continue;
+
+    const firstValueIndex = 0;
+    const lastValueIndex = track.values.length - valueSize;
+    const firstX = track.values[firstValueIndex];
+    const firstZ = track.values[firstValueIndex + 2];
+    const driftX = track.values[lastValueIndex] - firstX;
+    const driftZ = track.values[lastValueIndex + 2] - firstZ;
+
+    for (let keyIndex = 0; keyIndex < track.times.length; keyIndex += 1) {
+      const valueIndex = keyIndex * valueSize;
+      const progress = (track.times[keyIndex] - firstTime) / duration;
+      track.values[valueIndex] -= driftX * progress;
+      track.values[valueIndex + 2] -= driftZ * progress;
+    }
+  }
+  ensureClipStartsAtZero(clip);
+  return clip;
 }
 
 function makeInPlaceClip(sourceClip: THREE.AnimationClip) {

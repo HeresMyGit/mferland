@@ -339,8 +339,9 @@ function MferGptAvatarRig({
     nextAction.play();
 
     const previousAction = currentActionRef.current;
+    const previousAnimationState = currentAnimationStateRef.current;
     if (previousAction && previousAction !== nextAction) {
-      const fadeDuration = options.fadeDuration ?? (state === "jump" ? 0.08 : 0.18);
+      const fadeDuration = options.fadeDuration ?? (state === "jump" || previousAnimationState === "jump" ? 0.04 : 0.18);
       if (fadeDuration > 0) nextAction.crossFadeFrom(previousAction, fadeDuration, false);
       else previousAction.stop();
     }
