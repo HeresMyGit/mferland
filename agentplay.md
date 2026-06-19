@@ -15,17 +15,20 @@ There is no separate production agent server. Production agents are normal walle
 Branch to merge:
 
 ```txt
-codex/local-agent-gameplay
+codex/update-agent-harness-autoplay
 ```
 
-The committed branch includes the wallet-agent server contract, `/agent-catalog`, `/agent-view`, public skill package source, local/internal agent harness work, and the approved gameplay changes from the bear-market testing branch.
+The committed branch includes the bounded hosted agent command harness, wallet-agent server contract, `/agent-catalog`, `/agent-view`, registered tool manifests, public skill package source, local/internal agent harness work, and the current gameplay updates from main.
 
-Current approved gameplay changes in this branch include:
+Current deploy scope in this branch includes:
 
-- heal cooldown changed from `5000ms` to `0`
-- bear market boss spawn moved to `{ x: 76, z: -111, yaw: -0.35 }`
+- bounded `/agent-command` and `/agent-command-stop`
+- read-only public agent facts APIs
+- hosted public skill package files
+- OpenSea/ERC-8257-style tool manifests and MFERGPT swap quote/result endpoints
+- agent autoplay state in public read APIs and the passive `/agent-view` renderer
 
-Before pushing or merging from another machine, check whether there are uncommitted local changes. Uncommitted local raid-test harness edits are not part of the pushed branch unless explicitly committed.
+Before pushing or merging from another machine, check whether there are uncommitted local changes. Uncommitted local edits are not part of the pushed branch unless explicitly committed.
 
 ## Live Prod Preflight
 
@@ -51,7 +54,7 @@ cd /Users/mfergpt/dev/mferland
 git fetch origin
 git checkout main
 git pull --ff-only
-git merge --no-ff origin/codex/local-agent-gameplay
+git merge --no-ff origin/codex/update-agent-harness-autoplay
 ```
 
 Install/build/restart:

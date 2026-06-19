@@ -53,37 +53,25 @@ test("forces declared agent face traits while preserving robot-compatible style"
   assert.equal(traits.mouth, "flat");
 });
 
-test("allows declared agent caps and long hair while preserving robot face traits", () => {
-  const capTraits = normalizeAgentMferAppearanceTraits({
+test("removes agent traits that clip into the agent model", () => {
+  const traits = normalizeAgentMferAppearanceTraits({
     background: "green",
     type: "plain",
     eyes: "shades",
     mouth: "smile",
     headphones: "blue",
     hat_under_headphones: "cap_based_blue",
+    long_hair: "long_black",
     shirt: "hoodie_down_green",
   });
-  const longHairTraits = normalizeAgentMferAppearanceTraits({
-    background: "yellow",
-    type: "plain",
-    eyes: "purple_shades",
-    mouth: "smile",
-    headphones: "blue",
-    long_hair: "long_yellow",
-    shirt: "hoodie_down_blue",
-  });
 
-  assert.equal(capTraits.background, "green");
-  assert.equal(capTraits.headphones, "blue");
-  assert.equal(capTraits.shirt, "hoodie_down_green");
-  assert.equal(capTraits.hat_under_headphones, "cap_based_blue");
-  assert.equal(capTraits.eyes, "regular");
-  assert.equal(capTraits.mouth, "flat");
-  assert.equal(longHairTraits.background, "yellow");
-  assert.equal(longHairTraits.headphones, "blue");
-  assert.equal(longHairTraits.long_hair, "long_yellow");
-  assert.equal(longHairTraits.eyes, "regular");
-  assert.equal(longHairTraits.mouth, "flat");
+  assert.equal(traits.background, "green");
+  assert.equal(traits.headphones, "blue");
+  assert.equal(traits.shirt, "hoodie_down_green");
+  assert.equal(traits.eyes, "regular");
+  assert.equal(traits.mouth, "flat");
+  assert.equal(traits.hat_under_headphones, undefined);
+  assert.equal(traits.long_hair, undefined);
 });
 
 test("does not create explicit agent traits from an empty fallback", () => {
@@ -110,6 +98,8 @@ test("builds deterministic varied agent traits instead of defaulting to first ch
     const generated = makeDeterministicAgentMferAppearanceTraits(`0xagent:seed-${index}`);
     assert.equal(generated.eyes, "regular");
     assert.equal(generated.mouth, "flat");
+    assert.equal(generated.long_hair, undefined);
+    assert.notEqual(generated.hat_under_headphones?.startsWith("cap_"), true);
   }
 });
 

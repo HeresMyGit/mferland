@@ -292,8 +292,14 @@ export const AGENT_MFER_APPEARANCE_FORCED_TRAITS = {
 } as const;
 
 export const AGENT_MFER_APPEARANCE_BLOCKED_TRAITS = {
-  categories: [],
-  options: {},
+  categories: ["long_hair"],
+  options: {
+    eyes: MFER_APPEARANCE_TRAIT_CATEGORIES
+      .find((category) => category.id === "eyes")
+      ?.options.map((option) => option.id)
+      .filter((optionId) => optionId !== "regular") ?? [],
+    hat_under_headphones: ["cap_monochrome", "cap_based_blue", "cap_purple"],
+  },
 } as const;
 
 export const DEFAULT_AGENT_MFER_APPEARANCE_TRAITS: MferAppearanceTraits = {
@@ -301,7 +307,7 @@ export const DEFAULT_AGENT_MFER_APPEARANCE_TRAITS: MferAppearanceTraits = {
   ...AGENT_MFER_APPEARANCE_FORCED_TRAITS,
 };
 
-export const AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE = "Prefer wallet/name-seeded variety over defaults or first-listed choices. Pick a coherent style from the full catalog; only use the default or first option when it intentionally fits the agent identity. Declared agents render with the mferGPT model and keep the robot face, while accessories such as caps and long hair are valid visual overlays.";
+export const AGENT_MFER_APPEARANCE_SELECTION_GUIDANCE = "Prefer wallet/name-seeded variety over defaults or first-listed choices. Pick a coherent style from the full catalog; only use the default or first option when it intentionally fits the agent identity. Declared agents cannot use caps, long hair, shades, or glasses because those clip into the agent model.";
 
 const AGENT_RANDOMIZED_TRAIT_CATEGORIES: Record<string, number> = {
   hat_over_headphones: 55,
@@ -321,6 +327,7 @@ export function makeDeterministicAgentMferAppearanceTraits(seed: string | number
   const traits: MferAppearanceTraits = {};
 
   for (const category of MFER_APPEARANCE_TRAIT_CATEGORIES) {
+    if (!isAgentMferAppearanceTraitAllowed(category.id)) continue;
     if (category.id === "eyes" || category.id === "mouth") continue;
 
     const optionalChance = AGENT_RANDOMIZED_TRAIT_CATEGORIES[category.id];
@@ -384,6 +391,7 @@ export function normalizeAgentMferAppearanceTraits(
   fallback: MferAppearanceTraits = DEFAULT_AGENT_MFER_APPEARANCE_TRAITS,
 ) {
   const normalized = normalizeMferAppearanceTraits(value, fallback);
+  removeBlockedAgentMferAppearanceTraits(normalized);
   if (Object.keys(normalized).length === 0) return normalized;
   return {
     ...normalized,
@@ -459,7 +467,7 @@ function applyMferAppearanceTraitRules(traits: MferAppearanceTraits) {
 function pickAgentTraitOption(category: MferAppearanceTraitCategory, seedText: string) {
   const options = category.options
     .map((option) => option.id)
-    .filter(Boolean);
+    .filter((optionId) => Boolean(optionId) && isAgentMferAppearanceTraitAllowed(category.id, optionId));
   if (options.length === 0) return "";
 
   const defaultValue = DEFAULT_AGENT_MFER_APPEARANCE_TRAITS[category.id] ?? DEFAULT_MFER_APPEARANCE_TRAITS[category.id];
@@ -470,4 +478,17 @@ function pickAgentTraitOption(category: MferAppearanceTraitCategory, seedText: s
     : [];
   const pool = preferredOptions.length > 0 ? preferredOptions : options;
   return pool[stableHash(`agent-trait:pick:${seedText}:${category.id}`) % pool.length] ?? "";
+}
+
+function isAgentMferAppearanceTraitAllowed(categoryId: string, optionId = "") {
+  if ((AGENT_MFER_APPEARANCE_BLOCKED_TRAITS.categories as readonly string[]).includes(categoryId)) return false;
+  const blockedOptions = AGENT_MFER_APPEARANCE_BLOCKED_TRAITS.options as Record<string, readonly string[]>;
+  const blocked = blockedOptions[categoryId] ?? [];
+  return !optionId || !blocked.includes(optionId) && !(categoryId === "hat_under_headphones" && optionId.startsWith("cap_"));
+}
+
+function removeBlockedAgentMferAppearanceTraits(traits: MferAppearanceTraits) {
+  for (const [categoryId, optionId] of Object.entries(traits)) {
+    if (!isAgentMferAppearanceTraitAllowed(categoryId, optionId)) delete traits[categoryId];
+  }
 }

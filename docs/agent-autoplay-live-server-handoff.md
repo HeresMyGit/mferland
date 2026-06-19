@@ -38,8 +38,8 @@ BASE_RPC_URL or configured Base RPC provider
 MFERLAND_MFERGPT_TOKEN_ADDRESS
 MFERLAND_TOOL_OPERATOR_ADDRESS
 OPENSEA_API_KEY
-MFERLAND_AGENT_COMMAND_TOOL_ID
-MFERLAND_MFERGPT_SWAP_TOOL_ID
+MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID
+MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID
 ```
 
 Tool registry variables can be absent in local/dev mode, but production OpenSea/ERC-8257 usage reporting requires the OpenSea key, registry/tool ids, operator address, and valid zero-value EIP-3009 `X-Payment` headers.

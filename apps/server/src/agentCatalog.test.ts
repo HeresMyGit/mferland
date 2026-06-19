@@ -117,8 +117,10 @@ test("agent catalog documents normal player menu controls", () => {
   assert.ok(catalog.traits.categories.some((category) => category.id === "type"));
   assert.equal(catalog.traits.declaredAgentModel, "mfergpt");
   assert.deepEqual(catalog.traits.forcedForDeclaredAgents, { eyes: "regular", mouth: "flat" });
-  assert.deepEqual(catalog.traits.blockedForDeclaredAgents.categories, []);
-  assert.deepEqual(catalog.traits.blockedForDeclaredAgents.options, {});
+  assert.deepEqual(catalog.traits.blockedForDeclaredAgents.categories, ["long_hair"]);
+  assert.ok(catalog.traits.blockedForDeclaredAgents.options.eyes.includes("shades"));
+  assert.ok(catalog.traits.blockedForDeclaredAgents.options.eyes.includes("nerd"));
+  assert.ok(catalog.traits.blockedForDeclaredAgents.options.hat_under_headphones.includes("cap_based_blue"));
   assert.match(catalog.traits.note, /regular eyes and flat mouth/);
   assert.match(catalog.traits.note, /caps, long hair, shades, and glasses should remain unset/);
   assert.match(catalog.traits.selectionGuidance, /seeded variety/);
