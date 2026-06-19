@@ -697,6 +697,7 @@ function TownSceneComponent({
                 key={sessionId}
                 npc={makeAgentModelSnapshot(renderedPlayer)}
                 variant="agent"
+                agentPlayer={renderedPlayer}
                 appearanceTraits={cleanCaptureAgentModel && isLocalPlayer ? null : renderedPlayer.appearanceTraits}
                 cleanAgentModel={cleanCaptureAgentModel && isLocalPlayer}
                 showNameplate={showNameplate}

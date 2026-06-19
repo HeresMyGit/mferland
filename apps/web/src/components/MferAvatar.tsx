@@ -121,6 +121,8 @@ const QUEST_MARKER_RENDER_DISTANCE_SQ = 46 * 46;
 const LOOT_EFFECT_RENDER_DISTANCE_SQ = 30 * 30;
 const SHOPKEEPER_CUE_RENDER_DISTANCE_SQ = 38 * 38;
 const MERCHANT_PRICE_TAG_EMOJI = "🏷️";
+const ACTOR_POSITION_SNAP_DISTANCE = 5.5;
+const ACTOR_HEIGHT_SNAP_DISTANCE = 3;
 
 avatarHitGeometry.computeBoundingBox();
 avatarHitGeometry.computeBoundingSphere();
@@ -166,6 +168,9 @@ export function MferAvatar({
   const playerEmote = "emote" in player ? player.emote : "";
   const playerEmoteStartedAt = "emoteStartedAt" in player ? player.emoteStartedAt : 0;
   const playerEmoteEndsAt = "emoteEndsAt" in player ? player.emoteEndsAt : 0;
+  const actorId = "sessionId" in player ? player.sessionId : player.id;
+  const initialPosition = useMemo<[number, number, number]>(() => [player.x, player.y, player.z], [actorId]);
+  const initialYaw = useMemo(() => player.yaw, [actorId]);
   const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, player.x, player.z) : 0;
   const showNameplate = canShowNameplate && !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
@@ -242,7 +247,11 @@ export function MferAvatar({
     targetPosition.set(player.x, player.y, player.z);
     const positionLerp = isLocal ? 0.68 : 0.18;
     const rotationDecay = isLocal ? 0.62 : 0.82;
-    group.position.lerp(targetPosition, 1 - Math.pow(1 - positionLerp, delta * 60));
+    if (shouldSnapActorPosition(group.position, targetPosition)) {
+      group.position.copy(targetPosition);
+    } else {
+      group.position.lerp(targetPosition, 1 - Math.pow(1 - positionLerp, delta * 60));
+    }
     group.rotation.y = lerpAngle(group.rotation.y, player.yaw, 1 - Math.pow(rotationDecay, delta * 60));
 
     const pose = poseRef.current;
@@ -254,7 +263,7 @@ export function MferAvatar({
   });
 
   return (
-    <group ref={groupRef} position={[player.x, player.y, player.z]} rotation-y={player.yaw} scale={actorScale}>
+    <group ref={groupRef} position={initialPosition} rotation-y={initialYaw} scale={actorScale}>
       <ActorBlobShadow scale={isDefeated ? [0.95, 0.5, 1] : [0.76, 0.46, 1]} />
       {showMerchantCue && <ShopkeeperBuyAura radius={0.98} />}
       {showBaseMarker && <DispositionBaseMarker disposition={disposition} questMarker={questMarker} radius={0.86} />}
@@ -1009,6 +1018,11 @@ function longestBubbleWord(text: string) {
 function lerpAngle(a: number, b: number, t: number) {
   const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
   return a + delta * t;
+}
+
+function shouldSnapActorPosition(current: THREE.Vector3, target: THREE.Vector3) {
+  return Math.hypot(current.x - target.x, current.z - target.z) > ACTOR_POSITION_SNAP_DISTANCE
+    || Math.abs(current.y - target.y) > ACTOR_HEIGHT_SNAP_DISTANCE;
 }
 
 function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {
