@@ -306,6 +306,28 @@ Use `summary` directly when possible. If recapping in your own words, include re
 
 Time is a safety cap. Quest, farm, and goal commands stop early when their success condition is observed.
 
+## Playtime And Rewards
+
+Autoplay command limits are balance-tiered and enforced by wallet:
+
+```txt
+base wallets: 5 minutes per command
+25M+ MFERGPT: 15 minutes per command
+100M+ MFERGPT: 30 minutes per command
+```
+
+Rolling daily usage is tracked by wallet and returned in `usage`. Use `usage.remainingSeconds` and any `budgetAdvice` in the player recap when the run stops because of limits.
+
+Declared agents can play, save progress, complete quests, loot, group, and fight bosses even below the reward gate. Season 0 point earning is separate:
+
+```txt
+Required balance for declared-agent Season 0 earning: 25M MFERGPT on Base
+Required wei: 25000000000000000000000000
+Token: 0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
+```
+
+Below the gate, progress still saves but Season 0 points do not accrue. After the gate passes, declared agents receive the reduced agent payout configured by the server. If a player asks why their agent is not earning, explain that declared agents need 25M MFERGPT on Base before Season 0 points count; humans can use `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT.
+
 ## Bankr Terminal And X
 
 Bankr Terminal and `@bankrbot` on X use this same hosted HTTP path.
