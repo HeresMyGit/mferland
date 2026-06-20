@@ -134,7 +134,6 @@ const DEFAULT_NAMEPLATE_VISIBILITY: NameplateVisibility = {
 const EMPTY_DEBUG_PLACEMENT_OVERRIDES: DebugPlacementOverrides = {};
 const DEBUG_CAMERA_FOV = 54;
 const DEFAULT_CAMERA_FOV = 54;
-const DEFAULT_CAMERA_FAR = 140;
 const DEBUG_CAMERA_FAR = 900;
 const DEBUG_CAMERA_OVERVIEW_HEIGHT = 275;
 const DEBUG_CAMERA_MIN_HEIGHT = 32;
@@ -508,9 +507,10 @@ function TownSceneComponent({
     }
 
     camera.up.set(0, 1, 0);
-    if (camera instanceof THREE.PerspectiveCamera && (camera.fov !== DEFAULT_CAMERA_FOV || camera.far !== DEFAULT_CAMERA_FAR)) {
+    const defaultCameraFar = resolvedRenderProfile.cameraFar;
+    if (camera instanceof THREE.PerspectiveCamera && (camera.fov !== DEFAULT_CAMERA_FOV || camera.far !== defaultCameraFar)) {
       camera.fov = DEFAULT_CAMERA_FOV;
-      camera.far = DEFAULT_CAMERA_FAR;
+      camera.far = defaultCameraFar;
       camera.updateProjectionMatrix();
     }
 
