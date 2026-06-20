@@ -10,6 +10,7 @@ import {
   type AnimationState,
   type MferAppearanceTraits,
   type NpcSnapshot,
+  type PlayerSnapshot,
   type QuestMarkerType,
 } from "@mferland/shared";
 import { type ChatBubble } from "../game/chatBubbles";
@@ -35,6 +36,7 @@ import {
 type MferGptAvatarProps = {
   npc: NpcSnapshot;
   variant?: "npc" | "agent";
+  agentPlayer?: PlayerSnapshot | null;
   appearanceTraits?: MferAppearanceTraits | null;
   cleanAgentModel?: boolean;
   isTargeted?: boolean;
@@ -103,6 +105,8 @@ const antennaPointLightPulseThreshold = 0.08;
 const antennaPointLightDistance = 4.2;
 const antennaPointLightDecay = 2.2;
 const antennaPointLightPosition: [number, number, number] = [0, 2.58, 0.04];
+const ACTOR_POSITION_SNAP_DISTANCE = 5.5;
+const ACTOR_HEIGHT_SNAP_DISTANCE = 3;
 
 hitGeometry.computeBoundingBox();
 hitGeometry.computeBoundingSphere();
@@ -128,6 +132,7 @@ function AgentMferGptAvatar(props: MferGptAvatarProps) {
 function MferGptAvatarRig({
   npc,
   variant = "npc",
+  agentPlayer = null,
   appearanceTraits = null,
   cleanAgentModel = false,
   isTargeted = false,
@@ -150,6 +155,10 @@ function MferGptAvatarRig({
   const currentAnimationStateRef = useRef<AnimationState | null>(null);
   const deathAgeRef = useRef(0);
   const wasDefeatedRef = useRef(false);
+  const liveAgentPlayer = variant === "agent" ? agentPlayer : null;
+  const motionSource = liveAgentPlayer ?? npc;
+  const initialPosition = useMemo<[number, number, number]>(() => [motionSource.x, motionSource.y, motionSource.z], [npc.id]);
+  const initialYaw = useMemo(() => motionSource.yaw, [npc.id]);
   const disposition = getNpcDisposition(npc);
   const isHostile = disposition === "hostile";
   const gltf = useLoader(GLTFLoader, getMferGptModelUrl(isHostile, variant)) as LoadedMferGptGltf;
@@ -168,14 +177,14 @@ function MferGptAvatarRig({
   );
   const antennaLightMaterials = useMemo(() => getMferGptAntennaLightMaterials(avatar), [avatar]);
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
-  const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, npc.x, npc.z) : 0;
+  const distanceToViewerSq = viewerPosition ? distanceSq2d(viewerPosition, motionSource.x, motionSource.z) : 0;
   const showNameplate = canShowNameplate && !isDefeated && (isTargeted || distanceToViewerSq <= NAMEPLATE_RENDER_DISTANCE_SQ);
   const showChatBubble = !isDefeated && Boolean(chatBubble) && (isTargeted || distanceToViewerSq <= CHAT_BUBBLE_RENDER_DISTANCE_SQ);
   const showQuestMarker = !isDefeated && Boolean(questMarker) && (isTargeted || distanceToViewerSq <= QUEST_MARKER_RENDER_DISTANCE_SQ);
   const showLootSparkles = hasLoot && (isTargeted || distanceToViewerSq <= LOOT_EFFECT_RENDER_DISTANCE_SQ);
   const showBaseMarker = variant !== "agent" && !isDefeated;
   const showSignalBeacon = variant !== "agent" && !isDefeated && !isHostile;
-  const isFrozen = npc.frozenUntil > Date.now();
+  const isFrozen = motionSource.frozenUntil > Date.now();
   const isCold = !isFrozen && npc.slowedUntil > Date.now();
 
   useEffect(() => {
@@ -232,15 +241,21 @@ function MferGptAvatarRig({
       deathAgeRef.current += delta;
       updateMferDeathPose(poseRef.current, deathAgeRef.current);
     } else {
-      if (currentAnimationStateRef.current !== npc.animation) {
-        playClip(npc.animation);
+      const animationState = liveAgentPlayer?.animation ?? npc.animation;
+      if (currentAnimationStateRef.current !== animationState) {
+        playClip(animationState);
       }
       mixerRef.current?.update(delta);
     }
 
-    targetPosition.set(npc.x, npc.y, npc.z);
-    group.position.lerp(targetPosition, 1 - Math.pow(0.82, delta * 60));
-    group.rotation.y = lerpAngle(group.rotation.y, npc.yaw, 1 - Math.pow(0.82, delta * 60));
+    const currentMotionSource = liveAgentPlayer ?? npc;
+    targetPosition.set(currentMotionSource.x, currentMotionSource.y, currentMotionSource.z);
+    if (shouldSnapActorPosition(group.position, targetPosition)) {
+      group.position.copy(targetPosition);
+    } else {
+      group.position.lerp(targetPosition, 1 - Math.pow(0.82, delta * 60));
+    }
+    group.rotation.y = lerpAngle(group.rotation.y, currentMotionSource.yaw, 1 - Math.pow(0.82, delta * 60));
 
     const pose = poseRef.current;
     if (!pose) return;
@@ -252,7 +267,7 @@ function MferGptAvatarRig({
   });
 
   return (
-    <group ref={groupRef} position={[npc.x, npc.y, npc.z]} rotation-y={npc.yaw}>
+    <group ref={groupRef} position={initialPosition} rotation-y={initialYaw}>
       {showSignalBeacon && (
         <MferGptSignalBeacon isHostile={isHostile} isTargeted={isTargeted} showMention={!showChatBubble && !showQuestMarker} />
       )}
@@ -339,8 +354,9 @@ function MferGptAvatarRig({
     nextAction.play();
 
     const previousAction = currentActionRef.current;
+    const previousAnimationState = currentAnimationStateRef.current;
     if (previousAction && previousAction !== nextAction) {
-      const fadeDuration = options.fadeDuration ?? (state === "jump" ? 0.08 : 0.18);
+      const fadeDuration = options.fadeDuration ?? (state === "jump" || previousAnimationState === "jump" ? 0.04 : 0.18);
       if (fadeDuration > 0) nextAction.crossFadeFrom(previousAction, fadeDuration, false);
       else previousAction.stop();
     }
@@ -606,6 +622,11 @@ function isMferGptAntennaLight(meshName: string, materialName = "") {
 function lerpAngle(a: number, b: number, t: number) {
   const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
   return a + delta * t;
+}
+
+function shouldSnapActorPosition(current: THREE.Vector3, target: THREE.Vector3) {
+  return Math.hypot(current.x - target.x, current.z - target.z) > ACTOR_POSITION_SNAP_DISTANCE
+    || Math.abs(current.y - target.y) > ACTOR_HEIGHT_SNAP_DISTANCE;
 }
 
 function distanceSq2d(origin: { x: number; z: number }, x: number, z: number) {

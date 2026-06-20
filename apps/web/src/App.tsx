@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Gem, LogOut, MapPin, RefreshCw, Settings as SettingsIcon, Sparkles, UserRound, X } from "lucide-react";
 import * as THREE from "three";
 import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector } from "wagmi";
 import {
@@ -86,12 +86,13 @@ import { useTownRoom } from "./game/useTownRoom";
 import { TownScene, type CaptureCameraState, type CaptureInputState, type MobileMoveInput } from "./game/TownScene";
 import { Skybox, TownWorld } from "./game/scene/TownWorld";
 import { copyTextToClipboard } from "./clipboard";
-import { Hud } from "./components/Hud";
+import { Hud, SettingsPanel } from "./components/Hud";
 import { DebugPlacementEditor } from "./components/DebugPlacementEditor";
 import { MobileControls } from "./components/MobileControls";
 import { MferHeadLoader } from "./components/MferHeadLoader";
 import { MferGptSwapMenu } from "./components/MferGptSwapMenu";
 import { MferPortrait } from "./components/MferPortrait";
+import { MovableWindow } from "./components/MovableWindow";
 import { PotionShopPanel } from "./components/PotionShopPanel";
 import { RespecPanel } from "./components/RespecPanel";
 import { TrashVendorPanel } from "./components/TrashVendorPanel";
@@ -376,8 +377,9 @@ function AuthGate({
   const [creationSeed, setCreationSeed] = useState(() => makeCreationSeed());
   const [previewReady, setPreviewReady] = useState(false);
   const [loaderComplete, setLoaderComplete] = useState(false);
-  const authGraphicsQuality = useMemo(() => readStoredGameSettings().graphicsQuality, []);
-  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(authGraphicsQuality), [authGraphicsQuality]);
+  const [authSettings, setAuthSettings] = useState<GameSettings>(() => readStoredGameSettings());
+  const [isAuthSettingsOpen, setIsAuthSettingsOpen] = useState(false);
+  const renderProfile = useMemo(() => getClientRenderPerformanceProfile(authSettings.graphicsQuality), [authSettings.graphicsQuality]);
   const cryptoSmokeMode = isCryptoSmokeMode();
   const handlePreviewReady = useCallback(() => setPreviewReady(true), []);
   const handleLoaderComplete = useCallback(() => setLoaderComplete(true), []);
@@ -756,14 +758,20 @@ function AuthGate({
     disconnect();
   }
 
+  function handleAuthSettingsChange(nextSettings: GameSettings) {
+    setAuthSettings(nextSettings);
+    writeStoredGameSettings(nextSettings);
+  }
+
   return (
     <main className="auth-screen">
       <div className="auth-bg" aria-hidden="true">
         {!cryptoSmokeMode && (
           <Canvas
+            key={renderProfile.cacheKey}
             className="auth-town-canvas"
             dpr={renderProfile.previewDpr}
-            camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: 130 }}
+            camera={{ position: [0, 7.2, 17.6], fov: 42, near: 0.1, far: renderProfile.cameraFar }}
             gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
           >
             <AuthTownPreview debugPlacementOverrides={debugPlacementOverrides} renderProfile={renderProfile} onReady={handlePreviewReady} />
@@ -771,7 +779,7 @@ function AuthGate({
         )}
         <div className="auth-scene-vignette" />
       </div>
-      {showAuthLoader && <MferHeadLoader ready={previewReady} renderProfile={renderProfile} onComplete={handleLoaderComplete} />}
+      {showAuthLoader && <MferHeadLoader ready={previewReady} renderProfile={renderProfile} blocking={false} onComplete={handleLoaderComplete} />}
       <section className="auth-title-lockup" aria-label="mfertown">
         <div className="brand-mark">
           <MferPortrait traits={SARTOSHI_MFER_TRAITS} background="orange" variant="full" title="sartoshi mfer portrait" />
@@ -788,6 +796,28 @@ function AuthGate({
         <ExternalLink size={17} />
         <span>agents</span>
       </a>
+
+      <button
+        type="button"
+        className="auth-settings-button"
+        title="Settings"
+        aria-label="Settings"
+        aria-expanded={isAuthSettingsOpen}
+        onClick={() => setIsAuthSettingsOpen((open) => !open)}
+      >
+        <SettingsIcon size={19} />
+      </button>
+
+      {isAuthSettingsOpen && (
+        <section className="auth-settings-overlay" role="dialog" aria-label="Settings">
+          <SettingsPanel
+            settings={authSettings}
+            debugToolsAvailable={false}
+            onChange={handleAuthSettingsChange}
+            onClose={() => setIsAuthSettingsOpen(false)}
+          />
+        </section>
+      )}
 
       <section className="auth-connect-panel">
         <label className="name-field">
@@ -1690,7 +1720,7 @@ function GameShell({
   }, [actionSlots]);
 
   useEffect(() => {
-    window.localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    writeStoredGameSettings(settings);
   }, [settings]);
 
   useEffect(() => {
@@ -1788,7 +1818,7 @@ function GameShell({
       <Canvas
         key={renderProfile.cacheKey}
         dpr={renderProfile.gameDpr}
-        camera={{ position: [0, 6, 10], fov: 54, near: 0.1, far: 140 }}
+        camera={{ position: [0, 6, 10], fov: 54, near: 0.1, far: renderProfile.cameraFar }}
         gl={{ antialias: renderProfile.antialias, powerPreference: renderProfile.powerPreference }}
       >
         <TownScene
@@ -1879,7 +1909,7 @@ function GameShell({
             onSettingsChange={setSettings}
           />
           {traitsNpc && localPlayer && (
-            <section className="floating-menu-overlay traits-anchor" role="dialog" aria-label="traits">
+            <MovableWindow id="hud.traits" as="section" className="floating-menu-overlay traits-anchor" role="dialog" aria-label="traits">
               <TraitsPanel
                 npc={traitsNpc}
                 player={localPlayer}
@@ -1887,10 +1917,10 @@ function GameShell({
                 onClose={() => setTraitsNpcId(null)}
                 onUpdateTraits={updateTraits}
               />
-            </section>
+            </MovableWindow>
           )}
           {potionShopNpc && (
-            <section className="floating-menu-overlay potion-shop-anchor" role="dialog" aria-label="potion shop">
+            <MovableWindow id="hud.potion-shop" as="section" className="floating-menu-overlay potion-shop-anchor" role="dialog" aria-label="potion shop">
               <PotionShopPanel
                 npc={potionShopNpc}
                 player={localPlayer ?? null}
@@ -1899,10 +1929,10 @@ function GameShell({
                 onPurchasePotionShopItem={purchasePotionShopItem}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
-            </section>
+            </MovableWindow>
           )}
           {trashVendorNpc && (
-            <section className="floating-menu-overlay trash-vendor-anchor" role="dialog" aria-label="trash vendor">
+            <MovableWindow id="hud.trash-vendor" as="section" className="floating-menu-overlay trash-vendor-anchor" role="dialog" aria-label="trash vendor">
               <TrashVendorPanel
                 npc={trashVendorNpc}
                 player={localPlayer ?? null}
@@ -1911,10 +1941,10 @@ function GameShell({
                 onSellTrashItems={sellTrashItems}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
-            </section>
+            </MovableWindow>
           )}
           {respecNpc && (
-            <section className="floating-menu-overlay respec-anchor" role="dialog" aria-label="respec">
+            <MovableWindow id="hud.respec" as="section" className="floating-menu-overlay respec-anchor" role="dialog" aria-label="respec">
               <RespecPanel
                 npc={respecNpc}
                 player={localPlayer ?? null}
@@ -1923,17 +1953,17 @@ function GameShell({
                 onRespecTalents={respecTalents}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
-            </section>
+            </MovableWindow>
           )}
           {swapNpc && (
-            <section className="floating-menu-overlay swap-anchor" role="dialog" aria-label="swap">
+            <MovableWindow id="hud.swap" as="section" className="floating-menu-overlay swap-anchor" role="dialog" aria-label="swap">
               <MferGptSwapMenu
                 defaultExpanded
                 onClose={() => setSwapNpcId(null)}
                 surface="swap_mfer"
                 variant="npc"
               />
-            </section>
+            </MovableWindow>
           )}
           <MobileControls
             inputRef={mobileMoveInputRef}
@@ -2200,6 +2230,14 @@ function readStoredGameSettings(): GameSettings {
     return normalizeGameSettings(JSON.parse(stored) as unknown);
   } catch {
     return DEFAULT_GAME_SETTINGS;
+  }
+}
+
+function writeStoredGameSettings(settings: GameSettings) {
+  try {
+    window.localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Settings are a local convenience; rendering should continue if storage is unavailable.
   }
 }
 

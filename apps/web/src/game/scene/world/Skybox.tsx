@@ -11,7 +11,12 @@ export function Skybox({ renderProfile }: { renderProfile: RenderPerformanceProf
   const skyRef = useRef<THREE.Mesh>(null);
   const cloudGroupRef = useRef<THREE.Group>(null);
   const sunRef = useRef<THREE.Mesh>(null);
-  const sunOffset = useMemo(() => new THREE.Vector3(-50, 31, -76), []);
+  const sunOffset = useMemo(
+    () => renderProfile.reducedWorldDetail
+      ? new THREE.Vector3(-36, 24, -54)
+      : new THREE.Vector3(-50, 31, -76),
+    [renderProfile.reducedWorldDetail],
+  );
   const { camera } = useThree();
 
   useFrame(({ clock }, delta) => {
@@ -31,20 +36,24 @@ export function Skybox({ renderProfile }: { renderProfile: RenderPerformanceProf
     }
   });
 
-  const clouds: Array<[number, number, number, number, number, number]> = [
-    [-66, 22, -74, 35, 8.5, -0.08],
-    [-30, 28, -88, 44, 11, 0.04],
-    [28, 25, -86, 39, 10, -0.02],
-    [70, 21, -58, 31, 8.5, 0.12],
-    [-88, 19, -38, 30, 8, -0.16],
-    [10, 38, -112, 38, 9, 0.02],
-    [-8, 17, -68, 52, 7.5, 0],
-  ];
+  const clouds: Array<[number, number, number, number, number, number]> = renderProfile.reducedWorldDetail
+    ? []
+    : [
+        [-66, 22, -74, 35, 8.5, -0.08],
+        [-30, 28, -88, 44, 11, 0.04],
+        [28, 25, -86, 39, 10, -0.02],
+        [70, 21, -58, 31, 8.5, 0.12],
+        [-88, 19, -38, 30, 8, -0.16],
+        [10, 38, -112, 38, 9, 0.02],
+        [-8, 17, -68, 52, 7.5, 0],
+      ];
+  const skyRadius = Math.max(48, Math.min(132, renderProfile.cameraFar - 6));
+  const skySegments: [number, number] = renderProfile.reducedWorldDetail ? [32, 16] : [48, 24];
 
   return (
     <group renderOrder={-100}>
       <mesh ref={skyRef} renderOrder={-120}>
-        <sphereGeometry args={[132, 48, 24]} />
+        <sphereGeometry args={[skyRadius, skySegments[0], skySegments[1]]} />
         <meshBasicMaterial
           map={skyTexture}
           side={THREE.BackSide}

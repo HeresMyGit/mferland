@@ -56,6 +56,33 @@ test("updateLocalVisualPlayer does not predict movement while frozen", () => {
   assert.equal(visual.animation, "idle");
 });
 
+test("updateLocalVisualPlayer does not start jump animation before authoritative lift", () => {
+  const visual = makePlayer({ y: 0, animation: "idle" });
+  const authoritative = makePlayer({ y: 0, animation: "idle" });
+
+  updateLocalVisualPlayer(visual, authoritative, new THREE.Vector3(0, 0, 0), 0, 0, false, true, 0.016);
+
+  assert.equal(visual.animation, "idle");
+});
+
+test("updateLocalVisualPlayer uses jump animation after authoritative jump starts", () => {
+  const visual = makePlayer({ y: 0, animation: "idle" });
+  const authoritative = makePlayer({ y: 0, animation: "jump" });
+
+  updateLocalVisualPlayer(visual, authoritative, new THREE.Vector3(0, 0, 0), 0, 0, false, false, 0.016);
+
+  assert.equal(visual.animation, "jump");
+});
+
+test("updateLocalVisualPlayer does not keep jump animation after grounded held jump", () => {
+  const visual = makePlayer({ y: 0, animation: "jump" });
+  const authoritative = makePlayer({ y: 0, animation: "idle" });
+
+  updateLocalVisualPlayer(visual, authoritative, new THREE.Vector3(0, 0, 0), 0, 0, false, false, 0.016);
+
+  assert.equal(visual.animation, "idle");
+});
+
 test("camera pointer movement is ignored until a canvas pointer drag begins", () => {
   const state = makeCameraPointerState({
     lastX: 120,

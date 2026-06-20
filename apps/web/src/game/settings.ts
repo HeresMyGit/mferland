@@ -12,9 +12,9 @@ export type MinimapVisibility = {
   friendlyNpcs: boolean;
 };
 
-export type GraphicsQuality = "auto" | "low" | "medium" | "high";
+export type GraphicsQuality = "auto" | "potato" | "low" | "medium" | "high";
 
-export const GRAPHICS_QUALITY_OPTIONS: GraphicsQuality[] = ["auto", "low", "medium", "high"];
+export const GRAPHICS_QUALITY_OPTIONS: GraphicsQuality[] = ["auto", "potato", "low", "medium", "high"];
 
 export type GameSettings = {
   audio: AudioSettings;

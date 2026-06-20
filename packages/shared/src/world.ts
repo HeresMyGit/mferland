@@ -82,6 +82,13 @@ export type SolidObstacle =
   | { kind: "circle"; x: number; z: number; radius: number }
   | { kind: "rect"; x: number; z: number; halfX: number; halfZ: number; rotation: number };
 
+export type WorldBuildingPlacement = {
+  id: string;
+  x: number;
+  z: number;
+  rotation: number;
+};
+
 export type WorldPlacementOverride = {
   x: number;
   z: number;
@@ -99,23 +106,32 @@ type PlacementSolidSpec = {
 const TOWN_BUILDING_SOLID_SIZE = { halfX: 4.1, halfZ: 2.85 };
 const MARKET_STALL_SOLID_SIZE = { halfX: 2.1, halfZ: 1.35 };
 
+export const WORLD_TOWN_BUILDINGS = [
+  { id: "mfers", x: -16.8, z: -15.5, rotation: facePointRotation(-16.8, -15.5, 0, 0) },
+  { id: "dao", x: 20.2, z: -10.8, rotation: facePointRotation(20.2, -10.8, 0, 0) },
+  { id: "wearables", x: -17.5, z: 16, rotation: facePointRotation(-17.5, 16, 0, 0) },
+  { id: "shop", x: 16.8, z: 17, rotation: facePointRotation(16.8, 17, 0, 0) },
+  { id: "barracks", x: -25.5, z: -33.8, rotation: facePointRotation(-25.5, -33.8, 0, 0) },
+  { id: "keep", x: 25.5, z: -33.8, rotation: facePointRotation(25.5, -33.8, 0, 0) },
+  { id: "gallery", x: -36, z: 17.5, rotation: facePointRotation(-36, 17.5, 0, 0) },
+  { id: "arcade", x: 36, z: 17.5, rotation: facePointRotation(36, 17.5, 0, 0) },
+  { id: "inn", x: -16, z: 36.5, rotation: facePointRotation(-16, 36.5, 0, 0) },
+  { id: "forge", x: 16, z: 36.5, rotation: facePointRotation(16, 36.5, 0, 0) },
+] as const satisfies readonly WorldBuildingPlacement[];
+
+export const WORLD_OUTPOST_BUILDINGS = [
+  { id: "field-post", x: -129, z: 134, rotation: 1.42 },
+  { id: "trail-shed", x: -111.5, z: 142.5, rotation: -2.75 },
+  { id: "hub-watch", x: -116.5, z: 126.5, rotation: 0.18 },
+  { id: "ridge-post", x: 112, z: -101.5, rotation: -1.2 },
+  { id: "signal-shed", x: 128.5, z: -97.5, rotation: 2.68 },
+  { id: "relay-watch", x: 123, z: -116.5, rotation: -0.08 },
+] as const satisfies readonly WorldBuildingPlacement[];
+
 const PLACEMENT_SOLID_SPECS: PlacementSolidSpec[] = [
-  makeRectPlacementSolid("building:mfers", -18, -8, 0.4, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:dao", 18, -7.5, -0.45, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:wearables", -18, 11, -0.2, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:shop", 18, 10.5, 0.25, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:barracks", -25.5, -33.8, 1.28, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:keep", 25.5, -33.8, -1.28, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:gallery", -36, 17.5, 1.5, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:arcade", 36, 17.5, -1.5, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:inn", -16, 36.5, 2.82, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:forge", 16, 36.5, -2.82, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:field-post", -129, 134, 1.42, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:trail-shed", -111.5, 142.5, -2.75, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:hub-watch", -116.5, 126.5, 0.18, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:ridge-post", 112, -101.5, -1.2, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:signal-shed", 128.5, -97.5, 2.68, TOWN_BUILDING_SOLID_SIZE),
-  makeRectPlacementSolid("building:relay-watch", 123, -116.5, -0.08, TOWN_BUILDING_SOLID_SIZE),
+  ...[...WORLD_TOWN_BUILDINGS, ...WORLD_OUTPOST_BUILDINGS].map((building) => (
+    makeRectPlacementSolid(`building:${building.id}`, building.x, building.z, building.rotation, TOWN_BUILDING_SOLID_SIZE)
+  )),
   makeRectPlacementSolid("model:market-stall:left-plaza-stall", -27.2, 3.6, Math.PI / 2, MARKET_STALL_SOLID_SIZE),
   makeRectPlacementSolid("model:market-stall:right-plaza-stall", 27.2, 3.6, -Math.PI / 2, MARKET_STALL_SOLID_SIZE),
   makeRectPlacementSolid("model:market-stall:left-market", -6.4, 29.2, Math.PI, MARKET_STALL_SOLID_SIZE),
@@ -300,6 +316,10 @@ function makeCirclePlacementSolid(id: string, x: number, z: number, rotation: nu
     base: { x, z, rotation },
     solids: [{ kind: "circle", x, z, radius }],
   };
+}
+
+function facePointRotation(x: number, z: number, targetX: number, targetZ: number) {
+  return Math.atan2(targetX - x, targetZ - z);
 }
 
 function normalizeWorldPlacementOverrides(overrides: WorldPlacementOverrides | null | undefined) {

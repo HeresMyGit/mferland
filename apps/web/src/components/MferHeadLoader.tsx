@@ -10,12 +10,13 @@ type MferHeadLoaderProps = {
   label?: string;
   ready?: boolean;
   renderProfile?: RenderPerformanceProfile;
+  blocking?: boolean;
   onComplete?: () => void;
 };
 
 const MFER_HEAD_MODEL_URL = "/models/sartoshi-head.glb";
 
-export function MferHeadLoader({ label = "loading mfer", ready = true, renderProfile, onComplete }: MferHeadLoaderProps) {
+export function MferHeadLoader({ label = "loading mfer", ready = true, renderProfile, blocking = true, onComplete }: MferHeadLoaderProps) {
   const [headReady, setHeadReady] = useState(false);
   const { active, progress: assetProgress, total } = useProgress();
   const resolvedRenderProfile = useMemo(() => renderProfile ?? getClientRenderPerformanceProfile(), [renderProfile]);
@@ -31,7 +32,7 @@ export function MferHeadLoader({ label = "loading mfer", ready = true, renderPro
   const statusText = `${label}... ${progress}%`;
 
   return (
-    <div className="mfer-loading-screen" role="status" aria-live="polite" aria-label={statusText}>
+    <div className={blocking ? "mfer-loading-screen" : "mfer-loading-screen nonblocking"} role="status" aria-live="polite" aria-label={statusText}>
       <div className="mfer-loading-head" aria-hidden="true">
         <Canvas
           className="mfer-loading-canvas"

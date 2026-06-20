@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { WORLD_OUTPOST_BUILDINGS, WORLD_TOWN_BUILDINGS } from "@mferland/shared";
 import { MFER_BACKGROUND_COLORS, MFER_COLORS } from "../../mferPalette";
 
 export type Vec3Tuple = [number, number, number];
@@ -167,26 +168,42 @@ export const BUILDING_BLUEPRINTS: Record<BuildingBlueprintId, BuildingBlueprint>
   },
 };
 
-export const TOWN_BUILDINGS: TownBuildingPlacement[] = [
-  { id: "mfers", blueprint: "shop", position: [-18, 0, -8], rotation: 0.4, sign: "UNOFFICIAL", accent: MFER_COLORS.relay },
-  { id: "dao", blueprint: "shop", position: [18, 0, -7.5], rotation: -0.45, sign: "DAO HALL", accent: MFER_COLORS.friendly },
-  { id: "wearables", blueprint: "shop", position: [-18, 0, 11], rotation: -0.2, sign: "DRIP", accent: MFER_COLORS.pink },
-  { id: "shop", blueprint: "shop", position: [18, 0, 10.5], rotation: 0.25, sign: "SMOKE", accent: MFER_COLORS.local },
-  { id: "barracks", blueprint: "shop", position: [-25.5, 0, -33.8], rotation: 1.28, sign: "BUILDERS", accent: MFER_COLORS.friendly },
-  { id: "keep", blueprint: "shop", position: [25.5, 0, -33.8], rotation: -1.28, sign: "VAULT", accent: MFER_COLORS.player },
-  { id: "gallery", blueprint: "shop", position: [-36, 0, 17.5], rotation: 1.5, sign: "CC0", accent: MFER_BACKGROUND_COLORS.orange },
-  { id: "arcade", blueprint: "shop", position: [36, 0, 17.5], rotation: -1.5, sign: "ARCADE", accent: MFER_COLORS.signal },
-  { id: "inn", blueprint: "shop", position: [-16, 0, 36.5], rotation: 2.82, sign: "POSTING", accent: MFER_COLORS.hostile },
-  { id: "forge", blueprint: "shop", position: [16, 0, 36.5], rotation: -2.82, sign: "DEPLOY", accent: MFER_COLORS.fire },
-];
-export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = [
-  { id: "field-post", blueprint: "shop", position: [-129, 0, 134], rotation: 1.42, sign: "ROADPOST", accent: MFER_COLORS.friendly },
-  { id: "trail-shed", blueprint: "shop", position: [-111.5, 0, 142.5], rotation: -2.75, sign: "STASH", accent: MFER_COLORS.local },
-  { id: "hub-watch", blueprint: "shop", position: [-116.5, 0, 126.5], rotation: 0.18, sign: "CAMP", accent: MFER_COLORS.player },
-  { id: "ridge-post", blueprint: "shop", position: [112, 0, -101.5], rotation: -1.2, sign: "RIDGE", accent: MFER_COLORS.signal },
-  { id: "signal-shed", blueprint: "shop", position: [128.5, 0, -97.5], rotation: 2.68, sign: "STATIC", accent: MFER_COLORS.relay },
-  { id: "relay-watch", blueprint: "shop", position: [123, 0, -116.5], rotation: -0.08, sign: "BEACON", accent: MFER_COLORS.fire },
-];
+const TOWN_BUILDING_DETAILS = {
+  mfers: { sign: "UNOFFICIAL", accent: MFER_COLORS.relay },
+  dao: { sign: "DAO HALL", accent: MFER_COLORS.friendly },
+  wearables: { sign: "DRIP", accent: MFER_COLORS.pink },
+  shop: { sign: "SMOKE", accent: MFER_COLORS.local },
+  barracks: { sign: "BUILDERS", accent: MFER_COLORS.friendly },
+  keep: { sign: "VAULT", accent: MFER_COLORS.player },
+  gallery: { sign: "CC0", accent: MFER_BACKGROUND_COLORS.orange },
+  arcade: { sign: "ARCADE", accent: MFER_COLORS.signal },
+  inn: { sign: "POSTING", accent: MFER_COLORS.hostile },
+  forge: { sign: "DEPLOY", accent: MFER_COLORS.fire },
+} as const;
+
+const OUTPOST_BUILDING_DETAILS = {
+  "field-post": { sign: "ROADPOST", accent: MFER_COLORS.friendly },
+  "trail-shed": { sign: "STASH", accent: MFER_COLORS.local },
+  "hub-watch": { sign: "CAMP", accent: MFER_COLORS.player },
+  "ridge-post": { sign: "RIDGE", accent: MFER_COLORS.signal },
+  "signal-shed": { sign: "STATIC", accent: MFER_COLORS.relay },
+  "relay-watch": { sign: "BEACON", accent: MFER_COLORS.fire },
+} as const;
+
+export const TOWN_BUILDINGS: TownBuildingPlacement[] = WORLD_TOWN_BUILDINGS.map((building) => ({
+  id: building.id,
+  blueprint: "shop",
+  position: [building.x, 0, building.z],
+  rotation: building.rotation,
+  ...TOWN_BUILDING_DETAILS[building.id],
+}));
+export const OUTPOST_BUILDINGS: TownBuildingPlacement[] = WORLD_OUTPOST_BUILDINGS.map((building) => ({
+  id: building.id,
+  blueprint: "shop",
+  position: [building.x, 0, building.z],
+  rotation: building.rotation,
+  ...OUTPOST_BUILDING_DETAILS[building.id],
+}));
 export const MARKET_STALLS: MarketStallSpec[] = [
   { id: "left-plaza-stall", position: [-27.2, 0, 3.6], rotation: Math.PI / 2, color: MFER_COLORS.local },
   { id: "right-plaza-stall", position: [27.2, 0, 3.6], rotation: -Math.PI / 2, color: MFER_COLORS.fire },

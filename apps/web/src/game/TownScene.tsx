@@ -134,7 +134,6 @@ const DEFAULT_NAMEPLATE_VISIBILITY: NameplateVisibility = {
 const EMPTY_DEBUG_PLACEMENT_OVERRIDES: DebugPlacementOverrides = {};
 const DEBUG_CAMERA_FOV = 54;
 const DEFAULT_CAMERA_FOV = 54;
-const DEFAULT_CAMERA_FAR = 140;
 const DEBUG_CAMERA_FAR = 900;
 const DEBUG_CAMERA_OVERVIEW_HEIGHT = 275;
 const DEBUG_CAMERA_MIN_HEIGHT = 32;
@@ -197,6 +196,7 @@ function TownSceneComponent({
   const interactHeld = useRef(false);
   const tabHeld = useRef(false);
   const escapeHeld = useRef(false);
+  const jumpHeld = useRef(false);
   const localVisualPlayer = useRef<PlayerSnapshot | null>(null);
   const frameForward = useMemo(() => new THREE.Vector3(), []);
   const frameRight = useMemo(() => new THREE.Vector3(), []);
@@ -507,9 +507,10 @@ function TownSceneComponent({
     }
 
     camera.up.set(0, 1, 0);
-    if (camera instanceof THREE.PerspectiveCamera && (camera.fov !== DEFAULT_CAMERA_FOV || camera.far !== DEFAULT_CAMERA_FAR)) {
+    const defaultCameraFar = resolvedRenderProfile.cameraFar;
+    if (camera instanceof THREE.PerspectiveCamera && (camera.fov !== DEFAULT_CAMERA_FOV || camera.far !== defaultCameraFar)) {
       camera.fov = DEFAULT_CAMERA_FOV;
-      camera.far = DEFAULT_CAMERA_FAR;
+      camera.far = defaultCameraFar;
       camera.updateProjectionMatrix();
     }
 
@@ -572,6 +573,8 @@ function TownSceneComponent({
     }
     const isSprinting = !localIsDead && moveLength > 0.01 && (captureInput ? Boolean(captureInput.sprint) : true);
     const isJumping = !localIsDead && (captureInput ? Boolean(captureInput.jump) : (keys.has(" ") || keys.has("space") || keys.has("spacebar")));
+    const jumpStarted = isJumping && !jumpHeld.current;
+    jumpHeld.current = isJumping;
 
     const interactPressed = keys.has("f") || keys.has("keyf");
     if (interactPressed && !interactHeld.current && localPlayer && !localIsDead) {
@@ -607,7 +610,7 @@ function TownSceneComponent({
 
     if (localPlayer && localVisualPlayer.current?.sessionId === localPlayer.sessionId) {
       if (controlsEnabled || captureInput) {
-        updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, isJumping, controlDelta);
+        updateLocalVisualPlayer(localVisualPlayer.current, localPlayer, frameMove, moveLength, facingYaw.current, isSprinting, jumpStarted, controlDelta);
       } else {
         updateObserverVisualPlayer(localVisualPlayer.current, localPlayer, controlDelta);
       }
@@ -694,6 +697,7 @@ function TownSceneComponent({
                 key={sessionId}
                 npc={makeAgentModelSnapshot(renderedPlayer)}
                 variant="agent"
+                agentPlayer={renderedPlayer}
                 appearanceTraits={cleanCaptureAgentModel && isLocalPlayer ? null : renderedPlayer.appearanceTraits}
                 cleanAgentModel={cleanCaptureAgentModel && isLocalPlayer}
                 showNameplate={showNameplate}

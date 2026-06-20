@@ -391,11 +391,33 @@
 .chat-log {
   height: 108px;
   padding: 10px 12px 7px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 5px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 248, 224, 0.36) transparent;
+}
+
+.chat-log::before {
+  content: "";
+  margin-top: auto;
+}
+
+.chat-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-log::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 248, 224, 0.28);
 }
 
 .chat-log p {
@@ -759,6 +781,16 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.menu-dock-actions {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+
+.menu-dock .menu-dock-toggle {
+  display: none;
 }
 
 .menu-dock button {
@@ -2327,6 +2359,27 @@
   text-transform: uppercase;
 }
 
+.settings-reset-ui-button {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 224, 122, 0.22);
+  border-radius: 7px;
+  color: #fff8dc;
+  background: rgba(255, 210, 94, 0.12);
+  font-size: 12px;
+  font-weight: 1000;
+  line-height: 1;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.settings-reset-ui-button:hover,
+.settings-reset-ui-button:focus-visible {
+  border-color: rgba(255, 224, 122, 0.42);
+  background: rgba(255, 210, 94, 0.18);
+}
+
 .settings-toggle-row {
   position: relative;
   display: grid;
@@ -2413,7 +2466,7 @@
 
 .settings-segmented-control {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
   gap: 4px;
 }
 
