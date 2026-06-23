@@ -155,7 +155,9 @@ export function updateLocalVisualPlayer(
   }
 
   const airborne = authoritative.animation === "jump" || authoritative.y > 0.05 || visual.y > 0.05;
-  visual.animation = airborne ? "jump" : !isFrozen && moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
+  visual.animation = authoritative.fishingState
+    ? authoritative.animation
+    : airborne ? "jump" : !isFrozen && moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
 }
 
 export function syncLocalVisualPlayerSnapshot(
@@ -207,6 +209,14 @@ export function syncLocalVisualPlayerSnapshot(
   visual.lastCastAt = authoritative.lastCastAt;
   visual.lastDamagedAt = authoritative.lastDamagedAt;
   visual.frozenUntil = authoritative.frozenUntil;
+  visual.fishingAttemptId = authoritative.fishingAttemptId;
+  visual.fishingZoneId = authoritative.fishingZoneId;
+  visual.fishingState = authoritative.fishingState;
+  visual.fishingCastAt = authoritative.fishingCastAt;
+  visual.fishingBiteAt = authoritative.fishingBiteAt;
+  visual.fishingExpiresAt = authoritative.fishingExpiresAt;
+  visual.fishingBobberX = authoritative.fishingBobberX;
+  visual.fishingBobberZ = authoritative.fishingBobberZ;
   visual.quests = authoritative.quests;
   visual.inventory = authoritative.inventory;
   visual.equipment = authoritative.equipment;

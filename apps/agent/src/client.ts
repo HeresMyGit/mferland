@@ -25,6 +25,9 @@ import {
   type CombatActionId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
+  type FishingCatchItemId,
+  type FishingResult,
+  type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type ItemId,
   type LootWindow,
@@ -69,6 +72,7 @@ export type MferlandAgentOptions = {
 type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
   agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
+  fishingJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -213,6 +217,8 @@ export class MferlandAgentClient {
   private potionShopResults: PotionShopPurchaseResult[] = [];
   private talentRespecResults: TalentRespecResult[] = [];
   private trashVendorResults: TrashVendorSellResult[] = [];
+  private fishingResults: FishingResult[] = [];
+  private fishingVendorResults: FishingVendorSellResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
   private sprint = false;
@@ -329,6 +335,10 @@ export class MferlandAgentClient {
         "equipItem",
         "unequipItem",
         "useItem",
+        "startFishing",
+        "reelFishing",
+        "cancelFishing",
+        "sellFishingItems",
         "selectTalent",
         "updateTraits",
         "respecTalents",
@@ -610,6 +620,45 @@ export class MferlandAgentClient {
     }, "trash vendor sale");
     const result = this.trashVendorResults.at(-1);
     if (!result?.ok) throw new Error(result?.error || "trash vendor sale failed");
+    return result;
+  }
+
+  async startFishing() {
+    const previousResultCount = this.fishingResults.length;
+    this.room?.send("startFishing", {});
+    await this.waitFor(() => {
+      const self = this.getSelf();
+      return Boolean(self?.fishingAttemptId) || this.fishingResults.length > previousResultCount;
+    }, { timeoutMs: DEFAULT_WAIT_TIMEOUT_MS, intervalMs: 250 }, "start fishing");
+    const result = this.fishingResults.at(-1);
+    if (result && !result.ok) throw new Error(result.error || "start fishing failed");
+  }
+
+  async reelFishing(attemptId?: string) {
+    const previousResultCount = this.fishingResults.length;
+    this.room?.send("reelFishing", attemptId ? { attemptId } : {});
+    await this.waitFor(() => this.fishingResults.length > previousResultCount, {
+      timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+      intervalMs: 250,
+    }, "reel fishing");
+    const result = this.fishingResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "reel fishing failed");
+    return result;
+  }
+
+  cancelFishing() {
+    this.room?.send("cancelFishing", {});
+  }
+
+  async sellFishingItems(options: { itemId?: FishingCatchItemId; quantity?: number; sellAll?: boolean } = {}) {
+    const previousResultCount = this.fishingVendorResults.length;
+    this.room?.send("sellFishingItems", options);
+    await this.waitFor(() => this.fishingVendorResults.length > previousResultCount, {
+      timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+      intervalMs: 250,
+    }, "fishing vendor sale");
+    const result = this.fishingVendorResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "fishing vendor sale failed");
     return result;
   }
 
@@ -918,6 +967,12 @@ export class MferlandAgentClient {
     });
     room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
       this.trashVendorResults = [...this.trashVendorResults.slice(-8), message];
+    });
+    room.onMessage("fishingResult", (message: FishingResult) => {
+      this.fishingResults = [...this.fishingResults.slice(-8), message];
+    });
+    room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
+      this.fishingVendorResults = [...this.fishingVendorResults.slice(-8), message];
     });
     room.onMessage("questOffer", () => undefined);
     room.onMessage("questStatus", () => undefined);
@@ -1319,6 +1374,7 @@ export class MferlandAgentClient {
 
 function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapshot {
   const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
+  const fishing = parseRuntimeFishing(player);
   return {
     sessionId,
     name: player.name,
@@ -1382,6 +1438,14 @@ function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapsho
     lastCastAt: player.lastCastAt,
     lastDamagedAt: player.lastDamagedAt,
     frozenUntil: player.frozenUntil,
+    fishingAttemptId: fishing.attemptId,
+    fishingZoneId: fishing.zoneId,
+    fishingState: fishing.state,
+    fishingCastAt: fishing.castAt,
+    fishingBiteAt: fishing.biteAt,
+    fishingExpiresAt: fishing.expiresAt,
+    fishingBobberX: fishing.bobberX,
+    fishingBobberZ: fishing.bobberZ,
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
@@ -1468,6 +1532,46 @@ function readAgentCommandText(value: unknown) {
 function readAgentCommandNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function parseRuntimeFishing(player: Pick<RuntimePlayer, "fishingJson">) {
+  const fallback = {
+    attemptId: "",
+    zoneId: "" as PlayerSnapshot["fishingZoneId"],
+    state: "" as PlayerSnapshot["fishingState"],
+    castAt: 0,
+    biteAt: 0,
+    expiresAt: 0,
+    bobberX: 0,
+    bobberZ: 0,
+  };
+
+  if (!player.fishingJson) return fallback;
+
+  try {
+    const parsed = JSON.parse(player.fishingJson) as Record<string, unknown>;
+    return {
+      attemptId: readAgentCommandText(parsed.attemptId),
+      zoneId: readAgentCommandText(parsed.zoneId) as PlayerSnapshot["fishingZoneId"],
+      state: readRuntimeFishingState(parsed.state),
+      castAt: readRuntimeFishingNumber(parsed.castAt),
+      biteAt: readRuntimeFishingNumber(parsed.biteAt),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      bobberX: readRuntimeFishingNumber(parsed.bobberX),
+      bobberZ: readRuntimeFishingNumber(parsed.bobberZ),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function readRuntimeFishingState(value: unknown): PlayerSnapshot["fishingState"] {
+  return value === "casting" || value === "waiting" || value === "bite" ? value : "";
+}
+
+function readRuntimeFishingNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): InventoryItemSnapshot[] {
@@ -1566,6 +1670,7 @@ function getQuestGiverNpcId(questId: QuestId) {
     "farm-road-handoff": "wearables-mfer",
     "ask-mfergpt": "wearables-mfer",
     "mfergpt-checkin": "mfergpt",
+    "fishin-lesson": "fishin-mfer",
     "mfergpt-daily-signal": "mfergpt",
     "tweet-town-link": "mfergpt",
     "boar-bristle-cull": "hogwatch-mfer",

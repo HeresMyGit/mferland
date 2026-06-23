@@ -58,6 +58,7 @@ const MOBILE_TOP_RESERVED_WINDOW_IDS = new Set([
   "hud.swap",
   "hud.potion-shop",
   "hud.trash-vendor",
+  "hud.fishing-vendor",
   "hud.respec",
   "hud.quest-offer",
   "hud.quest-turn-in",

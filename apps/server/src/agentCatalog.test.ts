@@ -27,7 +27,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.quests, ["acceptQuest", "completeQuest", "cancelQuest"]);
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
-  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems"]);
+  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "sellFishingItems"]);
   assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents", "removeSeasonReferral"]);
   assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "respecTalents", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
@@ -56,7 +56,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.menus.character.controls, ["selectSelfTarget", "unequipItem", "refreshSeasonPassOwnership", "removeSeasonReferral"]);
   assert.deepEqual(catalog.menus.stash.controls, ["equipItem", "useItem", "setHotbarSlot"]);
   assert.deepEqual(catalog.menus.moves.controls, ["combatAction", "selectTalent", "setHotbarSlot"]);
-  assert.deepEqual(catalog.menus.hotbar.controls, ["setHotbarSlot", "interact", "combatAction", "useItem"]);
+  assert.deepEqual(catalog.menus.hotbar.controls, ["setHotbarSlot", "interact", "combatAction", "useItem", "startFishing", "reelFishing"]);
   assert.deepEqual(catalog.menus.errands.controls, ["setQuestFocus", "toggleCompletedQuestVisibility", "acceptQuest", "completeQuest", "cancelQuest", "shareQuestLink"]);
   assert.deepEqual(catalog.menus.potionShop.controls, ["selectPotionShopItem", "selectPotionShopQuantity", "purchasePotionShopItem"]);
   assert.equal(catalog.menus.potionShop.paidControlRequiresPaymentProof, true);
@@ -65,6 +65,9 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.menus.respec.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.trashVendor.controls, ["sellTrashItems"]);
   assert.equal(catalog.menus.trashVendor.paidControlRequiresPaymentProof, false);
+  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "sellFishingItems"]);
+  assert.equal(catalog.menus.fishing.npcId, "motherfisher");
+  assert.equal(catalog.menus.fishing.paidControlRequiresPaymentProof, false);
   assert.deepEqual(catalog.menus.traits.controls, ["selectTraitCategory", "setTrait", "clearTrait", "randomizeTraits", "updateTraits"]);
   assert.equal(catalog.menus.traits.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.cryptoStore.controls, [
@@ -125,6 +128,13 @@ test("agent catalog documents normal player menu controls", () => {
   assert.match(catalog.traits.note, /caps, long hair, shades, and glasses should remain unset/);
   assert.match(catalog.traits.selectionGuidance, /seeded variety/);
   assert.match(catalog.traits.note, /defaults or first-listed choices/);
+  assert.equal(catalog.fishing.zone.id, "south-center-pond");
+  assert.equal(catalog.fishing.npcId, "motherfisher");
+  assert.deepEqual(catalog.fishing.controls.cast, { message: "startFishing", shape: { zoneId: "south-center-pond" } });
+  assert.deepEqual(catalog.fishing.controls.lootCatch, { message: "lootCorpse", shape: { npcId: "lootWindow.npcId from a fishing lootWindow" } });
+  assert.match(catalog.fishing.catchLootNote, /source=fishing/);
+  assert.equal(catalog.fishing.agentBundleMultiplier, 2);
+  assert.equal(catalog.fishing.items.find((item) => item.itemId === "huge-sartoshi-koi")?.agentBundleSize, 2);
 
   assert.equal(catalog.agentHarness.bridgeEndpoints.command, "/agent-command");
   assert.equal(catalog.agentHarness.readOnlyEndpoints.profile, "/agent-profile?wallet=0x...");

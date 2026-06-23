@@ -4,6 +4,9 @@ import { Client, type Room } from "colyseus.js";
 import {
   AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   COMBAT,
+  FISHING_AGENT_BUNDLE_MULTIPLIER,
+  FISHING_VENDOR_NPC_ID,
+  FISHING_ZONE,
   INPUT_SEND_RATE,
   clamp,
   getCombatActionUnlockLevel,
@@ -15,6 +18,7 @@ import {
   getQuestRequirement,
   getQuestTurnInNpcId,
   getTalentRankStatus,
+  isFishingCatchItemId,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
   isQuestAvailableForSnapshots,
@@ -301,6 +305,12 @@ type DurableOutcome = {
   status: string;
   stoppedBecause: string;
   durationMs: number;
+};
+
+type OpenLootWindow = {
+  npcId: string;
+  source: string;
+  observedAt: number;
 };
 
 type SuggestedDecision = {
@@ -754,6 +764,8 @@ const DECISION_ACTIONS = [
   "register_chain_gear",
   "purchase_potion_shop_item",
   "sell_trash_items",
+  "fish",
+  "sell_fish_items",
   "update_traits",
   "emote",
   "chat",
@@ -866,6 +878,7 @@ class AgentBridgeSession {
   private lastNpcRefs = new Map<string, string>();
   private lastPlayerRefs = new Map<string, string>();
   private recentMessages: string[] = [];
+  private openLootWindow: OpenLootWindow | null = null;
   private pendingSocialMessages: Array<{ sessionId: string; name: string; identityType: string; text: string; kind: string; observedAt: number }> = [];
   private questMemory = new Map<string, QuestMemory>();
   private focusedQuestId = "";
@@ -972,11 +985,20 @@ class AgentBridgeSession {
     room.onMessage("chat", (message: unknown) => this.handleChatMessage(message));
     room.onMessage("combatEvent", (message: unknown) => this.handleCombatEvent(message));
     room.onMessage("experienceEvent", (message: unknown) => this.remember(`xp:${messageSummary(message)}`, true));
-    room.onMessage("lootWindow", (message: unknown) => this.remember(`lootWindow:${messageSummary(message)}`, true));
+    room.onMessage("lootWindow", (message: unknown) => {
+      this.openLootWindow = readOpenLootWindow(message);
+      this.remember(`lootWindow:${messageSummary(message)}`, true);
+    });
     room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
-    room.onMessage("closeLootWindow", (message: unknown) => this.remember(`closeLoot:${messageSummary(message)}`));
+    room.onMessage("closeLootWindow", (message: unknown) => {
+      const npcId = cleanText(asRecord(message).npcId, 128);
+      if (!npcId || this.openLootWindow?.npcId === npcId) this.openLootWindow = null;
+      this.remember(`closeLoot:${messageSummary(message)}`);
+    });
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
+    room.onMessage("fishingResult", (message: unknown) => this.remember(`fishing:${messageSummary(message)}`, true));
+    room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
     room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
@@ -3301,6 +3323,8 @@ class AgentBridgeSession {
       case "accept_quest":
       case "complete_quest":
       case "sell_trash_items":
+      case "sell_fish_items":
+      case "fish":
         return 10_000;
       case "loot":
         return 8_000;
@@ -3357,7 +3381,9 @@ class AgentBridgeSession {
       || action === "move_near_npc"
       || action === "move_near_player"
       || action === "interact_npc"
-      || action === "sell_trash_items";
+      || action === "sell_trash_items"
+      || action === "sell_fish_items"
+      || action === "fish";
   }
 
   private checkDurableOutcome(
@@ -3409,6 +3435,8 @@ class AgentBridgeSession {
         return null;
       }
       case "loot": {
+        const lootWindow = this.resolveOpenLootWindow(decision.npcRef);
+        if (lootWindow && !this.openLootWindow) return { status: "completed", stoppedBecause: "loot_collected_or_unavailable", durationMs };
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc || !npc.hasLoot) return { status: "completed", stoppedBecause: "loot_collected_or_unavailable", durationMs };
         return null;
@@ -3445,6 +3473,17 @@ class AgentBridgeSession {
       case "sell_trash_items":
         if (this.recentMessages.some((message) => message.startsWith("trashVendor:"))) {
           return { status: "completed", stoppedBecause: "trash_sale_result", durationMs };
+        }
+        return null;
+      case "sell_fish_items":
+        if (this.recentMessages.some((message) => message.startsWith("fishingVendor:"))) {
+          return { status: "completed", stoppedBecause: "fishing_sale_result", durationMs };
+        }
+        return null;
+      case "fish":
+        if (this.recentMessages.some((message) => message.startsWith("fishing:"))) {
+          if (this.getOpenFishingLootWindow()) return null;
+          return { status: "completed", stoppedBecause: this.lastAction.startsWith("loot_fishing") ? "fishing_loot_collected" : "fishing_result", durationMs };
         }
         return null;
       default:
@@ -3502,6 +3541,15 @@ class AgentBridgeSession {
         return;
       }
       case "loot": {
+        const lootWindow = this.resolveOpenLootWindow(decision.npcRef);
+        if (lootWindow) {
+          this.clearEngagement();
+          this.clearRoute();
+          this.targetPoint = null;
+          this.send("lootCorpse", { npcId: lootWindow.npcId, itemId: cleanText(decision.itemId, 96) || undefined });
+          this.lastAction = lootWindow.source === "fishing" ? `loot_fishing ${lootWindow.npcId}` : `loot_window ${lootWindow.npcId}`;
+          return;
+        }
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc || !npc.hasLoot) return;
         this.clearRoute();
@@ -3542,6 +3590,47 @@ class AgentBridgeSession {
           this.targetPoint = null;
           this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
           this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
+        }
+        return;
+      }
+      case "fish": {
+        this.clearRoute();
+        const shore = { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.2, z: FISHING_ZONE.z - 1.2 };
+        if (distance2d(self, shore) > 2.6) {
+          this.moveTo(shore);
+          this.lastAction = "move_to_fishing_pond";
+          return;
+        }
+        this.targetPoint = null;
+        const fishingState = cleanText(self.fishingState, 24);
+        const attemptId = cleanText(self.fishingAttemptId, 128);
+        if (fishingState === "bite") {
+          this.send("reelFishing", attemptId ? { attemptId } : {});
+          this.lastAction = "reel_fishing";
+          return;
+        }
+        if (fishingState) {
+          this.lastAction = `wait_fishing_${fishingState}`;
+          return;
+        }
+        this.send("startFishing", {});
+        this.lastAction = "start_fishing";
+        return;
+      }
+      case "sell_fish_items": {
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
+        if (!npc) return;
+        this.clearRoute();
+        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_sell_fish ${npc.id}`;
+        } else {
+          const requestedItemId = cleanText(decision.itemId, 96);
+          const itemId = isFishingCatchItemId(requestedItemId) ? requestedItemId : "";
+          const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
+          this.targetPoint = null;
+          this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
+          this.lastAction = itemId ? `sell_fish_items ${itemId} x${quantity}` : "sell_fish_items all";
         }
         return;
       }
@@ -4133,6 +4222,54 @@ class AgentBridgeSession {
         this.targetPoint = null;
         this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
         this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
+        return null;
+      }
+      case "fish": {
+        this.clearEngagement();
+        const lootWindow = this.getOpenFishingLootWindow();
+        if (lootWindow) {
+          this.targetPoint = null;
+          this.send("lootCorpse", { npcId: lootWindow.npcId });
+          this.lastAction = `loot_fishing ${lootWindow.npcId}`;
+          return null;
+        }
+        const shore = { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.2, z: FISHING_ZONE.z - 1.2 };
+        if (distance2d(self, shore) > 2.6) {
+          this.moveTo(shore);
+          this.lastAction = "move_to_fishing_pond";
+          return null;
+        }
+        const fishingState = cleanText(self.fishingState, 24);
+        const attemptId = cleanText(self.fishingAttemptId, 128);
+        this.targetPoint = null;
+        if (fishingState === "bite") {
+          this.send("reelFishing", attemptId ? { attemptId } : {});
+          this.lastAction = "reel_fishing";
+          return null;
+        }
+        if (fishingState) {
+          this.lastAction = `wait_fishing_${fishingState}`;
+          return null;
+        }
+        this.send("startFishing", {});
+        this.lastAction = "start_fishing";
+        return null;
+      }
+      case "sell_fish_items": {
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
+        if (!npc) throw new Error("sell_fish_items requires Motherfisher to be visible in room state");
+        this.clearEngagement();
+        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_sell_fish ${npc.id}`;
+          return null;
+        }
+        const requestedItemId = cleanText(decision.itemId, 96);
+        const itemId = isFishingCatchItemId(requestedItemId) ? requestedItemId : "";
+        const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
+        this.targetPoint = null;
+        this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
+        this.lastAction = itemId ? `sell_fish_items ${itemId} x${quantity}` : "sell_fish_items all";
         return null;
       }
       case "update_traits": {
@@ -5431,7 +5568,7 @@ class AgentBridgeSession {
       case "fight_npc":
         return npc ? `next: fighting ${npc.name}` : "";
       case "loot":
-        return npc ? `next: looting ${npc.name}` : "";
+        return npc ? `next: looting ${npc.name}` : this.resolveOpenLootWindow(decision.npcRef) ? "next: looting catch" : "";
       case "use_ability":
         return cleanText(decision.actionId, 40) ? `next: using ${cleanText(decision.actionId, 40)}` : "";
       case "purchase_potion_shop_item":
@@ -5443,6 +5580,18 @@ class AgentBridgeSession {
       default:
         return "";
     }
+  }
+
+  private getOpenFishingLootWindow() {
+    return this.openLootWindow?.source === "fishing" ? this.openLootWindow : null;
+  }
+
+  private resolveOpenLootWindow(ref: unknown) {
+    const lootWindow = this.openLootWindow;
+    if (!lootWindow) return null;
+    const key = cleanText(ref, 128).toLowerCase();
+    if (!key) return lootWindow.source === "fishing" ? lootWindow : null;
+    return key === lootWindow.npcId.toLowerCase() || key === lootWindow.source.toLowerCase() ? lootWindow : null;
   }
 
   private canSendChat() {
@@ -7957,6 +8106,17 @@ function readFiniteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function readOpenLootWindow(value: unknown): OpenLootWindow | null {
+  const record = asRecord(value);
+  const npcId = cleanText(record.npcId, 128);
+  if (!npcId) return null;
+  return {
+    npcId,
+    source: cleanText(record.source, 40) || "corpse",
+    observedAt: Date.now(),
+  };
+}
+
 function readInteger(value: unknown) {
   const parsed = readFiniteNumber(value);
   if (parsed === undefined || !Number.isInteger(parsed) || parsed <= 0) return 0;
@@ -7968,6 +8128,12 @@ function normalizePurchaseQuantity(value: unknown) {
 }
 
 function normalizeTrashSellQuantity(value: unknown, defaultQuantity = 1) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.min(999, Math.max(1, Math.floor(defaultQuantity)));
+  return Math.min(999, Math.max(1, Math.floor(parsed)));
+}
+
+function normalizeFishingSellQuantity(value: unknown, defaultQuantity = 999) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return Math.min(999, Math.max(1, Math.floor(defaultQuantity)));
   return Math.min(999, Math.max(1, Math.floor(parsed)));

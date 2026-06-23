@@ -101,6 +101,20 @@ export const QUESTS = {
     xpReward: 15,
     rewardItemIds: ["headphone-splitter"],
   },
+  "fishin-lesson": {
+    title: "watch the bobber",
+    giverNpcId: "motherfisher",
+    description: "Motherfisher has a shack by the south pond where nobody can roadmap the water. Borrow the spare pole, cast into the pond, wait for the bobber to lose its mind, then reel once.",
+    objectiveLabel: "catch anything at south center pond",
+    turnInLabel: "show Motherfisher the pond listened",
+    required: 1,
+    startItemId: "loaner-fishing-pole",
+    xpReward: 35,
+    rewardItemIds: ["fishing-pole"],
+    agentHints: {
+      targetArea: { label: "south center pond", point: { x: 0, z: 132 } },
+    },
+  },
   "mfergpt-daily-signal": {
     title: "today's noise",
     giverNpcId: "mfergpt",

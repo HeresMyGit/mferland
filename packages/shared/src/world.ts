@@ -1,4 +1,5 @@
 import { clamp } from "./utils.js";
+import { FISHING_ZONE } from "./fishing.js";
 
 export const PLAZA_BOUNDS = {
   minX: -164,
@@ -24,7 +25,7 @@ export type WorldHub = {
   x: number;
   z: number;
   diameter: number;
-  kind: "plaza" | "farm" | "hub";
+  kind: "plaza" | "farm" | "hub" | "pond";
 };
 
 export type WorldLandmark = {
@@ -33,7 +34,7 @@ export type WorldLandmark = {
   label: string;
   x: number;
   z: number;
-  kind: "route" | "relay";
+  kind: "route" | "relay" | "pond";
 };
 
 export const WORLD_ROADS: WorldRoad[] = [
@@ -54,6 +55,9 @@ export const WORLD_ROADS: WorldRoad[] = [
   { id: "farmyard", x: -82, z: 92, width: 38, depth: 22, surface: "dirt" },
   { id: "field-road", x: -101, z: 116, width: 6, depth: 42, surface: "dirt" },
   { id: "field-camp-yard", x: -118, z: 136, width: 38, depth: 24, surface: "dirt" },
+  { id: "south-pond-lane", x: 0, z: 104, width: 6, depth: 58, surface: "dirt" },
+  { id: "south-pond-cut", x: 8, z: 122, width: 22, depth: 5.8, surface: "dirt" },
+  { id: "motherfisher-yard", x: 20, z: 123, width: 22, depth: 15, surface: "dirt" },
   { id: "ridge-gate", x: 53, z: -11.5, width: 6.2, depth: 28, surface: "dirt" },
   { id: "ridge-fork", x: 75, z: -22, width: 88, depth: 5.8, surface: "dirt" },
   { id: "ridge-lane", x: 120, z: -62, width: 6, depth: 84, surface: "dirt" },
@@ -67,6 +71,7 @@ export const WORLD_HUBS: WorldHub[] = [
   { id: "daily-signal-camp", name: "Daily Signal Camp", x: -58, z: -56, diameter: 24, kind: "hub" },
   { id: "busted-farm", name: "Loop Farm", x: -82, z: 92, diameter: 34, kind: "farm" },
   { id: "field-camp", name: "Route Board", x: -118, z: 136, diameter: 28, kind: "hub" },
+  { id: FISHING_ZONE.id, name: FISHING_ZONE.name, x: FISHING_ZONE.x, z: FISHING_ZONE.z, diameter: 30, kind: "pond" },
   { id: "signal-ridge", name: "Signal Ridge", x: 124, z: -104, diameter: 30, kind: "hub" },
   { id: "static-field", name: "Static Lot", x: 150, z: -104, diameter: 22, kind: "farm" },
 ];
@@ -76,6 +81,7 @@ export const WORLD_LANDMARKS: WorldLandmark[] = [
   { id: "relay-milepost-marker", name: "0.069 Mile", label: "0.069", x: 92, z: -18.2, kind: "route" },
   { id: "switchback-lantern-marker", name: "4:20 Turn", label: "4:20", x: 124.4, z: -58, kind: "route" },
   { id: "signal-approach-marker", name: "Relay Uptrail", label: "RELAY", x: 116.6, z: -90, kind: "relay" },
+  { id: "south-pond-marker", name: "South Pond", label: "FISH", x: 10.6, z: 119.6, kind: "pond" },
 ];
 
 export type SolidObstacle =
@@ -123,6 +129,7 @@ export const WORLD_OUTPOST_BUILDINGS = [
   { id: "field-post", x: -129, z: 134, rotation: 1.42 },
   { id: "trail-shed", x: -111.5, z: 142.5, rotation: -2.75 },
   { id: "hub-watch", x: -116.5, z: 126.5, rotation: 0.18 },
+  { id: "fishing-shack", x: 21.5, z: 123.5, rotation: facePointRotation(21.5, 123.5, FISHING_ZONE.x, FISHING_ZONE.z) },
   { id: "ridge-post", x: 112, z: -101.5, rotation: -1.2 },
   { id: "signal-shed", x: 128.5, z: -97.5, rotation: 2.68 },
   { id: "relay-watch", x: 123, z: -116.5, rotation: -0.08 },
@@ -174,6 +181,7 @@ const PLACEMENT_SOLID_SPECS: PlacementSolidSpec[] = [
 
 const STATIC_PROP_SOLIDS: SolidObstacle[] = [
   { kind: "circle", x: -121.5, z: 135.5, radius: 1.7 },
+  { kind: "circle", x: FISHING_ZONE.x, z: FISHING_ZONE.z, radius: 9.1 },
 ];
 
 const TREE_SOLIDS: SolidObstacle[] = [

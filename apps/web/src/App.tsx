@@ -6,7 +6,12 @@ import { useAccount, useConnect, useDisconnect, useSignMessage, type Connector }
 import {
   COMBAT,
   CRYPTO_MFER_NPC_ID,
+  FISHING_POLE_ITEM_ID,
+  FISHING_VENDOR_NPC_ID,
+  FISHING_ZONE,
+  FISHING_ZONE_ID,
   ITEMS,
+  LOANER_FISHING_POLE_ITEM_ID,
   LOOT,
   POTION_SHOP_NPC_ID,
   RESPEC_MFER_NPC_ID,
@@ -21,6 +26,7 @@ import {
   getTalentUnlockedCombatActions,
   isAttackableNpcRole,
   isCombatActionUnlocked,
+  isNearFishingZone,
   normalizeAvatarSeed,
   normalizeWalletAddress,
   setWorldCollisionPlacementOverrides,
@@ -36,6 +42,7 @@ import {
   type ClientRegisterChainGear,
   type ClientRespecTalents,
   type ClientSelectTalent,
+  type ClientSellFishingItems,
   type ClientSellTrashItems,
   type ClientUpdateTraits,
   type ClientUnequipItem,
@@ -95,6 +102,7 @@ import { MferPortrait } from "./components/MferPortrait";
 import { MovableWindow } from "./components/MovableWindow";
 import { PotionShopPanel } from "./components/PotionShopPanel";
 import { RespecPanel } from "./components/RespecPanel";
+import { FishingVendorPanel } from "./components/FishingVendorPanel";
 import { TrashVendorPanel } from "./components/TrashVendorPanel";
 import { TraitsPanel } from "./components/TraitsPanel";
 import { LeaderboardPage } from "./LeaderboardPage";
@@ -136,6 +144,8 @@ const HIDDEN_CAPTURE_NAMEPLATES = {
 };
 const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
+const DEBUG_POND_SHORE_X = FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.8;
+const DEBUG_POND_SHORE_Z = FISHING_ZONE.z + 1.8;
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -148,6 +158,7 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "market", label: "Market", x: 0, z: 22, yaw: 0 },
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
   { id: "field", label: "Field", x: -118, z: 112, yaw: 0 },
+  { id: "pond", label: "Pond", x: DEBUG_POND_SHORE_X, z: DEBUG_POND_SHORE_Z, yaw: Math.atan2(FISHING_ZONE.x - DEBUG_POND_SHORE_X, FISHING_ZONE.z - DEBUG_POND_SHORE_Z) },
   { id: "relay", label: "Relay", x: 136, z: -129, yaw: 0 },
   { id: "static", label: "Static", x: 150, z: -92, yaw: Math.PI },
 ] as const;
@@ -256,6 +267,10 @@ function isPotionShopNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsho
 
 function isTrashVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return npc?.id === TRASH_VENDOR_NPC_ID;
+}
+
+function isFishingVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return npc?.id === FISHING_VENDOR_NPC_ID;
 }
 
 function isRespecMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
@@ -1193,6 +1208,7 @@ function GameShell({
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
   const [potionShopNpcId, setPotionShopNpcId] = useState<string | null>(null);
   const [trashVendorNpcId, setTrashVendorNpcId] = useState<string | null>(null);
+  const [fishingVendorNpcId, setFishingVendorNpcId] = useState<string | null>(null);
   const [respecNpcId, setRespecNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
@@ -1266,6 +1282,10 @@ function GameShell({
   const trashVendorNpc = useMemo(
     () => trashVendorNpcId ? room.npcs.get(trashVendorNpcId) ?? null : null,
     [trashVendorNpcId, room.npcs, room.snapshotRevision],
+  );
+  const fishingVendorNpc = useMemo(
+    () => fishingVendorNpcId ? room.npcs.get(fishingVendorNpcId) ?? null : null,
+    [fishingVendorNpcId, room.npcs, room.snapshotRevision],
   );
   const respecNpc = useMemo(
     () => respecNpcId ? room.npcs.get(respecNpcId) ?? null : null,
@@ -1359,6 +1379,11 @@ function GameShell({
     trackEvent("trash_vendor_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("trash_vendor_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openFishingVendor = useCallback((npc: NpcSnapshot) => {
+    setFishingVendorNpcId(npc.id);
+    trackEvent("fishing_vendor_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("fishing_vendor_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const openRespecPanel = useCallback((npc: NpcSnapshot) => {
     setRespecNpcId(npc.id);
     trackEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
@@ -1382,12 +1407,13 @@ function GameShell({
       if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
       if (isPotionShopNpc(selectedNpc)) openPotionShop(selectedNpc);
       if (isTrashVendorNpc(selectedNpc)) openTrashVendor(selectedNpc);
+      if (isFishingVendorNpc(selectedNpc)) openFishingVendor(selectedNpc);
       if (isRespecMferNpc(selectedNpc)) openRespecPanel(selectedNpc);
       if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
       if (isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1398,19 +1424,37 @@ function GameShell({
     if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
     if (isPotionShopNpc(nearestNpc)) openPotionShop(nearestNpc);
     if (isTrashVendorNpc(nearestNpc)) openTrashVendor(nearestNpc);
+    if (isFishingVendorNpc(nearestNpc)) openFishingVendor(nearestNpc);
     if (isRespecMferNpc(nearestNpc)) openRespecPanel(nearestNpc);
     if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
     if (isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
     setActionError({ id: actionErrorIdRef.current, text });
   }, [audio]);
+  const reelFishing = useCallback((attemptId?: string) => {
+    audio.play("inventoryLoot");
+    room.sendReelFishing(attemptId ? { attemptId } : {});
+  }, [audio, room.sendReelFishing]);
   const performAction = useCallback((slot: ActionSlot) => {
     if (!slot) return;
     if (slot === "interact") performInteract();
+    else if (slot === "fish") {
+      if (localPlayer?.fishingState === "bite") {
+        reelFishing(localPlayer.fishingAttemptId);
+        return;
+      }
+      const blockMessage = getFishingActionBlockMessage(localPlayer ?? null);
+      if (blockMessage) {
+        showActionError(blockMessage);
+        return;
+      }
+      audio.play("itemUse");
+      room.sendStartFishing({ zoneId: FISHING_ZONE_ID });
+    }
     else if (isItemActionSlot(slot)) {
       const blockMessage = getItemActionBlockMessage(slot, localPlayer ?? null);
       if (blockMessage) {
@@ -1432,7 +1476,7 @@ function GameShell({
         debugUnlockAllMoves,
       });
     }
-  }, [audio, debugToolsAvailable, globalCooldownReadyAt, localPlayer, performInteract, room.sendCombatAction, room.sendUseItem, selectedTarget, selectedTargetUnit, settings.debugUnlockAllMoves, showActionError]);
+  }, [audio, debugToolsAvailable, globalCooldownReadyAt, localPlayer, performInteract, reelFishing, room.sendCombatAction, room.sendStartFishing, room.sendUseItem, selectedTarget, selectedTargetUnit, settings.debugUnlockAllMoves, showActionError]);
   const replaceActionSlots = useCallback((slots: ActionSlot[]) => {
     setActionSlots(normalizeActionSlots(slots));
   }, []);
@@ -1491,6 +1535,10 @@ function GameShell({
     audio.play("inventoryLoot");
     room.sendSellTrashItems(message);
   }, [audio, room.sendSellTrashItems]);
+  const sellFishingItems = useCallback((message: ClientSellFishingItems) => {
+    audio.play("inventoryLoot");
+    room.sendSellFishingItems(message);
+  }, [audio, room.sendSellFishingItems]);
   const respecTalents = useCallback((message: ClientRespecTalents) => {
     audio.play("uiConfirm");
     room.sendRespecTalents(message);
@@ -1833,6 +1881,7 @@ function GameShell({
           onSelectTarget={setSelectedTarget}
           onSelectNpcTarget={selectNpcTarget}
           onInteractAction={performInteract}
+          onReelFishing={reelFishing}
           sendInput={room.sendInput}
           debugTravelView={debugTravelView}
           nameplateVisibility={hideCaptureHud ? HIDDEN_CAPTURE_NAMEPLATES : settings.nameplates}
@@ -1939,6 +1988,18 @@ function GameShell({
                 result={room.trashVendorSellResult}
                 onClose={() => setTrashVendorNpcId(null)}
                 onSellTrashItems={sellTrashItems}
+                onAnalyticsEvent={room.sendAnalyticsEvent}
+              />
+            </MovableWindow>
+          )}
+          {fishingVendorNpc && (
+            <MovableWindow id="hud.fishing-vendor" as="section" className="floating-menu-overlay trash-vendor-anchor" role="dialog" aria-label="fishing vendor">
+              <FishingVendorPanel
+                npc={fishingVendorNpc}
+                player={localPlayer ?? null}
+                result={room.fishingVendorSellResult}
+                onClose={() => setFishingVendorNpcId(null)}
+                onSellFishingItems={sellFishingItems}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </MovableWindow>
@@ -2135,6 +2196,25 @@ function getItemActionBlockMessage(slot: ItemActionSlot, player: PlayerSnapshot 
   if (consumable.health) return "Health is full";
   if (consumable.mana) return "Mana is full";
   return "Can't use that";
+}
+
+function getFishingActionBlockMessage(player: PlayerSnapshot | null) {
+  if (!player) return "Not ready";
+  if (player.health <= 0) return "You are dead";
+  if (player.fishingState) return player.fishingState === "bite" ? null : "Watch the bobber";
+  if (player.castingAction) return "Already casting";
+  if (!playerHasFishingPole(player)) return "Fishing pole required";
+  if (!isNearFishingZone(player.x, player.z)) return "Get closer to South Center Pond";
+  return null;
+}
+
+function playerHasFishingPole(player: PlayerSnapshot | null) {
+  if (!player) return false;
+  return player.inventory.some((item) => (
+    (item.id === FISHING_POLE_ITEM_ID || item.id === LOANER_FISHING_POLE_ITEM_ID)
+    && !item.chainTokenId
+    && item.count > 0
+  ));
 }
 
 function getCombatActionBlockMessage(
@@ -2506,6 +2586,7 @@ function reconcileActionSlots({
         ? slot
         : null;
     }
+    if (slot === "fish") return playerHasFishingPole(player) ? slot : null;
     return unlockedActionSet.has(slot) ? slot : null;
   });
   const assignedActions = new Set(next.filter(isCombatActionSlot));
@@ -2532,6 +2613,11 @@ function reconcileActionSlots({
     if (shouldNotify && newlyUnlockedActionSet.has(actionId)) {
       notices.push({ actionId, buttonIndex: emptyIndex, sourceLabel: getMoveUnlockSourceLabel(actionId, player) });
     }
+  }
+
+  if (playerHasFishingPole(player) && !next.includes("fish")) {
+    const emptyIndex = next.findIndex((slot) => !slot);
+    if (emptyIndex >= 0) next[emptyIndex] = "fish";
   }
 
   return {
@@ -2564,11 +2650,11 @@ function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {
 }
 
 function isActionId(value: unknown): value is ActionId {
-  return value === "interact" || (typeof value === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, value));
+  return value === "interact" || value === "fish" || (typeof value === "string" && Object.prototype.hasOwnProperty.call(COMBAT.actions, value));
 }
 
 function isCombatActionSlot(slot: ActionSlot): slot is CombatActionId {
-  return Boolean(slot && typeof slot === "string" && slot !== "interact");
+  return Boolean(slot && typeof slot === "string" && slot !== "interact" && slot !== "fish");
 }
 
 function isLockedCombatActionSlot(slot: ActionSlot, player: PlayerSnapshot) {

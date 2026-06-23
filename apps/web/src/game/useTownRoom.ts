@@ -14,16 +14,20 @@ import {
   type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
+  type ClientCancelFishing,
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
+  type ClientReelFishing,
   type ClientRemoveSeasonReferral,
   type ClientRespecTalents,
   type ClientSelectTalent,
+  type ClientSellFishingItems,
   type ClientSellTrashItems,
   type ClientShareQuestLink,
+  type ClientStartFishing,
   type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
@@ -31,6 +35,8 @@ import {
   type ActiveBuffSnapshot,
   type EquipmentSlotSnapshot,
   type ExperienceEvent,
+  type FishingResult,
+  type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type JoinOptions,
   type LootWindow,
@@ -80,6 +86,7 @@ type RuntimeActiveBuffCollection = {
 type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
   agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
+  fishingJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -190,6 +197,8 @@ export function useTownRoom(identity: JoinOptions) {
   const [potionShopPurchaseResult, setPotionShopPurchaseResult] = useState<PotionShopPurchaseResult | null>(null);
   const [talentRespecResult, setTalentRespecResult] = useState<TalentRespecResult | null>(null);
   const [trashVendorSellResult, setTrashVendorSellResult] = useState<TrashVendorSellResult | null>(null);
+  const [fishingResult, setFishingResult] = useState<FishingResult | null>(null);
+  const [fishingVendorSellResult, setFishingVendorSellResult] = useState<FishingVendorSellResult | null>(null);
   const [seasonReferralRemoveResult, setSeasonReferralRemoveResult] = useState<SeasonReferralRemoveResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
   const roomRef = useRef<Room<RuntimeTownState> | null>(null);
@@ -446,6 +455,12 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
           setTrashVendorSellResult(message);
         });
+        room.onMessage("fishingResult", (message: FishingResult) => {
+          setFishingResult(message);
+        });
+        room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
+          setFishingVendorSellResult(message);
+        });
         room.onMessage("seasonReferralRemoveResult", (message: SeasonReferralRemoveResult) => {
           setSeasonReferralRemoveResult(message);
         });
@@ -540,6 +555,7 @@ export function useTownRoom(identity: JoinOptions) {
 
   useEffect(() => {
     if (!lootWindow) return;
+    if (lootWindow.source === "fishing") return;
     const npc = npcsRef.current.get(lootWindow.npcId);
     if (!npc?.hasLoot) setLootWindow(null);
   }, [lootWindow, snapshotRevision]);
@@ -633,6 +649,18 @@ export function useTownRoom(identity: JoinOptions) {
   }, []);
   const sendSellTrashItems = useCallback((message: ClientSellTrashItems) => {
     roomRef.current?.send("sellTrashItems", message);
+  }, []);
+  const sendStartFishing = useCallback((message: ClientStartFishing = {}) => {
+    roomRef.current?.send("startFishing", message);
+  }, []);
+  const sendReelFishing = useCallback((message: ClientReelFishing = {}) => {
+    roomRef.current?.send("reelFishing", message);
+  }, []);
+  const sendCancelFishing = useCallback((message: ClientCancelFishing = {}) => {
+    roomRef.current?.send("cancelFishing", message);
+  }, []);
+  const sendSellFishingItems = useCallback((message: ClientSellFishingItems) => {
+    roomRef.current?.send("sellFishingItems", message);
   }, []);
   const sendRemoveSeasonReferral = useCallback((message: ClientRemoveSeasonReferral) => {
     roomRef.current?.send("removeSeasonReferral", message);
@@ -734,6 +762,8 @@ export function useTownRoom(identity: JoinOptions) {
     potionShopPurchaseResult,
     talentRespecResult,
     trashVendorSellResult,
+    fishingResult,
+    fishingVendorSellResult,
     seasonReferralRemoveResult,
     persistenceStatus,
     leaveAndWait,
@@ -759,6 +789,10 @@ export function useTownRoom(identity: JoinOptions) {
     sendPurchasePotionShopItem,
     sendRespecTalents,
     sendSellTrashItems,
+    sendStartFishing,
+    sendReelFishing,
+    sendCancelFishing,
+    sendSellFishingItems,
     sendRemoveSeasonReferral,
     sendDebugRegisterChainGear,
     sendDebugUpdateChainGearTier,
@@ -965,6 +999,7 @@ function applyActiveLocalTraitUpdateOverride(
 
 function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot {
   const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
+  const fishing = parseRuntimeFishing(player);
   return {
     sessionId: id,
     name: player.name,
@@ -1028,6 +1063,14 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     lastCastAt: player.lastCastAt,
     lastDamagedAt: player.lastDamagedAt,
     frozenUntil: player.frozenUntil,
+    fishingAttemptId: fishing.attemptId,
+    fishingZoneId: fishing.zoneId,
+    fishingState: fishing.state,
+    fishingCastAt: fishing.castAt,
+    fishingBiteAt: fishing.biteAt,
+    fishingExpiresAt: fishing.expiresAt,
+    fishingBobberX: fishing.bobberX,
+    fishingBobberZ: fishing.bobberZ,
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
@@ -1112,6 +1155,23 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.lastCastAt !== player.lastCastAt || changed;
   changed = target.lastDamagedAt !== player.lastDamagedAt || changed;
   changed = target.frozenUntil !== player.frozenUntil || changed;
+  const nextFishing = parseRuntimeFishing(player);
+  const nextFishingAttemptId = nextFishing.attemptId;
+  const nextFishingZoneId = nextFishing.zoneId;
+  const nextFishingState = nextFishing.state;
+  const nextFishingCastAt = nextFishing.castAt;
+  const nextFishingBiteAt = nextFishing.biteAt;
+  const nextFishingExpiresAt = nextFishing.expiresAt;
+  const nextFishingBobberX = nextFishing.bobberX;
+  const nextFishingBobberZ = nextFishing.bobberZ;
+  changed = target.fishingAttemptId !== nextFishingAttemptId || changed;
+  changed = target.fishingZoneId !== nextFishingZoneId || changed;
+  changed = target.fishingState !== nextFishingState || changed;
+  changed = target.fishingCastAt !== nextFishingCastAt || changed;
+  changed = target.fishingBiteAt !== nextFishingBiteAt || changed;
+  changed = target.fishingExpiresAt !== nextFishingExpiresAt || changed;
+  changed = target.fishingBobberX !== nextFishingBobberX || changed;
+  changed = target.fishingBobberZ !== nextFishingBobberZ || changed;
 
   target.sessionId = id;
   target.name = player.name;
@@ -1175,6 +1235,14 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.lastCastAt = player.lastCastAt;
   target.lastDamagedAt = player.lastDamagedAt;
   target.frozenUntil = player.frozenUntil;
+  target.fishingAttemptId = nextFishingAttemptId;
+  target.fishingZoneId = nextFishingZoneId;
+  target.fishingState = nextFishingState;
+  target.fishingCastAt = nextFishingCastAt;
+  target.fishingBiteAt = nextFishingBiteAt;
+  target.fishingExpiresAt = nextFishingExpiresAt;
+  target.fishingBobberX = nextFishingBobberX;
+  target.fishingBobberZ = nextFishingBobberZ;
   const nextQuests = snapshotQuests(player.quests);
   const nextInventory = snapshotInventory(player.inventory);
   const nextEquipment = snapshotEquipment(player.equipment);
@@ -1425,6 +1493,47 @@ function readAgentCommandText(value: unknown) {
 function readAgentCommandNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function parseRuntimeFishing(player: Pick<RuntimePlayer, "fishingJson">) {
+  const fallback = {
+    attemptId: "",
+    zoneId: "" as PlayerSnapshot["fishingZoneId"],
+    state: "" as PlayerSnapshot["fishingState"],
+    castAt: 0,
+    biteAt: 0,
+    expiresAt: 0,
+    bobberX: 0,
+    bobberZ: 0,
+  };
+
+  if (!player.fishingJson) return fallback;
+
+  try {
+    const parsed = JSON.parse(player.fishingJson) as Record<string, unknown>;
+    const state = readRuntimeFishingState(parsed.state);
+    return {
+      attemptId: readAgentCommandText(parsed.attemptId),
+      zoneId: readAgentCommandText(parsed.zoneId) as PlayerSnapshot["fishingZoneId"],
+      state,
+      castAt: readRuntimeFishingNumber(parsed.castAt),
+      biteAt: readRuntimeFishingNumber(parsed.biteAt),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      bobberX: readRuntimeFishingNumber(parsed.bobberX),
+      bobberZ: readRuntimeFishingNumber(parsed.bobberZ),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function readRuntimeFishingState(value: unknown): PlayerSnapshot["fishingState"] {
+  return value === "casting" || value === "waiting" || value === "bite" ? value : "";
+}
+
+function readRuntimeFishingNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function questSnapshotsEqual(left: QuestSnapshot[], right: QuestSnapshot[]) {

@@ -18,6 +18,7 @@ import {
   isMferGptDailyQuestDefeatTarget,
   isMferGptDailyQuestItem,
   isStackableItem,
+  LOANER_FISHING_POLE_ITEM_ID,
   ITEMS,
   hasExplicitMferAppearanceTraits,
   normalizeChainTokenId,
@@ -521,6 +522,9 @@ export function completeQuest(player: PlayerState, questId: QuestId, now: number
   if (requiredItemId && shouldConsumeQuestItem(questId)) {
     removeInventoryItem(player, requiredItemId, quest.required);
   }
+  if (questId === "fishin-lesson") {
+    removeInventoryItem(player, LOANER_FISHING_POLE_ITEM_ID, 1);
+  }
 
   quest.status = "completed";
   quest.progress = quest.required;
@@ -576,6 +580,10 @@ export function progressSocialQuest(player: PlayerState, questId: QuestId) {
 
 export function progressTraitQuest(player: PlayerState) {
   return progressQuest(player, "set-your-traits", 1);
+}
+
+export function progressFishingQuest(player: PlayerState) {
+  return progressQuest(player, "fishin-lesson", 1);
 }
 
 function isDefeatQuestTarget(player: PlayerState, questId: QuestId, npc: NpcState) {

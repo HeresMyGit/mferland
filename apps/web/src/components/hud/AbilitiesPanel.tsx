@@ -2,6 +2,8 @@ import { type PointerEvent, useState } from "react";
 import { BadgePlus } from "lucide-react";
 import {
   COMBAT,
+  FISHING_POLE_ITEM_ID,
+  LOANER_FISHING_POLE_ITEM_ID,
   TALENTS,
   TALENT_IDS,
   TALENT_TREES,
@@ -23,7 +25,7 @@ import { AbilityIcon, TalentIcon, TalentTreeIcon } from "./GameIcon";
 import { type ActionSlot } from "./types";
 import { formatTooltipLabel } from "./utils";
 
-const BASELINE_ABILITY_IDS: ActionId[] = ["interact", "attack", "shoot", "signalShot", "fireblast", "iceBlast", "heal", "taunt"];
+const BASELINE_ABILITY_IDS: ActionId[] = ["interact", "fish", "attack", "shoot", "signalShot", "fireblast", "iceBlast", "heal", "taunt"];
 const TALENT_ABILITY_IDS: CombatActionId[] = ["whirlwind", "multishot", "frostNova"];
 const SPELLBOOK_ABILITY_IDS: ActionId[] = [...BASELINE_ABILITY_IDS, ...TALENT_ABILITY_IDS];
 
@@ -115,8 +117,10 @@ function AbilityBookTile({
   const meta = getActionMeta(actionId);
   if (!meta) return null;
 
-  const isCombat = actionId !== "interact";
-  const locked = isCombat && (!player || !isCombatActionUnlocked(actionId, player.level, player.talents, debugUnlockAllMoves));
+  const isCombat = isCombatAbilityId(actionId);
+  const locked = actionId === "fish"
+    ? !playerHasFishingPole(player)
+    : isCombat && (!player || !isCombatActionUnlocked(actionId, player.level, player.talents, debugUnlockAllMoves));
   const unlockLevel = isCombat ? getCombatActionUnlockLevel(actionId) : 1;
   const assignedIndex = actionSlots.findIndex((slot) => slot === actionId);
   const title = getAbilityTitle(actionId, unlockLevel, assignedIndex, locked);
@@ -137,6 +141,19 @@ function AbilityBookTile({
   );
 }
 
+function playerHasFishingPole(player: PlayerSnapshot | null) {
+  if (!player) return false;
+  return player.inventory.some((item) => (
+    (item.id === FISHING_POLE_ITEM_ID || item.id === LOANER_FISHING_POLE_ITEM_ID)
+    && !item.chainTokenId
+    && item.count > 0
+  ));
+}
+
+function isCombatAbilityId(actionId: ActionId): actionId is CombatActionId {
+  return actionId !== "interact" && actionId !== "fish";
+}
+
 function getAbilityTitle(actionId: ActionId, unlockLevel: number, assignedIndex: number, locked: boolean) {
   const meta = getActionMeta(actionId);
   const state = locked ? "Locked" : assignedIndex >= 0 ? "Assigned" : "Ready";
@@ -150,6 +167,7 @@ function getAbilityTitle(actionId: ActionId, unlockLevel: number, assignedIndex:
 
 function getAbilityUnlockText(actionId: ActionId, unlockLevel: number) {
   if (actionId === "interact") return "";
+  if (actionId === "fish") return "Requires a fishing pole";
   if (Number.isFinite(unlockLevel)) return `Unlocks at level ${unlockLevel}`;
 
   const talentId = getCombatActionUnlockTalent(actionId);
@@ -161,6 +179,7 @@ function getAbilityUnlockText(actionId: ActionId, unlockLevel: number) {
 
 function getAbilityDescription(actionId: ActionId) {
   if (actionId === "interact") return "talk, loot, and use nearby objects.";
+  if (actionId === "fish") return "cast at the south pond, wait for a bite, then reel the bobber.";
   const action = COMBAT.actions[actionId];
   const range = action.maxRange > 0
     ? action.minRange > 0 ? `${action.minRange}-${action.maxRange}m` : `${action.maxRange}m`

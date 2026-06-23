@@ -21,6 +21,24 @@ import {
   getTrashVendorSellValue,
   isTrashVendorItemId,
 } from "./trashVendor.js";
+import {
+  FISHING_AGENT_BUNDLE_MULTIPLIER,
+  FISHING_CATCH_ITEM_IDS,
+  FISHING_POLE_ITEM_ID,
+  FISHING_ZONE,
+  LOANER_FISHING_POLE_ITEM_ID,
+  getFishingBobberPosition,
+  getFishingPayableQuantity,
+  getFishingRequiredBundleSize,
+  getFishingSellAwardPoints,
+  isInsideFishingWater,
+  isNearFishingZone,
+  isFishingCatchItemId,
+  isFishingItemId,
+  isFishingPoleItemId,
+  rollFishingCatch,
+} from "./fishing.js";
+import { resolveWorldCollision } from "./world.js";
 
 test("maps local chain gear types to in-game gear items", () => {
   assert.equal(getChainGearItemId(1), "rusty-skate-deck");
@@ -63,6 +81,62 @@ test("agent trash-vendor rewards require complete two-item bundles", () => {
   assert.equal(getAgentTrashVendorPayableQuantity(3), 2);
   assert.equal(getAgentTrashVendorPayableQuantity(10), 10);
   assert.equal(getAgentTrashVendorPayableQuantity(20, 2), 4);
+});
+
+test("defines fishing pole and smoking headphone fish items", () => {
+  assert.equal(ITEMS[FISHING_POLE_ITEM_ID].name, "south pond pole");
+  assert.equal(ITEMS[LOANER_FISHING_POLE_ITEM_ID].quality, "quest");
+  assert.equal(isFishingPoleItemId(FISHING_POLE_ITEM_ID), true);
+  assert.equal(isFishingItemId("based-bass"), true);
+  assert.equal(isFishingCatchItemId("wet-boot"), true);
+  assert.equal(isFishingCatchItemId("red-juice"), false);
+  for (const itemId of FISHING_CATCH_ITEM_IDS) {
+    assert.equal(Object.hasOwn(ITEMS, itemId), true);
+  }
+  assert.match(ITEMS["reply-gill-minnow"].description, /headphones/);
+  assert.match(ITEMS["huge-sartoshi-koi"].description, /smoke/);
+});
+
+test("fishing sale bundles use larger requirements for declared agents", () => {
+  assert.equal(FISHING_AGENT_BUNDLE_MULTIPLIER, AGENT_TRASH_VENDOR_ITEMS_PER_POINT);
+  assert.equal(getFishingRequiredBundleSize("reply-gill-minnow", false), 10);
+  assert.equal(getFishingSellAwardPoints("reply-gill-minnow", 9, false), 0);
+  assert.equal(getFishingSellAwardPoints("reply-gill-minnow", 10, false), 1);
+  assert.equal(getFishingPayableQuantity("reply-gill-minnow", 19, Number.MAX_SAFE_INTEGER, false), 10);
+  assert.equal(getFishingRequiredBundleSize("reply-gill-minnow", true), 20);
+  assert.equal(getFishingSellAwardPoints("reply-gill-minnow", 19, true), 0);
+  assert.equal(getFishingSellAwardPoints("reply-gill-minnow", 20, true), 1);
+  assert.equal(getFishingPayableQuantity("reply-gill-minnow", 30, Number.MAX_SAFE_INTEGER, true), 20);
+  assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 1, false), 8);
+  assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 1, true), 0);
+  assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 2, true), 8);
+  assert.equal(getFishingSellAwardPoints("wet-boot", 99, true), 0);
+  assert.equal(getFishingPayableQuantity("wet-boot", 7, 0, true), 7);
+});
+
+test("fishing loot roll can return fish, junk, or no catch", () => {
+  assert.equal(rollFishingCatch(() => 0), "wet-boot");
+  assert.equal(rollFishingCatch(() => 0.99), null);
+});
+
+test("south-center pond has a castable shore and water bobber target", () => {
+  assert.equal(FISHING_ZONE.id, "south-center-pond");
+  assert.equal(FISHING_ZONE.x, 0);
+  assert.ok(FISHING_ZONE.z > 100);
+  const shore = resolveWorldCollision(FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.8, FISHING_ZONE.z + 1.8, 0.45);
+  assert.equal(isNearFishingZone(shore.x, shore.z), true);
+  assert.equal(isInsideFishingWater(shore.x, shore.z), false);
+
+  const bobber = getFishingBobberPosition({
+    ...shore,
+    yaw: Math.atan2(FISHING_ZONE.x - shore.x, FISHING_ZONE.z - shore.z),
+  });
+  assert.equal(isInsideFishingWater(bobber.x, bobber.z), true);
+  assert.ok(bobber.x < shore.x);
+});
+
+test("fishing rejects ordinary plaza positions", () => {
+  assert.equal(isNearFishingZone(0, 0), false);
 });
 
 test("adds one-hour elixirs to the potion shop with elixir pricing", () => {

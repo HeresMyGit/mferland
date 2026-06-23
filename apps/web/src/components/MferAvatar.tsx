@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { Billboard, Text } from "@react-three/drei";
-import { type ThreeEvent, useFrame, useLoader } from "@react-three/fiber";
+import { createPortal, type ThreeEvent, useFrame, useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
@@ -39,6 +39,7 @@ type MferAvatarProps = {
 type ShadowScale = [number, number, number];
 type CastOrbVariant = "fire" | "ice" | "heal";
 type MferClipConfig = { file: string; loop: THREE.AnimationActionLoopStyles; timeScale: number };
+type HandSlot = "leftHand" | "rightHand";
 type MferIdleAnimationKey =
   | "idleWeightShift"
   | "idleLookAround"
@@ -61,6 +62,9 @@ export const MIXAMO_CLIPS: Record<AnimationState, MferClipConfig> = {
   walk: { file: "Walking_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1 },
   run: { file: "Slow_Run_Forward_InPlace", loop: THREE.LoopRepeat, timeScale: 1.08 },
   jump: { file: "Forward_Running_Jump", loop: THREE.LoopOnce, timeScale: 1 },
+  fishCast: { file: "emotes/Waving", loop: THREE.LoopOnce, timeScale: 0.72 },
+  fishIdle: { file: "idles/Thinking_While_Standing", loop: THREE.LoopRepeat, timeScale: 0.62 },
+  fishReel: { file: "emotes/Male_Cheering_With_Two_Fists_Pump", loop: THREE.LoopOnce, timeScale: 0.85 },
 };
 const MFER_IDLE_VARIANT_CLIPS: Record<MferIdleAnimationKey, MferClipConfig> = {
   idleWeightShift: { file: "idles/Weight_Shift_Idle", loop: THREE.LoopRepeat, timeScale: 0.9 },
@@ -123,6 +127,12 @@ const SHOPKEEPER_CUE_RENDER_DISTANCE_SQ = 38 * 38;
 const MERCHANT_PRICE_TAG_EMOJI = "🏷️";
 const ACTOR_POSITION_SNAP_DISTANCE = 5.5;
 const ACTOR_HEIGHT_SNAP_DISTANCE = 3;
+const RIGHT_HAND_BONE_PATTERNS = [/mixamorig:?right(hand)$/i, /right_?hand$/i, /r_?hand$/i];
+const LEFT_HAND_BONE_PATTERNS = [/mixamorig:?left(hand)$/i, /left_?hand$/i, /l_?hand$/i];
+const FISHING_POLE_FALLBACK_POSITION: [number, number, number] = [0.54, 1.18, 0.42];
+const FISHING_POLE_FALLBACK_ROTATION: [number, number, number] = [0.2, -0.34, -0.68];
+const FISHING_POLE_HAND_POSITION: [number, number, number] = [0.02, 0.02, 0.03];
+const FISHING_POLE_HAND_ROTATION: [number, number, number] = [0.12, -0.2, -0.82];
 
 avatarHitGeometry.computeBoundingBox();
 avatarHitGeometry.computeBoundingSphere();
@@ -184,6 +194,7 @@ export function MferAvatar({
   const castingOrbVariant = "castingAction" in player && player.castEndsAt > Date.now()
     ? getCastOrbVariant(player.castingAction)
     : null;
+  const showFishingPole = "fishingState" in player && Boolean(player.fishingState);
 
   const clips = useMemo(() => getMferAnimationClips(fbxAnimations), [fbxAnimations]);
 
@@ -284,6 +295,20 @@ export function MferAvatar({
       />
       <group ref={poseRef}>
         <primitive object={avatar} />
+        {showFishingPole && (
+          <HandAttachment
+            avatar={avatar}
+            slot="rightHand"
+            position={FISHING_POLE_HAND_POSITION}
+            rotation={FISHING_POLE_HAND_ROTATION}
+            scale={0.76}
+            fallbackPosition={FISHING_POLE_FALLBACK_POSITION}
+            fallbackRotation={FISHING_POLE_FALLBACK_ROTATION}
+            fallbackScale={0.92}
+          >
+            <FishingPoleRig state={"fishingState" in player ? player.fishingState : ""} />
+          </HandAttachment>
+        )}
         {showMerchantCue && <ShopkeeperPriceTag y={3.58} />}
         {showNameplate && (
           <Billboard position={[0, isLocal ? 3.22 : 3.08, 0]}>
@@ -542,6 +567,113 @@ function ShopkeeperPriceTag({ y }: { y: number }) {
       </group>
     </Billboard>
   );
+}
+
+export function HandAttachment({
+  avatar,
+  slot,
+  children,
+  position = [0, 0, 0],
+  rotation = [0, 0, 0],
+  scale = 1,
+  fallbackPosition,
+  fallbackRotation,
+  fallbackScale = scale,
+}: {
+  avatar: THREE.Object3D;
+  slot: HandSlot;
+  children: ReactNode;
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  scale?: number;
+  fallbackPosition: [number, number, number];
+  fallbackRotation: [number, number, number];
+  fallbackScale?: number;
+}) {
+  const hand = useMemo(() => findHandAttachmentBone(avatar, slot), [avatar, slot]);
+  const attachment = (
+    <group position={position} rotation={rotation} scale={scale}>
+      {children}
+    </group>
+  );
+
+  if (hand) return createPortal(attachment, hand);
+  return (
+    <group position={fallbackPosition} rotation={fallbackRotation} scale={fallbackScale}>
+      {children}
+    </group>
+  );
+}
+
+export function FishingPoleRig({ state = "" }: { state?: PlayerSnapshot["fishingState"] | "" }) {
+  const reelRef = useRef<THREE.Group>(null);
+  const bobberRef = useRef<THREE.Group>(null);
+
+  useFrame(({ clock }) => {
+    const reel = reelRef.current;
+    if (reel && state === "bite") reel.rotation.z = clock.elapsedTime * 9;
+    const bobber = bobberRef.current;
+    if (bobber) {
+      const biteJiggle = state === "bite" ? Math.sin(clock.elapsedTime * 22) * 0.035 : 0;
+      bobber.position.y = -0.72 + biteJiggle;
+      bobber.rotation.z = state === "bite" ? Math.sin(clock.elapsedTime * 18) * 0.24 : 0;
+    }
+  });
+
+  return (
+    <group>
+      <mesh position={[0, 0.62, 0]}>
+        <cylinderGeometry args={[0.022, 0.036, 1.95, 8]} />
+        <meshStandardMaterial color="#5b3a1f" roughness={0.72} />
+      </mesh>
+      <mesh position={[0, 1.64, 0]} rotation={[0.28, 0, -0.12]}>
+        <cylinderGeometry args={[0.01, 0.018, 0.72, 8]} />
+        <meshStandardMaterial color="#2a211b" roughness={0.7} />
+      </mesh>
+      <group ref={reelRef} position={[0.08, -0.12, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
+        <mesh>
+          <torusGeometry args={[0.12, 0.018, 8, 24]} />
+          <meshStandardMaterial color="#c8b984" metalness={0.12} roughness={0.48} />
+        </mesh>
+        <mesh position={[0.15, 0, 0]}>
+          <sphereGeometry args={[0.026, 10, 8]} />
+          <meshStandardMaterial color="#151313" roughness={0.62} />
+        </mesh>
+      </group>
+      <mesh position={[0, 1.42, 0.02]}>
+        <cylinderGeometry args={[0.008, 0.008, 1.42, 6]} />
+        <meshStandardMaterial color="#f4efd9" roughness={0.88} />
+      </mesh>
+      <group ref={bobberRef} position={[0.06, -0.72, 0.03]}>
+        <mesh>
+          <sphereGeometry args={[0.085, 16, 12]} />
+          <meshStandardMaterial color="#f4efd9" roughness={0.5} />
+        </mesh>
+        <mesh position={[0, -0.032, 0]}>
+          <sphereGeometry args={[0.086, 16, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+          <meshStandardMaterial color="#d85842" roughness={0.55} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function findHandAttachmentBone(avatar: THREE.Object3D, slot: HandSlot) {
+  const patterns = slot === "rightHand" ? RIGHT_HAND_BONE_PATTERNS : LEFT_HAND_BONE_PATTERNS;
+  let fallback: THREE.Bone | null = null;
+  let match: THREE.Bone | null = null;
+  avatar.traverse((child) => {
+    if (match || !(child instanceof THREE.Bone)) return;
+    const normalizedName = child.name.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (patterns.some((pattern) => pattern.test(child.name) || pattern.test(normalizedName))) {
+      match = child;
+      return;
+    }
+    if (!fallback && normalizedName.includes(slot === "rightHand" ? "rightforearm" : "leftforearm")) {
+      fallback = child;
+    }
+  });
+  return match ?? fallback;
 }
 
 export function QuestMarker({ type, y }: { type: QuestMarkerType; y: number }) {

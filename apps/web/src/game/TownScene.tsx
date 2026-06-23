@@ -1,5 +1,5 @@
 import { memo, Suspense, useEffect, useMemo, useRef } from "react";
-import { Text } from "@react-three/drei";
+import { Billboard, Text } from "@react-three/drei";
 import { type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
@@ -88,6 +88,7 @@ type TownSceneProps = {
   onSelectTarget: (target: TargetSelection | null) => void;
   onSelectNpcTarget?: (npcId: string) => void;
   onInteractAction: () => void;
+  onReelFishing?: (attemptId?: string) => void;
   sendInput: (input: ClientInput) => void;
   debugTravelView?: {
     x: number;
@@ -156,6 +157,7 @@ function TownSceneComponent({
   onSelectTarget,
   onSelectNpcTarget,
   onInteractAction,
+  onReelFishing,
   sendInput,
   debugTravelView = null,
   nameplateVisibility = DEFAULT_NAMEPLATE_VISIBILITY,
@@ -805,6 +807,11 @@ function TownSceneComponent({
             />
           );
         })}
+        <FishingBobberLayer
+          players={players}
+          localSessionId={localSessionId}
+          onReelFishing={onReelFishing}
+        />
         <CombatFeedbackLayer
           combatEvents={combatEvents}
           experienceEvents={experienceEvents}
@@ -832,6 +839,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.onSelectTarget === next.onSelectTarget
     && previous.onSelectNpcTarget === next.onSelectNpcTarget
     && previous.onInteractAction === next.onInteractAction
+    && previous.onReelFishing === next.onReelFishing
     && previous.sendInput === next.sendInput
     && previous.debugTravelView === next.debugTravelView
     && previous.nameplateVisibility === next.nameplateVisibility
@@ -859,6 +867,98 @@ function clearMobileMoveInput(inputRef: MobileMoveInputRef | undefined) {
   inputRef.current.forward = 0;
   inputRef.current.right = 0;
   inputRef.current.sprint = false;
+}
+
+function FishingBobberLayer({
+  players,
+  localSessionId,
+  onReelFishing,
+}: {
+  players: Map<string, PlayerSnapshot>;
+  localSessionId: string | null;
+  onReelFishing?: (attemptId?: string) => void;
+}) {
+  const bobbers = Array.from(players.values()).filter((player) => player.fishingState && player.fishingAttemptId);
+  return (
+    <>
+      {bobbers.map((player) => (
+        <FishingBobber
+          key={player.sessionId}
+          player={player}
+          local={player.sessionId === localSessionId}
+          onReelFishing={onReelFishing}
+        />
+      ))}
+    </>
+  );
+}
+
+function FishingBobber({
+  player,
+  local,
+  onReelFishing,
+}: {
+  player: PlayerSnapshot;
+  local: boolean;
+  onReelFishing?: (attemptId?: string) => void;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const bite = player.fishingState === "bite";
+
+  useFrame(({ clock }) => {
+    const group = groupRef.current;
+    if (!group) return;
+    const t = clock.elapsedTime;
+    group.position.y = 0.18 + Math.sin(t * (bite ? 18 : 3.2)) * (bite ? 0.12 : 0.035);
+    group.rotation.z = bite ? Math.sin(t * 22) * 0.22 : Math.sin(t * 2.4) * 0.04;
+  });
+
+  function reel(event: ThreeEvent<PointerEvent>) {
+    event.stopPropagation();
+    if (!local || !bite) return;
+    onReelFishing?.(player.fishingAttemptId);
+  }
+
+  return (
+    <group
+      ref={groupRef}
+      position={[player.fishingBobberX, 0.18, player.fishingBobberZ]}
+      onClick={reel}
+    >
+      <mesh rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.38, 0.44, 40]} />
+        <meshBasicMaterial color={bite ? MFER_COLORS.fire : MFER_COLORS.signal} transparent opacity={bite ? 0.82 : 0.42} side={THREE.DoubleSide} />
+      </mesh>
+      {bite && (
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}>
+          <ringGeometry args={[0.66, 0.72, 44]} />
+          <meshBasicMaterial color="#f8f1cf" transparent opacity={0.58} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      <mesh position={[0, 0.34, 0]}>
+        <sphereGeometry args={[0.16, 16, 12]} />
+        <meshBasicMaterial color={bite ? "#ff6f4f" : "#f9f3df"} />
+      </mesh>
+      <mesh position={[0, 0.12, 0]}>
+        <cylinderGeometry args={[0.035, 0.035, 0.46, 10]} />
+        <meshBasicMaterial color="#d44131" />
+      </mesh>
+      {local && bite && (
+        <Billboard position={[0, 1.04, 0]}>
+          <Text
+            fontSize={0.3}
+            color="#201914"
+            outlineWidth={0.035}
+            outlineColor="#f8f1cf"
+            anchorX="center"
+            anchorY="middle"
+          >
+            reel
+          </Text>
+        </Billboard>
+      )}
+    </group>
+  );
 }
 
 function updateObserverVisualPlayer(visual: PlayerSnapshot, authoritative: PlayerSnapshot, delta: number) {

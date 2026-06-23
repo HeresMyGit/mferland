@@ -3,7 +3,7 @@ import { useTexture } from "@react-three/drei";
 import { useLoader } from "@react-three/fiber";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import * as THREE from "three";
-import { PLAZA_BOUNDS, WORLD_LANDMARKS, WORLD_ROADS, type WorldLandmark } from "@mferland/shared";
+import { FISHING_ZONE, PLAZA_BOUNDS, WORLD_LANDMARKS, WORLD_ROADS, type WorldLandmark } from "@mferland/shared";
 import { CastleGate, TownBuilding } from "./world/Buildings";
 import { RundownFarm } from "./world/Farm";
 import { Fountain } from "./world/Fountain";
@@ -150,6 +150,7 @@ export function TownWorld({
       <WatchTower position={eastWatchTowerPlacement.position} rotation={eastWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} renderProfile={renderProfile} />
       <WatchTower position={ridgeWatchTowerPlacement.position} rotation={ridgeWatchTowerPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} renderProfile={renderProfile} />
       <RundownFarm position={farmPlacement.position} rotation={farmPlacement.rotation} stoneTexture={stoneTexture} roofTexture={roofTexture} wallTexture={timberTexture} barkTexture={barkTexture} renderProfile={renderProfile} />
+      <FishingPond waterTexture={waterTexture} renderProfile={renderProfile} debugPlacementOverrides={debugPlacementOverrides} />
       <SignalRelay position={signalRelayPlacement.position} rotation={signalRelayPlacement.rotation} renderProfile={renderProfile} />
       {WORLD_LANDMARKS.map((landmark) => {
         const transform = getDebugPlacementTransform(`prop:route-marker:${landmark.id}`, [landmark.x, 0, landmark.z], -Math.PI / 2, debugPlacementOverrides);
@@ -178,6 +179,72 @@ export function TownWorld({
       <DebugBannerPost id="prop:banner-relay-north" position={[137.5, 0, -91]} color={MFER_COLORS.hostile} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
       <DebugBannerPost id="prop:banner-relay-south" position={[137.5, 0, -116.5]} color={MFER_COLORS.hostile} rotation={Math.PI} overrides={debugPlacementOverrides} renderProfile={renderProfile} />
       {!renderProfile.reducedWorldDetail && leafTexture && <TreeCluster barkTexture={barkTexture} leafTexture={leafTexture} />}
+    </group>
+  );
+}
+
+function FishingPond({
+  waterTexture,
+  renderProfile,
+  debugPlacementOverrides,
+}: {
+  waterTexture: THREE.Texture;
+  renderProfile: RenderPerformanceProfile;
+  debugPlacementOverrides?: DebugPlacementOverrides | null;
+}) {
+  const pondPlacement = getDebugPlacementTransform("model:fishing-pond", [FISHING_ZONE.x, 0, FISHING_ZONE.z], 0, debugPlacementOverrides);
+  const dockPlacement = getDebugPlacementTransform(
+    "prop:fishing-dock",
+    [FISHING_ZONE.x + 7.2, 0.08, FISHING_ZONE.z - 4.8],
+    -0.62,
+    debugPlacementOverrides,
+  );
+  const reedCount = renderProfile.reducedWorldDetail ? 8 : 18;
+  const reeds = useMemo(() => Array.from({ length: reedCount }, (_, index) => {
+    const angle = (index / reedCount) * Math.PI * 2 + (index % 2) * 0.12;
+    const radius = FISHING_ZONE.waterRadius + 0.85 + (index % 3) * 0.28;
+    return {
+      x: FISHING_ZONE.x + Math.cos(angle) * radius,
+      z: FISHING_ZONE.z + Math.sin(angle) * radius,
+      rotation: -angle,
+      height: 0.9 + (index % 4) * 0.18,
+    };
+  }), [reedCount]);
+
+  return (
+    <group>
+      <mesh rotation-x={-Math.PI / 2} position={[pondPlacement.position[0], 0.018, pondPlacement.position[2]]}>
+        <circleGeometry args={[FISHING_ZONE.waterRadius + 1.25, 96]} />
+        <meshBasicMaterial color="#6c5f42" transparent opacity={0.72} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[pondPlacement.position[0], 0.032, pondPlacement.position[2]]}>
+        <circleGeometry args={[FISHING_ZONE.waterRadius, 128]} />
+        <meshBasicMaterial map={waterTexture} color="#5db4c7" transparent opacity={0.84} />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2} position={[pondPlacement.position[0], 0.043, pondPlacement.position[2]]}>
+        <ringGeometry args={[FISHING_ZONE.waterRadius - 0.22, FISHING_ZONE.waterRadius + 0.12, 128]} />
+        <meshBasicMaterial color="#d8c18a" transparent opacity={0.48} side={THREE.DoubleSide} />
+      </mesh>
+      <group position={dockPlacement.position} rotation-y={dockPlacement.rotation}>
+        <mesh position={[0, 0.12, 0]}>
+          <boxGeometry args={[4.4, 0.24, 1.1]} />
+          <meshBasicMaterial color="#765334" />
+        </mesh>
+        {[-1.6, -0.55, 0.55, 1.6].map((x) => (
+          <mesh key={x} position={[x, 0.38, 0.52]}>
+            <cylinderGeometry args={[0.08, 0.1, 0.75, 8]} />
+            <meshBasicMaterial color="#51341f" />
+          </mesh>
+        ))}
+      </group>
+      {reeds.map((reed, index) => (
+        <group key={index} position={[reed.x, 0.05, reed.z]} rotation-y={reed.rotation}>
+          <mesh position={[0, reed.height / 2, 0]} rotation-z={0.18}>
+            <boxGeometry args={[0.08, reed.height, 0.05]} />
+            <meshBasicMaterial color={index % 2 === 0 ? "#4e7c3a" : "#6f8d3f"} />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }

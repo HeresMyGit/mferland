@@ -4,6 +4,7 @@ import type { ElixirBuffId, ElixirItemId } from "./elixirs.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
 import type { TrashVendorItemId } from "./trashVendor.js";
+import type { FishingCatchItemId, FishingState, FishingZoneId } from "./fishing.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
@@ -11,13 +12,13 @@ import type { MferAppearanceTraits, TraitPaymentToken } from "./appearance.js";
 
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
-export type AnimationState = "idle" | "walk" | "run" | "jump";
+export type AnimationState = "idle" | "walk" | "run" | "jump" | "fishCast" | "fishIdle" | "fishReel";
 export type EmoteId = keyof typeof EMOTES;
 export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast" | "farmer";
 export type NpcModel = "mfer" | "mfergpt" | "rabbit" | "deer" | "hog" | "training-dummy";
 export type TargetKind = "player" | "npc";
 export type CombatActionId = keyof typeof COMBAT.actions;
-export type ActionId = "interact" | CombatActionId;
+export type ActionId = "interact" | "fish" | CombatActionId;
 export type NpcDisposition = "friendly" | "neutral" | "hostile";
 export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
@@ -124,6 +125,7 @@ export type LootItemSnapshot = {
 export type LootWindow = {
   npcId: string;
   npcName: string;
+  source?: "corpse" | "fishing";
   items: LootItemSnapshot[];
 };
 
@@ -282,6 +284,14 @@ export type PlayerSnapshot = {
   lastCastAt: number;
   lastDamagedAt: number;
   frozenUntil: number;
+  fishingAttemptId: string;
+  fishingZoneId: FishingZoneId | "";
+  fishingState: FishingState;
+  fishingCastAt: number;
+  fishingBiteAt: number;
+  fishingExpiresAt: number;
+  fishingBobberX: number;
+  fishingBobberZ: number;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
@@ -359,7 +369,7 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation" | "fishingAttemptId" | "fishingZoneId" | "fishingState" | "fishingBiteAt" | "fishingExpiresAt" | "fishingBobberX" | "fishingBobberZ"
 > & {
   distance: number;
 };
@@ -516,6 +526,50 @@ export type TrashVendorSellResult = {
   error?: string;
 };
 
+export type ClientStartFishing = {
+  zoneId?: FishingZoneId;
+};
+
+export type ClientReelFishing = {
+  attemptId?: string;
+};
+
+export type ClientCancelFishing = Record<string, never>;
+
+export type FishingResult = {
+  ok: boolean;
+  attemptId: string;
+  outcome: "caught" | "junk" | "missed" | "too_early" | "expired";
+  itemId: FishingCatchItemId | "";
+  itemName: string;
+  quantity: number;
+  error?: string;
+};
+
+export type ClientSellFishingItems = {
+  itemId?: FishingCatchItemId;
+  quantity?: number;
+  sellAll?: boolean;
+};
+
+export type FishingVendorSoldItem = {
+  itemId: FishingCatchItemId;
+  itemName: string;
+  quantity: number;
+  points: number;
+  bundleSize: number;
+};
+
+export type FishingVendorSellResult = {
+  ok: boolean;
+  sold: FishingVendorSoldItem[];
+  quantity: number;
+  points: number;
+  season0Points: number;
+  season0DailyPoints: number;
+  error?: string;
+};
+
 export type ClientRemoveSeasonReferral = {
   refereeWalletAddress: string;
 };
@@ -568,6 +622,10 @@ export type AgentObservation = {
     | "equipItem"
     | "unequipItem"
     | "useItem"
+    | "startFishing"
+    | "reelFishing"
+    | "cancelFishing"
+    | "sellFishingItems"
     | "selectTalent"
     | "updateTraits"
     | "respecTalents"

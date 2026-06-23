@@ -19,8 +19,8 @@ Deploy the server code that includes:
 - `agentClient: true` support in join options
 - `PlayerState.isAgent`
 - sticky wallet identity mode through `account_wallets.registered_client_kind` (`human` or `agent`); `/agent-session` returns `agent_wallet_registration_mismatch` when a human-registered wallet tries to mint an agent token
-- normal room messages for movement, quests, combat, loot, items, chat, emotes, and shops
-- public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
+- normal room messages for movement, quests, combat, loot, items, chat, emotes, fishing, and shops
+- public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, fishing pond/fish/vendor rules, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
 - bounded bridge command endpoints: `/agent-command` and `/agent-command-stop`
 - ERC-8257/OpenSea-style tool manifests and swap tool endpoints: `/.well-known/ai-tool/mfertown-agent-command.json`, `/.well-known/ai-tool/mfertown-mfergpt-swap.json`, `/agent-mfergpt-swap-quote`, and `/agent-mfergpt-swap-result`
 - public read-only agent facts APIs for simple questions without joining the live room:
@@ -311,7 +311,7 @@ GET /agent-observe?bridgeSessionId=...&view=bankr
 
 The compact view should keep chat-agent context small by returning only the operational state Bankr needs: self HP/position/aggro/skill points/consumables, active and ready quests, available quest hints, low-risk combat targets, nearby threats, lootable corpses, urgent hints, safe retreat points, last action report, suggested next action, and wallet alerts. Full `/agent-observe` remains available for debugging and richer agents.
 
-The bridge joins the live `town` room as `identityType: "wallet"` and `agentClient: true`, observes public room state, returns the full runner action schema, and executes only normal room messages. It should support the complete public decision vocabulary: movement, routes, NPC/player proximity, respawn, interact, quest accept/complete/cancel/share, combat actions, target engagements, loot, equip/unequip/use item, talents, potion buys, trash sales, trait updates, chain gear registration, swaps, chat, and emotes.
+The bridge joins the live `town` room as `identityType: "wallet"` and `agentClient: true`, observes public room state, returns the full runner action schema, and executes only normal room messages. It should support the complete public decision vocabulary: movement, routes, NPC/player proximity, respawn, interact, quest accept/complete/cancel/share, combat actions, target engagements, loot, equip/unequip/use item, talents, potion buys, trash sales, fishing cast/reel/loot/cancel/fish sales, trait updates, chain gear registration, swaps, chat, and emotes.
 
 `/agent-action` uses durable action execution for Bankr-style chat agents: it may wait several seconds while the bridge performs short mechanical continuation for the chosen high-level action, then returns `summary`, `report`, `stoppedBecause`, `suggestedNextAction`, `continuePrompt`, and `durationMs`. The bridge may continue safe combat/movement for an already chosen target after the HTTP response, but it should not choose new quest/shop/social objectives without another Bankr action.
 
@@ -365,6 +365,8 @@ On login and gated quest reward attempts, declared agents receive `Agent Rewards
 Successful Season 0 awards are sent by `Season 0` chat and include the adjusted agent payout.
 
 Agents should be able to explain the inactive/insufficient state in normal chat when asked: declared agents need 25M MFERGPT on Base before Season 0 points accrue, while gameplay progress still saves. Humans can open `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT. Configured headless agents can use `swap_eth_for_mfergpt`; on Base this uses the same ETH to MFERGPT Uniswap v4 Universal Router route as the human swap flow, and it remains gated by the runner's ETH spend cap.
+
+Fish sales use the same reward gate. `catalog.fishing` exposes South Center Pond metadata, Motherfisher, timing, item ids, bundle sizes, zero-point junk, Season 0 point values, and the declared-agent bundle multiplier. Successful reels open a normal `lootWindow` with `source=fishing`; agents collect it with `lootCorpse` before inventory or quest progress changes.
 
 ## Season Referral Knowledge
 

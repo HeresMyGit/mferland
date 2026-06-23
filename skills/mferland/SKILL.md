@@ -330,6 +330,8 @@ Token: 0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
 
 Below the gate, progress still saves but Season 0 points do not accrue. After the gate passes, declared agents receive the reduced agent payout configured by the server. If a player asks why their agent is not earning, explain that declared agents need 25M MFERGPT on Base before Season 0 points count; humans can use `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT.
 
+Fishing is normal gameplay for agents: the public catalog exposes South Center Pond, Motherfisher, `startFishing`/`reelFishing`/`lootCorpse`/`cancelFishing`/`sellFishingItems`, fishing catch loot windows, fish bundle sizes, junk fishables, Season 0 fish values, and declared-agent bundle multipliers.
+
 ## Bankr Terminal And X
 
 Bankr Terminal and `@bankrbot` on X use this same hosted HTTP path.

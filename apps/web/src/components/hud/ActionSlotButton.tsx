@@ -2,7 +2,9 @@ import { type CSSProperties, type PointerEvent } from "react";
 import {
   COMBAT,
   ELIXIR_BUFFS,
+  FISHING_POLE_ITEM_ID,
   ITEMS,
+  LOANER_FISHING_POLE_ITEM_ID,
   getInventoryItemKey,
   getItemConsumable,
   getNpcDisposition,
@@ -10,6 +12,7 @@ import {
   getTalentActionCooldownMs,
   isAttackableNpcRole,
   isCombatActionUnlocked,
+  isNearFishingZone,
   type ActionId,
   type CombatActionId,
   type ElixirBuffEffects,
@@ -63,7 +66,7 @@ export function ActionSlotButton({
 }) {
   const itemSlot = isItemActionSlot(actionId) ? actionId : null;
   const abilitySlot = typeof actionId === "string" ? actionId : null;
-  const combatActionId = abilitySlot && abilitySlot !== "interact" ? abilitySlot : null;
+  const combatActionId = abilitySlot && abilitySlot !== "interact" && abilitySlot !== "fish" ? abilitySlot : null;
   const action = abilitySlot ? getActionMeta(abilitySlot) : null;
   const item = itemSlot ? ITEMS[itemSlot.itemId] : null;
   const cooldown = combatActionId ? getCooldownState(localPlayer, combatActionId, now, globalCooldownReadyAt) : null;
@@ -74,6 +77,8 @@ export function ActionSlotButton({
     ? getItemUsability(itemSlot, localPlayer)
     : combatActionId
     ? getCombatUsability(combatActionId, localPlayer, selectedTarget, selectedTargetUnit, now, debugUnlockAllMoves, globalCooldownReadyAt)
+    : abilitySlot === "fish"
+    ? getFishingUsability(localPlayer)
     : { usable: true, reason: "" };
   const filled = Boolean(action || itemSlot);
   const tooltip = getActionSlotTooltip(actionId, index, localPlayer, usability, cooldown);
@@ -143,6 +148,12 @@ export function getActionMeta(actionId: ActionId) {
     return {
       id: actionId,
       label: "Interact",
+    };
+  }
+  if (actionId === "fish") {
+    return {
+      id: actionId,
+      label: "Fish",
     };
   }
   return {
@@ -236,6 +247,14 @@ function getActionSlotTooltip(
       "Talk, loot, and use nearby objects.",
     ].join("\n");
   }
+  if (slot === "fish") {
+    return [
+      meta?.label ?? "Fish",
+      "Cast into nearby fishable water. Reel when the bobber bites.",
+      "Requires a fishing pole and South Center Pond.",
+      usability.reason ? `Status: ${usability.reason}` : "",
+    ].filter(Boolean).join("\n");
+  }
 
   const action = COMBAT.actions[slot];
   const damage = player ? getTalentActionBaseDamage(slot, player.talents) : action.damage;
@@ -271,6 +290,22 @@ function getInventoryItemCount(inventory: InventoryItemSnapshot[], itemId: ItemI
   const inventoryKey = getInventoryItemKey(itemId, chainTokenId);
   const item = inventory.find((entry) => getInventoryItemKey(entry.id, entry.chainTokenId) === inventoryKey);
   return item?.count ?? 0;
+}
+
+function getFishingUsability(player: PlayerSnapshot | null) {
+  if (!player) return { usable: false, reason: "" };
+  if (player.health <= 0) return { usable: false, reason: "Dead" };
+  if (player.fishingState === "bite") return { usable: true, reason: "" };
+  if (player.fishingState) return { usable: false, reason: "Watch" };
+  if (player.castingAction) return { usable: false, reason: "Casting" };
+  const hasPole = player.inventory.some((item) => (
+    (item.id === FISHING_POLE_ITEM_ID || item.id === LOANER_FISHING_POLE_ITEM_ID)
+    && !item.chainTokenId
+    && item.count > 0
+  ));
+  if (!hasPole) return { usable: false, reason: "Pole" };
+  if (!isNearFishingZone(player.x, player.z)) return { usable: false, reason: "Pond" };
+  return { usable: true, reason: "" };
 }
 
 function formatTooltipDuration(ms: number) {
