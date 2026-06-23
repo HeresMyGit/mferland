@@ -25,8 +25,9 @@ import {
   type CombatActionId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
-  type FishingCatchItemId,
+  type FishingSellableItemId,
   type FishingResult,
+  type FishingSupplyPurchaseResult,
   type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type ItemId,
@@ -218,6 +219,7 @@ export class MferlandAgentClient {
   private talentRespecResults: TalentRespecResult[] = [];
   private trashVendorResults: TrashVendorSellResult[] = [];
   private fishingResults: FishingResult[] = [];
+  private fishingSupplyResults: FishingSupplyPurchaseResult[] = [];
   private fishingVendorResults: FishingVendorSellResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
@@ -611,6 +613,18 @@ export class MferlandAgentClient {
     if (!result?.ok) throw new Error(result?.error || `potion shop purchase ${itemId} failed`);
   }
 
+  async purchaseFishingSupply(payment: MferGptPaymentProof) {
+    const previousResultCount = this.fishingSupplyResults.length;
+    this.room?.send("purchaseFishingSupply", { payment });
+    await this.waitFor(() => this.fishingSupplyResults.length > previousResultCount, {
+      timeoutMs: 95_000,
+      intervalMs: 250,
+    }, "fishing supply purchase");
+    const result = this.fishingSupplyResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "fishing supply purchase failed");
+    return result;
+  }
+
   async sellTrashItems(options: { itemId?: TrashVendorItemId; quantity?: number; sellAll?: boolean } = {}) {
     const previousResultCount = this.trashVendorResults.length;
     this.room?.send("sellTrashItems", options);
@@ -650,7 +664,7 @@ export class MferlandAgentClient {
     this.room?.send("cancelFishing", {});
   }
 
-  async sellFishingItems(options: { itemId?: FishingCatchItemId; quantity?: number; sellAll?: boolean } = {}) {
+  async sellFishingItems(options: { itemId?: FishingSellableItemId; quantity?: number; sellAll?: boolean } = {}) {
     const previousResultCount = this.fishingVendorResults.length;
     this.room?.send("sellFishingItems", options);
     await this.waitFor(() => this.fishingVendorResults.length > previousResultCount, {
@@ -970,6 +984,9 @@ export class MferlandAgentClient {
     });
     room.onMessage("fishingResult", (message: FishingResult) => {
       this.fishingResults = [...this.fishingResults.slice(-8), message];
+    });
+    room.onMessage("fishingSupplyPurchaseResult", (message: FishingSupplyPurchaseResult) => {
+      this.fishingSupplyResults = [...this.fishingSupplyResults.slice(-8), message];
     });
     room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
       this.fishingVendorResults = [...this.fishingVendorResults.slice(-8), message];
@@ -1670,7 +1687,8 @@ function getQuestGiverNpcId(questId: QuestId) {
     "farm-road-handoff": "wearables-mfer",
     "ask-mfergpt": "wearables-mfer",
     "mfergpt-checkin": "mfergpt",
-    "fishin-lesson": "fishin-mfer",
+    "fishin-lesson": "motherfisher",
+    "lost-fishing-shoes": "fish-monger",
     "mfergpt-daily-signal": "mfergpt",
     "tweet-town-link": "mfergpt",
     "boar-bristle-cull": "hogwatch-mfer",

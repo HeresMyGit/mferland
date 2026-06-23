@@ -181,6 +181,10 @@ function getActiveQuestDialogue(questId: QuestId, quest: QuestState) {
     return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} fried uplink shards collected on Signal Ridge. still buzzing, unfortunately.`;
   }
 
+  if (questId === "lost-fishing-shoes") {
+    return `${QUESTS[questId].title}: ${formatQuestProgress(quest)} soggy fishing shoes recovered. cast at south center pond until the bad footwear appears.`;
+  }
+
   return `${QUESTS[questId].title}: ${QUESTS[questId].objectiveLabel}.`;
 }
 
@@ -283,6 +287,14 @@ function getQuestCompletionResponse(questId: QuestId) {
     return "clean hit. bear market mfer folded back into silence.";
   }
 
+  if (questId === "fishin-lesson") {
+    return "good. you watched the bobber instead of inventing a roadmap. real pole's yours. fish monger has a shoe problem next.";
+  }
+
+  if (questId === "lost-fishing-shoes") {
+    return "those are absolutely disgusting. perfect. fish ledger's open now, bring me the good stuff.";
+  }
+
   return "errand handled.";
 }
 
@@ -313,6 +325,8 @@ function getFinishedQuestDialogue(npcId: string) {
   if (npcId === "hogwatch-mfer") return "farm's still full of claim-brain. keep it thin.";
   if (npcId === "field-guide-mfer") return "route stays up if the claim road stays quiet.";
   if (npcId === "pen-keeper-mfer") return "hog loop resets daily because cope has no cooldown.";
+  if (npcId === "motherfisher") return "chum's behind the counter if you finished the lesson.";
+  if (npcId === "fish-monger") return "fish ledger's open if my shoes are back.";
   if (npcId === "ridge-guide-mfer") return "bad signal gets louder uptrail.";
   if (npcId === "beacon-keeper-mfer") return "say when and i'll call bear market mfer down from the uplink.";
   return "nothing else for now.";
@@ -328,6 +342,8 @@ function getNpcDisplayName(npcId: string) {
   if (npcId === "hogwatch-mfer") return "claimwatch mfer";
   if (npcId === "field-guide-mfer") return "route post mfer";
   if (npcId === "pen-keeper-mfer") return "claim booth mfer";
+  if (npcId === "motherfisher") return "Motherfisher";
+  if (npcId === "fish-monger") return "fish monger";
   if (npcId === "ridge-guide-mfer") return "signal post mfer";
   if (npcId === "beacon-keeper-mfer") return "uplink shack mfer";
   return "the right mfer";

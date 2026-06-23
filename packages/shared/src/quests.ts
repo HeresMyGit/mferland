@@ -111,6 +111,22 @@ export const QUESTS = {
     startItemId: "loaner-fishing-pole",
     xpReward: 35,
     rewardItemIds: ["fishing-pole"],
+    nextQuestId: "lost-fishing-shoes",
+    agentHints: {
+      targetArea: { label: "south center pond", point: { x: 0, z: 132 } },
+    },
+  },
+  "lost-fishing-shoes": {
+    title: "sole retrieval",
+    giverNpcId: "fish-monger",
+    description: "Fish monger can't open the buying ledger because his lucky fishing shoes are somewhere in the pond. Cast until the water coughs them up.",
+    objectiveLabel: "fish up fish monger's lost fishing shoes",
+    turnInLabel: "bring the soggy shoes to fish monger",
+    required: 1,
+    requiredQuestId: "fishin-lesson",
+    requiredItemId: "old-mfer-shoe",
+    consumeItem: true,
+    xpReward: 42,
     agentHints: {
       targetArea: { label: "south center pond", point: { x: 0, z: 132 } },
     },

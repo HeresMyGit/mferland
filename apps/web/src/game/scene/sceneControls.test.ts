@@ -83,6 +83,15 @@ test("updateLocalVisualPlayer does not keep jump animation after grounded held j
   assert.equal(visual.animation, "idle");
 });
 
+test("updateLocalVisualPlayer preserves reel animation after fishing state clears", () => {
+  const visual = makePlayer({ animation: "fishIdle", fishingState: "bite" });
+  const authoritative = makePlayer({ animation: "fishReel", fishingState: "" });
+
+  updateLocalVisualPlayer(visual, authoritative, new THREE.Vector3(0, 0, 0), 0, 0, false, false, 0.016);
+
+  assert.equal(visual.animation, "fishReel");
+});
+
 test("camera pointer movement is ignored until a canvas pointer drag begins", () => {
   const state = makeCameraPointerState({
     lastX: 120,

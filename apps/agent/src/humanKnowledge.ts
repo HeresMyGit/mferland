@@ -1,5 +1,6 @@
 import {
   COMBAT,
+  FISHING_TUTOR_NPC_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
   ITEMS,
@@ -35,7 +36,8 @@ export function getGameAgentHandbook() {
       { place: "respec mfer", x: 14.8, z: 25.4, npcId: RESPEC_MFER_NPC_ID, note: "merchant for paid talent point resets" },
       { place: "crypto store", x: 3.7, z: 25.4, npcId: "crypto-mfer", note: "merchant for launch pass and chain gear purchases" },
       { place: "swap mfer", x: 0, z: 25.4, npcId: "swap-mfer", note: "merchant for swapping ETH to MFERGPT; Base runs use the same Uniswap v4 route as the web swap menu" },
-      { place: "west edge pond", x: FISHING_ZONE.x, z: FISHING_ZONE.z, npcId: FISHING_VENDOR_NPC_ID, note: "fishing pond and fishin-mfer tutorial/vendor; cast only near the shore, reel when the bobber bites, pick up the catch from the loot window, and sell fish or junk here" },
+      { place: "south center pond", x: FISHING_ZONE.x, z: FISHING_ZONE.z, npcId: FISHING_TUTOR_NPC_ID, note: "fishing pond and Motherfisher tutorial/supply shack; cast only near the shore, reel when the bobber bites, and pick up the catch from the loot window" },
+      { place: "fish monger", x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 4.6, z: FISHING_ZONE.z - 15.4, npcId: FISHING_VENDOR_NPC_ID, note: "fish buyer; unlock fish sales by completing lost-fishing-shoes after the Motherfisher lesson" },
       { place: "daily signal camp", x: -69.4, z: -55.6, npcId: "mfergpt-daily-boss", note: "mferGPT daily boss area southwest of town" },
       { place: "loop farm", x: -64.5, z: 64.5, npcId: "hogwatch-mfer", note: "farm quest hub north west of town; stay on roads to avoid extra hog pulls" },
       { place: "route post", x: -119.2, z: 132.4, npcId: "field-guide-mfer", note: "field camp quest hub past loop farm" },

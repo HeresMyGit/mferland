@@ -24,17 +24,21 @@ import {
 import {
   FISHING_AGENT_BUNDLE_MULTIPLIER,
   FISHING_CATCH_ITEM_IDS,
+  FISHING_CHUM_ITEM_ID,
   FISHING_POLE_ITEM_ID,
+  FISHING_SELLABLE_ITEM_IDS,
   FISHING_ZONE,
   LOANER_FISHING_POLE_ITEM_ID,
   getFishingBobberPosition,
   getFishingPayableQuantity,
   getFishingRequiredBundleSize,
   getFishingSellAwardPoints,
+  getFishingSupplyPrice,
   isInsideFishingWater,
   isNearFishingZone,
   isFishingCatchItemId,
   isFishingItemId,
+  isFishingSellableItemId,
   isFishingPoleItemId,
   rollFishingCatch,
 } from "./fishing.js";
@@ -88,11 +92,18 @@ test("defines fishing pole and smoking headphone fish items", () => {
   assert.equal(ITEMS[LOANER_FISHING_POLE_ITEM_ID].quality, "quest");
   assert.equal(isFishingPoleItemId(FISHING_POLE_ITEM_ID), true);
   assert.equal(isFishingItemId("based-bass"), true);
-  assert.equal(isFishingCatchItemId("wet-boot"), true);
+  assert.equal(isFishingCatchItemId("old-mfer-shoe"), true);
+  assert.equal(isFishingCatchItemId(FISHING_CHUM_ITEM_ID), false);
+  assert.equal(isFishingItemId(FISHING_CHUM_ITEM_ID), true);
+  assert.equal(isFishingSellableItemId("old-mfer-shoe"), false);
+  assert.equal(isFishingSellableItemId("based-bass"), true);
   assert.equal(isFishingCatchItemId("red-juice"), false);
   for (const itemId of FISHING_CATCH_ITEM_IDS) {
     assert.equal(Object.hasOwn(ITEMS, itemId), true);
   }
+  assert.equal(ITEMS[FISHING_CHUM_ITEM_ID].consumable?.buffId, "old-chum");
+  assert.equal(getFishingSupplyPrice().amountWei, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI);
+  assert.match(ITEMS["old-mfer-shoe"].description, /fish monger/);
   assert.match(ITEMS["reply-gill-minnow"].description, /headphones/);
   assert.match(ITEMS["huge-sartoshi-koi"].description, /smoke/);
 });
@@ -110,13 +121,19 @@ test("fishing sale bundles use larger requirements for declared agents", () => {
   assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 1, false), 8);
   assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 1, true), 0);
   assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 2, true), 8);
-  assert.equal(getFishingSellAwardPoints("wet-boot", 99, true), 0);
-  assert.equal(getFishingPayableQuantity("wet-boot", 7, 0, true), 7);
+  assert.deepEqual(FISHING_SELLABLE_ITEM_IDS, [
+    "reply-gill-minnow",
+    "blue-smoke-bluegill",
+    "based-bass",
+    "huge-sartoshi-koi",
+  ]);
 });
 
-test("fishing loot roll can return fish, junk, or no catch", () => {
-  assert.equal(rollFishingCatch(() => 0), "wet-boot");
+test("fishing loot roll can return fish or no catch and chum boosts rare fish", () => {
+  assert.equal(rollFishingCatch(() => 0), "reply-gill-minnow");
   assert.equal(rollFishingCatch(() => 0.99), null);
+  assert.equal(rollFishingCatch(() => 0.805), "based-bass");
+  assert.equal(rollFishingCatch(() => 0.805, 1.25), "huge-sartoshi-koi");
 });
 
 test("south-center pond has a castable shore and water bobber target", () => {
@@ -141,6 +158,7 @@ test("fishing rejects ordinary plaza positions", () => {
 
 test("adds one-hour elixirs to the potion shop with elixir pricing", () => {
   assert.equal(isPotionShopItemId("mev-bot-elixir"), true);
+  assert.equal(isPotionShopItemId(FISHING_CHUM_ITEM_ID), false);
   assert.equal(ITEMS["mev-bot-elixir"].consumable?.kind, "elixir");
   assert.equal(ITEMS["exit-liquidity-elixir"].consumable?.buffId, "exit-liquidity");
   assert.equal(ITEMS["hopium-elixir"].consumable?.buffId, "hopium");

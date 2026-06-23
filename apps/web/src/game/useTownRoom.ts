@@ -19,6 +19,7 @@ import {
   type ClientInput,
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
+  type ClientPurchaseFishingSupply,
   type ClientRegisterChainGear,
   type ClientReelFishing,
   type ClientRemoveSeasonReferral,
@@ -36,6 +37,7 @@ import {
   type EquipmentSlotSnapshot,
   type ExperienceEvent,
   type FishingResult,
+  type FishingSupplyPurchaseResult,
   type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type JoinOptions,
@@ -195,6 +197,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
   const [traitUpdateResult, setTraitUpdateResult] = useState<TraitUpdateResult | null>(null);
   const [potionShopPurchaseResult, setPotionShopPurchaseResult] = useState<PotionShopPurchaseResult | null>(null);
+  const [fishingSupplyPurchaseResult, setFishingSupplyPurchaseResult] = useState<FishingSupplyPurchaseResult | null>(null);
   const [talentRespecResult, setTalentRespecResult] = useState<TalentRespecResult | null>(null);
   const [trashVendorSellResult, setTrashVendorSellResult] = useState<TrashVendorSellResult | null>(null);
   const [fishingResult, setFishingResult] = useState<FishingResult | null>(null);
@@ -449,6 +452,9 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
           setPotionShopPurchaseResult(message);
         });
+        room.onMessage("fishingSupplyPurchaseResult", (message: FishingSupplyPurchaseResult) => {
+          setFishingSupplyPurchaseResult(message);
+        });
         room.onMessage("talentRespecResult", (message: TalentRespecResult) => {
           setTalentRespecResult(message);
         });
@@ -644,6 +650,9 @@ export function useTownRoom(identity: JoinOptions) {
   const sendPurchasePotionShopItem = useCallback((message: ClientPurchasePotionShopItem) => {
     roomRef.current?.send("purchasePotionShopItem", message);
   }, []);
+  const sendPurchaseFishingSupply = useCallback((message: ClientPurchaseFishingSupply) => {
+    roomRef.current?.send("purchaseFishingSupply", message);
+  }, []);
   const sendRespecTalents = useCallback((message: ClientRespecTalents) => {
     roomRef.current?.send("respecTalents", message);
   }, []);
@@ -760,6 +769,7 @@ export function useTownRoom(identity: JoinOptions) {
     debugPlacementMap,
     traitUpdateResult,
     potionShopPurchaseResult,
+    fishingSupplyPurchaseResult,
     talentRespecResult,
     trashVendorSellResult,
     fishingResult,
@@ -787,6 +797,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendUseItem,
     sendRegisterChainGear,
     sendPurchasePotionShopItem,
+    sendPurchaseFishingSupply,
     sendRespecTalents,
     sendSellTrashItems,
     sendStartFishing,

@@ -155,7 +155,8 @@ export function updateLocalVisualPlayer(
   }
 
   const airborne = authoritative.animation === "jump" || authoritative.y > 0.05 || visual.y > 0.05;
-  visual.animation = authoritative.fishingState
+  const authoritativeOneShot = authoritative.animation === "fishReel";
+  visual.animation = authoritative.fishingState || authoritativeOneShot
     ? authoritative.animation
     : airborne ? "jump" : !isFrozen && moveLength > 0.01 ? (sprint ? "run" : "walk") : "idle";
 }

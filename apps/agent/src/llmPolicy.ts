@@ -6,8 +6,8 @@ import { join } from "node:path";
 import {
   CHAT,
   COMBAT,
-  FISHING_CATCH_ITEM_IDS,
   FISHING_POLE_ITEM_ID,
+  FISHING_SELLABLE_ITEM_IDS,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
   ITEMS,
@@ -46,7 +46,7 @@ import {
   getFishingSellAwardPoints,
   getTalentPointsSpent,
   getTrashVendorSellValue,
-  isFishingCatchItemId,
+  isFishingSellableItemId,
   isNearFishingZone,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
@@ -55,7 +55,7 @@ import {
   isTrashVendorItemId,
   type CombatActionId,
   type EmoteId,
-  type FishingCatchItemId,
+  type FishingSellableItemId,
   type ItemId,
   type MferAppearanceTraits,
   type NpcSnapshot,
@@ -725,7 +725,7 @@ export function makeVisibleObservation(
             : self.fishingState
             ? "Wait briefly and watch for state=bite, or cancel_fishing if danger appears."
             : hasFishingPole
-            ? "Move to the west-edge pond shore and use start_fishing when safe."
+            ? "Move to the south-center pond shore and use start_fishing when safe."
             : "Accept and complete fishin-lesson to receive a fishing pole.",
         },
         activeOrReadyQuests: self.quests
@@ -775,9 +775,9 @@ export function makeVisibleObservation(
             description: definition.description,
             sellableTrash: isTrashVendorItemId(item.id),
             trashVendorBasePoints: isTrashVendorItemId(item.id) ? getTrashVendorSellValue(item.count) : 0,
-            sellableFishing: isFishingCatchItemId(item.id),
-            fishingVendorBundleSize: isFishingCatchItemId(item.id) ? getFishingRequiredBundleSize(item.id, self.isAgent) : 0,
-            fishingVendorSeasonPoints: isFishingCatchItemId(item.id) ? getFishingSellAwardPoints(item.id, item.count, self.isAgent) : 0,
+            sellableFishing: isFishingSellableItemId(item.id),
+            fishingVendorBundleSize: isFishingSellableItemId(item.id) ? getFishingRequiredBundleSize(item.id, self.isAgent) : 0,
+            fishingVendorSeasonPoints: isFishingSellableItemId(item.id) ? getFishingSellAwardPoints(item.id, item.count, self.isAgent) : 0,
           };
         }),
         equipment: self.equipment.map((slot) => {
@@ -867,8 +867,8 @@ export function makeVisibleObservation(
           "Before real raid attempts, use equip_item for clear same-slot upgrades in observation.self.inventory and use buy_potion_shop_item at potion-mfer to stock at least 5 red-juice plus exit-liquidity-elixir when MFERGPT payment is configured.",
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
-          "Fishing is a normal room-message loop: move to navigation.publicRallyPoints west-edge-pond, use start_fishing when self.fishing.hasPole and nearZone are true, wait until self.fishing.state is bite, then use reel_fishing before the bite expires. A catch opens a fishing loot window and must be picked up with loot/lootCorpse before it reaches inventory or quest progress. Use cancel_fishing if danger appears.",
-          "Use sell_fishing_items at fishin-mfer when inventory contains sellableFishing items. Small fish require bundles, huge koi can score singly, declared agents need larger bundles, and wet boot junk sells for 0 points but is still removed.",
+          "Fishing is a normal room-message loop: move to navigation.publicRallyPoints south-center-pond, use start_fishing when self.fishing.hasPole and nearZone are true, wait until self.fishing.state is bite, then use reel_fishing before the bite expires. A catch opens a fishing loot window and must be picked up with loot/lootCorpse before it reaches inventory or quest progress. Use cancel_fishing if danger appears.",
+          "Use sell_fishing_items at fish monger after lost-fishing-shoes when inventory contains sellableFishing items. Small fish require bundles, huge koi can score singly, and declared agents need larger bundles.",
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave caps, long hair, shades, and glasses unset because those clip into the model.",
           "Season point caps, referral rules, and season endpoints are in observation.season0. Agents do not bind, count, or earn human referral bonuses.",
@@ -956,7 +956,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
-          "For fishing, move to west-edge-pond, start_fishing only when self.fishing.hasPole and nearZone are true, wait for self.fishing.state=bite, then reel_fishing. Pick up successful catches from the fishing loot window before selling fish and 0-point pond junk with sell_fishing_items at fishin-mfer.",
+          "For fishing, move to south-center-pond, start_fishing only when self.fishing.hasPole and nearZone are true, wait for self.fishing.state=bite, then reel_fishing. Pick up successful catches from the fishing loot window before selling fish with sell_fishing_items at fish monger.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave caps, long hair, shades, and glasses unset because those clip into the model.",
           "Use observation.season0 for Season 0 point caps, referral rules, and public season endpoints. Agents can explain human referral rules but do not participate in referral binding, counts, or bonuses.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
@@ -1488,7 +1488,7 @@ async function sellTrashItems(agent: MferlandAgentClient, decision: LlmDecision)
 }
 
 async function sellFishingItems(agent: MferlandAgentClient, decision: LlmDecision) {
-  const itemId = decision.itemId ? resolveFishingCatchItemId(decision.itemId) : undefined;
+  const itemId = decision.itemId ? resolveFishingSellableItemId(decision.itemId) : undefined;
   const self = agent.getSelf();
   const defaultQuantity = itemId && self ? getFishingRequiredBundleSize(itemId, self.isAgent) : undefined;
   const quantity = decision.quantity && decision.quantity > 0
@@ -2662,7 +2662,8 @@ function getPublicQuestPlan(questId: QuestId) {
   if (questId === "farm-road-handoff") return "accept at wearables-mfer, travel_route plaza-to-loop-farm, then complete at hogwatch-mfer";
   if (questId === "ask-mfergpt") return "accept at wearables-mfer, chat @mfergpt, then complete at mfergpt";
   if (questId === "mfergpt-checkin") return "accept at mfergpt, chat @mfergpt, then complete at mfergpt";
-  if (questId === "fishin-lesson") return "accept at fishin-mfer, move to west-edge-pond, start_fishing, wait for bite, reel_fishing once, loot the fishing catch window, then complete at fishin-mfer for a real fishing pole";
+  if (questId === "fishin-lesson") return "accept at Motherfisher, move to south-center pond, start_fishing, wait for bite, reel_fishing once, loot the fishing catch window, then complete at Motherfisher for a real fishing pole";
+  if (questId === "lost-fishing-shoes") return "accept at fish monger after fishin-lesson, fish at south-center pond until old mfer shoe appears, loot it, then complete at fish monger to unlock fish sales";
   if (questId === "tweet-town-link") return "accept at mfergpt, share_quest_link, then complete at mfergpt";
   if (questId === "mfergpt-daily-signal") return "optional daily: stage at daily-signal-camp edge with players, defeat visible daily boss, then complete at mfergpt";
   if (questId === "boar-bristle-cull") return "stage at west-hog-pull, prefer visible isolated hogs, use pullRisk/pullAdvice before taking a low-risk non-isolated hog, wait or group instead of running through the farmyard, then complete at hogwatch-mfer";
@@ -2714,8 +2715,8 @@ function getStoreObservations(
         : "known trash vendor; no sellable trash in inventory"
       : isFishingVendor
       ? sellableFishingCount > 0
-        ? `can sell ${sellableFishingCount} pond item${sellableFishingCount === 1 ? "" : "s"} through sell_fishing_items; junk sells for 0 points but is removed`
-        : "known fish vendor/tutorial NPC; no fish or pond junk in inventory"
+        ? `can sell ${sellableFishingCount} fish item${sellableFishingCount === 1 ? "" : "s"} through sell_fishing_items after lost-fishing-shoes`
+        : "known fish vendor; no sellable fish in inventory"
       : isRespecMfer
       ? spentTalentPoints <= 0
         ? "known respec merchant; no spent talent ranks to reset"
@@ -2738,7 +2739,7 @@ function getStoreObservations(
         ? ["move_near_npc", "interact_npc", "swap_eth_for_mfergpt"]
         : isTrashVendor
         ? ["move_near_npc", "interact_npc", "sell_trash_items"]
-        : isFishingVendor
+      : isFishingVendor
         ? ["move_near_npc", "interact_npc", "loot", "sell_fishing_items", "start_fishing", "reel_fishing", "cancel_fishing"]
         : isRespecMfer && capabilities.mferGptPaymentConfigured && spentTalentPoints > 0
         ? ["move_near_npc", "interact_npc", "respec_talents"]
@@ -2766,7 +2767,7 @@ function getStoreObservations(
           recommendedUse: `sell when safe and near trash-mfer; declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point`,
         }))
         : isFishingVendor
-        ? FISHING_CATCH_ITEM_IDS.map((itemId) => {
+        ? FISHING_SELLABLE_ITEM_IDS.map((itemId) => {
           const owned = getInventoryCount(self, itemId);
           const rule = getFishingSaleRule(itemId);
           const required = getFishingRequiredBundleSize(itemId, self.isAgent);
@@ -2778,14 +2779,14 @@ function getStoreObservations(
             owned,
             price: rule.seasonPoints > 0
               ? `${required} for ${rule.seasonPoints} Season 0 point${rule.seasonPoints === 1 ? "" : "s"}`
-              : "0 points; clears junk from inventory",
+              : "0 points",
             bulkPrice: rule.seasonPoints > 0
               ? `${points} point${points === 1 ? "" : "s"} for ${payable}/${owned} payable now`
-              : `${owned} junk item${owned === 1 ? "" : "s"} removable for 0 points`,
+              : `${owned} removable for 0 points`,
             effect: ITEMS[itemId].description,
             recommendedUse: rule.seasonPoints > 0
-              ? `sell when safe and near fishin-mfer; declared agents need ${required} for a scoring bundle`
-              : "sell junk to clear inventory even though it awards 0 points",
+              ? `sell when safe and near fish monger; declared agents need ${required} for a scoring bundle`
+              : "sellable fish item",
           };
         })
         : [],
@@ -2798,7 +2799,7 @@ function getSellableTrashCount(self: PlayerSnapshot) {
 }
 
 function getSellableFishingCount(self: PlayerSnapshot) {
-  return FISHING_CATCH_ITEM_IDS.reduce((total, itemId) => total + getInventoryCount(self, itemId), 0);
+  return FISHING_SELLABLE_ITEM_IDS.reduce((total, itemId) => total + getInventoryCount(self, itemId), 0);
 }
 
 function getInventoryCount(self: PlayerSnapshot, itemId: string) {
@@ -3121,7 +3122,7 @@ function getQuestTrackerHints(self: PlayerSnapshot, memory: RunMemory) {
     } else if (quest.id === "farm-road-handoff") {
       hints.push("travel_route routeId=plaza-to-loop-farm, then complete_quest questId=farm-road-handoff at npcId=hogwatch-mfer");
     } else if (quest.id === "fishin-lesson") {
-      hints.push(`fishing tutorial: move_to navigation rally west-edge-pond, start_fishing when near the pond and safe, wait until self.fishing.state=bite, reel_fishing, then loot the fishing catch window; progress ${quest.progress}/${quest.required}; complete at fishin-mfer when ready`);
+      hints.push(`fishing tutorial: move_to south-center pond, start_fishing when near the pond and safe, wait until self.fishing.state=bite, reel_fishing, then loot the fishing catch window; progress ${quest.progress}/${quest.required}; complete at Motherfisher when ready`);
     } else if (quest.id === "field-camp-delivery") {
       hints.push("travel_route routeId=loop-farm-to-route-post, then complete_quest questId=field-camp-delivery at npcId=field-guide-mfer");
     } else if (quest.id === "ridge-dispatch") {
@@ -3242,8 +3243,8 @@ function resolveTrashVendorItemId(value: string | undefined): TrashVendorItemId 
   return value;
 }
 
-function resolveFishingCatchItemId(value: string | undefined): FishingCatchItemId {
-  if (!isFishingCatchItemId(value)) throw new Error(`invalid fishing itemId ${value || ""}`);
+function resolveFishingSellableItemId(value: string | undefined): FishingSellableItemId {
+  if (!isFishingSellableItemId(value)) throw new Error(`invalid fishing itemId ${value || ""}`);
   return value;
 }
 
@@ -3648,10 +3649,10 @@ const PUBLIC_RALLY_POINTS = [
     useWhen: "dangerous interior farm edge; use only after observing no hostile farmers nearby or when intentionally grouping",
   },
   {
-    id: "west-edge-pond",
-    label: "west edge pond shore",
+    id: "south-center-pond",
+    label: "south center pond shore",
     position: { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 2.8, z: FISHING_ZONE.z },
-    useWhen: "use when fishing, fishin-lesson is active, or selling pond items at fishin-mfer",
+    useWhen: "use when fishing, fishin-lesson is active, lost-fishing-shoes is active, or selling fish at fish monger",
   },
   {
     id: "daily-signal-camp-edge",
@@ -3751,10 +3752,10 @@ const PUBLIC_STORES = [
   },
   {
     npcId: FISHING_VENDOR_NPC_ID,
-    name: "fishin mfer",
-    kind: "fishing tutorial and fish vendor",
+    name: "fish monger",
+    kind: "fish vendor",
     position: { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 1.6, z: FISHING_ZONE.z - 2.8 },
-    payment: "free in-game fish sale; server awards Season 0 points, applies fish stack rules, and applies declared-agent bundle multipliers",
+    payment: "free in-game fish sale after lost-fishing-shoes; server awards Season 0 points, applies fish stack rules, and applies declared-agent bundle multipliers",
     status: "fishing status is computed from pole ownership, pond location, and fish inventory",
     supportedActions: ["move_near_npc", "interact_npc", "loot", "start_fishing", "reel_fishing", "cancel_fishing", "sell_fishing_items"],
   },
@@ -3838,7 +3839,7 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates; west-hog-pull is for farm hog quests, claim-booth-hog-pull is for hog-loop, loop-farm-road is the farm retreat point, plaza-safe is a full reset.",
     "Use travel_route instead of move_to for long cross-zone travel; move_to is for local positioning and nearby rally points.",
     "Use observation.stores for public merchant locations, item effects, prices, supported actions, whether the wallet route can swap ETH to MFERGPT, and whether the MFERGPT burn flow can buy potion-shop stock.",
-    "For fishing, move to west-edge-pond, start_fishing only with a pole and near the pond, wait until observation.self.fishing.state is bite, then reel_fishing before the bite expires. Pick up successful catches from the fishing loot window before using sell_fishing_items at fishin-mfer for fish and 0-point junk.",
+    "For fishing, move to south-center pond, start_fishing only with a pole and near the pond, wait until observation.self.fishing.state is bite, then reel_fishing before the bite expires. Pick up successful catches from the fishing loot window before using sell_fishing_items at fish monger for fish.",
     "If observation.wallet.mferGptSwapConfigured is true and MFERGPT is low, swap_eth_for_mfergpt with amountEth around observation.wallet.recommendedSwapEthAmount is a normal wallet action; uniswap-v4 mode uses the same Base route as swap-mfer.",
     "For active quest combat, prefer nearbyNpcs.activeQuestTargetIds containing the active quest id, including collection drop-source targets. Avoid unrelated safe targets unless defending yourself, clearing an add, grouping, or intentionally leveling.",
     "Use nearbyNpcs.pullRisk, pullAdvice, and nearbyHostileCount to choose targets. Do not describe a target as isolated unless nearbyHostileCount is 0.",

@@ -11,8 +11,12 @@ import {
   FISHING_BITE_WINDOW_MS,
   FISHING_AGENT_BUNDLE_MULTIPLIER,
   FISHING_CAST_MS,
-  FISHING_CATCH_ITEM_IDS,
+  FISHING_CHUM_ITEM_ID,
+  FISHING_LOST_SHOE_ITEM_ID,
   FISHING_POLE_ITEM_ID,
+  FISHING_SELLABLE_ITEM_IDS,
+  FISHING_SUPPLY_PRODUCT_ID,
+  FISHING_TUTOR_NPC_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
   FISHING_ZONE_ID,
@@ -48,6 +52,7 @@ import {
   getFishingRequiredBundleSize,
   getFishingSellAwardPoints,
   getFishingSaleRule,
+  getFishingSupplyPrice,
   getTrashVendorSellValue,
   getNpcDisposition,
   getChainGearItemId,
@@ -58,7 +63,7 @@ import {
   hasExplicitMferAppearanceTraits,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
-  isFishingCatchItemId,
+  isFishingSellableItemId,
   isNearFishingZone,
   isTrashVendorItemId,
   normalizeAvatarSeed,
@@ -91,6 +96,7 @@ import {
   type ClientInput,
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
+  type ClientPurchaseFishingSupply,
   type ClientRegisterChainGear,
   type ClientReelFishing,
   type ClientRemoveSeasonReferral,
@@ -107,7 +113,9 @@ import {
   type EmoteId,
   type ExperienceEvent,
   type FishingCatchItemId,
+  type FishingSellableItemId,
   type FishingResult,
+  type FishingSupplyPurchaseResult,
   type FishingVendorSellResult,
   type FishingVendorSoldItem,
   type IdentityType,
@@ -132,6 +140,7 @@ import {
   type AgentSeason0MferGptGateStatus,
 } from "../agentMferGptGate.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
+import { verifyFishingSupplyPaymentProof, type VerifiedFishingSupplyPayment } from "../crypto/fishingSupplyPayments.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
 import { verifyTalentRespecPaymentProof, type VerifiedTalentRespecPayment } from "../crypto/talentRespecPayments.js";
@@ -174,7 +183,7 @@ import {
   type PendingCombatImpact,
 } from "../systems/combat.js";
 import { makeNpcUtilityEvent } from "../systems/combatEvents.js";
-import { removeExpiredPlayerBuffs, snapshotActiveBuffs } from "../systems/buffs.js";
+import { getPlayerBuffEffectTotals, removeExpiredPlayerBuffs, snapshotActiveBuffs } from "../systems/buffs.js";
 import { clearConsumableCooldownsForPlayer, grantStarterConsumables, useInventoryConsumable } from "../systems/consumables.js";
 import {
   equipInventoryItem,
@@ -218,6 +227,7 @@ import {
   normalizeQuestId,
   addInventoryItem,
   progressFishingQuest,
+  progressLootQuests,
   progressTraitQuest,
   progressMferGptAskQuest,
   progressMferGptMentionQuest,
@@ -273,6 +283,7 @@ const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
   "unequipItem",
   "registerChainGear",
   "purchasePotionShopItem",
+  "purchaseFishingSupply",
   "sellTrashItems",
   "startFishing",
   "reelFishing",
@@ -342,6 +353,9 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "fishing_vendor_sell_started",
   "fishing_vendor_sell_confirmed",
   "fishing_vendor_sell_failed",
+  "fishing_supply_opened",
+  "fishing_supply_purchase_started",
+  "fishing_supply_purchase_failed",
 ]);
 
 export function areDebugMessagesEnabled() {
@@ -672,11 +686,20 @@ type PendingFishingLoot = {
   itemId: FishingCatchItemId;
   count: number;
   createdAt: number;
+  readyAt: number;
   expiresAt: number;
+  windowSentAt: number;
+  chatMessage: string;
+};
+
+type PlayerAnimationHold = {
+  animation: PlayerState["animation"];
+  until: number;
 };
 
 const FISHING_LOOT_SOURCE_PREFIX = "fishing:";
 const FISHING_LOOT_PICKUP_MS = 45_000;
+const FISHING_REEL_ANIMATION_MS = 2400;
 
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
@@ -708,6 +731,7 @@ export class TownRoom extends Room<TownState> {
   private readonly agentSeason0GateStatuses = new Map<string, AgentSeason0MferGptGateStatus>();
   private readonly fishingAttempts = new Map<string, ActiveFishingAttempt>();
   private readonly pendingFishingLoot = new Map<string, PendingFishingLoot>();
+  private readonly playerAnimationHolds = new Map<string, PlayerAnimationHold>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private lastAgentIdleSweepAt = 0;
@@ -869,6 +893,11 @@ export class TownRoom extends Room<TownState> {
     this.onMessage("purchasePotionShopItem", (client, message: Partial<ClientPurchasePotionShopItem> = {}) => {
       this.markAgentMessageActivity(client.sessionId, "purchasePotionShopItem");
       void this.handlePurchasePotionShopItem(client, message);
+    });
+
+    this.onMessage("purchaseFishingSupply", (client, message: Partial<ClientPurchaseFishingSupply> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "purchaseFishingSupply");
+      void this.handlePurchaseFishingSupply(client, message);
     });
 
     this.onMessage("sellTrashItems", (client, message: Partial<ClientSellTrashItems> = {}) => {
@@ -1391,6 +1420,7 @@ export class TownRoom extends Room<TownState> {
     this.pendingDebugPlacementSaves.delete(sessionId);
     this.fishingAttempts.delete(sessionId);
     this.pendingFishingLoot.delete(sessionId);
+    this.playerAnimationHolds.delete(sessionId);
     clearConsumableCooldownsForPlayer(this.consumableCooldowns, sessionId);
     this.removePlayerThreat(sessionId);
   }
@@ -2413,6 +2443,144 @@ export class TownRoom extends Room<TownState> {
     });
   }
 
+  private async handlePurchaseFishingSupply(client: Client, message: Partial<ClientPurchaseFishingSupply>) {
+    const player = this.state.players.get(client.sessionId);
+    const itemId = FISHING_CHUM_ITEM_ID;
+    const itemName = ITEMS[itemId].name;
+    const price = getFishingSupplyPrice();
+    const sendResult = (result: Omit<FishingSupplyPurchaseResult, "itemId" | "itemName" | "count" | "paymentAmountWei" | "chainId"> & Partial<FishingSupplyPurchaseResult>) => {
+      client.send("fishingSupplyPurchaseResult", {
+        ok: result.ok,
+        itemId,
+        itemName,
+        count: result.count ?? 0,
+        paymentAmountWei: result.paymentAmountWei ?? price.amountWei,
+        chainId: result.chainId ?? 0,
+        txHash: result.txHash,
+        error: result.error,
+      } satisfies FishingSupplyPurchaseResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+
+    const fishinLesson = player.quests.get("fishin-lesson");
+    if (fishinLesson?.status !== "completed") {
+      sendResult({ ok: false, error: "finish Motherfisher's lesson first" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    if (player.identityType !== "wallet" || !player.walletAddress || !characterId) {
+      this.recordPlayerAnalyticsEvent("fishing_supply_purchase_failed", client.sessionId, player, {
+        supportKind: "fishing_supply_purchase",
+        npcId: FISHING_TUTOR_NPC_ID,
+        itemId,
+        itemName,
+        stage: "preflight",
+        error: "wallet character required",
+      });
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    const npc = this.state.npcs.get(FISHING_TUTOR_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? FISHING_TUTOR_NPC_ID,
+      npcName: npc?.name ?? "Motherfisher",
+      npcDistance,
+    };
+
+    this.recordPlayerAnalyticsEvent("fishing_supply_purchase_started", client.sessionId, player, {
+      supportKind: "fishing_supply_purchase",
+      ...npcAnalytics,
+      itemId,
+      itemName,
+      priceLabel: price.label,
+      expectedPaymentAmountWei: price.amountWei,
+      ...summarizeMferGptPaymentProof(message?.payment),
+    });
+
+    let verifiedPayment: VerifiedFishingSupplyPayment;
+    try {
+      verifiedPayment = await verifyFishingSupplyPaymentProof(message?.payment, player.walletAddress);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "payment verification failed";
+      this.recordPlayerAnalyticsEvent("fishing_supply_purchase_failed", client.sessionId, player, {
+        supportKind: "fishing_supply_purchase",
+        ...npcAnalytics,
+        itemId,
+        itemName,
+        stage: "payment_verification",
+        error: errorMessage,
+        ...summarizeMferGptPaymentProof(message?.payment),
+      });
+      sendResult({ ok: false, error: errorMessage });
+      return;
+    }
+
+    const inventoryKey = getInventoryItemKey(itemId);
+    const previousItem = player.inventory.get(inventoryKey);
+    const previousCount = previousItem?.count ?? 0;
+    addInventoryItem(player, itemId, 1);
+    const nextCount = player.inventory.get(inventoryKey)?.count ?? 0;
+    const persisted = await this.queueCharacterSave(
+      client.sessionId,
+      characterId,
+      makePersistableCharacterState(characterId, player),
+      undefined,
+      (state) => saveCharacterProgressWithCryptoPurchase(state, {
+        ...verifiedPayment,
+        productId: FISHING_SUPPLY_PRODUCT_ID,
+        tokenId: getFishingSupplyLedgerTokenId(),
+        paymentToken: "MFERGPT",
+        note: `Motherfisher ${itemName}`,
+      }),
+    );
+
+    if (!persisted) {
+      if (previousItem) previousItem.count = previousCount;
+      else player.inventory.delete(inventoryKey);
+      this.recordPlayerAnalyticsEvent("fishing_supply_purchase_failed", client.sessionId, player, {
+        supportKind: "fishing_supply_purchase",
+        ...npcAnalytics,
+        itemId,
+        itemName,
+        stage: "save",
+        error: "wallet progress failed to save",
+        ...summarizeVerifiedMferGptPayment(verifiedPayment),
+      });
+      sendResult({
+        ok: false,
+        error: "wallet progress failed to save; retry before reloading",
+        paymentAmountWei: verifiedPayment.amountWei,
+        chainId: verifiedPayment.chainId,
+        txHash: verifiedPayment.txHash,
+      });
+      return;
+    }
+
+    this.recordPlayerAnalyticsEvent("fishing_supply_purchase_confirmed", client.sessionId, player, {
+      supportKind: "fishing_supply_purchase",
+      ...npcAnalytics,
+      itemId,
+      itemName,
+      count: nextCount,
+      productId: FISHING_SUPPLY_PRODUCT_ID,
+      ...summarizeVerifiedMferGptPayment(verifiedPayment),
+    });
+    sendResult({
+      ok: true,
+      count: nextCount,
+      paymentAmountWei: verifiedPayment.amountWei,
+      chainId: verifiedPayment.chainId,
+      txHash: verifiedPayment.txHash,
+    });
+  }
+
   private handleStartFishing(client: Client, message: Partial<ClientStartFishing>) {
     const player = this.state.players.get(client.sessionId);
     const sendResult = (result: Partial<FishingResult> & Pick<FishingResult, "ok" | "outcome">) => {
@@ -2476,6 +2644,7 @@ export class TownRoom extends Room<TownState> {
 
     clearPlayerEmote(player);
     clearPlayerCast(player);
+    this.playerAnimationHolds.delete(client.sessionId);
     player.fishingAttemptId = attemptId;
     player.fishingZoneId = FISHING_ZONE_ID;
     player.fishingState = "casting";
@@ -2529,14 +2698,12 @@ export class TownRoom extends Room<TownState> {
 
     const now = Date.now();
     if (now < attempt.biteAt) {
-      const attemptId = attempt.attemptId;
       this.cancelFishing(client.sessionId, player);
       this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
         supportKind: "fishing",
         outcome: "too_early",
         isAgent: player.isAgent,
       });
-      sendResult({ ok: true, outcome: "too_early", attemptId });
       return;
     }
     if (now > attempt.expiresAt) {
@@ -2552,7 +2719,10 @@ export class TownRoom extends Room<TownState> {
     }
 
     const attemptId = attempt.attemptId;
-    const itemId = rollFishingCatch();
+    const rareChanceMultiplier = getFishingRareChanceMultiplier(player, now);
+    const itemId = shouldCatchLostFishingShoe(player) && Math.random() < 0.1
+      ? FISHING_LOST_SHOE_ITEM_ID
+      : rollFishingCatch(Math.random, rareChanceMultiplier);
     this.cancelFishing(client.sessionId, player, "fishReel");
     if (!itemId) {
       this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
@@ -2565,15 +2735,19 @@ export class TownRoom extends Room<TownState> {
     }
 
     const item = ITEMS[itemId];
-    const outcome = itemId === "wet-boot" ? "junk" : "caught";
+    const outcome = isFishingSellableItemId(itemId) ? "caught" : "junk";
     const sourceId = makeFishingLootSourceId(attemptId);
+    const lootReadyAt = now + FISHING_REEL_ANIMATION_MS;
     this.pendingFishingLoot.set(client.sessionId, {
       sourceId,
       attemptId,
       itemId,
       count: 1,
       createdAt: now,
-      expiresAt: now + FISHING_LOOT_PICKUP_MS,
+      readyAt: lootReadyAt,
+      expiresAt: lootReadyAt + FISHING_LOOT_PICKUP_MS,
+      windowSentAt: 0,
+      chatMessage: getFishingLootChatMessage(itemId, item.name),
     });
     this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
       supportKind: "fishing",
@@ -2582,10 +2756,6 @@ export class TownRoom extends Room<TownState> {
       itemName: item.name,
       isAgent: player.isAgent,
     });
-    client.send("chat", makeSystemChat("Fishing", outcome === "junk"
-      ? `You reeled up ${item.name}. It is worth 0 points, but Motherfisher still wants it out of the pond. Pick it up before it sinks.`
-      : `You caught ${item.name}. Pick it up before it slips away.`));
-    client.send("lootWindow", makeFishingLootWindow(this.pendingFishingLoot.get(client.sessionId)!));
     sendResult({
       ok: true,
       outcome,
@@ -2598,7 +2768,7 @@ export class TownRoom extends Room<TownState> {
 
   private async handleSellFishingItems(client: Client, message: Partial<ClientSellFishingItems>) {
     const player = this.state.players.get(client.sessionId);
-    const selectedItemId = isFishingCatchItemId(message?.itemId) ? message.itemId : null;
+    const selectedItemId = isFishingSellableItemId(message?.itemId) ? message.itemId : null;
     const sellAll = message?.sellAll === true;
     const sendResult = (result: Partial<FishingVendorSellResult> & Pick<FishingVendorSellResult, "ok">) => {
       client.send("fishingVendorSellResult", {
@@ -2617,7 +2787,7 @@ export class TownRoom extends Room<TownState> {
       return;
     }
     if (!sellAll && !selectedItemId) {
-      sendResult({ ok: false, error: "pick a fish or junk item" });
+      sendResult({ ok: false, error: "pick a fish" });
       return;
     }
 
@@ -2628,11 +2798,17 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
+    const fishMongerQuest = player.quests.get("lost-fishing-shoes");
+    if (fishMongerQuest?.status !== "completed") {
+      sendResult({ ok: false, error: "fish monger needs his fishing shoes first" });
+      return;
+    }
+
     const npc = this.state.npcs.get(FISHING_VENDOR_NPC_ID);
     const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
     const npcAnalytics = {
       npcId: npc?.id ?? FISHING_VENDOR_NPC_ID,
-      npcName: npc?.name ?? "Motherfisher",
+      npcName: npc?.name ?? "fish monger",
       npcDistance,
     };
     if (!npc || npcDistance === null || npcDistance > LOOT.interactRange) {
@@ -2641,9 +2817,9 @@ export class TownRoom extends Room<TownState> {
         ...npcAnalytics,
         itemId: selectedItemId ?? "",
         stage: "preflight",
-        error: "Motherfisher too far",
+        error: "fish monger too far",
       });
-      sendResult({ ok: false, error: "Motherfisher too far" });
+      sendResult({ ok: false, error: "fish monger too far" });
       return;
     }
 
@@ -2665,7 +2841,7 @@ export class TownRoom extends Room<TownState> {
         ok: false,
         error: selectedItemId && availableQuantity > 0
           ? getFishingSaleBlockedMessage(selectedItemId, player.isAgent)
-          : "no fish or pond junk in stash",
+          : "no fish in stash",
       });
       return;
     }
@@ -2756,8 +2932,8 @@ export class TownRoom extends Room<TownState> {
             agentTokenGate,
             isAgent: player.isAgent,
             label: player.isAgent
-              ? `Motherfisher sale: ${soldLabel} (agent fish bundles)`
-              : `Motherfisher sale: ${soldLabel}`,
+              ? `fish monger sale: ${soldLabel} (agent fish bundles)`
+              : `fish monger sale: ${soldLabel}`,
           });
           if (awardResult.status !== "awarded") {
             throw new Error(`fishing sale reward ${awardResult.status}`);
@@ -2873,7 +3049,46 @@ export class TownRoom extends Room<TownState> {
     player.fishingBobberX = 0;
     player.fishingBobberZ = 0;
     player.animation = animation;
+    if (animation === "fishReel") {
+      this.holdPlayerAnimation(sessionId, animation, FISHING_REEL_ANIMATION_MS);
+    } else {
+      this.playerAnimationHolds.delete(sessionId);
+    }
     syncPlayerFishingJson(player);
+  }
+
+  private holdPlayerAnimation(sessionId: string, animation: PlayerState["animation"], durationMs: number) {
+    this.playerAnimationHolds.set(sessionId, {
+      animation,
+      until: Date.now() + Math.max(0, durationMs),
+    });
+  }
+
+  private applyPlayerAnimationHold(sessionId: string, player: PlayerState, now: number) {
+    const hold = this.playerAnimationHolds.get(sessionId);
+    if (!hold) return false;
+    if (now >= hold.until) {
+      this.playerAnimationHolds.delete(sessionId);
+      return false;
+    }
+    player.animation = hold.animation;
+    return true;
+  }
+
+  private flushReadyFishingLoot(now: number) {
+    for (const [sessionId, loot] of this.pendingFishingLoot) {
+      if (loot.windowSentAt > 0 || now < loot.readyAt) continue;
+      const client = this.clients.find((candidate) => candidate.sessionId === sessionId);
+      if (!client) continue;
+      if (now > loot.expiresAt) {
+        this.pendingFishingLoot.delete(sessionId);
+        client.send("closeLootWindow", { npcId: loot.sourceId });
+        continue;
+      }
+      loot.windowSentAt = now;
+      client.send("chat", makeSystemChat("Fishing", loot.chatMessage));
+      client.send("lootWindow", makeFishingLootWindow(loot));
+    }
   }
 
   private async handleSellTrashItems(client: Client, message: Partial<ClientSellTrashItems>) {
@@ -3624,7 +3839,9 @@ export class TownRoom extends Room<TownState> {
   ) {
     const pending = this.pendingFishingLoot.get(client.sessionId);
     if (!pending || pending.sourceId !== sourceId) return;
-    if (Date.now() > pending.expiresAt) {
+    const now = Date.now();
+    if (now < pending.readyAt) return;
+    if (now > pending.expiresAt) {
       this.pendingFishingLoot.delete(client.sessionId);
       client.send("closeLootWindow", { npcId: sourceId });
       return;
@@ -3638,6 +3855,7 @@ export class TownRoom extends Room<TownState> {
 
     addInventoryItem(player, pending.itemId, pending.count);
     progressFishingQuest(player);
+    progressLootQuests(player, pending.itemId, pending.count);
     this.pendingFishingLoot.delete(client.sessionId);
     this.recordPlayerAnalyticsEvent("fishing_loot_collected", client.sessionId, player, {
       supportKind: "fishing",
@@ -4129,6 +4347,7 @@ export class TownRoom extends Room<TownState> {
         }
         player.verticalVelocity = 0;
         player.animation = "idle";
+        this.playerAnimationHolds.delete(sessionId);
         clearPlayerEmote(player);
         clearPlayerCast(player);
         this.cancelFishing(sessionId, player);
@@ -4138,6 +4357,7 @@ export class TownRoom extends Room<TownState> {
       const isPlayerFrozen = player.frozenUntil > now;
       if (isPlayerFrozen) {
         clearPlayerCast(player);
+        this.playerAnimationHolds.delete(sessionId);
         if (player.fishingState) this.cancelFishing(sessionId, player);
       }
       if (player.emote && player.emoteEndsAt > 0 && now >= player.emoteEndsAt) {
@@ -4200,11 +4420,13 @@ export class TownRoom extends Room<TownState> {
           player.lastSeq = activeInput.seq;
         }
         player.animation = grounded ? "idle" : "jump";
+        this.applyPlayerAnimationHold(sessionId, player, now);
         return;
       }
 
       if (!activeInput) {
         player.animation = grounded ? "idle" : "jump";
+        this.applyPlayerAnimationHold(sessionId, player, now);
         return;
       }
 
@@ -4214,6 +4436,7 @@ export class TownRoom extends Room<TownState> {
 
       if (length < 0.01) {
         player.animation = grounded ? "idle" : "jump";
+        this.applyPlayerAnimationHold(sessionId, player, now);
         return;
       }
 
@@ -4229,8 +4452,10 @@ export class TownRoom extends Room<TownState> {
       player.x = nextPosition.x;
       player.z = nextPosition.z;
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
+      this.applyPlayerAnimationHold(sessionId, player, now);
       this.markAgentMovementActivity(sessionId, player, now);
     });
+    this.flushReadyFishingLoot(now);
     this.autosaveWalletCharacters(now);
     this.publishLiveMemoryStatus(now);
   }
@@ -5013,7 +5238,7 @@ function applyTrashSale(player: PlayerState, removals: TrashSalePlan["removals"]
 function planFishingSale(
   player: PlayerState,
   options: {
-    itemId: FishingCatchItemId | null;
+    itemId: FishingSellableItemId | null;
     requestedQuantity: number;
     pointCapacity: number;
     isAgent: boolean;
@@ -5022,8 +5247,8 @@ function planFishingSale(
   const requestedQuantity = Number.isFinite(options.requestedQuantity)
     ? Math.max(0, Math.floor(options.requestedQuantity))
     : Number.MAX_SAFE_INTEGER;
-  const candidateItemIds = options.itemId ? [options.itemId] : [...FISHING_CATCH_ITEM_IDS];
-  const soldCounts = new Map<FishingCatchItemId, number>();
+  const candidateItemIds = options.itemId ? [options.itemId] : [...FISHING_SELLABLE_ITEM_IDS];
+  const soldCounts = new Map<FishingSellableItemId, number>();
   const removals: FishingSalePlan["removals"] = [];
   let remainingRequested = requestedQuantity;
   let remainingPointCapacity = Number.isFinite(options.pointCapacity)
@@ -5042,7 +5267,7 @@ function planFishingSale(
     player.inventory.forEach((item, key) => {
       if (remainingForItem <= 0) return;
       if (item.id !== itemId || normalizeChainTokenId(item.chainTokenId)) return;
-      if (!isFishingCatchItemId(item.id) || item.count <= 0) return;
+      if (!isFishingSellableItemId(item.id) || item.count <= 0) return;
 
       const removalQuantity = Math.min(item.count, remainingForItem);
       removals.push({ key, quantity: removalQuantity });
@@ -5145,6 +5370,10 @@ function makeFishingVendorSeasonRewardSourceId(sessionId: string) {
   return `fishing-vendor:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
 }
 
+function getFishingSupplyLedgerTokenId() {
+  return `${FISHING_CHUM_ITEM_ID}:single`;
+}
+
 function makeFishingAttemptId(sessionId: string) {
   return `fish:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
 }
@@ -5162,6 +5391,22 @@ function makeFishingLootWindow(loot: PendingFishingLoot): LootWindow {
   };
 }
 
+function getFishingRareChanceMultiplier(player: PlayerState, now: number) {
+  const bonusPercent = getPlayerBuffEffectTotals(player, now).fishingRareChancePercent ?? 0;
+  return 1 + Math.max(0, bonusPercent) / 100;
+}
+
+function shouldCatchLostFishingShoe(player: PlayerState) {
+  return player.quests.get("lost-fishing-shoes")?.status === "active";
+}
+
+function getFishingLootChatMessage(itemId: FishingCatchItemId, itemName: string) {
+  if (itemId === FISHING_LOST_SHOE_ITEM_ID) {
+    return `You reeled up ${itemName}. Fish monger is going to pretend those are still wearable. Pick them up before they sink.`;
+  }
+  return `You caught ${itemName}. Pick it up before it slips away.`;
+}
+
 function randomInt(min: number, max: number) {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
@@ -5175,15 +5420,14 @@ function getSellableTrashItemCount(player: PlayerState, itemId: TrashVendorItemI
   return candidateItemIds.reduce((total, candidateItemId) => total + getPlayerItemCount(player, candidateItemId), 0);
 }
 
-function getSellableFishingItemCount(player: PlayerState, itemId: FishingCatchItemId | null) {
-  const candidateItemIds = itemId ? [itemId] : [...FISHING_CATCH_ITEM_IDS];
+function getSellableFishingItemCount(player: PlayerState, itemId: FishingSellableItemId | null) {
+  const candidateItemIds = itemId ? [itemId] : [...FISHING_SELLABLE_ITEM_IDS];
   return candidateItemIds.reduce((total, candidateItemId) => total + getPlayerItemCount(player, candidateItemId), 0);
 }
 
-function getFishingSaleBlockedMessage(itemId: FishingCatchItemId, isAgent: boolean) {
+function getFishingSaleBlockedMessage(itemId: FishingSellableItemId, isAgent: boolean) {
   const required = getFishingRequiredBundleSize(itemId, isAgent);
   const points = getFishingSaleRule(itemId).seasonPoints;
-  if (points <= 0) return "no pond junk in stash";
   return isAgent
     ? `agents need ${required} ${ITEMS[itemId].name} for ${formatSeasonPoints(points)}`
     : `need ${required} ${ITEMS[itemId].name} for ${formatSeasonPoints(points)}`;

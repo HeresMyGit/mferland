@@ -5,6 +5,7 @@ import {
   AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   COMBAT,
   FISHING_AGENT_BUNDLE_MULTIPLIER,
+  FISHING_CHUM_ITEM_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
   INPUT_SEND_RATE,
@@ -14,11 +15,12 @@ import {
   getLevelProgress,
   getNpcQuestIds,
   getQuestObjectives,
+  getFishingSupplyPrice,
   getPotionShopPrice,
   getQuestRequirement,
   getQuestTurnInNpcId,
   getTalentRankStatus,
-  isFishingCatchItemId,
+  isFishingSellableItemId,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
   isQuestAvailableForSnapshots,
@@ -763,6 +765,7 @@ const DECISION_ACTIONS = [
   "swap_eth_for_mfergpt",
   "register_chain_gear",
   "purchase_potion_shop_item",
+  "purchase_fishing_supply",
   "sell_trash_items",
   "fish",
   "sell_fish_items",
@@ -776,11 +779,13 @@ const WALLET_DECISION_ACTIONS = new Set<string>([
   "swap_eth_for_mfergpt",
   "register_chain_gear",
   "purchase_potion_shop_item",
+  "purchase_fishing_supply",
   "update_traits",
 ]);
 const PAID_DECISION_ACTIONS = new Set<string>([
   "swap_eth_for_mfergpt",
   "purchase_potion_shop_item",
+  "purchase_fishing_supply",
   "update_traits",
 ]);
 const FREE_TRAIT_QUEST_ID = "set-your-traits";
@@ -998,6 +1003,7 @@ class AgentBridgeSession {
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
     room.onMessage("fishingResult", (message: unknown) => this.remember(`fishing:${messageSummary(message)}`, true));
+    room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => this.remember(`fishingSupply:${messageSummary(message)}`, true));
     room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
@@ -3345,6 +3351,7 @@ class AgentBridgeSession {
       case "select_talent":
       case "register_chain_gear":
       case "purchase_potion_shop_item":
+      case "purchase_fishing_supply":
       case "update_traits":
       case "chat":
       case "emote":
@@ -3478,6 +3485,11 @@ class AgentBridgeSession {
       case "sell_fish_items":
         if (this.recentMessages.some((message) => message.startsWith("fishingVendor:"))) {
           return { status: "completed", stoppedBecause: "fishing_sale_result", durationMs };
+        }
+        return null;
+      case "purchase_fishing_supply":
+        if (this.recentMessages.some((message) => message.startsWith("fishingSupply:"))) {
+          return { status: "completed", stoppedBecause: "fishing_supply_purchase_result", durationMs };
         }
         return null;
       case "fish":
@@ -3626,7 +3638,7 @@ class AgentBridgeSession {
           this.lastAction = `move_to_sell_fish ${npc.id}`;
         } else {
           const requestedItemId = cleanText(decision.itemId, 96);
-          const itemId = isFishingCatchItemId(requestedItemId) ? requestedItemId : "";
+          const itemId = isFishingSellableItemId(requestedItemId) ? requestedItemId : "";
           const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
           this.targetPoint = null;
           this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
@@ -4208,6 +4220,19 @@ class AgentBridgeSession {
         this.lastAction = `purchase_potion_shop_item ${itemId} x${quantity}`;
         return null;
       }
+      case "purchase_fishing_supply": {
+        const payment = this.buildPaymentProof(decision);
+        if (!payment) {
+          const required = fishingSupplyPaymentRequired();
+          this.lastAction = "purchase_fishing_supply needs_payment";
+          return { ok: false, status: "payment_required", bridgeSessionId: this.id, lastAction: this.lastAction, paymentRequired: required };
+        }
+        this.mferGptSpendProofedWei += BigInt(payment.amountWei);
+        this.clearEngagement();
+        this.send("purchaseFishingSupply", { payment });
+        this.lastAction = `purchase_fishing_supply ${FISHING_CHUM_ITEM_ID}`;
+        return null;
+      }
       case "sell_trash_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("trash-mfer");
         if (!npc) throw new Error("sell_trash_items requires trash-mfer to be visible in room state");
@@ -4257,7 +4282,7 @@ class AgentBridgeSession {
       }
       case "sell_fish_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
-        if (!npc) throw new Error("sell_fish_items requires Motherfisher to be visible in room state");
+        if (!npc) throw new Error("sell_fish_items requires fish monger to be visible in room state");
         this.clearEngagement();
         if (distance2d(self, npc) > QUEST_SEND_RANGE) {
           this.moveNearNpc(self, npc);
@@ -4265,7 +4290,7 @@ class AgentBridgeSession {
           return null;
         }
         const requestedItemId = cleanText(decision.itemId, 96);
-        const itemId = isFishingCatchItemId(requestedItemId) ? requestedItemId : "";
+        const itemId = isFishingSellableItemId(requestedItemId) ? requestedItemId : "";
         const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
         this.targetPoint = null;
         this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
@@ -5573,6 +5598,8 @@ class AgentBridgeSession {
         return cleanText(decision.actionId, 40) ? `next: using ${cleanText(decision.actionId, 40)}` : "";
       case "purchase_potion_shop_item":
         return itemId ? `next: buying ${itemId}` : "";
+      case "purchase_fishing_supply":
+        return "next: buying fishing chum";
       case "swap_eth_for_mfergpt":
         return "next: preparing an ETH to MFERGPT swap";
       case "respawn":
@@ -5649,6 +5676,14 @@ class AgentBridgeSession {
       potionShopBuy: {
         action: "purchase_potion_shop_item",
         note: "Burn the exact MFERGPT price from the agent wallet to the burn address, then include paymentTxHash/paymentAmountWei/paymentChainId/paymentContractAddress in the decision.",
+        chainId: BASE_CHAIN_ID,
+        tokenAddress: BASE_MFERGPT_TOKEN_ADDRESS,
+        burnAddress: BASE_BURN_ADDRESS,
+      },
+      fishingSupplyBuy: {
+        action: "purchase_fishing_supply",
+        note: "After fishin-lesson, burn the exact MFERGPT chum price from the agent wallet to the burn address, then include payment proof fields.",
+        itemId: FISHING_CHUM_ITEM_ID,
         chainId: BASE_CHAIN_ID,
         tokenAddress: BASE_MFERGPT_TOKEN_ADDRESS,
         burnAddress: BASE_BURN_ADDRESS,
@@ -7426,6 +7461,22 @@ function potionShopPaymentRequired(itemId: string, quantity: number) {
     action: "burn_mfergpt",
     itemId: normalizedItemId,
     quantity: normalizedQuantity,
+    chainId: BASE_CHAIN_ID,
+    token: "MFERGPT",
+    tokenAddress: BASE_MFERGPT_TOKEN_ADDRESS,
+    burnAddress: BASE_BURN_ADDRESS,
+    amountWei: price.amountWei,
+    amountLabel: price.label,
+    proofFields: ["paymentTxHash", "paymentAmountWei", "paymentChainId", "paymentContractAddress"],
+  };
+}
+
+function fishingSupplyPaymentRequired() {
+  const price = getFishingSupplyPrice();
+  return {
+    action: "burn_mfergpt",
+    itemId: FISHING_CHUM_ITEM_ID,
+    quantity: 1,
     chainId: BASE_CHAIN_ID,
     token: "MFERGPT",
     tokenAddress: BASE_MFERGPT_TOKEN_ADDRESS,

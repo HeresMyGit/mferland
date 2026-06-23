@@ -295,8 +295,7 @@ function getInventoryItemCount(inventory: InventoryItemSnapshot[], itemId: ItemI
 function getFishingUsability(player: PlayerSnapshot | null) {
   if (!player) return { usable: false, reason: "" };
   if (player.health <= 0) return { usable: false, reason: "Dead" };
-  if (player.fishingState === "bite") return { usable: true, reason: "" };
-  if (player.fishingState) return { usable: false, reason: "Watch" };
+  if (player.fishingState) return { usable: true, reason: player.fishingState === "bite" ? "" : "Reel" };
   if (player.castingAction) return { usable: false, reason: "Casting" };
   const hasPole = player.inventory.some((item) => (
     (item.id === FISHING_POLE_ITEM_ID || item.id === LOANER_FISHING_POLE_ITEM_ID)

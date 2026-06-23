@@ -4,7 +4,7 @@ import type { ElixirBuffId, ElixirItemId } from "./elixirs.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
 import type { TrashVendorItemId } from "./trashVendor.js";
-import type { FishingCatchItemId, FishingState, FishingZoneId } from "./fishing.js";
+import type { FishingCatchItemId, FishingSellableItemId, FishingState, FishingZoneId } from "./fishing.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
@@ -503,6 +503,21 @@ export type PotionShopPurchaseResult = {
   error?: string;
 };
 
+export type ClientPurchaseFishingSupply = {
+  payment?: MferGptPaymentProof;
+};
+
+export type FishingSupplyPurchaseResult = {
+  ok: boolean;
+  itemId: "bucket-of-old-chum" | "";
+  itemName: string;
+  count: number;
+  paymentAmountWei: string;
+  chainId: number;
+  txHash?: string;
+  error?: string;
+};
+
 export type ClientSellTrashItems = {
   itemId?: TrashVendorItemId;
   quantity?: number;
@@ -547,13 +562,13 @@ export type FishingResult = {
 };
 
 export type ClientSellFishingItems = {
-  itemId?: FishingCatchItemId;
+  itemId?: FishingSellableItemId;
   quantity?: number;
   sellAll?: boolean;
 };
 
 export type FishingVendorSoldItem = {
-  itemId: FishingCatchItemId;
+  itemId: FishingSellableItemId;
   itemName: string;
   quantity: number;
   points: number;
@@ -626,6 +641,7 @@ export type AgentObservation = {
     | "reelFishing"
     | "cancelFishing"
     | "sellFishingItems"
+    | "purchaseFishingSupply"
     | "selectTalent"
     | "updateTraits"
     | "respecTalents"

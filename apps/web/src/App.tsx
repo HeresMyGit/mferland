@@ -7,6 +7,7 @@ import {
   COMBAT,
   CRYPTO_MFER_NPC_ID,
   FISHING_POLE_ITEM_ID,
+  FISHING_TUTOR_NPC_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
   FISHING_ZONE_ID,
@@ -18,12 +19,16 @@ import {
   SWAP_MFER_NPC_ID,
   TRAITS_MFER_NPC_ID,
   TRASH_VENDOR_NPC_ID,
+  QUESTS,
   getUnlockedCombatActions,
   getInventoryItemKey,
   getItemConsumable,
   getNpcDisposition,
   getCombatActionUnlockTalent,
+  getNpcQuestIds,
+  getQuestTurnInNpcId,
   getTalentUnlockedCombatActions,
+  isQuestAvailableForSnapshots,
   isAttackableNpcRole,
   isCombatActionUnlocked,
   isNearFishingZone,
@@ -38,6 +43,7 @@ import {
   type ClientEmote,
   type ClientEquipItem,
   type ClientLootCorpse,
+  type ClientPurchaseFishingSupply,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
   type ClientRespecTalents,
@@ -102,6 +108,7 @@ import { MferPortrait } from "./components/MferPortrait";
 import { MovableWindow } from "./components/MovableWindow";
 import { PotionShopPanel } from "./components/PotionShopPanel";
 import { RespecPanel } from "./components/RespecPanel";
+import { FishingSupplyPanel } from "./components/FishingSupplyPanel";
 import { FishingVendorPanel } from "./components/FishingVendorPanel";
 import { TrashVendorPanel } from "./components/TrashVendorPanel";
 import { TraitsPanel } from "./components/TraitsPanel";
@@ -271,6 +278,44 @@ function isTrashVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapsh
 
 function isFishingVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return npc?.id === FISHING_VENDOR_NPC_ID;
+}
+
+function isFishingTutorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return npc?.id === FISHING_TUTOR_NPC_ID;
+}
+
+function hasCompletedQuest(player: PlayerSnapshot | null | undefined, questId: string) {
+  return player?.quests.some((quest) => quest.id === questId && quest.status === "completed") ?? false;
+}
+
+function shouldDeferNpcFeaturePanelForQuest(player: PlayerSnapshot | null | undefined, npc: NpcSnapshot | null | undefined) {
+  if (!player || !npc) return false;
+  const npcQuestIds = getNpcQuestIds(npc.id);
+  if (npcQuestIds.length === 0) return false;
+
+  for (const questId of npcQuestIds) {
+    const quest = player.quests.find((entry) => entry.id === questId);
+    if (quest?.status === "ready" && getQuestTurnInNpcId(questId) === npc.id) return true;
+  }
+
+  for (const questId of npcQuestIds) {
+    if (QUESTS[questId].giverNpcId !== npc.id) continue;
+    if (isQuestAvailableForSnapshots(questId, player.quests)) return true;
+  }
+
+  for (const questId of npcQuestIds) {
+    const quest = player.quests.find((entry) => entry.id === questId);
+    if (!quest || quest.status === "completed") continue;
+    const isGiver = QUESTS[questId].giverNpcId === npc.id;
+    const isTurnInNpc = getQuestTurnInNpcId(questId) === npc.id;
+    if (quest.status === "active" && (isGiver || isTurnInNpc)) {
+      if (questId === "set-your-traits" && isGiver) continue;
+      return true;
+    }
+    if (quest.status === "ready" && isGiver) return true;
+  }
+
+  return false;
 }
 
 function isRespecMferNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
@@ -1208,6 +1253,7 @@ function GameShell({
   const [cryptoStoreNpcId, setCryptoStoreNpcId] = useState<string | null>(null);
   const [potionShopNpcId, setPotionShopNpcId] = useState<string | null>(null);
   const [trashVendorNpcId, setTrashVendorNpcId] = useState<string | null>(null);
+  const [fishingSupplyNpcId, setFishingSupplyNpcId] = useState<string | null>(null);
   const [fishingVendorNpcId, setFishingVendorNpcId] = useState<string | null>(null);
   const [respecNpcId, setRespecNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
@@ -1282,6 +1328,10 @@ function GameShell({
   const trashVendorNpc = useMemo(
     () => trashVendorNpcId ? room.npcs.get(trashVendorNpcId) ?? null : null,
     [trashVendorNpcId, room.npcs, room.snapshotRevision],
+  );
+  const fishingSupplyNpc = useMemo(
+    () => fishingSupplyNpcId ? room.npcs.get(fishingSupplyNpcId) ?? null : null,
+    [fishingSupplyNpcId, room.npcs, room.snapshotRevision],
   );
   const fishingVendorNpc = useMemo(
     () => fishingVendorNpcId ? room.npcs.get(fishingVendorNpcId) ?? null : null,
@@ -1384,6 +1434,11 @@ function GameShell({
     trackEvent("fishing_vendor_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("fishing_vendor_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openFishingSupply = useCallback((npc: NpcSnapshot) => {
+    setFishingSupplyNpcId(npc.id);
+    trackEvent("fishing_supply_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("fishing_supply_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const openRespecPanel = useCallback((npc: NpcSnapshot) => {
     setRespecNpcId(npc.id);
     trackEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
@@ -1397,6 +1452,19 @@ function GameShell({
     setTraitsNpcId(npc.id);
     trackEvent("traits_panel_opened", { npcId: npc.id, npcRole: npc.role });
   }, []);
+  useEffect(() => {
+    const questNpcId = room.questOffer?.npcId ?? room.questTurnIn?.npcId ?? "";
+    if (!questNpcId) return;
+
+    setCryptoStoreNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setPotionShopNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setTrashVendorNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setFishingSupplyNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setFishingVendorNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setRespecNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setSwapNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setTraitsNpcId((npcId) => npcId === questNpcId ? null : npcId);
+  }, [room.questOffer?.npcId, room.questTurnIn?.npcId]);
   const selectNpcTarget = useCallback((npcId: string) => {
     setSelectedTarget({ kind: "npc", id: npcId });
     audio.play("targetSelect");
@@ -1404,16 +1472,18 @@ function GameShell({
     const selectedNpc = findInteractableNpcInRange(localPlayer, room.npcs, npcId);
     if (selectedNpc) {
       audio.play(getNpcInteractionCue(selectedNpc), { volume: 0.7 });
-      if (cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
-      if (isPotionShopNpc(selectedNpc)) openPotionShop(selectedNpc);
-      if (isTrashVendorNpc(selectedNpc)) openTrashVendor(selectedNpc);
-      if (isFishingVendorNpc(selectedNpc)) openFishingVendor(selectedNpc);
-      if (isRespecMferNpc(selectedNpc)) openRespecPanel(selectedNpc);
-      if (isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
-      if (isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
+      const canOpenFeaturePanel = !shouldDeferNpcFeaturePanelForQuest(localPlayer, selectedNpc);
+      if (canOpenFeaturePanel && cryptoStoreEnabled && isCryptoStoreNpc(selectedNpc)) openCryptoStore(selectedNpc);
+      if (canOpenFeaturePanel && isPotionShopNpc(selectedNpc)) openPotionShop(selectedNpc);
+      if (canOpenFeaturePanel && isTrashVendorNpc(selectedNpc)) openTrashVendor(selectedNpc);
+      if (canOpenFeaturePanel && isFishingTutorNpc(selectedNpc) && hasCompletedQuest(localPlayer, "fishin-lesson")) openFishingSupply(selectedNpc);
+      if (canOpenFeaturePanel && isFishingVendorNpc(selectedNpc) && hasCompletedQuest(localPlayer, "lost-fishing-shoes")) openFishingVendor(selectedNpc);
+      if (canOpenFeaturePanel && isRespecMferNpc(selectedNpc)) openRespecPanel(selectedNpc);
+      if (canOpenFeaturePanel && isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
+      if (canOpenFeaturePanel && isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingSupply, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1421,15 +1491,17 @@ function GameShell({
       : null;
     const nearestNpc = selectedNpc ?? findNearestNpc(localPlayer, room.npcs);
     if (nearestNpc) audio.play(getNpcInteractionCue(nearestNpc), { volume: 0.7 });
-    if (cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
-    if (isPotionShopNpc(nearestNpc)) openPotionShop(nearestNpc);
-    if (isTrashVendorNpc(nearestNpc)) openTrashVendor(nearestNpc);
-    if (isFishingVendorNpc(nearestNpc)) openFishingVendor(nearestNpc);
-    if (isRespecMferNpc(nearestNpc)) openRespecPanel(nearestNpc);
-    if (isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
-    if (isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
+    const canOpenFeaturePanel = !shouldDeferNpcFeaturePanelForQuest(localPlayer, nearestNpc);
+    if (canOpenFeaturePanel && cryptoStoreEnabled && isCryptoStoreNpc(nearestNpc)) openCryptoStore(nearestNpc);
+    if (canOpenFeaturePanel && isPotionShopNpc(nearestNpc)) openPotionShop(nearestNpc);
+    if (canOpenFeaturePanel && isTrashVendorNpc(nearestNpc)) openTrashVendor(nearestNpc);
+    if (canOpenFeaturePanel && isFishingTutorNpc(nearestNpc) && hasCompletedQuest(localPlayer, "fishin-lesson")) openFishingSupply(nearestNpc);
+    if (canOpenFeaturePanel && isFishingVendorNpc(nearestNpc) && hasCompletedQuest(localPlayer, "lost-fishing-shoes")) openFishingVendor(nearestNpc);
+    if (canOpenFeaturePanel && isRespecMferNpc(nearestNpc)) openRespecPanel(nearestNpc);
+    if (canOpenFeaturePanel && isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
+    if (canOpenFeaturePanel && isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingSupply, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1443,7 +1515,7 @@ function GameShell({
     if (!slot) return;
     if (slot === "interact") performInteract();
     else if (slot === "fish") {
-      if (localPlayer?.fishingState === "bite") {
+      if (localPlayer?.fishingState) {
         reelFishing(localPlayer.fishingAttemptId);
         return;
       }
@@ -1531,6 +1603,10 @@ function GameShell({
     audio.play("inventoryLoot");
     room.sendPurchasePotionShopItem(message);
   }, [audio, room.sendPurchasePotionShopItem]);
+  const purchaseFishingSupply = useCallback((message: ClientPurchaseFishingSupply) => {
+    audio.play("inventoryLoot");
+    room.sendPurchaseFishingSupply(message);
+  }, [audio, room.sendPurchaseFishingSupply]);
   const sellTrashItems = useCallback((message: ClientSellTrashItems) => {
     audio.play("inventoryLoot");
     room.sendSellTrashItems(message);
@@ -1992,6 +2068,18 @@ function GameShell({
               />
             </MovableWindow>
           )}
+          {fishingSupplyNpc && (
+            <MovableWindow id="hud.fishing-supply" as="section" className="floating-menu-overlay potion-shop-anchor" role="dialog" aria-label="fishing supplies">
+              <FishingSupplyPanel
+                npc={fishingSupplyNpc}
+                player={localPlayer ?? null}
+                result={room.fishingSupplyPurchaseResult}
+                onClose={() => setFishingSupplyNpcId(null)}
+                onPurchaseFishingSupply={purchaseFishingSupply}
+                onAnalyticsEvent={room.sendAnalyticsEvent}
+              />
+            </MovableWindow>
+          )}
           {fishingVendorNpc && (
             <MovableWindow id="hud.fishing-vendor" as="section" className="floating-menu-overlay trash-vendor-anchor" role="dialog" aria-label="fishing vendor">
               <FishingVendorPanel
@@ -2201,7 +2289,7 @@ function getItemActionBlockMessage(slot: ItemActionSlot, player: PlayerSnapshot 
 function getFishingActionBlockMessage(player: PlayerSnapshot | null) {
   if (!player) return "Not ready";
   if (player.health <= 0) return "You are dead";
-  if (player.fishingState) return player.fishingState === "bite" ? null : "Watch the bobber";
+  if (player.fishingState) return null;
   if (player.castingAction) return "Already casting";
   if (!playerHasFishingPole(player)) return "Fishing pole required";
   if (!isNearFishingZone(player.x, player.z)) return "Get closer to South Center Pond";

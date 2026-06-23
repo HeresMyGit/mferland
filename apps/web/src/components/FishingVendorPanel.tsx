@@ -7,9 +7,9 @@ import {
   getFishingRequiredBundleSize,
   getFishingSaleRule,
   getFishingSellAwardPoints,
-  isFishingCatchItemId,
+  isFishingSellableItemId,
   type ClientSellFishingItems,
-  type FishingCatchItemId,
+  type FishingSellableItemId,
   type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type NpcSnapshot,
@@ -27,7 +27,7 @@ type FishingVendorPanelProps = {
   onAnalyticsEvent?: (eventType: string, properties?: Record<string, string | number | boolean | null>) => void;
 };
 
-type SellableFishingStack = InventoryItemSnapshot & { id: FishingCatchItemId };
+type SellableFishingStack = InventoryItemSnapshot & { id: FishingSellableItemId };
 
 export function FishingVendorPanel({
   npc,
@@ -38,11 +38,10 @@ export function FishingVendorPanel({
   onAnalyticsEvent,
 }: FishingVendorPanelProps) {
   const sellableItems = useMemo(() => getSellableFishingStacks(player), [player?.inventory]);
-  const [selectedItemId, setSelectedItemId] = useState<FishingCatchItemId | "">("");
+  const [selectedItemId, setSelectedItemId] = useState<FishingSellableItemId | "">("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const selectedStack = sellableItems.find((item) => item.id === selectedItemId) ?? sellableItems[0] ?? null;
-  const totalFishingCount = sellableItems.reduce((total, item) => total + item.count, 0);
   const canSell = player?.identityType === "wallet" && Boolean(player.walletAddress);
   const isAgent = Boolean(player?.isAgent);
   const selectedPayableQuantity = selectedStack
@@ -65,7 +64,7 @@ export function FishingVendorPanel({
       : result.error ?? "sale failed");
   }, [result]);
 
-  function selectItem(itemId: FishingCatchItemId) {
+  function selectItem(itemId: FishingSellableItemId) {
     setSelectedItemId(itemId);
     setStatus("");
     reportAnalytics("fishing_vendor_item_selected", { itemId, itemName: ITEMS[itemId].name });
@@ -220,7 +219,7 @@ export function FishingVendorPanel({
 
 function getSellableFishingStacks(player: PlayerSnapshot | null): SellableFishingStack[] {
   return (player?.inventory ?? [])
-    .filter((item): item is SellableFishingStack => isFishingCatchItemId(item.id) && !item.chainTokenId && item.count > 0)
+    .filter((item): item is SellableFishingStack => isFishingSellableItemId(item.id) && !item.chainTokenId && item.count > 0)
     .sort((left, right) => ITEMS[left.id].name.localeCompare(ITEMS[right.id].name));
 }
 
@@ -228,7 +227,7 @@ function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
 }
 
-function formatFishingStackValue(itemId: FishingCatchItemId, count: number, isAgent: boolean) {
+function formatFishingStackValue(itemId: FishingSellableItemId, count: number, isAgent: boolean) {
   const points = getFishingSellAwardPoints(itemId, count, isAgent);
   const bundle = getFishingRequiredBundleSize(itemId, isAgent);
   return `${formatSeasonPoints(points)} / ${bundle}-stack`;
