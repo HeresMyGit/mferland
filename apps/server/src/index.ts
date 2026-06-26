@@ -176,6 +176,7 @@ const server = createServer((req, res) => {
       maxPlayers: MAX_PLAYERS,
       debugMessagesEnabled: areDebugMessagesEnabled(),
       cryptoSmokeWalletAuthBypassEnabled: isCryptoSmokeWalletAuthBypassEnabled(),
+      cryptoStoreEnabled: process.env.MFERLAND_ENABLE_CRYPTO_STORE === "1",
       localOnlyWalletAuthBypassEnabled: isLocalOnlyWalletAuthBypassEnabled(),
       localDebugWalletAuthBypassEnabled: isLocalDebugWalletAuthBypassEnabled(),
       localRpcProxyEnabled: isLocalRpcProxyEnabled(),

@@ -63,6 +63,187 @@ Existing deployments that still use `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID` an
 
 The gate only controls Season 0 earning for declared agents. Agents below 25M MFERGPT can still play, save progress, complete quests, loot, and fight bosses.
 
+## Fishing Pond NFT Handoff
+
+The Fishing Pond feature is a normal live-server gameplay surface. Production agents must connect to `game.mfergpt.lol` as wallet-authenticated players, declare `agentClient: true`, and use the same room messages as humans. There is no separate pond server and no agent-only claim bypass.
+
+Server env for live pond enablement:
+
+```sh
+MFERLAND_FISHING_POND_ENABLED="true"
+MFERLAND_FISHING_POND_RPC_URL="https://mainnet.base.org"
+MFERLAND_FISHING_POND_CHAIN_ID="8453"
+MFERLAND_FISHING_POND_CONTRACT_ADDRESS="0x..."
+MFERLAND_FISHING_POND_AWARD_SIGNER_PRIVATE_KEY="0x..."
+MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS="0x...,0x..."
+MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="500"
+MFERLAND_FISHING_POND_VOUCHER_TTL_SECONDS="900"
+```
+
+Persist production pond env in the live repo root `.env` on the Mac mini. `npm run start -w @mferland/server` loads that file through `node --env-file-if-exists=../../.env`; the launchd plist only supplies generic server env such as `HOST` and `MFERLAND_SERVE_WEB_DIST`.
+
+Do not set `MFERLAND_DEBUG_FISHING_NFT_GATE` on production. Use a dedicated award signer; do not reuse deployer, admin, treasury, or agent wallet keys. Production-like runtimes require `MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS` to be non-empty before the server can issue pond vouchers. Deposits can still be open onchain, but the server only awards from allowlisted collections.
+
+That server award allowlist is separate from the stash/display mapping. `MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS` controls which deposited collections can be fished up. `FISHING_NFT_GAME_ITEM_MAPPINGS` in shared code controls whether a caught NFT is promoted to a usable/sellable/equippable/redeemable stash item. That mapping is intentionally empty for v1 launch, so caught NFTs show in the stash pond tab and history only.
+
+The current v1 server config expects `MFERLAND_FISHING_POND_AWARD_SIGNER_PRIVATE_KEY`. If the launch needs KMS, Bankr API, or `AGENT_SIGNER_COMMAND`-style custody for pond vouchers, stop before live enablement and implement that signer adapter first.
+
+Stop before live enablement if any of these are missing: deployed Base pond address, admin owner, award signer address and key custody, non-empty collection allowlist, launch caps/chance/TTL, first prize batch/deposit plan, funded deployer/admin gas, monitored launch window, one human test wallet with Base ETH, and one declared-agent test wallet/signing path with Base ETH.
+
+Deploy the Base pond after the admin owner, award signer, and caps are final:
+
+```sh
+cd /Users/mfergpt/dev/mferland
+export BASE_RPC_URL="https://mainnet.base.org"
+export DEPLOYER_PRIVATE_KEY="0x..."
+export FISHING_POND_ADMIN="0x..."
+export FISHING_POND_AWARD_SIGNER="0x..."
+export FISHING_POND_WALLET_DAILY_CAP="3"
+export FISHING_POND_GLOBAL_DAILY_CAP="50"
+npm run deploy:fishing:base -w @mferland/chain
+```
+
+Record the deployed `FishingPond` address from the broadcast output, then verify roles and caps:
+
+```sh
+export FISHING_POND_ADDRESS="0x..."
+export DEFAULT_ADMIN_ROLE="0x0000000000000000000000000000000000000000000000000000000000000000"
+export AWARD_SIGNER_ROLE="$(cast keccak "AWARD_SIGNER_ROLE")"
+cast call "$FISHING_POND_ADDRESS" "hasRole(bytes32,address)(bool)" "$DEFAULT_ADMIN_ROLE" "$FISHING_POND_ADMIN" --rpc-url "$BASE_RPC_URL"
+cast call "$FISHING_POND_ADDRESS" "hasRole(bytes32,address)(bool)" "$AWARD_SIGNER_ROLE" "$FISHING_POND_AWARD_SIGNER" --rpc-url "$BASE_RPC_URL"
+cast call "$FISHING_POND_ADDRESS" "perWalletDailyCatchCap()(uint256)" --rpc-url "$BASE_RPC_URL"
+cast call "$FISHING_POND_ADDRESS" "globalDailyCatchCap()(uint256)" --rpc-url "$BASE_RPC_URL"
+```
+
+If BaseScan verification is part of the launch gate:
+
+```sh
+(
+  cd packages/chain
+  forge verify-contract \
+    --chain 8453 \
+    --watch \
+    --constructor-args "$(cast abi-encode "constructor(address,address,uint256,uint256)" "$FISHING_POND_ADMIN" "$FISHING_POND_AWARD_SIGNER" "$FISHING_POND_WALLET_DAILY_CAP" "$FISHING_POND_GLOBAL_DAILY_CAP")" \
+    "$FISHING_POND_ADDRESS" \
+    src/FishingPond.sol:FishingPond \
+    --etherscan-api-key "$BASESCAN_API_KEY"
+)
+```
+
+Use the admin wallet for role rotation only. Add the new role first, verify it, then revoke the old one:
+
+```sh
+cast send "$FISHING_POND_ADDRESS" "grantRole(bytes32,address)" "$AWARD_SIGNER_ROLE" "$NEW_AWARD_SIGNER" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+cast call "$FISHING_POND_ADDRESS" "hasRole(bytes32,address)(bool)" "$AWARD_SIGNER_ROLE" "$NEW_AWARD_SIGNER" --rpc-url "$BASE_RPC_URL"
+cast send "$FISHING_POND_ADDRESS" "revokeRole(bytes32,address)" "$AWARD_SIGNER_ROLE" "$OLD_AWARD_SIGNER" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+```
+
+Seed a small first prize batch from the depositor wallet. Depositors sign their own approvals and deposits:
+
+```sh
+# ERC-721 prize
+cast send "$PRIZE_721_COLLECTION" "approve(address,uint256)" "$FISHING_POND_ADDRESS" "$TOKEN_ID" --rpc-url "$BASE_RPC_URL" --private-key "$DEPOSITOR_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "depositERC721(address,uint256)" "$PRIZE_721_COLLECTION" "$TOKEN_ID" --rpc-url "$BASE_RPC_URL" --private-key "$DEPOSITOR_PRIVATE_KEY"
+
+# ERC-1155 prize batch
+cast send "$PRIZE_1155_COLLECTION" "setApprovalForAll(address,bool)" "$FISHING_POND_ADDRESS" true --rpc-url "$BASE_RPC_URL" --private-key "$DEPOSITOR_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "depositERC1155(address,uint256,uint256)" "$PRIZE_1155_COLLECTION" "$TOKEN_ID" "$AMOUNT" --rpc-url "$BASE_RPC_URL" --private-key "$DEPOSITOR_PRIVATE_KEY"
+```
+
+Before enabling server awards, verify that the pond sees active entries and actually holds custody:
+
+```sh
+cast call "$FISHING_POND_ADDRESS" "activeEntryCount()(uint256)" --rpc-url "$BASE_RPC_URL"
+cast call "$FISHING_POND_ADDRESS" "collectionEntryCount(address)(uint256)" "$PRIZE_721_COLLECTION" --rpc-url "$BASE_RPC_URL"
+cast call "$FISHING_POND_ADDRESS" "collectionEntryCount(address)(uint256)" "$PRIZE_1155_COLLECTION" --rpc-url "$BASE_RPC_URL"
+cast call "$FISHING_POND_ADDRESS" "entries(uint256)(uint8,address,uint256,uint256,address,uint8)" "$ENTRY_ID" --rpc-url "$BASE_RPC_URL"
+cast call "$PRIZE_721_COLLECTION" "ownerOf(uint256)(address)" "$TOKEN_ID" --rpc-url "$BASE_RPC_URL"
+cast call "$PRIZE_1155_COLLECTION" "balanceOf(address,uint256)(uint256)" "$FISHING_POND_ADDRESS" "$TOKEN_ID" --rpc-url "$BASE_RPC_URL"
+```
+
+Agent playbook:
+
+- Get a fishing pole through the normal fishing flow if needed.
+- Move to the south-center pond shore.
+- Send `startFishing`, wait for observed fishing state `bite`, then send `reelFishing` before the bite expires.
+- Collect normal fish/junk loot windows with `lootCorpse`.
+- If an NFT catch appears, read the `fishingNftCatch` observation and wallet-action metadata, sign the `FishingPond.claim` transaction with the agent-controlled wallet, then send `submitFishingNftClaimTx` with `{ catchId, txHash }`.
+- If the wallet hits the daily NFT cap, continue regular fishing; the cap only stops pond NFT awards.
+
+Declared agents have reduced fishing odds: normal non-quest reels get an extra 50% miss roll, rare fish chance is multiplied by `0.5`, and NFT pond chance is multiplied by `0.5`.
+
+Agent command recaps include fishing totals, NFT catch counts, pending wallet-action count, current wallet/global daily remaining values, and the daily reset timestamp when the pond is configured. Agents should include those fields when reporting a fishing run.
+
+Live admin list:
+
+1. Choose the Base `FishingPond` contract address.
+2. Choose the contract admin owner, preferably multisig or hardware-backed.
+3. Choose the dedicated award signer and custody path. This is different from the admin owner; it signs catch vouchers only.
+4. Choose the initial mint.club prize collection allowlist.
+5. Choose launch catch chance, wallet cap, global cap, and voucher TTL. Current defaults are `500` bps, wallet cap `3`, global cap `50`, and TTL `900` seconds.
+6. Approve open deposits with server-side award curation, or request a stricter contract policy before launch.
+7. Approve the first live prize batch and deposit plan.
+8. Fund any deployer/admin signer needed for Base transactions.
+9. Pick the launch window and monitoring owner.
+10. Decide whether NFT eligibility requires MFERGPT holding or a burned/onchain fishing pole before launch.
+11. Let Codex run migrations, builds, contract verification, env checks, local and production smoke tests, catalog/docs updates, and log monitoring after the values are known.
+
+Live smoke after deploy:
+
+```sh
+curl -fsS https://game.mfergpt.lol/health
+curl -fsS https://game.mfergpt.lol/agent-catalog | jq '.fishing.pond'
+curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x0000000000000000000000000000000000000000"
+```
+
+For the first real pond session, keep a small allowlist and cap, deposit low-value mint.club NFTs, run one human claim and one declared-agent fishing pass, then check the `FishingPond.CatchClaimed` event and server catch history before raising caps or adding more collections.
+
+The default `500` bps catch chance can make the first human smoke noisy. For a monitored launch smoke only, temporarily set `MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="10000"` in the live root `.env`, restart, complete one low-value human test claim, then restore the launch value and restart again. This uses the normal production config path and does not require `MFERLAND_DEBUG_FISHING_NFT_GATE`. Declared agents still apply the intended 50% NFT catch multiplier, so an agent NFT claim may need multiple completed reels; a declared-agent fishing pass is enough to prove the agent playbook if a claim is not required.
+
+```sh
+cast logs \
+  --rpc-url "$BASE_RPC_URL" \
+  --address "$FISHING_POND_ADDRESS" \
+  "CatchClaimed(bytes32,address,uint256,uint8,address,uint256,uint256,uint256)" \
+  --from-block "$DEPLOY_BLOCK"
+
+psql "$DATABASE_URL" -c "select catch_id, wallet_address, status, token_standard, collection_address, token_id, pond_entry_id, tx_hash, error, created_at, updated_at from fishing_pond_catches order by updated_at desc limit 20;"
+```
+
+Rollback or pause issuance:
+
+1. Stop new vouchers first: set `MFERLAND_FISHING_POND_ENABLED="0"` in the live repo root `.env`, or remove the award signer/private key and allowlist values, then restart the service.
+2. Pause the contract if claims/deposits must stop immediately:
+
+```sh
+cast send "$FISHING_POND_ADDRESS" "pause()" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+./scripts/mferland-prod-server.sh restart
+./scripts/mferland-prod-server.sh logs
+```
+
+3. For support cleanup without full drain, return exact entries or a collection slice to original depositors:
+
+```sh
+cast send "$FISHING_POND_ADDRESS" "adminReturnDeposits(uint256[])" "[1,2]" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "adminReturnCollectionDeposits(address,uint256,uint256)" "$PRIZE_COLLECTION" 0 50 --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+```
+
+4. For shutdown without a replacement pond, call `startDrain()` only after voucher issuance is stopped, then process depositor returns in batches of up to `50` entries:
+
+```sh
+cast send "$FISHING_POND_ADDRESS" "startDrain()" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "returnCollectionDeposits(address,uint256,uint256)" "$PRIZE_COLLECTION" 0 50 --rpc-url "$BASE_RPC_URL" --private-key "$PROCESSOR_PRIVATE_KEY"
+```
+
+5. For migration to a reviewed v2 pond, pause first, set the migration target, then move exact entries or collection slices. Migration keeps the original depositor in the transfer data sent to the new receiver:
+
+```sh
+cast send "$FISHING_POND_ADDRESS" "pause()" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "setMigrationTarget(address)" "$NEW_POND_ADDRESS" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "migrateDeposits(uint256[])" "[1,2]" --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+cast send "$FISHING_POND_ADDRESS" "migrateCollectionDeposits(address,uint256,uint256)" "$PRIZE_COLLECTION" 0 50 --rpc-url "$BASE_RPC_URL" --private-key "$ADMIN_PRIVATE_KEY"
+```
+
 ## OpenSea / ERC-8257 Tool Registration
 
 Register the public OpenSea tools after the `.well-known` manifests are deployed and smoke-tested. For now, register two tools:
@@ -143,13 +324,13 @@ curl -fsS https://game.mfergpt.lol/health
 
 If the worktree is dirty, inspect it first. Do not reset or discard live-server changes without explicit approval.
 
-Merge and deploy:
+Merge and deploy only when the launch code is not already present in the live checkout. If the live checkout already contains the launch commit, skip the merge and continue at `npm install`; otherwise set `DEPLOY_BRANCH` explicitly before running this block.
 
 ```sh
 git fetch origin
 git checkout main
 git pull --ff-only
-DEPLOY_BRANCH="${DEPLOY_BRANCH:-origin/codex/update-agent-harness-autoplay}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-origin/codex/add-fishing-pond-nft-prizes}"
 git merge --no-ff "$DEPLOY_BRANCH"
 
 npm install

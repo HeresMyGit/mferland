@@ -13,6 +13,31 @@ export const FISHING_CHUM_MFERGPT_AMOUNT_LABEL = ELIXIR_SHOP_MFERGPT_AMOUNT_LABE
 export const FISHING_RARE_CHANCE_BONUS_PERCENT = 25;
 export { FISHING_CHUM_BUFF_ID };
 
+export const FISHING_NFT_POND_CHAIN_STANDARD = {
+  ERC721: 1,
+  ERC1155: 2,
+} as const;
+export const FISHING_NFT_POND_DEFAULT_CATCH_CHANCE_BPS = 500;
+export const FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP = 3;
+export const FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP = 50;
+export const FISHING_NFT_POND_MAX_VOUCHER_TTL_MS = 30 * 60 * 1000;
+export const FISHING_NFT_POND_VOUCHER_TTL_MS = FISHING_NFT_POND_MAX_VOUCHER_TTL_MS;
+export const FISHING_NFT_POND_ERC1155_CATCH_AMOUNT = "1";
+export const FISHING_NFT_POND_RANDOMNESS_NOTE =
+  "v1 NFT pond randomness is mferland-server-authoritative RNG.";
+export const FISHING_NFT_POND_V1_DECISIONS = {
+  catchChanceBps: FISHING_NFT_POND_DEFAULT_CATCH_CHANCE_BPS,
+  eligibleCasts: "every completed reel can roll the NFT pond after quest-item priority, when the pond is configured and stocked",
+  chumAffectsNftChance: false,
+  perWalletDailyCap: FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP,
+  globalDailyCap: FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP,
+  erc1155AmountPolicy: "ERC-1155 catches transfer 1 unit per catch in v1.",
+  deposits: "open contract deposits; production server awards only from configured collection allowlist",
+  gasPayment: "players pay gas for claim transactions in v1; relayers are a later option",
+  metadataDisplay: "v1 reads standard NFT metadata for name, description, and image when available, with collection/token fallback",
+  randomness: FISHING_NFT_POND_RANDOMNESS_NOTE,
+} as const;
+
 export const FISHING_CAST_MS = 2000;
 export const FISHING_BITE_MIN_MS = 7000;
 export const FISHING_BITE_MAX_MS = 18000;
@@ -21,6 +46,9 @@ export const FISHING_CAST_RANGE = 9.5;
 export const FISHING_BOBBER_MIN_DISTANCE = 2.8;
 export const FISHING_BOBBER_MAX_DISTANCE = 7.4;
 export const FISHING_AGENT_BUNDLE_MULTIPLIER = AGENT_TRASH_VENDOR_ITEMS_PER_POINT;
+export const FISHING_AGENT_CATCH_CHANCE_MULTIPLIER = 0.5;
+export const FISHING_AGENT_RARE_CHANCE_MULTIPLIER = 0.5;
+export const FISHING_AGENT_NFT_CHANCE_MULTIPLIER = 0.5;
 
 export const FISHING_ZONE = {
   id: FISHING_ZONE_ID,
@@ -62,6 +90,95 @@ export type FishingSellableItemId = typeof FISHING_SELLABLE_ITEM_IDS[number];
 export type FishingItemId = typeof FISHING_ITEM_IDS[number];
 export type FishingZoneId = typeof FISHING_ZONE_ID;
 export type FishingState = "" | "casting" | "waiting" | "bite";
+export type FishingNftTokenStandard = keyof typeof FISHING_NFT_POND_CHAIN_STANDARD;
+export type FishingNftCatchStatus = "pending" | "voucher_issued" | "tx_submitted" | "confirmed" | "expired" | "failed";
+export type FishingNftCapNoticeKind = "wallet_daily_cap" | "global_daily_cap";
+
+export type FishingNftCapNotice = {
+  kind: FishingNftCapNoticeKind;
+  text: string;
+  sentAt: number;
+  dailyResetAt: number;
+  perWalletDailyCap?: number;
+  walletDailyRemaining?: number;
+  globalDailyCap?: number;
+  globalDailyRemaining?: number | null;
+};
+
+export type FishingNftPondConfig = {
+  enabled: boolean;
+  chainId: number;
+  contractAddress: string;
+  rpcUrl: string;
+  catchChanceBps: number;
+  perWalletDailyCap: number;
+  globalDailyCap: number;
+  walletDailyRemaining: number;
+  globalDailyRemaining: number | null;
+  stocked: boolean;
+  drainMode: boolean;
+  randomness: typeof FISHING_NFT_POND_RANDOMNESS_NOTE;
+};
+
+export type FishingNftClaimVoucher = {
+  catchId: string;
+  fisher: string;
+  tokenStandard: (typeof FISHING_NFT_POND_CHAIN_STANDARD)[FishingNftTokenStandard];
+  standard: FishingNftTokenStandard;
+  collection: string;
+  tokenId: string;
+  amount: string;
+  pondEntryId: string;
+  expiresAt: number;
+  chainId: number;
+  verifyingContract: string;
+  signature: string;
+};
+
+export type FishingNftMetadataSnapshot = {
+  name?: string;
+  description?: string;
+  image?: string;
+  tokenUri?: string;
+};
+
+export type FishingNftCatchSnapshot = {
+  catchId: string;
+  status: FishingNftCatchStatus;
+  walletActionRequired: boolean;
+  walletAddress: string;
+  standard: FishingNftTokenStandard;
+  collection: string;
+  tokenId: string;
+  amount: string;
+  pondEntryId: string;
+  chainId: number;
+  contractAddress: string;
+  expiresAt: number;
+  txHash?: string;
+  error?: string;
+  metadata?: FishingNftMetadataSnapshot;
+  voucher?: FishingNftClaimVoucher;
+};
+
+export type FishingNftGameItemMapping = {
+  collection: string;
+  tokenId?: string;
+  itemId: string;
+  action: "use" | "sell" | "equip" | "redeem";
+  label: string;
+};
+
+export const FISHING_NFT_GAME_ITEM_MAPPINGS: readonly FishingNftGameItemMapping[] = [];
+
+export function getFishingNftGameItemMapping(catchSnapshot: FishingNftCatchSnapshot): FishingNftGameItemMapping | null {
+  const collection = catchSnapshot.collection.trim().toLowerCase();
+  const tokenId = catchSnapshot.tokenId.trim();
+  return FISHING_NFT_GAME_ITEM_MAPPINGS.find((mapping) => (
+    mapping.collection.trim().toLowerCase() === collection
+    && (!mapping.tokenId || mapping.tokenId === tokenId)
+  )) ?? null;
+}
 
 export type FishingLootEntry = {
   itemId: FishingCatchItemId | null;
@@ -152,11 +269,16 @@ export function getFishingPayableQuantity(
   return Math.min(completeBundles, maxBundlesByCapacity) * bundleSize;
 }
 
-export function rollFishingCatch(random = Math.random, rareChanceMultiplier = 1): FishingFishItemId | null {
+export function rollFishingCatch(
+  random = Math.random,
+  rareChanceMultiplier = 1,
+  rareChanceScale = 1,
+): FishingFishItemId | null {
   const rareMultiplier = Number.isFinite(rareChanceMultiplier) ? Math.max(1, rareChanceMultiplier) : 1;
+  const rareScale = Number.isFinite(rareChanceScale) ? Math.max(0, rareChanceScale) : 1;
   const entries = FISHING_LOOT_TABLE.map((entry) => ({
     itemId: entry.itemId,
-    weight: entry.itemId === "huge-sartoshi-koi" ? entry.weight * rareMultiplier : entry.weight,
+    weight: entry.itemId === "huge-sartoshi-koi" ? entry.weight * rareMultiplier * rareScale : entry.weight,
   }));
   const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0);
   let roll = Math.max(0, Math.min(0.999999, random())) * totalWeight;

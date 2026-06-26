@@ -57,6 +57,7 @@ import {
 import { buildAgentCatalog } from "./agentCatalog.js";
 import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 import { getAgentSeason0MferGptGateStatus } from "./agentMferGptGate.js";
+import { readFishingPondPublicConfig } from "./crypto/fishingPond.js";
 import {
   parseToolPaymentHeader,
   reportAgentToolUsage,
@@ -152,6 +153,14 @@ type RuntimePlayer = AnyRecord & {
   yaw: number;
   animation: string;
   castingAction: string;
+  fishingAttemptId: string;
+  fishingZoneId: string;
+  fishingState: string;
+  fishingBiteAt: number;
+  fishingExpiresAt: number;
+  fishingBobberX: number;
+  fishingBobberZ: number;
+  fishingNftCatch: AnyRecord | null;
   quests: AnyRecord[];
   inventory: AnyRecord[];
   equipment: AnyRecord[];
@@ -466,6 +475,13 @@ type AgentCommandCombatStats = {
   targets: Map<string, AgentCommandCombatTargetStats>;
 };
 
+type AgentCommandFishingStats = {
+  resultCount: number;
+  outcomeCounts: Record<string, number>;
+  nftCatches: Map<string, AnyRecord>;
+  capNotices: AnyRecord[];
+};
+
 type AgentCommandPayload = {
   command?: unknown;
   kind?: unknown;
@@ -533,6 +549,7 @@ type AgentCommandState = {
   errors: string[];
   social: AgentCommandSocialMemory;
   combat: AgentCommandCombatStats;
+  fishing: AgentCommandFishingStats;
 };
 
 type CombatMemoryEntry = {
@@ -1002,7 +1019,20 @@ class AgentBridgeSession {
     });
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
-    room.onMessage("fishingResult", (message: unknown) => this.remember(`fishing:${messageSummary(message)}`, true));
+    room.onMessage("fishingResult", (message: unknown) => {
+      const sanitized = sanitizeFishingResultMessage(message);
+      this.recordFishingResult(sanitized);
+      this.remember(`fishing:${messageSummary(sanitized)}`, true);
+    });
+    room.onMessage("fishingNftCatchResult", (message: unknown) => {
+      const sanitized = sanitizeFishingNftCatchMessage(message);
+      this.recordFishingNftCatchResult(sanitized);
+      this.remember(`fishingNft:${messageSummary(sanitized)}`, true);
+    });
+    room.onMessage("fishingNftCapNotice", (message: unknown) => {
+      this.recordFishingNftCapNotice(message);
+      this.remember(`fishingNftCap:${messageSummary(message)}`, true);
+    });
     room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => this.remember(`fishingSupply:${messageSummary(message)}`, true));
     room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
@@ -1233,6 +1263,14 @@ class AgentBridgeSession {
         equipment: this.describeEquipment(self),
         talents: self.talents,
         activeBuffs: self.activeBuffs,
+        fishing: {
+          state: self.fishingState,
+          attemptId: self.fishingAttemptId,
+          biteAt: self.fishingBiteAt,
+          expiresAt: self.fishingExpiresAt,
+          bobber: { x: round(self.fishingBobberX), z: round(self.fishingBobberZ) },
+          nftPond: describeFishingNftCatchForAgent(self.fishingNftCatch),
+        },
         combatActions: COMBAT_ACTION_IDS.map((actionId) => {
           const action = COMBAT.actions[actionId];
           return {
@@ -1390,19 +1428,20 @@ class AgentBridgeSession {
       errors: [],
       social: { players: new Map(), chat: [] },
       combat: createCommandCombatStats(),
+      fishing: createCommandFishingStats(),
     };
     this.commands.set(command.commandId, command);
     this.activeCommandId = command.commandId;
     this.rememberCommandPlayers(command, self, command.startedAt);
     this.lastAction = `command_start ${command.kind}`;
     void this.runCommand(command);
-    return this.serializeCommand(command);
+    return await this.serializeCommand(command);
   }
 
-  getCommand(commandId: string) {
+  async getCommand(commandId: string) {
     const command = this.commands.get(cleanText(commandId, 80));
     if (!command) throw new BridgeHttpError(404, "agent command not found");
-    return this.serializeCommand(command);
+    return await this.serializeCommand(command);
   }
 
   async stopCommand(commandId: string) {
@@ -1412,7 +1451,7 @@ class AgentBridgeSession {
       command.abortRequested = true;
       await this.finishCommand(command, "stopped", "manual_stop");
     }
-    return this.serializeCommand(command);
+    return await this.serializeCommand(command);
   }
 
   private async resolveCommandBudget(): Promise<AgentCommandBudget> {
@@ -3018,7 +3057,7 @@ class AgentBridgeSession {
     this.lastAction = `command_${status} ${command.kind}`;
   }
 
-  private serializeCommand(command: AgentCommandState) {
+  private async serializeCommand(command: AgentCommandState) {
     const now = Date.now();
     const finishedAt = command.finishedAt || 0;
     const durationMs = Math.max(0, (finishedAt || now) - command.startedAt);
@@ -3036,7 +3075,19 @@ class AgentBridgeSession {
       const playtime = describeCommandPlaytime(command, now);
       const budgetAdvice = getAgentCommandBudgetAdvice(command.budget, command.requestedMaxSeconds);
       const finalState = self ? this.describeFinalState(self) : (command.lastSnapshot ? snapshotToFinalState(command.lastSnapshot) : null);
-      const recap = buildAgentCommandRecap(command, questChanges, inventoryChanges, equipmentChanges, finalState, playtime, budgetAdvice);
+      const fishingPondConfig = await readFishingPondPublicConfig(this.walletAddress).catch(() => null);
+      const activeFishingNftCatch = self ? describeFishingNftCatchForAgent(self.fishingNftCatch) : null;
+      const recap = buildAgentCommandRecap(
+        command,
+        questChanges,
+        inventoryChanges,
+        equipmentChanges,
+        finalState,
+        playtime,
+        budgetAdvice,
+        fishingPondConfig,
+        activeFishingNftCatch,
+      );
       const summary = [
         recap.summary,
         `${command.kind} ${command.status}`,
@@ -3068,6 +3119,7 @@ class AgentBridgeSession {
         recap,
         social: recap.social,
         combat: recap.combat,
+        fishing: recap.fishing,
         finalState,
         equipmentChanges,
         status: command.status,
@@ -3088,6 +3140,7 @@ class AgentBridgeSession {
           recap,
           social: recap.social,
           combat: recap.combat,
+          fishing: recap.fishing,
           finalState,
           equipmentChanges,
         },
@@ -3180,6 +3233,7 @@ class AgentBridgeSession {
         nearbyHostileCount: self.nearbyHostileCount,
         nearbyDangerousHostileCount: self.nearbyDangerousHostileCount,
         combatMath: self.combatMath,
+        fishing: asRecord(self.fishing),
         talentPoints: self.talentPoints,
         skillPoints: self.skillPoints,
         unspentSkillPoints: self.unspentSkillPoints,
@@ -6729,6 +6783,53 @@ class AgentBridgeSession {
     this.remember(`${kind}:${messageSummary(message)}`, true);
   }
 
+  private runningCommand() {
+    const command = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    return command?.status === "running" ? command : null;
+  }
+
+  private recordFishingResult(message: unknown) {
+    const command = this.runningCommand();
+    if (!command) return;
+    const record = asRecord(message);
+    const outcome = cleanText(getString(record.outcome), 32) || "unknown";
+    command.fishing.resultCount += 1;
+    command.fishing.outcomeCounts[outcome] = (command.fishing.outcomeCounts[outcome] ?? 0) + 1;
+    if (record.nftCatch) this.recordFishingNftCatch(record.nftCatch);
+  }
+
+  private recordFishingNftCatchResult(message: unknown) {
+    const command = this.runningCommand();
+    if (!command) return;
+    const record = asRecord(message);
+    if (record.catch) this.recordFishingNftCatch(record.catch);
+  }
+
+  private recordFishingNftCatch(catchRecord: unknown) {
+    const command = this.runningCommand();
+    if (!command) return;
+    const catchSnapshot = describeFishingNftCatchForAgent(asRecord(catchRecord));
+    const catchId = getString(catchSnapshot.catchId);
+    if (!catchId) return;
+    command.fishing.nftCatches.set(catchId, catchSnapshot);
+  }
+
+  private recordFishingNftCapNotice(message: unknown) {
+    const command = this.runningCommand();
+    if (!command) return;
+    const record = asRecord(message);
+    command.fishing.capNotices = [...command.fishing.capNotices.slice(-4), {
+      kind: getString(record.kind),
+      text: getString(record.text),
+      sentAt: getNumber(record.sentAt),
+      dailyResetAt: getNumber(record.dailyResetAt),
+      perWalletDailyCap: getNumber(record.perWalletDailyCap),
+      walletDailyRemaining: getNumber(record.walletDailyRemaining),
+      globalDailyCap: getNumber(record.globalDailyCap),
+      globalDailyRemaining: record.globalDailyRemaining === null ? null : getNumber(record.globalDailyRemaining),
+    }];
+  }
+
   private remember(message: string, print = false) {
     this.recentMessages = [...this.recentMessages.slice(-30), message];
     if (print) console.log(`[agent-bridge] ${this.id} ${message}`);
@@ -6873,7 +6974,7 @@ export class AgentBridgeManager {
     const toolUsageStartedAt = Date.now();
     if (req.method === "GET" || req.method === "HEAD") {
       const session = this.requireSession(req, requestUrl.searchParams.get("bridgeSessionId"));
-      const body = session.getCommand(requestUrl.searchParams.get("commandId") || "");
+      const body = await session.getCommand(requestUrl.searchParams.get("commandId") || "");
       const toolUsageReport = req.method === "HEAD" ? null : await maybeReportCommandToolUsage(req, toolUsageStartedAt);
       writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport), undefined, req.method === "HEAD");
       return;
@@ -6888,7 +6989,7 @@ export class AgentBridgeManager {
     const operation = cleanText(payload.operation, 24).toLowerCase() || "start";
     if (operation === "status") {
       const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
-      writeBridgeJson(res, 200, withOptionalToolUsageReport(session.getCommand(cleanText(payload.commandId, 80)), toolUsageReport));
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(await session.getCommand(cleanText(payload.commandId, 80)), toolUsageReport));
       return;
     }
     if (operation === "stop") {
@@ -7850,6 +7951,7 @@ function schemaEntries(value: unknown): Array<[string, AnyRecord]> {
 }
 
 function normalizePlayer(sessionId: string, value: AnyRecord): RuntimePlayer {
+  const fishing = parseRuntimeFishingJson(getString(value.fishingJson));
   return {
     ...value,
     sessionId,
@@ -7881,11 +7983,112 @@ function normalizePlayer(sessionId: string, value: AnyRecord): RuntimePlayer {
     yaw: getNumber(value.yaw),
     animation: getString(value.animation),
     castingAction: getString(value.castingAction),
+    fishingAttemptId: fishing.attemptId,
+    fishingZoneId: fishing.zoneId,
+    fishingState: fishing.state,
+    fishingBiteAt: fishing.biteAt,
+    fishingExpiresAt: fishing.expiresAt,
+    fishingBobberX: fishing.bobberX,
+    fishingBobberZ: fishing.bobberZ,
+    fishingNftCatch: parseRuntimeJsonRecord(getString(value.fishingNftCatchJson)),
     quests: schemaEntries(value.quests).map(([, quest]) => quest),
     inventory: schemaEntries(value.inventory).map(([, item]) => item),
     equipment: schemaEntries(value.equipment).map(([, slot]) => slot),
     talents: schemaEntries(value.talents).map(([, talent]) => talent),
     activeBuffs: schemaEntries(value.activeBuffs).map(([, buff]) => buff),
+  };
+}
+
+function parseRuntimeFishingJson(value: string) {
+  const fallback = {
+    attemptId: "",
+    zoneId: "",
+    state: "",
+    biteAt: 0,
+    expiresAt: 0,
+    bobberX: 0,
+    bobberZ: 0,
+  };
+  if (!value) return fallback;
+  try {
+    const parsed = asRecord(JSON.parse(value));
+    return {
+      attemptId: getString(parsed.attemptId),
+      zoneId: getString(parsed.zoneId),
+      state: getString(parsed.state),
+      biteAt: getNumber(parsed.biteAt),
+      expiresAt: getNumber(parsed.expiresAt),
+      bobberX: getNumber(parsed.bobberX),
+      bobberZ: getNumber(parsed.bobberZ),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function parseRuntimeJsonRecord(value: string) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function describeFishingNftCatchForAgent(catchRecord: AnyRecord | null) {
+  if (!catchRecord) {
+    return {
+      active: false,
+      walletActionRequired: false,
+    };
+  }
+  return {
+    active: true,
+    catchId: getString(catchRecord.catchId),
+    status: getString(catchRecord.status),
+    walletActionRequired: Boolean(catchRecord.walletActionRequired),
+    standard: getString(catchRecord.standard),
+    collection: getString(catchRecord.collection),
+    tokenId: getString(catchRecord.tokenId),
+    amount: getString(catchRecord.amount),
+    pondEntryId: getString(catchRecord.pondEntryId),
+    chainId: getNumber(catchRecord.chainId),
+    contractAddress: getString(catchRecord.contractAddress),
+    expiresAt: getNumber(catchRecord.expiresAt),
+    txHash: getString(catchRecord.txHash),
+    error: getString(catchRecord.error),
+    metadata: describeFishingNftMetadataForAgent(asRecord(catchRecord.metadata)),
+  };
+}
+
+function describeFishingNftMetadataForAgent(metadata: AnyRecord | null) {
+  if (!metadata) return null;
+  const record = {
+    name: getString(metadata.name),
+    description: getString(metadata.description),
+    image: getString(metadata.image),
+    tokenUri: getString(metadata.tokenUri),
+  };
+  return record.name || record.description || record.image || record.tokenUri ? record : null;
+}
+
+function sanitizeFishingNftCatchMessage(message: unknown) {
+  const record = asRecord(message);
+  const catchRecord = asRecord(record.catch);
+  if (!catchRecord.catchId) return record;
+  return {
+    ...record,
+    catch: describeFishingNftCatchForAgent(catchRecord),
+  };
+}
+
+function sanitizeFishingResultMessage(message: unknown) {
+  const record = asRecord(message);
+  if (!record.nftCatch) return record;
+  return {
+    ...record,
+    nftCatch: describeFishingNftCatchForAgent(asRecord(record.nftCatch)),
   };
 }
 
@@ -8254,9 +8457,12 @@ function buildAgentCommandRecap(
   finalState: PlayerFinalStateSummary | null,
   playtime: ReturnType<typeof describeCommandPlaytime>,
   budgetAdvice: string,
+  fishingPondConfig: AnyRecord | null,
+  activeFishingNftCatch: AnyRecord | null,
 ) {
   const social = buildAgentCommandSocialRecap(command);
   const combat = buildAgentCommandCombatRecap(command.combat, Date.now());
+  const fishing = buildAgentCommandFishingRecap(command.fishing, fishingPondConfig, activeFishingNftCatch);
   const defeatedCounts = countReportTargets(command.reports, (report) => {
     if (report.action !== "fight_npc") return false;
     return report.stoppedBecause === "target_defeated" || /\btarget defeated\b/i.test(report.summary);
@@ -8277,6 +8483,7 @@ function buildAgentCommandRecap(
     completedQuests.length ? `finished ${formatHumanList(completedQuests)}` : "",
     inventoryDeltas.length ? `inventory ${inventoryDeltas.map((change) => `${change.delta > 0 ? "+" : ""}${change.delta} ${change.itemId}`).join(", ")}` : "",
     equipmentChanges.length ? `equipment ${formatEquipmentChanges(equipmentChanges)}` : "",
+    fishing.summary,
     combat.damageDone > 0 ? `dealt ${combat.damageDone} damage (${combat.dps} DPS${combat.trainingDummyDps > 0 ? `, ${combat.trainingDummyDps} dummy DPS` : ""})` : "",
   ].filter(Boolean);
   const actionSentence = parts.length
@@ -8298,6 +8505,7 @@ function buildAgentCommandRecap(
     finalState,
     social,
     combat,
+    fishing,
     playtime: {
       sessionUsedSeconds: playtime.session.usedSeconds,
       sessionMaxSeconds: playtime.session.maxSeconds,
@@ -8321,6 +8529,84 @@ function createCommandCombatStats(): AgentCommandCombatStats {
     lastAt: 0,
     targets: new Map(),
   };
+}
+
+function createCommandFishingStats(): AgentCommandFishingStats {
+  return {
+    resultCount: 0,
+    outcomeCounts: {},
+    nftCatches: new Map(),
+    capNotices: [],
+  };
+}
+
+function buildAgentCommandFishingRecap(
+  stats: AgentCommandFishingStats,
+  fishingPondConfig: AnyRecord | null,
+  activeFishingNftCatch: AnyRecord | null,
+) {
+  const catches = [...stats.nftCatches.values()];
+  const activeCatch = activeFishingNftCatch?.active ? activeFishingNftCatch : null;
+  if (activeCatch) {
+    const activeCatchId = getString(activeCatch.catchId);
+    if (activeCatchId && !stats.nftCatches.has(activeCatchId)) catches.push(activeCatch);
+  }
+  const capNotice = stats.capNotices.at(-1) ?? null;
+  const config = asRecord(fishingPondConfig);
+  const pondEnabled = Boolean(config.enabled);
+  const perWalletDailyCap = config.perWalletDailyCap !== undefined
+    ? getNumber(config.perWalletDailyCap)
+    : getNumber(capNotice?.perWalletDailyCap);
+  const walletDailyRemaining = config.walletDailyRemaining !== undefined
+    ? getNumber(config.walletDailyRemaining)
+    : getNumber(capNotice?.walletDailyRemaining);
+  const globalDailyCap = config.globalDailyCap !== undefined
+    ? getNumber(config.globalDailyCap)
+    : getNumber(capNotice?.globalDailyCap);
+  const globalDailyRemaining = config.globalDailyRemaining === null
+    ? null
+    : config.globalDailyRemaining !== undefined
+      ? getNumber(config.globalDailyRemaining)
+      : capNotice?.globalDailyRemaining === null
+        ? null
+        : capNotice?.globalDailyRemaining !== undefined
+          ? getNumber(capNotice.globalDailyRemaining)
+          : null;
+  const dailyResetAt = getNumber(capNotice?.dailyResetAt) || getFishingNftDailyResetAt();
+  const pendingWalletActionCount = catches.filter((entry) => Boolean(entry.walletActionRequired)).length;
+  const confirmedCount = catches.filter((entry) => getString(entry.status) === "confirmed").length;
+  const nftCatchCount = catches.length;
+  const outcomeCounts = { ...stats.outcomeCounts };
+  const parts = [
+    stats.resultCount > 0 ? `${stats.resultCount} fishing reel${stats.resultCount === 1 ? "" : "s"}` : "",
+    nftCatchCount > 0 ? `${nftCatchCount} NFT catch${nftCatchCount === 1 ? "" : "es"} (${confirmedCount} confirmed${pendingWalletActionCount > 0 ? `, ${pendingWalletActionCount} need wallet` : ""})` : "",
+    pondEnabled && perWalletDailyCap > 0 ? `${walletDailyRemaining}/${perWalletDailyCap} NFT catches remaining today` : "",
+  ].filter(Boolean);
+  return {
+    summary: parts.length ? `fishing ${parts.join(", ")}` : "",
+    resultCount: stats.resultCount,
+    outcomeCounts,
+    nftCatchCount,
+    nftConfirmedCount: confirmedCount,
+    nftWalletActionRequiredCount: pendingWalletActionCount,
+    nftCatches: catches.slice(-8),
+    pond: {
+      enabled: pondEnabled,
+      stocked: Boolean(config.stocked),
+      drainMode: Boolean(config.drainMode),
+      catchChanceBps: getNumber(config.catchChanceBps),
+      perWalletDailyCap,
+      walletDailyRemaining,
+      globalDailyCap,
+      globalDailyRemaining,
+      dailyResetAt,
+    },
+    lastCapNotice: capNotice,
+  };
+}
+
+function getFishingNftDailyResetAt(now = Date.now()) {
+  return Math.floor((Math.floor(now / 86_400_000) + 1) * 86_400_000 / 1000);
 }
 
 function buildAgentCommandCombatRecap(stats: AgentCommandCombatStats, now = Date.now()) {

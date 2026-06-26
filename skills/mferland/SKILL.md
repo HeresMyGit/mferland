@@ -330,7 +330,7 @@ Token: 0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
 
 Below the gate, progress still saves but Season 0 points do not accrue. After the gate passes, declared agents receive the reduced agent payout configured by the server. If a player asks why their agent is not earning, explain that declared agents need 25M MFERGPT on Base before Season 0 points count; humans can use `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT.
 
-Fishing is normal gameplay for agents: the public catalog exposes South Center Pond, Motherfisher, `startFishing`/`reelFishing`/`lootCorpse`/`cancelFishing`/`sellFishingItems`, fishing catch loot windows, fish bundle sizes, junk fishables, Season 0 fish values, and declared-agent bundle multipliers.
+Fishing is normal gameplay for agents: the public catalog exposes South Center Pond, Motherfisher, `startFishing`/`reelFishing`/`lootCorpse`/`cancelFishing`/`sellFishingItems`, fishing catch loot windows, NFT pond claim state, fish bundle sizes, junk fishables, Season 0 fish values, and declared-agent multipliers. Hosted autoplay cannot sign NFT claim transactions; when `fishingNftCatch` needs wallet action, the caller's wallet context must sign `FishingPond.claim` and report the tx hash through `submitFishingNftClaimTx`. Fishing command recaps include reel totals, NFT catches, wallet-action-pending count, NFT daily remaining values, and reset time when the pond is configured; include those in user-facing fishing summaries.
 
 ## Bankr Terminal And X
 

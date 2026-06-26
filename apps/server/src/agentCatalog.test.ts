@@ -27,7 +27,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.quests, ["acceptQuest", "completeQuest", "cancelQuest"]);
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
-  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "sellFishingItems", "purchaseFishingSupply"]);
+  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "submitFishingNftClaimTx", "sellFishingItems", "purchaseFishingSupply"]);
   assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents", "removeSeasonReferral"]);
   assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "purchaseFishingSupply", "respecTalents", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
@@ -41,6 +41,7 @@ test("agent catalog documents normal player menu controls", () => {
     "mintSeasonPassWithEth",
     "mintSeasonPassWithMfer",
     "mintSeasonPassWithMferGpt",
+    "claimFishingPondNft",
     "burnMferGptForPaymentProof",
   ]);
   assert.deepEqual(catalog.controls.localClientPreferences, [
@@ -65,7 +66,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.menus.respec.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.trashVendor.controls, ["sellTrashItems"]);
   assert.equal(catalog.menus.trashVendor.paidControlRequiresPaymentProof, false);
-  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "purchaseFishingSupply", "sellFishingItems"]);
+  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "submitFishingNftClaimTx", "purchaseFishingSupply", "sellFishingItems"]);
   assert.equal(catalog.menus.fishing.tutorNpcId, "motherfisher");
   assert.equal(catalog.menus.fishing.vendorNpcId, "fish-monger");
   assert.equal(catalog.menus.fishing.paidControlRequiresPaymentProof, true);
@@ -136,7 +137,16 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.fishing.controls.buyChum, { message: "purchaseFishingSupply", shape: { payment: "MFERGPT burn proof for bucket of old chum" } });
   assert.deepEqual(catalog.fishing.controls.lootCatch, { message: "lootCorpse", shape: { npcId: "lootWindow.npcId from a fishing lootWindow" } });
   assert.match(catalog.fishing.catchLootNote, /source=fishing/);
+  assert.ok(catalog.fishing.playbook.some((step) => step.includes("startFishing")));
+  assert.ok(catalog.fishing.playbook.some((step) => step.includes("submitFishingNftClaimTx")));
   assert.equal(catalog.fishing.chum.price.amountWei, "5000000000000000000000000");
+  assert.deepEqual(catalog.fishing.agentCatchPenalty, {
+    reason: "fish can smell the metal",
+    normalCatchChanceMultiplier: 0.5,
+    rareFishChanceMultiplier: 0.5,
+    nftCatchChanceMultiplier: 0.5,
+    note: "Declared agents use normal fishing room messages, but completed non-quest reels have a 50% extra miss roll, rare fish weight is halved, and NFT pond chance is halved.",
+  });
   assert.equal(catalog.fishing.agentBundleMultiplier, 2);
   assert.equal(catalog.fishing.items.find((item) => item.itemId === "huge-sartoshi-koi")?.agentBundleSize, 2);
 

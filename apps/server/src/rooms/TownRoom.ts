@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,9 @@ import {
   FISHING_BITE_MIN_MS,
   FISHING_BITE_WINDOW_MS,
   FISHING_AGENT_BUNDLE_MULTIPLIER,
+  FISHING_AGENT_CATCH_CHANCE_MULTIPLIER,
+  FISHING_AGENT_NFT_CHANCE_MULTIPLIER,
+  FISHING_AGENT_RARE_CHANCE_MULTIPLIER,
   FISHING_CAST_MS,
   FISHING_CHUM_ITEM_ID,
   FISHING_LOST_SHOE_ITEM_ID,
@@ -106,6 +110,7 @@ import {
   type ClientSellTrashItems,
   type ClientShareQuestLink,
   type ClientStartFishing,
+  type ClientSubmitFishingNftClaimTx,
   type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
@@ -113,6 +118,10 @@ import {
   type EmoteId,
   type ExperienceEvent,
   type FishingCatchItemId,
+  type FishingNftCapNotice,
+  type FishingNftCatchResult,
+  type FishingNftHistoryResult,
+  type FishingNftCatchSnapshot,
   type FishingSellableItemId,
   type FishingResult,
   type FishingSupplyPurchaseResult,
@@ -134,12 +143,22 @@ import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, Q
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { areAgentsEnabled } from "../agentAccess.js";
+import { getDatabase } from "../db/client.js";
 import {
   getAgentSeason0MferGptGateStatus,
   makeAgentSeason0MferGptGateMessage,
   type AgentSeason0MferGptGateStatus,
 } from "../agentMferGptGate.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
+import {
+  makeFishingNftCatchSnapshotFromVoucher,
+  makeFishingPondClaimVoucher,
+  readFishingPondAvailableEntries,
+  readFishingPondEntryMetadata,
+  readFishingPondPublicConfig,
+  resolveFishingPondConfig,
+  verifyFishingPondClaimReceipt,
+} from "../crypto/fishingPond.js";
 import { verifyFishingSupplyPaymentProof, type VerifiedFishingSupplyPayment } from "../crypto/fishingSupplyPayments.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
@@ -156,10 +175,19 @@ import {
   saveCharacterProgressWithCryptoPurchase,
   saveCharacterProgressWithSeason0Reward,
   saveCharacterProgressWithTraitPayment,
+  createFishingPondCatchRecord,
+  findFishingPondCatch,
+  findFishingPondCatchHistoryForWallet,
+  findLatestActiveFishingPondCatchForWallet,
+  markFishingPondCatchConfirmed,
+  markFishingPondCatchExpired,
+  markFishingPondCatchFailed,
+  markFishingPondCatchTxSubmitted,
   PersistenceUnavailableError,
   WalletClientKindMismatchError,
   type PersistableCharacterState,
   type PersistedCharacter,
+  type PersistedFishingPondCatch,
   type SeasonRewardAwardResult,
 } from "../persistence.js";
 import {
@@ -288,6 +316,7 @@ const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
   "startFishing",
   "reelFishing",
   "cancelFishing",
+  "submitFishingNftClaimTx",
   "sellFishingItems",
   "selectTalent",
   "updateTraits",
@@ -700,6 +729,9 @@ type PlayerAnimationHold = {
 const FISHING_LOOT_SOURCE_PREFIX = "fishing:";
 const FISHING_LOOT_PICKUP_MS = 45_000;
 const FISHING_REEL_ANIMATION_MS = 2400;
+const FISHING_NFT_CAP_NOTICE_COOLDOWN_MS = 60_000;
+const FISHING_NFT_DAILY_CAP_MS = 86_400_000;
+const FISHING_NFT_TX_SUBMISSION_GRACE_MS = 5 * 60_000;
 
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
@@ -731,6 +763,7 @@ export class TownRoom extends Room<TownState> {
   private readonly agentSeason0GateStatuses = new Map<string, AgentSeason0MferGptGateStatus>();
   private readonly fishingAttempts = new Map<string, ActiveFishingAttempt>();
   private readonly pendingFishingLoot = new Map<string, PendingFishingLoot>();
+  private readonly fishingNftCapNoticeAt = new Map<string, number>();
   private readonly playerAnimationHolds = new Map<string, PlayerAnimationHold>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
@@ -919,6 +952,11 @@ export class TownRoom extends Room<TownState> {
       this.markAgentMessageActivity(client.sessionId, "cancelFishing");
       const player = this.state.players.get(client.sessionId);
       if (player) this.cancelFishing(client.sessionId, player);
+    });
+
+    this.onMessage("submitFishingNftClaimTx", (client, message: Partial<ClientSubmitFishingNftClaimTx> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "submitFishingNftClaimTx");
+      void this.handleSubmitFishingNftClaimTx(client, message);
     });
 
     this.onMessage("sellFishingItems", (client, message: Partial<ClientSellFishingItems> = {}) => {
@@ -1237,6 +1275,11 @@ export class TownRoom extends Room<TownState> {
         console.error(`Failed to read agent MFERGPT earning gate for ${player.walletAddress}`, error);
       });
     }
+    if (player.identityType === "wallet" && walletAddress) {
+      void this.syncLatestFishingNftCatch(client, player).catch((error) => {
+        console.error(`Failed to sync fishing NFT catch for ${walletAddress}`, error);
+      });
+    }
     if (persistedCharacter) {
       client.send("persistenceStatus", {
         state: "saved",
@@ -1420,6 +1463,9 @@ export class TownRoom extends Room<TownState> {
     this.pendingDebugPlacementSaves.delete(sessionId);
     this.fishingAttempts.delete(sessionId);
     this.pendingFishingLoot.delete(sessionId);
+    for (const key of this.fishingNftCapNoticeAt.keys()) {
+      if (key.startsWith(`${sessionId}:`)) this.fishingNftCapNoticeAt.delete(key);
+    }
     this.playerAnimationHolds.delete(sessionId);
     clearConsumableCooldownsForPlayer(this.consumableCooldowns, sessionId);
     this.removePlayerThreat(sessionId);
@@ -2591,6 +2637,7 @@ export class TownRoom extends Room<TownState> {
         itemId: result.itemId ?? "",
         itemName: result.itemName ?? "",
         quantity: result.quantity ?? 0,
+        nftCatch: result.nftCatch,
         error: result.error,
       } satisfies FishingResult);
     };
@@ -2678,6 +2725,7 @@ export class TownRoom extends Room<TownState> {
         itemId: result.itemId ?? "",
         itemName: result.itemName ?? "",
         quantity: result.quantity ?? 0,
+        nftCatch: result.nftCatch,
         error: result.error,
       } satisfies FishingResult);
     };
@@ -2719,11 +2767,52 @@ export class TownRoom extends Room<TownState> {
     }
 
     const attemptId = attempt.attemptId;
-    const rareChanceMultiplier = getFishingRareChanceMultiplier(player, now);
-    const itemId = shouldCatchLostFishingShoe(player) && Math.random() < 0.1
+    const questItemId = shouldCatchLostFishingShoe(player) && Math.random() < 0.1
       ? FISHING_LOST_SHOE_ITEM_ID
-      : rollFishingCatch(Math.random, rareChanceMultiplier);
+      : null;
     this.cancelFishing(client.sessionId, player, "fishReel");
+
+    if (!questItemId) {
+      const nftCatch = await this.tryCreateFishingNftCatch(client, player, attemptId, now);
+      if (nftCatch) {
+        this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+          supportKind: "fishing",
+          outcome: "nft",
+          catchId: nftCatch.catchId,
+          standard: nftCatch.standard,
+          collection: nftCatch.collection,
+          tokenId: nftCatch.tokenId,
+          pondEntryId: nftCatch.pondEntryId,
+          isAgent: player.isAgent,
+        });
+        client.send("chat", makeSystemChat("Fishing", "You hooked an onchain pond prize. Claim it with your wallet before the voucher expires."));
+        client.send("fishingNftCatchResult", { ok: true, catch: nftCatch } satisfies FishingNftCatchResult);
+        sendResult({
+          ok: true,
+          outcome: "nft",
+          attemptId,
+          itemName: "onchain pond prize",
+          quantity: 1,
+          nftCatch,
+        });
+        return;
+      }
+    }
+
+    if (!questItemId && player.isAgent && Math.random() >= FISHING_AGENT_CATCH_CHANCE_MULTIPLIER) {
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "missed",
+        agentCatchPenalty: true,
+        isAgent: player.isAgent,
+      });
+      sendResult({ ok: true, outcome: "missed", attemptId });
+      return;
+    }
+
+    const rareChanceMultiplier = getFishingRareChanceMultiplier(player, now);
+    const rareChanceScale = player.isAgent ? FISHING_AGENT_RARE_CHANCE_MULTIPLIER : 1;
+    const itemId = questItemId ?? rollFishingCatch(Math.random, rareChanceMultiplier, rareChanceScale);
     if (!itemId) {
       this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
         supportKind: "fishing",
@@ -2764,6 +2853,322 @@ export class TownRoom extends Room<TownState> {
       itemName: item.name,
       quantity: 1,
     });
+  }
+
+  private async tryCreateFishingNftCatch(client: Client, player: PlayerState, attemptId: string, now: number) {
+    const debugGate = process.env.MFERLAND_DEBUG_FISHING_NFT_GATE === "1";
+    const logDebugGate = (reason: string, details: Record<string, unknown> = {}) => {
+      if (!debugGate) return;
+      console.info("fishing_nft_gate", {
+        reason,
+        sessionId: client.sessionId,
+        player: player.name,
+        walletAddress: player.walletAddress,
+        identityType: player.identityType,
+        isAgent: player.isAgent,
+        attemptId,
+        ...details,
+      });
+    };
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) {
+      logDebugGate("missing_wallet");
+      return null;
+    }
+
+    try {
+      const config = await resolveFishingPondConfig();
+      if (!config.enabled || config.catchChanceBps <= 0) {
+        logDebugGate("config_disabled", {
+          enabled: config.enabled,
+          catchChanceBps: config.catchChanceBps,
+          contractAddress: config.contractAddress,
+          hasDatabase: Boolean(getDatabase()),
+        });
+        return null;
+      }
+
+      const activeRecord = await this.resolveActiveFishingNftCatch(walletAddress, now);
+      const activeSnapshot = makeFishingNftCatchSnapshot(activeRecord);
+      if (activeSnapshot) {
+        logDebugGate("active_catch_exists", {
+          catchId: activeSnapshot.catchId,
+          status: activeSnapshot.status,
+          expiresAt: activeSnapshot.expiresAt,
+        });
+        syncPlayerFishingNftCatchJson(player, activeSnapshot);
+        client.send("fishingNftCatchResult", { ok: true, catch: activeSnapshot } satisfies FishingNftCatchResult);
+        await this.syncFishingNftHistory(client, player);
+        return null;
+      }
+
+      const effectiveCatchChanceBps = Math.floor(
+        config.catchChanceBps * (player.isAgent ? FISHING_AGENT_NFT_CHANCE_MULTIPLIER : 1),
+      );
+      const roll = Math.random() * 10_000;
+      if (effectiveCatchChanceBps <= 0 || roll >= effectiveCatchChanceBps) {
+        logDebugGate("chance_missed", {
+          catchChanceBps: config.catchChanceBps,
+          effectiveCatchChanceBps,
+          roll,
+        });
+        return null;
+      }
+
+      const publicConfig = await readFishingPondPublicConfig(walletAddress);
+      if (!publicConfig.enabled || publicConfig.drainMode || !publicConfig.stocked) {
+        logDebugGate("public_config_unavailable", {
+          enabled: publicConfig.enabled,
+          drainMode: publicConfig.drainMode,
+          stocked: publicConfig.stocked,
+          walletDailyRemaining: publicConfig.walletDailyRemaining,
+          globalDailyRemaining: publicConfig.globalDailyRemaining,
+        });
+        return null;
+      }
+      if (publicConfig.walletDailyRemaining <= 0) {
+        logDebugGate("wallet_daily_cap", {
+          walletDailyRemaining: publicConfig.walletDailyRemaining,
+          perWalletDailyCap: publicConfig.perWalletDailyCap,
+        });
+        const dailyResetAt = getFishingNftDailyResetAt(now);
+        this.sendFishingNftCapNotice(
+          client,
+          `wallet:${walletAddress}`,
+          now,
+          {
+            kind: "wallet_daily_cap",
+            text: "No more onchain goodies today. Regular fish are still biting.",
+            sentAt: now,
+            dailyResetAt,
+            perWalletDailyCap: publicConfig.perWalletDailyCap,
+            walletDailyRemaining: publicConfig.walletDailyRemaining,
+            globalDailyCap: publicConfig.globalDailyCap,
+            globalDailyRemaining: publicConfig.globalDailyRemaining,
+          },
+        );
+        return null;
+      }
+      if (publicConfig.globalDailyRemaining !== null && publicConfig.globalDailyRemaining <= 0) {
+        logDebugGate("global_daily_cap", {
+          globalDailyRemaining: publicConfig.globalDailyRemaining,
+          globalDailyCap: publicConfig.globalDailyCap,
+        });
+        const dailyResetAt = getFishingNftDailyResetAt(now);
+        this.sendFishingNftCapNotice(
+          client,
+          "global",
+          now,
+          {
+            kind: "global_daily_cap",
+            text: "The pond is out of onchain goodies today. Regular fish are still biting.",
+            sentAt: now,
+            dailyResetAt,
+            perWalletDailyCap: publicConfig.perWalletDailyCap,
+            walletDailyRemaining: publicConfig.walletDailyRemaining,
+            globalDailyCap: publicConfig.globalDailyCap,
+            globalDailyRemaining: publicConfig.globalDailyRemaining,
+          },
+        );
+        return null;
+      }
+
+      const entries = await readFishingPondAvailableEntries(config);
+      if (entries.length <= 0) {
+        logDebugGate("no_entries");
+        return null;
+      }
+
+      const shuffledEntries = [...entries];
+      for (let i = shuffledEntries.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledEntries[i], shuffledEntries[j]] = [shuffledEntries[j], shuffledEntries[i]];
+      }
+
+      for (const entry of shuffledEntries) {
+        const catchId = makeFishingNftCatchId();
+        const voucher = await makeFishingPondClaimVoucher({
+          catchId,
+          fisher: walletAddress,
+          entry,
+          now,
+        });
+        const metadata = await readFishingPondEntryMetadata(entry, config);
+        const record = await createFishingPondCatchRecord({
+          catchId,
+          characterId: this.persistentCharacterIds.get(client.sessionId) ?? "",
+          walletAddress,
+          attemptId,
+          voucher,
+          entryRemainingAmount: entry.remainingAmount,
+          metadata,
+        });
+        const snapshot = makeFishingNftCatchSnapshot(record);
+        logDebugGate("created", {
+          catchId,
+          pondEntryId: entry.pondEntryId,
+          standard: entry.standard,
+          tokenId: entry.tokenId,
+          snapshotCreated: Boolean(snapshot),
+        });
+        if (!snapshot) continue;
+        syncPlayerFishingNftCatchJson(player, snapshot);
+        await this.syncFishingNftHistory(client, player);
+        return snapshot;
+      }
+      logDebugGate("snapshot_unavailable");
+      return null;
+    } catch (error) {
+      logDebugGate("error", {
+        error: error instanceof Error ? error.message : "unknown fishing pond error",
+      });
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "nft_unavailable",
+        error: error instanceof Error ? error.message : "unknown fishing pond error",
+        isAgent: player.isAgent,
+      });
+      return null;
+    }
+  }
+
+  private sendFishingNftCapNotice(client: Client, noticeKey: string, now: number, notice: FishingNftCapNotice) {
+    const mapKey = `${client.sessionId}:${noticeKey}`;
+    const lastSentAt = this.fishingNftCapNoticeAt.get(mapKey) ?? 0;
+    if (now - lastSentAt < FISHING_NFT_CAP_NOTICE_COOLDOWN_MS) return;
+    this.fishingNftCapNoticeAt.set(mapKey, now);
+    client.send("chat", makeSystemChat("Fishing", notice.text));
+    client.send("fishingNftCapNotice", notice);
+  }
+
+  private async syncLatestFishingNftCatch(client: Client, player: PlayerState) {
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) return;
+
+    const record = await this.resolveActiveFishingNftCatch(walletAddress, Date.now());
+    if (!record) {
+      syncPlayerFishingNftCatchJson(player, null);
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const snapshot = makeFishingNftCatchSnapshot(record);
+    syncPlayerFishingNftCatchJson(player, snapshot);
+    if (snapshot) {
+      client.send("fishingNftCatchResult", { ok: true, catch: snapshot } satisfies FishingNftCatchResult);
+    }
+    await this.syncFishingNftHistory(client, player);
+  }
+
+  private async resolveActiveFishingNftCatch(walletAddress: string, now: number) {
+    const record = await findLatestActiveFishingPondCatchForWallet(walletAddress);
+    if (!record) return null;
+
+    const expiresAt = record.expiresAt.getTime();
+    const shouldExpire = record.status === "tx_submitted"
+      ? expiresAt + FISHING_NFT_TX_SUBMISSION_GRACE_MS <= now
+      : expiresAt <= now;
+    if (!shouldExpire) return record;
+
+    return await markFishingPondCatchExpired(record.catchId);
+  }
+
+  private async syncFishingNftHistory(client: Client, player: PlayerState) {
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) return;
+
+    try {
+      const records = await findFishingPondCatchHistoryForWallet(walletAddress, 20);
+      const catches = records
+        .map(makeFishingNftCatchSnapshot)
+        .filter((snapshot): snapshot is FishingNftCatchSnapshot => Boolean(snapshot))
+        .map(sanitizeFishingNftCatchSnapshotForState);
+      client.send("fishingNftHistoryResult", { ok: true, catches } satisfies FishingNftHistoryResult);
+    } catch (error) {
+      console.error(`Failed to sync fishing NFT history for ${walletAddress}`, error);
+      client.send("fishingNftHistoryResult", {
+        ok: false,
+        catches: [],
+        error: "pond history unavailable",
+      } satisfies FishingNftHistoryResult);
+    }
+  }
+
+  private async handleSubmitFishingNftClaimTx(client: Client, message: Partial<ClientSubmitFishingNftClaimTx>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: FishingNftCatchResult) => client.send("fishingNftCatchResult", result);
+    if (!player) {
+      sendResult({ ok: false, catch: null, error: "player unavailable" });
+      return;
+    }
+
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const txHash = typeof message.txHash === "string" ? message.txHash.trim().toLowerCase() : "";
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
+      sendResult({ ok: false, catch: null, error: "catch not found" });
+      return;
+    }
+    if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "claim transaction hash required" });
+      return;
+    }
+    if (record.status === "confirmed") {
+      const snapshot = makeFishingNftCatchSnapshot(record);
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      sendResult({ ok: true, catch: snapshot });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const submitted = await markFishingPondCatchTxSubmitted(catchId, txHash);
+    if (submitted) {
+      const submittedSnapshot = makeFishingNftCatchSnapshot(submitted);
+      syncPlayerFishingNftCatchJson(player, submittedSnapshot);
+      sendResult({ ok: true, catch: submittedSnapshot });
+      await this.syncFishingNftHistory(client, player);
+    }
+
+    try {
+      const confirmation = await verifyFishingPondClaimReceipt({ catchId, txHash });
+      if (normalizeWalletAddress(confirmation.fisher) !== normalizeWalletAddress(player.walletAddress)) {
+        throw new Error("claim event fisher mismatch");
+      }
+      const confirmed = await markFishingPondCatchConfirmed(catchId, confirmation.txHash);
+      const snapshot = confirmed ? makeFishingNftCatchSnapshot(confirmed) : null;
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      client.send("chat", makeSystemChat("Fishing", "Onchain pond prize claimed."));
+      sendResult({ ok: true, catch: snapshot });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("fishing_nft_claim_confirmed", client.sessionId, player, {
+        supportKind: "fishing_nft_claim",
+        catchId,
+        txHash,
+        pondEntryId: confirmation.pondEntryId,
+        logIndex: confirmation.logIndex,
+      });
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "claim confirmation failed";
+      if (/timeout|timed out|not found|could not find/i.test(messageText)) {
+        const snapshot = submitted ? makeFishingNftCatchSnapshot(submitted) : makeFishingNftCatchSnapshot(record);
+        syncPlayerFishingNftCatchJson(player, snapshot);
+        sendResult({ ok: true, catch: snapshot, error: "waiting for claim confirmation" });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+
+      const failed = await markFishingPondCatchFailed(catchId, messageText);
+      const snapshot = failed ? makeFishingNftCatchSnapshot(failed) : null;
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      sendResult({ ok: false, catch: snapshot, error: messageText });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("fishing_nft_claim_failed", client.sessionId, player, {
+        supportKind: "fishing_nft_claim",
+        catchId,
+        txHash,
+        error: messageText,
+      });
+    }
   }
 
   private async handleSellFishingItems(client: Client, message: Partial<ClientSellFishingItems>) {
@@ -5448,6 +5853,55 @@ function syncPlayerFishingJson(player: PlayerState) {
     bobberX: player.fishingBobberX,
     bobberZ: player.fishingBobberZ,
   });
+}
+
+function syncPlayerFishingNftCatchJson(player: PlayerState, catchSnapshot: FishingNftCatchSnapshot | null) {
+  player.fishingNftCatchJson = catchSnapshot ? JSON.stringify(sanitizeFishingNftCatchSnapshotForState(catchSnapshot)) : "";
+}
+
+function sanitizeFishingNftCatchSnapshotForState(catchSnapshot: FishingNftCatchSnapshot): FishingNftCatchSnapshot {
+  const { voucher: _voucher, ...publicSnapshot } = catchSnapshot;
+  return publicSnapshot;
+}
+
+function makeFishingNftCatchSnapshot(record: PersistedFishingPondCatch | null): FishingNftCatchSnapshot | null {
+  if (!record) return null;
+  if (record.voucher) {
+    return makeFishingNftCatchSnapshotFromVoucher({
+      status: record.status,
+      walletAddress: record.walletAddress,
+      voucher: record.voucher,
+      metadata: record.metadata,
+      txHash: record.txHash,
+      error: record.error,
+    });
+  }
+
+  return {
+    catchId: record.catchId,
+    status: record.status,
+    walletActionRequired: record.status === "voucher_issued" || record.status === "tx_submitted",
+    walletAddress: record.walletAddress,
+    standard: record.standard,
+    collection: record.collection,
+    tokenId: record.tokenId,
+    amount: record.amount,
+    pondEntryId: record.pondEntryId,
+    chainId: record.chainId,
+    contractAddress: record.contractAddress,
+    expiresAt: Math.floor(record.expiresAt.getTime() / 1000),
+    txHash: record.txHash || undefined,
+    error: record.error || undefined,
+    metadata: record.metadata || undefined,
+  };
+}
+
+function makeFishingNftCatchId() {
+  return `0x${randomBytes(32).toString("hex")}`;
+}
+
+function getFishingNftDailyResetAt(now: number) {
+  return Math.floor((Math.floor(now / FISHING_NFT_DAILY_CAP_MS) + 1) * FISHING_NFT_DAILY_CAP_MS / 1000);
 }
 
 function grantDebugTrashVendorStock(player: PlayerState) {

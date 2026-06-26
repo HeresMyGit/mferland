@@ -1121,6 +1121,159 @@ button.quest-row {
   text-transform: uppercase;
 }
 
+.fishing-nft-claim-panel {
+  right: 118px;
+  bottom: 264px;
+}
+
+.fishing-nft-cap-panel {
+  top: 28%;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  z-index: 72;
+  width: min(340px, calc(100vw - 36px));
+  transform: translateX(-50%);
+}
+
+.fishing-nft-claim-card {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px;
+  border: 1px solid rgba(86, 207, 255, 0.34);
+  border-radius: 6px;
+  background: rgba(4, 20, 25, 0.5);
+}
+
+.fishing-nft-prize-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(86, 207, 255, 0.55);
+  border-radius: 6px;
+  color: #56cfff;
+  background: rgba(86, 207, 255, 0.12);
+}
+
+.fishing-nft-prize-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.fishing-nft-cap-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 9px;
+  border: 1px solid rgba(255, 226, 96, 0.4);
+  border-radius: 6px;
+  background: rgba(30, 24, 9, 0.64);
+}
+
+.fishing-nft-cap-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(86, 207, 255, 0.52);
+  border-radius: 6px;
+  color: #56cfff;
+  background: rgba(86, 207, 255, 0.12);
+}
+
+.fishing-nft-claim-card b,
+.fishing-nft-claim-card span,
+.fishing-nft-claim-card em,
+.fishing-nft-cap-card b,
+.fishing-nft-cap-card span,
+.fishing-nft-cap-card em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fishing-nft-claim-card b,
+.fishing-nft-cap-card b {
+  color: #e9fbff;
+  font-size: 13px;
+  font-weight: 1000;
+}
+
+.fishing-nft-claim-card span,
+.fishing-nft-claim-card em,
+.fishing-nft-cap-card span,
+.fishing-nft-cap-card em,
+.fishing-nft-claim-status {
+  color: rgba(233, 251, 255, 0.72);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.fishing-nft-claim-card b,
+.fishing-nft-claim-card span,
+.fishing-nft-claim-card em {
+  white-space: nowrap;
+}
+
+.fishing-nft-cap-card span,
+.fishing-nft-cap-card em {
+  line-height: 1.35;
+}
+
+.fishing-nft-cap-details {
+  display: grid;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.fishing-nft-cap-details span {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.fishing-nft-cap-details b,
+.fishing-nft-cap-details em {
+  min-width: 0;
+  color: rgba(255, 248, 224, 0.8);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 1000;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.fishing-nft-cap-details em {
+  color: #fff8e0;
+  text-align: right;
+  text-transform: none;
+}
+
+.fishing-nft-claim-status {
+  margin: 0;
+}
+
+.fishing-nft-claim-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .loot-list {
   display: grid;
   gap: 7px;

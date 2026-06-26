@@ -1999,6 +1999,9 @@ function GameShell({
             questTurnIn={room.questTurnIn}
             questStatus={room.questStatus}
             lootWindow={room.lootWindow}
+            fishingNftCapNotice={room.fishingNftCapNotice}
+            fishingNftCatchResult={room.fishingNftCatchResult}
+            fishingNftHistoryResult={room.fishingNftHistoryResult}
             actionError={actionError}
             moveUnlockNotice={moveUnlockNotices[0] ?? null}
             globalCooldownReadyAt={globalCooldownReadyAt}
@@ -2013,6 +2016,7 @@ function GameShell({
             onDismissQuestTurnIn={room.dismissQuestTurnIn}
             onDismissQuestStatus={room.dismissQuestStatus}
             onLootCorpse={lootCorpse}
+            onSubmitFishingNftClaimTx={room.sendSubmitFishingNftClaimTx}
             onEquipItem={equipItem}
             onUnequipItem={unequipItem}
             onUseItem={useItem}

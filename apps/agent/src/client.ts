@@ -5,6 +5,9 @@ import {
   AGENT,
   CHAT,
   COMBAT,
+  FISHING_BITE_MAX_MS,
+  FISHING_BITE_WINDOW_MS,
+  FISHING_ZONE,
   INPUT_SEND_RATE,
   PLAZA_BOUNDS,
   ROOM_NAME,
@@ -21,10 +24,12 @@ import {
   type ClientAgentStatus,
   type ClientInput,
   type ClientRemoveSeasonReferral,
+  type ClientSubmitFishingNftClaimTx,
   type CombatEvent,
   type CombatActionId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
+  type FishingNftCatchSnapshot,
   type FishingSellableItemId,
   type FishingResult,
   type FishingSupplyPurchaseResult,
@@ -74,6 +79,7 @@ type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "qu
   agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
   fishingJson?: string;
+  fishingNftCatchJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -340,6 +346,7 @@ export class MferlandAgentClient {
         "startFishing",
         "reelFishing",
         "cancelFishing",
+        "submitFishingNftClaimTx",
         "sellFishingItems",
         "selectTalent",
         "updateTraits",
@@ -660,8 +667,25 @@ export class MferlandAgentClient {
     return result;
   }
 
+  async fishOnce() {
+    await this.moveToPoint({
+      x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.8,
+      z: FISHING_ZONE.z + 1.8,
+    }, { range: 2.6 });
+    await this.startFishing();
+    await this.waitFor(() => this.getSelf()?.fishingState === "bite", {
+      timeoutMs: FISHING_BITE_MAX_MS + FISHING_BITE_WINDOW_MS + 5000,
+      intervalMs: 250,
+    }, "fishing bite");
+    return this.reelFishing(this.getSelf()?.fishingAttemptId);
+  }
+
   cancelFishing() {
     this.room?.send("cancelFishing", {});
+  }
+
+  submitFishingNftClaimTx(message: ClientSubmitFishingNftClaimTx) {
+    this.room?.send("submitFishingNftClaimTx", message);
   }
 
   async sellFishingItems(options: { itemId?: FishingSellableItemId; quantity?: number; sellAll?: boolean } = {}) {
@@ -1463,6 +1487,7 @@ function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapsho
     fishingExpiresAt: fishing.expiresAt,
     fishingBobberX: fishing.bobberX,
     fishingBobberZ: fishing.bobberZ,
+    fishingNftCatch: parseRuntimeFishingNftCatch(player),
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
@@ -1589,6 +1614,59 @@ function readRuntimeFishingState(value: unknown): PlayerSnapshot["fishingState"]
 function readRuntimeFishingNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function parseRuntimeFishingNftCatch(player: Pick<RuntimePlayer, "fishingNftCatchJson">): FishingNftCatchSnapshot | null {
+  if (!player.fishingNftCatchJson) return null;
+
+  try {
+    const parsed = JSON.parse(player.fishingNftCatchJson) as Record<string, unknown>;
+    const status = readRuntimeFishingNftStatus(parsed.status);
+    const standard = parsed.standard === "ERC721" || parsed.standard === "ERC1155" ? parsed.standard : null;
+    if (!status || !standard) return null;
+    return {
+      catchId: readAgentCommandText(parsed.catchId),
+      status,
+      walletActionRequired: Boolean(parsed.walletActionRequired),
+      walletAddress: readAgentCommandText(parsed.walletAddress),
+      standard,
+      collection: readAgentCommandText(parsed.collection),
+      tokenId: readAgentCommandText(parsed.tokenId),
+      amount: readAgentCommandText(parsed.amount),
+      pondEntryId: readAgentCommandText(parsed.pondEntryId),
+      chainId: Math.max(0, Math.floor(Number(parsed.chainId) || 0)),
+      contractAddress: readAgentCommandText(parsed.contractAddress),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      txHash: typeof parsed.txHash === "string" ? parsed.txHash : undefined,
+      error: typeof parsed.error === "string" ? parsed.error : undefined,
+      metadata: parseRuntimeFishingNftMetadata(parsed.metadata),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRuntimeFishingNftMetadata(value: unknown): FishingNftCatchSnapshot["metadata"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const metadata = {
+    name: readAgentCommandText(parsed.name) || undefined,
+    description: readAgentCommandText(parsed.description) || undefined,
+    image: readAgentCommandText(parsed.image) || undefined,
+    tokenUri: readAgentCommandText(parsed.tokenUri) || undefined,
+  };
+  return metadata.name || metadata.description || metadata.image || metadata.tokenUri ? metadata : undefined;
+}
+
+function readRuntimeFishingNftStatus(value: unknown): FishingNftCatchSnapshot["status"] | null {
+  return value === "pending"
+    || value === "voucher_issued"
+    || value === "tx_submitted"
+    || value === "confirmed"
+    || value === "expired"
+    || value === "failed"
+    ? value
+    : null;
 }
 
 function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): InventoryItemSnapshot[] {

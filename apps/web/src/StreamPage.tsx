@@ -377,6 +377,9 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           questTurnIn={null}
           questStatus={null}
           lootWindow={null}
+          fishingNftCapNotice={null}
+          fishingNftCatchResult={null}
+          fishingNftHistoryResult={null}
           actionError={null}
           moveUnlockNotice={null}
           actionSlots={actionSlots}
@@ -394,6 +397,7 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           onUnequipItem={noopUnequipItem}
           onUseItem={noopUseItem}
           onRegisterChainGear={noopRegisterChainGear}
+          onSubmitFishingNftClaimTx={noop}
           onCryptoStoreAnalytics={noopCryptoAnalytics}
           onSelectTalent={noopSelectTalent}
           onCloseLootWindow={noop}

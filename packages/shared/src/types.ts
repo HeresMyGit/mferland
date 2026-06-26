@@ -4,7 +4,13 @@ import type { ElixirBuffId, ElixirItemId } from "./elixirs.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
 import type { TrashVendorItemId } from "./trashVendor.js";
-import type { FishingCatchItemId, FishingSellableItemId, FishingState, FishingZoneId } from "./fishing.js";
+import type {
+  FishingCatchItemId,
+  FishingNftCatchSnapshot,
+  FishingSellableItemId,
+  FishingState,
+  FishingZoneId,
+} from "./fishing.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
@@ -292,6 +298,7 @@ export type PlayerSnapshot = {
   fishingExpiresAt: number;
   fishingBobberX: number;
   fishingBobberZ: number;
+  fishingNftCatch: FishingNftCatchSnapshot | null;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
@@ -369,7 +376,7 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation" | "fishingAttemptId" | "fishingZoneId" | "fishingState" | "fishingBiteAt" | "fishingExpiresAt" | "fishingBobberX" | "fishingBobberZ"
+  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation" | "fishingAttemptId" | "fishingZoneId" | "fishingState" | "fishingBiteAt" | "fishingExpiresAt" | "fishingBobberX" | "fishingBobberZ" | "fishingNftCatch"
 > & {
   distance: number;
 };
@@ -554,11 +561,29 @@ export type ClientCancelFishing = Record<string, never>;
 export type FishingResult = {
   ok: boolean;
   attemptId: string;
-  outcome: "caught" | "junk" | "missed" | "too_early" | "expired";
+  outcome: "caught" | "junk" | "missed" | "too_early" | "expired" | "nft";
   itemId: FishingCatchItemId | "";
   itemName: string;
   quantity: number;
+  nftCatch?: FishingNftCatchSnapshot;
   error?: string;
+};
+
+export type FishingNftCatchResult = {
+  ok: boolean;
+  catch: FishingNftCatchSnapshot | null;
+  error?: string;
+};
+
+export type FishingNftHistoryResult = {
+  ok: boolean;
+  catches: FishingNftCatchSnapshot[];
+  error?: string;
+};
+
+export type ClientSubmitFishingNftClaimTx = {
+  catchId: string;
+  txHash: string;
 };
 
 export type ClientSellFishingItems = {
@@ -640,6 +665,7 @@ export type AgentObservation = {
     | "startFishing"
     | "reelFishing"
     | "cancelFishing"
+    | "submitFishingNftClaimTx"
     | "sellFishingItems"
     | "purchaseFishingSupply"
     | "selectTalent"

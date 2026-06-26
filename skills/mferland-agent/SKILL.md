@@ -529,7 +529,7 @@ Active declared agents currently receive 50% of eligible human Season 0 points, 
 
 Trash-mfer sales use the same Season 0 agent reward gate. Trash has a base value from `catalog.trashVendor`, currently 1 point per item. Declared agents need `catalog.trashVendor.agentItemsPerPoint` trash for 1 point, currently 2, and remainders stay in inventory.
 
-Fishing uses the same normal-room-message boundary as human play. Use `catalog.fishing` for the current pond, Motherfisher NPC id, timing, controls, fish item ids, bundle sizes, Season 0 point values, and declared-agent bundle multiplier. A successful reel opens a normal `lootWindow` with `source=fishing`; collect it with `lootCorpse` using that loot window `npcId` before expecting inventory or fishin-lesson progress. Junk fishables can sell for 0 points and still clear inventory. Declared agents must meet the Season 0 reward gate before fish sales award points.
+Fishing uses the same normal-room-message boundary as human play. Use `catalog.fishing` for the current pond, Motherfisher NPC id, timing, controls, fish item ids, bundle sizes, Season 0 point values, NFT pond claim metadata, and declared-agent multipliers. A successful normal reel opens a `lootWindow` with `source=fishing`; collect it with `lootCorpse` using that loot window `npcId` before expecting inventory or fishin-lesson progress. An NFT reel returns `fishingNftCatch`; external wallet tooling must sign `FishingPond.claim`, then send `submitFishingNftClaimTx` with the catch id and tx hash. Command recaps include fishing reel totals, NFT catch count, pending wallet-action count, NFT daily remaining values, and reset time when the pond is configured. Junk fishables can sell for 0 points and still clear inventory. Declared agents must meet the Season 0 reward gate before fish sales award points.
 
 ## Season 0 Referrals
 
@@ -601,7 +601,7 @@ traits: choose category/trait/name/randomize locally, then update appearance; pa
 respec: burn MFERGPT once, then submit respecTalents to refund spent talent ranks back to talentPoints
 potion shop: select item/quantity locally, then buy catalog items; purchases need MFERGPT burn proof
 trash vendor: sell catalog trash items through sellTrashItems; no payment proof, server applies Season 0 caps and agent reward rules
-fishing: accept fishin-lesson at Motherfisher, cast with startFishing near south-center-pond, wait for the bite state, reel with reelFishing, loot the fishing lootWindow with lootCorpse, cancel with cancelFishing if unsafe, and sell fish/junk with sellFishingItems
+fishing: accept fishin-lesson at Motherfisher, cast with startFishing near south-center-pond, wait for the bite state, reel with reelFishing, loot normal fishing lootWindows with lootCorpse, claim NFT pond catches with external wallet tooling plus submitFishingNftClaimTx, cancel with cancelFishing if unsafe, and sell fish/junk with sellFishingItems
 crypto store: connect wallet, refresh balances, select gear/pass, buy/mint with ETH/MFER/MFERGPT, configure local contracts locally, then register owned chain gear
 swap: set amount/slippage, quote/swap ETH to MFERGPT, copy token, or open Uniswap fallback
 map: observe public landmarks/routes/NPCs/players/quest markers; inspect points, focus quests locally, move or route through the world

@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {MferGearNFT} from "../src/MferGearNFT.sol";
 import {IERC20Payment, IGearProductPricing, MferGearStore} from "../src/MferGearStore.sol";
 import {MferCoin} from "../src/MferCoin.sol";
+import {FishingPond} from "../src/FishingPond.sol";
 import {MferGptToken} from "../src/MferGptToken.sol";
 import {IMferPayment, IMferProductPricing, MferLaunchPass} from "../src/MferLaunchPass.sol";
 import {ILocalSwapToken, LocalMferGptSwapRouter} from "../src/LocalMferGptSwapRouter.sol";
@@ -40,6 +41,8 @@ contract DeployLocalSuite {
     uint256 internal constant LOCAL_MOCK_TOKEN_SUPPLY = 1_000_000_000_000 ether;
     uint256 internal constant LOCAL_SWAP_MFERGPT_PER_ETH = 1_000_000_000 ether;
     uint256 internal constant LOCAL_SWAP_MFERGPT_LIQUIDITY = 250_000_000_000 ether;
+    uint256 internal constant FISHING_POND_DAILY_WALLET_CAP = 3;
+    uint256 internal constant FISHING_POND_DAILY_GLOBAL_CAP = 50;
 
     function run() external {
         address deployer = msg.sender;
@@ -71,6 +74,7 @@ contract DeployLocalSuite {
             deployer,
             LAUNCH_PASS_MAX_SUPPLY
         );
+        new FishingPond(deployer, deployer, FISHING_POND_DAILY_WALLET_CAP, FISHING_POND_DAILY_GLOBAL_CAP);
         MferGearStore store =
             new MferGearStore(
                 gear,

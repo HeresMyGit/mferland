@@ -116,6 +116,7 @@ export class PlayerState extends Schema {
   @type("number") lastDamagedAt = 0;
   @type("number") frozenUntil = 0;
   @type("string") fishingJson = "";
+  @type("string") fishingNftCatchJson = "";
   fishingAttemptId = "";
   fishingZoneId: FishingZoneId | "" = "";
   fishingState: FishingState = "";

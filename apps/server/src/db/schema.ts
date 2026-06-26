@@ -197,6 +197,37 @@ export const cryptoMarketQuotes = pgTable("crypto_market_quotes", {
   index("crypto_market_quotes_fetched_idx").on(table.fetchedAt),
 ]);
 
+export const fishingPondCatches = pgTable("fishing_pond_catches", {
+  catchId: text("catch_id").primaryKey(),
+  characterId: text("character_id").references(() => characters.id, { onDelete: "set null" }),
+  walletAddress: text("wallet_address").notNull(),
+  attemptId: text("attempt_id").notNull().default(""),
+  status: text("status").notNull().default("pending"),
+  chainId: integer("chain_id").notNull(),
+  contractAddress: text("contract_address").notNull(),
+  tokenStandard: text("token_standard").notNull(),
+  collectionAddress: text("collection_address").notNull(),
+  tokenId: text("token_id").notNull(),
+  amount: text("amount").notNull().default("1"),
+  pondEntryId: text("pond_entry_id").notNull(),
+  metadataName: text("metadata_name").notNull().default(""),
+  metadataDescription: text("metadata_description").notNull().default(""),
+  metadataImage: text("metadata_image").notNull().default(""),
+  metadataUri: text("metadata_uri").notNull().default(""),
+  voucherJson: jsonb("voucher_json").$type<Record<string, unknown>>().notNull().default({}),
+  txHash: text("tx_hash").notNull().default(""),
+  error: text("error").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  txSubmittedAt: timestamp("tx_submitted_at", { withTimezone: true }),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+}, (table) => [
+  index("fishing_pond_catches_wallet_idx").on(table.walletAddress, table.createdAt),
+  index("fishing_pond_catches_status_idx").on(table.status, table.createdAt),
+  index("fishing_pond_catches_tx_hash_idx").on(table.chainId, table.txHash),
+]);
+
 export const agentCommandUsage = pgTable("agent_command_usage", {
   walletAddress: text("wallet_address").primaryKey(),
   windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull(),

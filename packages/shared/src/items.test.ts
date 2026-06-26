@@ -23,6 +23,9 @@ import {
 } from "./trashVendor.js";
 import {
   FISHING_AGENT_BUNDLE_MULTIPLIER,
+  FISHING_AGENT_CATCH_CHANCE_MULTIPLIER,
+  FISHING_AGENT_NFT_CHANCE_MULTIPLIER,
+  FISHING_AGENT_RARE_CHANCE_MULTIPLIER,
   FISHING_CATCH_ITEM_IDS,
   FISHING_CHUM_ITEM_ID,
   FISHING_POLE_ITEM_ID,
@@ -134,6 +137,10 @@ test("fishing loot roll can return fish or no catch and chum boosts rare fish", 
   assert.equal(rollFishingCatch(() => 0.99), null);
   assert.equal(rollFishingCatch(() => 0.805), "based-bass");
   assert.equal(rollFishingCatch(() => 0.805, 1.25), "huge-sartoshi-koi");
+  assert.equal(rollFishingCatch(() => 0.805, 1.25, FISHING_AGENT_RARE_CHANCE_MULTIPLIER), "based-bass");
+  assert.equal(FISHING_AGENT_CATCH_CHANCE_MULTIPLIER, 0.5);
+  assert.equal(FISHING_AGENT_RARE_CHANCE_MULTIPLIER, 0.5);
+  assert.equal(FISHING_AGENT_NFT_CHANCE_MULTIPLIER, 0.5);
 });
 
 test("south-center pond has a castable shore and water bobber target", () => {

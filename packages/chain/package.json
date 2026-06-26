@@ -10,7 +10,13 @@
     "test:export": "node --test scripts/*.test.mjs",
     "node": "anvil --chain-id 31337 --host 127.0.0.1 --port 8545",
     "deploy:local": "forge script script/DeployLocalSuite.s.sol:DeployLocalSuite --rpc-url http://127.0.0.1:8545 --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --unlocked --broadcast && npm run export:local",
+    "deploy:fishing:base": "forge script script/DeployFishingPond.s.sol:DeployFishingPond --rpc-url \"$BASE_RPC_URL\" --private-key \"$DEPLOYER_PRIVATE_KEY\" --broadcast",
+    "smoke:fishing": "forge script script/SmokeFishingPondLocal.s.sol:SmokeFishingPondLocal --rpc-url http://127.0.0.1:8545 --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --unlocked --broadcast -vv",
+    "stock:fishing:local": "forge script script/StockFishingPondLocal.s.sol:StockFishingPondLocal --rpc-url http://127.0.0.1:8545 --sender 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 --unlocked --broadcast -vv",
     "deploy:pass:base": "forge script script/DeploySeasonPass.s.sol:DeploySeasonPass --rpc-url \"$BASE_RPC_URL\" --private-key \"$DEPLOYER_PRIVATE_KEY\" --broadcast",
     "export:local": "node scripts/export-local-addresses.mjs"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1"
   }
 }

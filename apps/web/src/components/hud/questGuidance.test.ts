@@ -151,6 +151,7 @@ function makePlayer(overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
     fishingExpiresAt: 0,
     fishingBobberX: 0,
     fishingBobberZ: 0,
+    fishingNftCatch: null,
     quests: [],
     inventory: [],
     equipment: [],
