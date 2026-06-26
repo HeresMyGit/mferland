@@ -1221,7 +1221,7 @@ export function Hud({
       )}
 
       {visibleFishingNftCatch && (
-        <MovableWindow id="hud.fishing-nft-claim" as="section" className="loot-panel fishing-nft-claim-panel">
+        <MovableWindow id="hud.fishing-nft-claim" as="section" className="loot-panel fishing-nft-claim-panel" disablePositionPersistence>
           <FishingNftClaimPanel
             catchSnapshot={visibleFishingNftCatch}
             player={localPlayer}
@@ -1232,7 +1232,7 @@ export function Hud({
       )}
 
       {visibleFishingNftCapNotice && (
-        <MovableWindow id="hud.fishing-nft-cap" as="section" className="loot-panel fishing-nft-cap-panel">
+        <MovableWindow id="hud.fishing-nft-cap" as="section" className="loot-panel fishing-nft-cap-panel" disablePositionPersistence>
           <FishingNftCapPanel
             notice={visibleFishingNftCapNotice}
             now={now}
@@ -1688,7 +1688,7 @@ export function Hud({
 
       {pendingFishingNftClose && (
         <section className="hud-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Close NFT claim">
-          <MovableWindow id="hud.fishing-nft-close" className="hud-confirm-dialog fishing-nft-close-dialog">
+          <MovableWindow id="hud.fishing-nft-close" className="hud-confirm-dialog fishing-nft-close-dialog" disablePositionPersistence>
             <div className="world-map-header">
               <div>
                 <strong>close prize claim?</strong>
