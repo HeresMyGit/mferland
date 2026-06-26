@@ -111,6 +111,7 @@ import {
   type ClientShareQuestLink,
   type ClientStartFishing,
   type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
@@ -122,6 +123,7 @@ import {
   type FishingNftCatchResult,
   type FishingNftHistoryResult,
   type FishingNftCatchSnapshot,
+  type MintClubRedemptionResult,
   type FishingSellableItemId,
   type FishingResult,
   type FishingSupplyPurchaseResult,
@@ -159,6 +161,12 @@ import {
   resolveFishingPondConfig,
   verifyFishingPondClaimReceipt,
 } from "../crypto/fishingPond.js";
+import {
+  isMintClubRedemptionEligibleCatch,
+  makeMintClubRedemptionSnapshot,
+  resolveMintClubRedemptionConfig,
+  verifyMintClubRedemptionReceipt,
+} from "../crypto/mintClubRedemption.js";
 import { verifyFishingSupplyPaymentProof, type VerifiedFishingSupplyPayment } from "../crypto/fishingSupplyPayments.js";
 import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
@@ -182,6 +190,8 @@ import {
   markFishingPondCatchConfirmed,
   markFishingPondCatchExpired,
   markFishingPondCatchFailed,
+  markFishingPondCatchMintClubRedemption,
+  markFishingPondCatchMintClubRedemptionFailed,
   markFishingPondCatchTxSubmitted,
   PersistenceUnavailableError,
   WalletClientKindMismatchError,
@@ -317,6 +327,7 @@ const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
   "reelFishing",
   "cancelFishing",
   "submitFishingNftClaimTx",
+  "submitMintClubRedemptionTx",
   "sellFishingItems",
   "selectTalent",
   "updateTraits",
@@ -957,6 +968,11 @@ export class TownRoom extends Room<TownState> {
     this.onMessage("submitFishingNftClaimTx", (client, message: Partial<ClientSubmitFishingNftClaimTx> = {}) => {
       this.markAgentMessageActivity(client.sessionId, "submitFishingNftClaimTx");
       void this.handleSubmitFishingNftClaimTx(client, message);
+    });
+
+    this.onMessage("submitMintClubRedemptionTx", (client, message: Partial<ClientSubmitMintClubRedemptionTx> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "submitMintClubRedemptionTx");
+      void this.handleSubmitMintClubRedemptionTx(client, message);
     });
 
     this.onMessage("sellFishingItems", (client, message: Partial<ClientSellFishingItems> = {}) => {
@@ -3166,6 +3182,92 @@ export class TownRoom extends Room<TownState> {
         supportKind: "fishing_nft_claim",
         catchId,
         txHash,
+        error: messageText,
+      });
+    }
+  }
+
+  private async handleSubmitMintClubRedemptionTx(client: Client, message: Partial<ClientSubmitMintClubRedemptionTx>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: MintClubRedemptionResult) => client.send("mintClubRedemptionResult", result);
+    if (!player) {
+      sendResult({ ok: false, catch: null, error: "player unavailable" });
+      return;
+    }
+
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const txHash = typeof message.txHash === "string" ? message.txHash.trim().toLowerCase() : "";
+    const requestedStatus = message.status === "confirmed" ? "confirmed" : "tx_submitted";
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
+      sendResult({ ok: false, catch: null, error: "catch not found" });
+      return;
+    }
+    if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "redemption transaction hash required" });
+      return;
+    }
+    if (record.status !== "confirmed") {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "claim the pond NFT first" });
+      return;
+    }
+
+    const config = resolveMintClubRedemptionConfig();
+    if (!isMintClubRedemptionEligibleCatch(record, config)) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "not an onchain goodies item" });
+      return;
+    }
+    if (record.mintClubRedemptionStatus === "confirmed") {
+      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(record) });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const submitted = await markFishingPondCatchMintClubRedemption({
+      catchId,
+      txHash,
+      status: "tx_submitted",
+    });
+    if (requestedStatus !== "confirmed") {
+      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(submitted) });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    try {
+      const confirmation = await verifyMintClubRedemptionReceipt({ txHash, record, config });
+      const confirmed = await markFishingPondCatchMintClubRedemption({
+        catchId,
+        txHash: confirmation.txHash,
+        status: "confirmed",
+      });
+      client.send("chat", makeSystemChat("Fishing", "Onchain goodie sold through Mint Club."));
+      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(confirmed) });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("mint_club_redemption_confirmed", client.sessionId, player, {
+        supportKind: "mint_club_redemption",
+        catchId,
+        txHash,
+        collection: record.collection,
+        amountBurned: confirmation.amountBurned,
+        refundAmount: confirmation.refundAmount,
+      });
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "Mint Club redemption confirmation failed";
+      if (/timeout|timed out|not found|could not find/i.test(messageText)) {
+        sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(submitted), error: "waiting for redemption confirmation" });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+
+      const failed = await markFishingPondCatchMintClubRedemptionFailed(catchId, messageText);
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(failed), error: messageText });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("mint_club_redemption_failed", client.sessionId, player, {
+        supportKind: "mint_club_redemption",
+        catchId,
+        txHash,
+        collection: record.collection,
         error: messageText,
       });
     }
@@ -5867,7 +5969,7 @@ function sanitizeFishingNftCatchSnapshotForState(catchSnapshot: FishingNftCatchS
 function makeFishingNftCatchSnapshot(record: PersistedFishingPondCatch | null): FishingNftCatchSnapshot | null {
   if (!record) return null;
   if (record.voucher) {
-    return makeFishingNftCatchSnapshotFromVoucher({
+    const snapshot = makeFishingNftCatchSnapshotFromVoucher({
       status: record.status,
       walletAddress: record.walletAddress,
       voucher: record.voucher,
@@ -5875,8 +5977,11 @@ function makeFishingNftCatchSnapshot(record: PersistedFishingPondCatch | null): 
       txHash: record.txHash,
       error: record.error,
     });
+    const mintClubRedemption = makeMintClubRedemptionSnapshot(record);
+    return mintClubRedemption ? { ...snapshot, mintClubRedemption } : snapshot;
   }
 
+  const mintClubRedemption = makeMintClubRedemptionSnapshot(record);
   return {
     catchId: record.catchId,
     status: record.status,
@@ -5893,6 +5998,7 @@ function makeFishingNftCatchSnapshot(record: PersistedFishingPondCatch | null): 
     txHash: record.txHash || undefined,
     error: record.error || undefined,
     metadata: record.metadata || undefined,
+    mintClubRedemption,
   };
 }
 

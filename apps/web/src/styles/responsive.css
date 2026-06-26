@@ -367,6 +367,11 @@
     bottom: auto;
   }
 
+  .floating-menu-overlay.mint-club-redemption-anchor {
+    top: 76px;
+    bottom: auto;
+  }
+
   .floating-menu-overlay.traits-anchor {
     top: 76px;
     bottom: auto;
@@ -399,6 +404,19 @@
 
   .swap-anchor .auth-swap-card {
     display: grid;
+  }
+
+  .mint-club-redemption-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .mint-club-redemption-list {
+    max-height: 180px;
+  }
+
+  .mint-club-redemption-stats {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .crypto-store-overview,

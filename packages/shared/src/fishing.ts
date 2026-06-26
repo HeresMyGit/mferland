@@ -3,6 +3,7 @@ import { ELIXIR_SHOP_MFERGPT_AMOUNT_LABEL, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI, FISHI
 
 export const FISHING_TUTOR_NPC_ID = "motherfisher";
 export const FISHING_VENDOR_NPC_ID = "fish-monger";
+export const MINT_CLUB_REDEMPTION_NPC_ID = "onchain-goodies-mfer";
 export const FISHING_ZONE_ID = "south-center-pond";
 export const FISHING_POLE_ITEM_ID = "fishing-pole";
 export const LOANER_FISHING_POLE_ITEM_ID = "loaner-fishing-pole";
@@ -25,6 +26,15 @@ export const FISHING_NFT_POND_VOUCHER_TTL_MS = FISHING_NFT_POND_MAX_VOUCHER_TTL_
 export const FISHING_NFT_POND_ERC1155_CATCH_AMOUNT = "1";
 export const FISHING_NFT_POND_RANDOMNESS_NOTE =
   "v1 NFT pond randomness is mferland-server-authoritative RNG.";
+export const MINT_CLUB_BASE_SEPOLIA_CHAIN_ID = 84532;
+export const MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS = "0x5dfA75b0185efBaEF286E80B847ce84ff8a62C2d";
+export const MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS = "0x4bF67e5C9baD43DD89dbe8fCAD3c213C868fe881";
+export const MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS = "0x4200000000000000000000000000000000000006";
+export const MINT_CLUB_REDEMPTION_RESERVE_TOKEN_SYMBOL = "WETH";
+export const MINT_CLUB_REDEMPTION_RESERVE_TOKEN_DECIMALS = 18;
+export const MINT_CLUB_DEFAULT_BUY_ROYALTY_BPS = 300;
+export const MINT_CLUB_DEFAULT_SELL_ROYALTY_BPS = 300;
+export const MINT_CLUB_REDEMPTION_DEFAULT_SLIPPAGE_BPS = 100;
 export const FISHING_NFT_POND_V1_DECISIONS = {
   catchChanceBps: FISHING_NFT_POND_DEFAULT_CATCH_CHANCE_BPS,
   eligibleCasts: "every completed reel can roll the NFT pond after quest-item priority, when the pond is configured and stocked",
@@ -93,6 +103,7 @@ export type FishingState = "" | "casting" | "waiting" | "bite";
 export type FishingNftTokenStandard = keyof typeof FISHING_NFT_POND_CHAIN_STANDARD;
 export type FishingNftCatchStatus = "pending" | "voucher_issued" | "tx_submitted" | "confirmed" | "expired" | "failed";
 export type FishingNftCapNoticeKind = "wallet_daily_cap" | "global_daily_cap";
+export type MintClubRedemptionStatus = "claim_required" | "eligible" | "tx_submitted" | "confirmed" | "failed";
 
 export type FishingNftCapNotice = {
   kind: FishingNftCapNoticeKind;
@@ -142,6 +153,26 @@ export type FishingNftMetadataSnapshot = {
   tokenUri?: string;
 };
 
+export type MintClubRedemptionSnapshot = {
+  status: MintClubRedemptionStatus;
+  walletActionRequired: boolean;
+  npcId: typeof MINT_CLUB_REDEMPTION_NPC_ID;
+  chainId: number;
+  collection: string;
+  tokenId: string;
+  bondAddress: string;
+  erc1155Address: string;
+  reserveTokenAddress: string;
+  reserveTokenSymbol: string;
+  reserveTokenDecimals: number;
+  sellRoyaltyBps: number;
+  slippageBps: number;
+  txHash?: string;
+  error?: string;
+  submittedAt?: number;
+  confirmedAt?: number;
+};
+
 export type FishingNftCatchSnapshot = {
   catchId: string;
   status: FishingNftCatchStatus;
@@ -159,6 +190,7 @@ export type FishingNftCatchSnapshot = {
   error?: string;
   metadata?: FishingNftMetadataSnapshot;
   voucher?: FishingNftClaimVoucher;
+  mintClubRedemption?: MintClubRedemptionSnapshot;
 };
 
 export type FishingNftGameItemMapping = {

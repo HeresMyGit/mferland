@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, RefreshCw, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -42,6 +42,7 @@ import {
   type ClientSelectTalent,
   type ClientShareQuestLink,
   type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type ClientUnequipItem,
   type ClientUseItem,
   type EquipmentSlotId,
@@ -52,6 +53,7 @@ import {
   type FishingNftHistoryResult,
   type ItemId,
   type LootWindow,
+  type MintClubRedemptionResult,
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
@@ -99,6 +101,13 @@ import {
 import { getActiveQuestGuidance, getPrimaryQuestGuidanceTarget, type ActiveQuestGuidance, type QuestGuidanceTarget } from "./hud/questGuidance";
 import { formatTooltipLabel, getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
 import { executeFishingPondClaim, getFishingPondClaimTxUrl, getLocalFishingPondClaimProvider } from "../crypto/fishingPond";
+import {
+  approveMintClubRedemption,
+  getMintClubRedemptionTxUrl,
+  readMintClubRedemptionWalletState,
+  sellMintClubRedemption,
+  type MintClubRedemptionWalletState,
+} from "../crypto/mintClubRedemption";
 import type { EthereumProvider } from "../crypto/transactionReceipts";
 
 const HUD_TICK_MS = 200;
@@ -199,6 +208,7 @@ type HudProps = {
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   cryptoStoreNpc: NpcSnapshot | null;
+  mintClubRedemptionNpc: NpcSnapshot | null;
   localSessionId: string | null;
   localPlayer: PlayerSnapshot | null;
   questOffer: QuestOffer | null;
@@ -208,6 +218,7 @@ type HudProps = {
   fishingNftCapNotice: FishingNftCapNotice | null;
   fishingNftCatchResult: FishingNftCatchResult | null;
   fishingNftHistoryResult: FishingNftHistoryResult | null;
+  mintClubRedemptionResult: MintClubRedemptionResult | null;
   actionError: { id: number; text: string } | null;
   moveUnlockNotice: MoveUnlockNotice | null;
   globalCooldownReadyAt?: number;
@@ -223,6 +234,7 @@ type HudProps = {
   onDismissQuestStatus: () => void;
   onLootCorpse: (message: ClientLootCorpse) => void;
   onSubmitFishingNftClaimTx: (message: ClientSubmitFishingNftClaimTx) => void;
+  onSubmitMintClubRedemptionTx: (message: ClientSubmitMintClubRedemptionTx) => void;
   onEquipItem: (message: ClientEquipItem) => void;
   onUnequipItem: (message: ClientUnequipItem) => void;
   onUseItem: (message: ClientUseItem) => void;
@@ -233,6 +245,7 @@ type HudProps = {
   onRemoveSeasonReferral?: (message: ClientRemoveSeasonReferral) => void;
   onCloseLootWindow: () => void;
   onCloseCryptoStore: () => void;
+  onCloseMintClubRedemption: () => void;
   onSendChat: (text: string) => void;
   onEmote: (emoteId: EmoteId) => void;
   onRespawn: () => void;
@@ -256,6 +269,7 @@ export function Hud({
   selectedTarget,
   selectedTargetUnit,
   cryptoStoreNpc,
+  mintClubRedemptionNpc,
   localSessionId,
   localPlayer,
   questOffer,
@@ -265,6 +279,7 @@ export function Hud({
   fishingNftCapNotice,
   fishingNftCatchResult,
   fishingNftHistoryResult,
+  mintClubRedemptionResult,
   actionError,
   moveUnlockNotice,
   globalCooldownReadyAt = 0,
@@ -280,6 +295,7 @@ export function Hud({
   onDismissQuestStatus,
   onLootCorpse,
   onSubmitFishingNftClaimTx,
+  onSubmitMintClubRedemptionTx,
   onEquipItem,
   onUnequipItem,
   onUseItem,
@@ -290,6 +306,7 @@ export function Hud({
   onRemoveSeasonReferral = () => undefined,
   onCloseLootWindow,
   onCloseCryptoStore,
+  onCloseMintClubRedemption,
   onSendChat,
   onEmote,
   onRespawn,
@@ -368,6 +385,11 @@ export function Hud({
     }));
   const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
   const fishingNftHistory = fishingNftHistoryResult?.catches ?? [];
+  const mintClubRedeemableCatches = fishingNftHistory.filter((catchSnapshot) => (
+    catchSnapshot.status === "confirmed"
+    && catchSnapshot.mintClubRedemption
+    && catchSnapshot.mintClubRedemption.status !== "claim_required"
+  ));
   const showFishingNftHistory = Boolean(fishingNftHistoryResult);
   const effectiveInventoryPanelTab: InventoryPanelTab = showFishingNftHistory ? inventoryPanelTab : "items";
   const talentPointCount = localPlayer?.talentPoints ?? 0;
@@ -1236,6 +1258,19 @@ export function Hud({
             onClose={onCloseCryptoStore}
             onRegisterChainGear={onRegisterChainGear}
             onAnalyticsEvent={onCryptoStoreAnalytics}
+          />
+        </MovableWindow>
+      )}
+
+      {mintClubRedemptionNpc && (
+        <MovableWindow id="hud.mint-club-redemption" as="section" className="floating-menu-overlay mint-club-redemption-anchor" role="dialog" aria-label="onchain goodies">
+          <MintClubRedemptionPanel
+            npc={mintClubRedemptionNpc}
+            player={localPlayer}
+            catches={mintClubRedeemableCatches}
+            result={mintClubRedemptionResult}
+            onSubmitMintClubRedemptionTx={onSubmitMintClubRedemptionTx}
+            onClose={onCloseMintClubRedemption}
           />
         </MovableWindow>
       )}
@@ -3119,6 +3154,255 @@ function FishingNftClaimPanel({
   );
 }
 
+function MintClubRedemptionPanel({
+  npc,
+  player,
+  catches,
+  result,
+  onSubmitMintClubRedemptionTx,
+  onClose,
+}: {
+  npc: NpcSnapshot;
+  player: PlayerSnapshot | null;
+  catches: FishingNftCatchSnapshot[];
+  result: MintClubRedemptionResult | null;
+  onSubmitMintClubRedemptionTx: (message: ClientSubmitMintClubRedemptionTx) => void;
+  onClose: () => void;
+}) {
+  const [selectedCatchId, setSelectedCatchId] = useState(catches[0]?.catchId ?? "");
+  const [walletState, setWalletState] = useState<MintClubRedemptionWalletState | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState<"" | "refresh" | "approve" | "sell">("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    if (selectedCatchId && catches.some((catchSnapshot) => catchSnapshot.catchId === selectedCatchId)) return;
+    setSelectedCatchId(catches[0]?.catchId ?? "");
+  }, [catches, selectedCatchId]);
+
+  const selectedCatch = catches.find((catchSnapshot) => catchSnapshot.catchId === selectedCatchId) ?? catches[0] ?? null;
+  const redemption = selectedCatch?.mintClubRedemption ?? null;
+  const displayName = selectedCatch ? getFishingNftDisplayName(selectedCatch) : "onchain goodie";
+  const txUrl = redemption?.txHash ? getMintClubRedemptionTxUrl(redemption.chainId, redemption.txHash) : "";
+  const ownedAmount = parseDisplayBigInt(walletState?.ownedAmount ?? "0");
+  const canUseWallet = Boolean(player?.walletAddress && player.identityType === "wallet" && selectedCatch && redemption);
+  const isSold = redemption?.status === "confirmed";
+  const needsApproval = Boolean(walletState && !walletState.approvedForBond);
+  const canApprove = Boolean(canUseWallet && walletState && ownedAmount > 0n && needsApproval && !isSold && !busy);
+  const canSell = Boolean(
+    canUseWallet
+    && walletState
+    && ownedAmount > 0n
+    && walletState.approvedForBond
+    && walletState.reserveTokenMatches
+    && !isSold
+    && !busy,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      setWalletState(null);
+      if (!player?.walletAddress || player.identityType !== "wallet" || !redemption) return;
+      setBusy((current) => current || "refresh");
+      setStatus("checking wallet");
+      try {
+        const nextState = await readMintClubRedemptionWalletState(player.walletAddress, redemption);
+        if (cancelled) return;
+        setWalletState(nextState);
+        setStatus(getMintClubRedemptionWalletStatus(redemption.status, nextState));
+      } catch (error) {
+        if (cancelled) return;
+        setStatus(error instanceof Error ? error.message : "wallet read failed");
+      } finally {
+        if (!cancelled) setBusy((current) => current === "refresh" ? "" : current);
+      }
+    }
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [player?.identityType, player?.walletAddress, redemption, refreshNonce]);
+
+  useEffect(() => {
+    if (!result?.catch || result.catch.catchId !== selectedCatch?.catchId) return;
+    if (result.ok) {
+      setStatus(result.catch.mintClubRedemption?.status === "confirmed" ? "sold through Mint Club" : "redemption submitted");
+      setRefreshNonce((nonce) => nonce + 1);
+    } else {
+      setStatus(result.error ?? "redemption failed");
+    }
+  }, [result, selectedCatch?.catchId]);
+
+  async function refreshWallet() {
+    setRefreshNonce((nonce) => nonce + 1);
+  }
+
+  async function approve() {
+    if (!player?.walletAddress || !redemption) return;
+    const provider = getInjectedEthereumProvider();
+    if (!provider) {
+      setStatus("wallet required");
+      return;
+    }
+    setBusy("approve");
+    setStatus("confirm approval in wallet");
+    try {
+      await approveMintClubRedemption(provider, player.walletAddress, redemption);
+      setStatus("approval confirmed");
+      setRefreshNonce((nonce) => nonce + 1);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "approval failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sell() {
+    if (!player?.walletAddress || !redemption || !selectedCatch) return;
+    const provider = getInjectedEthereumProvider();
+    if (!provider) {
+      setStatus("wallet required");
+      return;
+    }
+    setBusy("sell");
+    setStatus("confirm sell / burn in wallet");
+    try {
+      const txHash = await sellMintClubRedemption(provider, player.walletAddress, redemption);
+      setStatus("verifying Mint Club burn");
+      onSubmitMintClubRedemptionTx({ catchId: selectedCatch.catchId, txHash, status: "confirmed" });
+      window.setTimeout(() => setBusy((current) => current === "sell" ? "" : current), 90_000);
+    } catch (error) {
+      setBusy("");
+      setStatus(error instanceof Error ? error.message : "sell failed");
+    }
+  }
+
+  return (
+    <div className="mint-club-redemption-panel">
+      <div className="world-map-header">
+        <div>
+          <strong>onchain goodies</strong>
+          <span>{npc.name}</span>
+        </div>
+        <button type="button" title="Close onchain goodies" aria-label="Close onchain goodies" onClick={onClose}>
+          <X size={22} />
+        </button>
+      </div>
+
+      {catches.length > 0 ? (
+        <div className="mint-club-redemption-layout">
+          <div className="mint-club-redemption-list" role="listbox" aria-label="Mint Club goodies">
+            {catches.map((catchSnapshot) => {
+              const catchRedemption = catchSnapshot.mintClubRedemption;
+              const catchName = getFishingNftDisplayName(catchSnapshot);
+              const active = catchSnapshot.catchId === selectedCatch?.catchId;
+              return (
+                <button
+                  key={catchSnapshot.catchId}
+                  type="button"
+                  className={active ? "pond-log-row active" : "pond-log-row"}
+                  onClick={() => setSelectedCatchId(catchSnapshot.catchId)}
+                >
+                  <span className="pond-log-icon" aria-hidden="true">
+                    {catchSnapshot.metadata?.image ? (
+                      <img src={catchSnapshot.metadata.image} alt="" loading="lazy" />
+                    ) : (
+                      <Gift size={16} />
+                    )}
+                  </span>
+                  <span className="pond-log-copy">
+                    <b>{catchName}</b>
+                    <span>{shortAddress(catchSnapshot.collection)} / #{catchSnapshot.tokenId}</span>
+                    <em>{catchRedemption ? formatMintClubRedemptionStatus(catchRedemption.status) : "not supported"}</em>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mint-club-redemption-detail">
+            <div className="fishing-nft-claim-card">
+              <div className="fishing-nft-prize-icon">
+                {selectedCatch?.metadata?.image ? (
+                  <img src={selectedCatch.metadata.image} alt="" />
+                ) : (
+                  <Gift size={22} />
+                )}
+              </div>
+              <div>
+                <b>{displayName}</b>
+                <span>{selectedCatch ? `${shortAddress(selectedCatch.collection)} / token ${selectedCatch.tokenId}` : "--"}</span>
+                {selectedCatch?.metadata?.description ? <span>{selectedCatch.metadata.description}</span> : null}
+                <em>{redemption ? formatMintClubRedemptionStatus(redemption.status) : "not supported"}</em>
+              </div>
+            </div>
+
+            <div className="mint-club-redemption-stats">
+              <span>
+                <b>Owned</b>
+                <em>{walletState ? walletState.ownedAmount : "--"}</em>
+              </span>
+              <span>
+                <b>Caught</b>
+                <em>{selectedCatch?.amount ?? "1"}</em>
+              </span>
+              <span>
+                <b>Reserve</b>
+                <em>{redemption?.reserveTokenSymbol ?? "WETH"}</em>
+              </span>
+              <span>
+                <b>Refund</b>
+                <em>{walletState?.sellEstimateLabel ?? "--"}</em>
+              </span>
+              <span>
+                <b>Royalty</b>
+                <em>{walletState ? `${formatBps(walletState.sellRoyaltyBps)} sell / ${walletState.sellRoyaltyLabel}` : redemption ? formatBps(redemption.sellRoyaltyBps) : "--"}</em>
+              </span>
+              <span>
+                <b>Min return</b>
+                <em>{walletState?.minRefundLabel ?? "--"}</em>
+              </span>
+              <span>
+                <b>Approval</b>
+                <em>{walletState ? walletState.approvedForBond ? "ready" : "needed" : "--"}</em>
+              </span>
+              <span>
+                <b>Contract</b>
+                <em>{redemption ? shortAddress(redemption.bondAddress) : "--"}</em>
+              </span>
+            </div>
+
+            {status && <p className="fishing-nft-claim-status">{status}</p>}
+            <div className="fishing-nft-claim-actions">
+              {txUrl && (
+                <a href={txUrl} target="_blank" rel="noreferrer" className="quest-accept-btn">
+                  <ExternalLink size={17} />
+                  tx
+                </a>
+              )}
+              <button className="quest-accept-btn secondary" type="button" disabled={Boolean(busy)} onClick={() => void refreshWallet()}>
+                <RefreshCw size={17} />
+                refresh
+              </button>
+              <button className="quest-accept-btn secondary" type="button" disabled={!canApprove} onClick={() => void approve()}>
+                <Check size={17} />
+                {busy === "approve" ? "approving" : "approve"}
+              </button>
+              <button className="quest-accept-btn" type="button" disabled={!canSell} onClick={() => void sell()}>
+                <Gift size={17} />
+                {busy === "sell" ? "selling" : isSold ? "sold" : "sell / burn 1"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="quest-empty">no Mint Club onchain goodies from the pond yet</p>
+      )}
+    </div>
+  );
+}
+
 function getFishingNftDisplayName(catchSnapshot: FishingNftCatchSnapshot, fallback?: string) {
   const name = catchSnapshot.metadata?.name?.trim();
   return name || fallback || `${catchSnapshot.standard} #${catchSnapshot.tokenId}`;
@@ -3139,6 +3423,39 @@ function formatFishingNftStatus(catchSnapshot: FishingNftCatchSnapshot, expired:
   if (catchSnapshot.status === "confirmed") return "claimed";
   if (catchSnapshot.status === "failed") return catchSnapshot.error || "failed";
   return catchSnapshot.status;
+}
+
+function formatMintClubRedemptionStatus(status: NonNullable<FishingNftCatchSnapshot["mintClubRedemption"]>["status"]) {
+  if (status === "claim_required") return "claim first";
+  if (status === "eligible") return "ready to sell";
+  if (status === "tx_submitted") return "sell submitted";
+  if (status === "confirmed") return "sold";
+  if (status === "failed") return "sell failed";
+  return status;
+}
+
+function getMintClubRedemptionWalletStatus(
+  redemptionStatus: NonNullable<FishingNftCatchSnapshot["mintClubRedemption"]>["status"],
+  walletState: MintClubRedemptionWalletState,
+) {
+  if (redemptionStatus === "confirmed") return "sold through Mint Club";
+  if (!walletState.reserveTokenMatches) return "reserve token mismatch";
+  if (parseDisplayBigInt(walletState.ownedAmount) <= 0n) return "not in connected wallet";
+  if (!walletState.approvedForBond) return "approval needed";
+  return "ready to sell / burn";
+}
+
+function parseDisplayBigInt(value: string) {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+function formatBps(value: number) {
+  if (!Number.isFinite(value)) return "--";
+  return `${(value / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
 }
 
 function getFishingNftCapNoticeKey(notice: FishingNftCapNotice | null) {

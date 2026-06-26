@@ -371,6 +371,7 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           selectedTarget={selectedTarget}
           selectedTargetUnit={selectedTargetUnit}
           cryptoStoreNpc={null}
+          mintClubRedemptionNpc={null}
           localSessionId={focusedSessionId}
           localPlayer={focusedPlayer}
           questOffer={null}
@@ -380,6 +381,7 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           fishingNftCapNotice={null}
           fishingNftCatchResult={null}
           fishingNftHistoryResult={null}
+          mintClubRedemptionResult={null}
           actionError={null}
           moveUnlockNotice={null}
           actionSlots={actionSlots}
@@ -398,10 +400,12 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           onUseItem={noopUseItem}
           onRegisterChainGear={noopRegisterChainGear}
           onSubmitFishingNftClaimTx={noop}
+          onSubmitMintClubRedemptionTx={noop}
           onCryptoStoreAnalytics={noopCryptoAnalytics}
           onSelectTalent={noopSelectTalent}
           onCloseLootWindow={noop}
           onCloseCryptoStore={noop}
+          onCloseMintClubRedemption={noop}
           onSendChat={noopString}
           onEmote={noopEmote}
           onRespawn={noop}

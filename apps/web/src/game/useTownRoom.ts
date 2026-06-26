@@ -30,6 +30,7 @@ import {
   type ClientShareQuestLink,
   type ClientStartFishing,
   type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
@@ -46,6 +47,7 @@ import {
   type InventoryItemSnapshot,
   type JoinOptions,
   type LootWindow,
+  type MintClubRedemptionResult,
   type NpcSnapshot,
   type PlayerSnapshot,
   type PotionShopPurchaseResult,
@@ -209,6 +211,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [fishingNftCapNotice, setFishingNftCapNotice] = useState<FishingNftCapNotice | null>(null);
   const [fishingNftCatchResult, setFishingNftCatchResult] = useState<FishingNftCatchResult | null>(null);
   const [fishingNftHistoryResult, setFishingNftHistoryResult] = useState<FishingNftHistoryResult | null>(null);
+  const [mintClubRedemptionResult, setMintClubRedemptionResult] = useState<MintClubRedemptionResult | null>(null);
   const [fishingVendorSellResult, setFishingVendorSellResult] = useState<FishingVendorSellResult | null>(null);
   const [seasonReferralRemoveResult, setSeasonReferralRemoveResult] = useState<SeasonReferralRemoveResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
@@ -482,6 +485,9 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("fishingNftHistoryResult", (message: FishingNftHistoryResult) => {
           setFishingNftHistoryResult(message);
         });
+        room.onMessage("mintClubRedemptionResult", (message: MintClubRedemptionResult) => {
+          setMintClubRedemptionResult(message);
+        });
         room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
           setFishingVendorSellResult(message);
         });
@@ -689,6 +695,9 @@ export function useTownRoom(identity: JoinOptions) {
   const sendSubmitFishingNftClaimTx = useCallback((message: ClientSubmitFishingNftClaimTx) => {
     roomRef.current?.send("submitFishingNftClaimTx", message);
   }, []);
+  const sendSubmitMintClubRedemptionTx = useCallback((message: ClientSubmitMintClubRedemptionTx) => {
+    roomRef.current?.send("submitMintClubRedemptionTx", message);
+  }, []);
   const sendSellFishingItems = useCallback((message: ClientSellFishingItems) => {
     roomRef.current?.send("sellFishingItems", message);
   }, []);
@@ -797,6 +806,7 @@ export function useTownRoom(identity: JoinOptions) {
     fishingNftCapNotice,
     fishingNftCatchResult,
     fishingNftHistoryResult,
+    mintClubRedemptionResult,
     fishingVendorSellResult,
     seasonReferralRemoveResult,
     persistenceStatus,
@@ -828,6 +838,7 @@ export function useTownRoom(identity: JoinOptions) {
     sendReelFishing,
     sendCancelFishing,
     sendSubmitFishingNftClaimTx,
+    sendSubmitMintClubRedemptionTx,
     sendSellFishingItems,
     sendRemoveSeasonReferral,
     sendDebugRegisterChainGear,
@@ -1594,10 +1605,43 @@ function parseRuntimeFishingNftCatch(player: Pick<RuntimePlayer, "fishingNftCatc
       error: readAgentCommandText(parsed.error) || undefined,
       metadata: parseRuntimeFishingNftMetadata(parsed.metadata),
       voucher: parseRuntimeFishingNftVoucher(parsed.voucher),
+      mintClubRedemption: parseRuntimeMintClubRedemption(parsed.mintClubRedemption),
     };
   } catch {
     return null;
   }
+}
+
+function parseRuntimeMintClubRedemption(value: unknown): NonNullable<PlayerSnapshot["fishingNftCatch"]>["mintClubRedemption"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const status = parsed.status === "claim_required"
+    || parsed.status === "eligible"
+    || parsed.status === "tx_submitted"
+    || parsed.status === "confirmed"
+    || parsed.status === "failed"
+    ? parsed.status
+    : "";
+  if (!status) return undefined;
+  return {
+    status,
+    walletActionRequired: Boolean(parsed.walletActionRequired),
+    npcId: "onchain-goodies-mfer",
+    chainId: readRuntimeFishingNumber(parsed.chainId),
+    collection: readAgentCommandText(parsed.collection),
+    tokenId: readAgentCommandText(parsed.tokenId),
+    bondAddress: readAgentCommandText(parsed.bondAddress),
+    erc1155Address: readAgentCommandText(parsed.erc1155Address),
+    reserveTokenAddress: readAgentCommandText(parsed.reserveTokenAddress),
+    reserveTokenSymbol: readAgentCommandText(parsed.reserveTokenSymbol) || "WETH",
+    reserveTokenDecimals: readRuntimeFishingNumber(parsed.reserveTokenDecimals) || 18,
+    sellRoyaltyBps: readRuntimeFishingNumber(parsed.sellRoyaltyBps),
+    slippageBps: readRuntimeFishingNumber(parsed.slippageBps),
+    txHash: readAgentCommandText(parsed.txHash) || undefined,
+    error: readAgentCommandText(parsed.error) || undefined,
+    submittedAt: readRuntimeFishingNumber(parsed.submittedAt) || undefined,
+    confirmedAt: readRuntimeFishingNumber(parsed.confirmedAt) || undefined,
+  };
 }
 
 function parseRuntimeFishingNftMetadata(value: unknown): NonNullable<PlayerSnapshot["fishingNftCatch"]>["metadata"] {

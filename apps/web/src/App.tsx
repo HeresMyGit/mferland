@@ -14,6 +14,7 @@ import {
   ITEMS,
   LOANER_FISHING_POLE_ITEM_ID,
   LOOT,
+  MINT_CLUB_REDEMPTION_NPC_ID,
   POTION_SHOP_NPC_ID,
   RESPEC_MFER_NPC_ID,
   SWAP_MFER_NPC_ID,
@@ -282,6 +283,10 @@ function isFishingVendorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnap
 
 function isFishingTutorNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
   return npc?.id === FISHING_TUTOR_NPC_ID;
+}
+
+function isMintClubRedemptionNpc(npc: NpcSnapshot | null | undefined): npc is NpcSnapshot {
+  return npc?.id === MINT_CLUB_REDEMPTION_NPC_ID;
 }
 
 function hasCompletedQuest(player: PlayerSnapshot | null | undefined, questId: string) {
@@ -1255,6 +1260,7 @@ function GameShell({
   const [trashVendorNpcId, setTrashVendorNpcId] = useState<string | null>(null);
   const [fishingSupplyNpcId, setFishingSupplyNpcId] = useState<string | null>(null);
   const [fishingVendorNpcId, setFishingVendorNpcId] = useState<string | null>(null);
+  const [mintClubRedemptionNpcId, setMintClubRedemptionNpcId] = useState<string | null>(null);
   const [respecNpcId, setRespecNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
@@ -1336,6 +1342,10 @@ function GameShell({
   const fishingVendorNpc = useMemo(
     () => fishingVendorNpcId ? room.npcs.get(fishingVendorNpcId) ?? null : null,
     [fishingVendorNpcId, room.npcs, room.snapshotRevision],
+  );
+  const mintClubRedemptionNpc = useMemo(
+    () => mintClubRedemptionNpcId ? room.npcs.get(mintClubRedemptionNpcId) ?? null : null,
+    [mintClubRedemptionNpcId, room.npcs, room.snapshotRevision],
   );
   const respecNpc = useMemo(
     () => respecNpcId ? room.npcs.get(respecNpcId) ?? null : null,
@@ -1434,6 +1444,11 @@ function GameShell({
     trackEvent("fishing_vendor_opened", { npcId: npc.id, npcRole: npc.role });
     room.sendAnalyticsEvent("fishing_vendor_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
+  const openMintClubRedemption = useCallback((npc: NpcSnapshot) => {
+    setMintClubRedemptionNpcId(npc.id);
+    trackEvent("mint_club_redemption_opened", { npcId: npc.id, npcRole: npc.role });
+    room.sendAnalyticsEvent("mint_club_redemption_opened", { npcId: npc.id, npcRole: npc.role });
+  }, [room]);
   const openFishingSupply = useCallback((npc: NpcSnapshot) => {
     setFishingSupplyNpcId(npc.id);
     trackEvent("fishing_supply_opened", { npcId: npc.id, npcRole: npc.role });
@@ -1461,6 +1476,7 @@ function GameShell({
     setTrashVendorNpcId((npcId) => npcId === questNpcId ? null : npcId);
     setFishingSupplyNpcId((npcId) => npcId === questNpcId ? null : npcId);
     setFishingVendorNpcId((npcId) => npcId === questNpcId ? null : npcId);
+    setMintClubRedemptionNpcId((npcId) => npcId === questNpcId ? null : npcId);
     setRespecNpcId((npcId) => npcId === questNpcId ? null : npcId);
     setSwapNpcId((npcId) => npcId === questNpcId ? null : npcId);
     setTraitsNpcId((npcId) => npcId === questNpcId ? null : npcId);
@@ -1478,12 +1494,13 @@ function GameShell({
       if (canOpenFeaturePanel && isTrashVendorNpc(selectedNpc)) openTrashVendor(selectedNpc);
       if (canOpenFeaturePanel && isFishingTutorNpc(selectedNpc) && hasCompletedQuest(localPlayer, "fishin-lesson")) openFishingSupply(selectedNpc);
       if (canOpenFeaturePanel && isFishingVendorNpc(selectedNpc) && hasCompletedQuest(localPlayer, "lost-fishing-shoes")) openFishingVendor(selectedNpc);
+      if (canOpenFeaturePanel && isMintClubRedemptionNpc(selectedNpc)) openMintClubRedemption(selectedNpc);
       if (canOpenFeaturePanel && isRespecMferNpc(selectedNpc)) openRespecPanel(selectedNpc);
       if (canOpenFeaturePanel && isSwapMferNpc(selectedNpc)) openSwapMfer(selectedNpc);
       if (canOpenFeaturePanel && isTraitsMferNpc(selectedNpc)) openTraitsPanel(selectedNpc);
       room.sendInteract({ npcId: selectedNpc.id });
     }
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingSupply, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingSupply, openFishingVendor, openMintClubRedemption, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract]);
   const performInteract = useCallback(() => {
     if (!localPlayer || localPlayer.health <= 0) return;
     const selectedNpc = selectedTarget?.kind === "npc"
@@ -1497,11 +1514,12 @@ function GameShell({
     if (canOpenFeaturePanel && isTrashVendorNpc(nearestNpc)) openTrashVendor(nearestNpc);
     if (canOpenFeaturePanel && isFishingTutorNpc(nearestNpc) && hasCompletedQuest(localPlayer, "fishin-lesson")) openFishingSupply(nearestNpc);
     if (canOpenFeaturePanel && isFishingVendorNpc(nearestNpc) && hasCompletedQuest(localPlayer, "lost-fishing-shoes")) openFishingVendor(nearestNpc);
+    if (canOpenFeaturePanel && isMintClubRedemptionNpc(nearestNpc)) openMintClubRedemption(nearestNpc);
     if (canOpenFeaturePanel && isRespecMferNpc(nearestNpc)) openRespecPanel(nearestNpc);
     if (canOpenFeaturePanel && isSwapMferNpc(nearestNpc)) openSwapMfer(nearestNpc);
     if (canOpenFeaturePanel && isTraitsMferNpc(nearestNpc)) openTraitsPanel(nearestNpc);
     room.sendInteract(nearestNpc ? { npcId: nearestNpc.id } : {});
-  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingSupply, openFishingVendor, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
+  }, [audio, cryptoStoreEnabled, localPlayer, openCryptoStore, openFishingSupply, openFishingVendor, openMintClubRedemption, openPotionShop, openRespecPanel, openSwapMfer, openTraitsPanel, openTrashVendor, room.npcs, room.sendInteract, selectedTarget]);
   const showActionError = useCallback((text: string) => {
     audio.play("uiError");
     actionErrorIdRef.current += 1;
@@ -1993,6 +2011,7 @@ function GameShell({
             selectedTarget={selectedTarget}
             selectedTargetUnit={selectedTargetUnit}
             cryptoStoreNpc={cryptoStoreEnabled ? cryptoStoreNpc : null}
+            mintClubRedemptionNpc={mintClubRedemptionNpc}
             localSessionId={room.sessionId}
             localPlayer={localPlayer ?? null}
             questOffer={room.questOffer}
@@ -2002,6 +2021,7 @@ function GameShell({
             fishingNftCapNotice={room.fishingNftCapNotice}
             fishingNftCatchResult={room.fishingNftCatchResult}
             fishingNftHistoryResult={room.fishingNftHistoryResult}
+            mintClubRedemptionResult={room.mintClubRedemptionResult}
             actionError={actionError}
             moveUnlockNotice={moveUnlockNotices[0] ?? null}
             globalCooldownReadyAt={globalCooldownReadyAt}
@@ -2017,6 +2037,7 @@ function GameShell({
             onDismissQuestStatus={room.dismissQuestStatus}
             onLootCorpse={lootCorpse}
             onSubmitFishingNftClaimTx={room.sendSubmitFishingNftClaimTx}
+            onSubmitMintClubRedemptionTx={room.sendSubmitMintClubRedemptionTx}
             onEquipItem={equipItem}
             onUnequipItem={unequipItem}
             onUseItem={useItem}
@@ -2027,6 +2048,7 @@ function GameShell({
             onRemoveSeasonReferral={room.sendRemoveSeasonReferral}
             onCloseLootWindow={room.closeLootWindow}
             onCloseCryptoStore={() => setCryptoStoreNpcId(null)}
+            onCloseMintClubRedemption={() => setMintClubRedemptionNpcId(null)}
             onSendChat={sendChat}
             onEmote={performEmote}
             onRespawn={respawn}

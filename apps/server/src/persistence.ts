@@ -24,6 +24,7 @@ import {
   normalizeAvatarSeed,
   normalizeMferAppearanceTraits,
   normalizeWalletAddress,
+  type MintClubRedemptionStatus,
   type FishingNftCatchStatus,
   type FishingNftClaimVoucher,
   type FishingNftMetadataSnapshot,
@@ -255,6 +256,11 @@ export type PersistedFishingPondCatch = {
   metadata: FishingNftMetadataSnapshot | null;
   voucher: FishingNftClaimVoucher | null;
   txHash: string;
+  mintClubRedemptionStatus: MintClubRedemptionStatus | "";
+  mintClubRedemptionTxHash: string;
+  mintClubRedemptionError: string;
+  mintClubRedemptionSubmittedAt: Date | null;
+  mintClubRedemptionConfirmedAt: Date | null;
   error: string;
   createdAt: Date;
   updatedAt: Date;
@@ -271,6 +277,13 @@ export type CreateFishingPondCatchRecord = {
   voucher: FishingNftClaimVoucher;
   entryRemainingAmount?: string;
   metadata?: FishingNftMetadataSnapshot | null;
+};
+
+export type MarkMintClubRedemptionRecord = {
+  catchId: string;
+  txHash: string;
+  status: "tx_submitted" | "confirmed";
+  error?: string;
 };
 
 function getRequiredDatabase() {
@@ -900,6 +913,44 @@ export async function markFishingPondCatchExpired(catchId: string) {
   const [row] = await db.update(fishingPondCatches)
     .set({
       status: "expired",
+      updatedAt: new Date(),
+    })
+    .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchMintClubRedemption(record: MarkMintClubRedemptionRecord) {
+  const db = getRequiredDatabase();
+  const now = new Date();
+  const setValues = record.status === "confirmed"
+    ? {
+      mintClubRedemptionStatus: "confirmed",
+      mintClubRedemptionTxHash: record.txHash,
+      mintClubRedemptionError: "",
+      mintClubRedemptionConfirmedAt: now,
+      updatedAt: now,
+    }
+    : {
+      mintClubRedemptionStatus: "tx_submitted",
+      mintClubRedemptionTxHash: record.txHash,
+      mintClubRedemptionError: sanitizeFishingPondMetadataText(record.error, 500),
+      mintClubRedemptionSubmittedAt: now,
+      updatedAt: now,
+    };
+  const [row] = await db.update(fishingPondCatches)
+    .set(setValues)
+    .where(eq(fishingPondCatches.catchId, record.catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchMintClubRedemptionFailed(catchId: string, error: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      mintClubRedemptionStatus: "failed",
+      mintClubRedemptionError: sanitizeFishingPondMetadataText(error, 500),
       updatedAt: new Date(),
     })
     .where(eq(fishingPondCatches.catchId, catchId))
@@ -2068,6 +2119,11 @@ function mapFishingPondCatchRow(row: typeof fishingPondCatches.$inferSelect): Pe
     metadata: normalizeFishingPondMetadata(row),
     voucher: normalizeFishingPondVoucher(row.voucherJson),
     txHash: row.txHash,
+    mintClubRedemptionStatus: normalizeMintClubRedemptionStatus(row.mintClubRedemptionStatus),
+    mintClubRedemptionTxHash: row.mintClubRedemptionTxHash,
+    mintClubRedemptionError: row.mintClubRedemptionError,
+    mintClubRedemptionSubmittedAt: row.mintClubRedemptionSubmittedAt,
+    mintClubRedemptionConfirmedAt: row.mintClubRedemptionConfirmedAt,
     error: row.error,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -2104,6 +2160,19 @@ function normalizeFishingPondCatchStatus(value: string): FishingNftCatchStatus {
     return value;
   }
   return "failed";
+}
+
+function normalizeMintClubRedemptionStatus(value: string): MintClubRedemptionStatus | "" {
+  if (
+    value === "claim_required"
+    || value === "eligible"
+    || value === "tx_submitted"
+    || value === "confirmed"
+    || value === "failed"
+  ) {
+    return value;
+  }
+  return "";
 }
 
 function normalizeFishingPondStandard(value: string): FishingNftTokenStandard {

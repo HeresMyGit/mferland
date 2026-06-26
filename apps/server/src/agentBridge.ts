@@ -8059,7 +8059,32 @@ function describeFishingNftCatchForAgent(catchRecord: AnyRecord | null) {
     txHash: getString(catchRecord.txHash),
     error: getString(catchRecord.error),
     metadata: describeFishingNftMetadataForAgent(asRecord(catchRecord.metadata)),
+    mintClubRedemption: describeMintClubRedemptionForAgent(asRecord(catchRecord.mintClubRedemption)),
   };
+}
+
+function describeMintClubRedemptionForAgent(redemption: AnyRecord | null) {
+  if (!redemption) return null;
+  const record = {
+    status: getString(redemption.status),
+    walletActionRequired: Boolean(redemption.walletActionRequired),
+    npcId: getString(redemption.npcId),
+    chainId: getNumber(redemption.chainId),
+    collection: getString(redemption.collection),
+    tokenId: getString(redemption.tokenId),
+    bondAddress: getString(redemption.bondAddress),
+    erc1155Address: getString(redemption.erc1155Address),
+    reserveTokenAddress: getString(redemption.reserveTokenAddress),
+    reserveTokenSymbol: getString(redemption.reserveTokenSymbol),
+    reserveTokenDecimals: getNumber(redemption.reserveTokenDecimals),
+    sellRoyaltyBps: getNumber(redemption.sellRoyaltyBps),
+    slippageBps: getNumber(redemption.slippageBps),
+    txHash: getString(redemption.txHash),
+    error: getString(redemption.error),
+    submittedAt: getNumber(redemption.submittedAt),
+    confirmedAt: getNumber(redemption.confirmedAt),
+  };
+  return record.status ? record : null;
 }
 
 function describeFishingNftMetadataForAgent(metadata: AnyRecord | null) {
@@ -8575,11 +8600,14 @@ function buildAgentCommandFishingRecap(
   const dailyResetAt = getNumber(capNotice?.dailyResetAt) || getFishingNftDailyResetAt();
   const pendingWalletActionCount = catches.filter((entry) => Boolean(entry.walletActionRequired)).length;
   const confirmedCount = catches.filter((entry) => getString(entry.status) === "confirmed").length;
+  const mintClubReadyCount = catches.filter((entry) => getString(asRecord(entry.mintClubRedemption)?.status) === "eligible").length;
+  const mintClubSoldCount = catches.filter((entry) => getString(asRecord(entry.mintClubRedemption)?.status) === "confirmed").length;
   const nftCatchCount = catches.length;
   const outcomeCounts = { ...stats.outcomeCounts };
   const parts = [
     stats.resultCount > 0 ? `${stats.resultCount} fishing reel${stats.resultCount === 1 ? "" : "s"}` : "",
     nftCatchCount > 0 ? `${nftCatchCount} NFT catch${nftCatchCount === 1 ? "" : "es"} (${confirmedCount} confirmed${pendingWalletActionCount > 0 ? `, ${pendingWalletActionCount} need wallet` : ""})` : "",
+    mintClubReadyCount > 0 ? `${mintClubReadyCount} Mint Club goodie${mintClubReadyCount === 1 ? "" : "s"} ready` : "",
     pondEnabled && perWalletDailyCap > 0 ? `${walletDailyRemaining}/${perWalletDailyCap} NFT catches remaining today` : "",
   ].filter(Boolean);
   return {
@@ -8589,6 +8617,8 @@ function buildAgentCommandFishingRecap(
     nftCatchCount,
     nftConfirmedCount: confirmedCount,
     nftWalletActionRequiredCount: pendingWalletActionCount,
+    mintClubRedemptionReadyCount: mintClubReadyCount,
+    mintClubRedemptionSoldCount: mintClubSoldCount,
     nftCatches: catches.slice(-8),
     pond: {
       enabled: pondEnabled,

@@ -586,6 +586,18 @@ export type ClientSubmitFishingNftClaimTx = {
   txHash: string;
 };
 
+export type ClientSubmitMintClubRedemptionTx = {
+  catchId: string;
+  txHash: string;
+  status?: "tx_submitted" | "confirmed";
+};
+
+export type MintClubRedemptionResult = {
+  ok: boolean;
+  catch: FishingNftCatchSnapshot | null;
+  error?: string;
+};
+
 export type ClientSellFishingItems = {
   itemId?: FishingSellableItemId;
   quantity?: number;
@@ -666,6 +678,7 @@ export type AgentObservation = {
     | "reelFishing"
     | "cancelFishing"
     | "submitFishingNftClaimTx"
+    | "submitMintClubRedemptionTx"
     | "sellFishingItems"
     | "purchaseFishingSupply"
     | "selectTalent"

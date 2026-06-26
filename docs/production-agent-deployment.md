@@ -78,13 +78,42 @@ MFERLAND_FISHING_POND_AWARD_SIGNER_PRIVATE_KEY="0x..."
 MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS="0x...,0x..."
 MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="500"
 MFERLAND_FISHING_POND_VOUCHER_TTL_SECONDS="900"
+
+MFERLAND_MINT_CLUB_REDEMPTION_ENABLED="true"
+MFERLAND_MINT_CLUB_REDEMPTION_CHAIN_ID="84532"
+MFERLAND_MINT_CLUB_REDEMPTION_RPC_URL="https://sepolia.base.org"
+MFERLAND_MINT_CLUB_REDEMPTION_BOND_ADDRESS="0x5dfA75b0185efBaEF286E80B847ce84ff8a62C2d"
+MFERLAND_MINT_CLUB_REDEMPTION_ERC1155_ADDRESS="0x4bF67e5C9baD43DD89dbe8fCAD3c213C868fe881"
+MFERLAND_MINT_CLUB_REDEMPTION_RESERVE_TOKEN_ADDRESS="0x4200000000000000000000000000000000000006"
+MFERLAND_MINT_CLUB_REDEMPTION_ALLOWED_COLLECTIONS="0x..."
 ```
 
 Persist production pond env in the live repo root `.env` on the Mac mini. `npm run start -w @mferland/server` loads that file through `node --env-file-if-exists=../../.env`; the launchd plist only supplies generic server env such as `HOST` and `MFERLAND_SERVE_WEB_DIST`.
 
+The Mint Club values above are the Base Sepolia rehearsal defaults. For Base mainnet launch, replace the chain id, RPC URL, Bond/ERC-1155 addresses, reserve token, and redemption allowlist with the final production Mint Club collection values.
+
+Base Sepolia Mint Club rehearsal helper:
+
+```sh
+# Dry-run: prints wallet, predicted collection, curve, and game env.
+npm run fishing:pond:mint-club:base-sepolia
+
+# Live run after the disposable wallet has Base Sepolia ETH and metadata is hosted.
+export FILEBASE_API_KEY="..." # uploads assets/mint-club-test/glass-spiral-cube.png and metadata to IPFS
+# or export MINT_CLUB_TEST_METADATA_URL="ipfs://..."
+export MFERLAND_FISHING_POND_CONTRACT_ADDRESS="0x..." # optional; if set, deposits into this pond
+npm run fishing:pond:mint-club:base-sepolia -- --execute
+```
+
+The helper creates a Base Sepolia Mint Club ERC-1155 at token id `0`, max supply `25`, WETH reserve, linear curve, and default Mint Club NFT royalties of `3%` mint plus `3%` sell/burn. It wraps a small amount of Base Sepolia ETH to WETH, mints the supply, approves/deposits a few ERC-1155 units into the pond when a pond address is supplied, then prints the catch allowlist and Mint Club redemption allowlist env values for the game server.
+
 Do not set `MFERLAND_DEBUG_FISHING_NFT_GATE` on production. Use a dedicated award signer; do not reuse deployer, admin, treasury, or agent wallet keys. Production-like runtimes require `MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS` to be non-empty before the server can issue pond vouchers. Deposits can still be open onchain, but the server only awards from allowlisted collections.
 
-That server award allowlist is separate from the stash/display mapping. `MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS` controls which deposited collections can be fished up. `FISHING_NFT_GAME_ITEM_MAPPINGS` in shared code controls whether a caught NFT is promoted to a usable/sellable/equippable/redeemable stash item. That mapping is intentionally empty for v1 launch, so caught NFTs show in the stash pond tab and history only.
+That server award allowlist is separate from the stash/display mapping and Mint Club redemption allowlist:
+
+- `MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS` controls which deposited collections can be fished up.
+- `FISHING_NFT_GAME_ITEM_MAPPINGS` in shared code controls whether a caught NFT is promoted to a usable/sellable/equippable/redeemable stash item. That mapping is intentionally empty for v1 launch, so caught NFTs show in the stash pond tab and history only.
+- `MFERLAND_MINT_CLUB_REDEMPTION_ALLOWED_COLLECTIONS` controls which confirmed ERC-1155 pond catches appear at `onchain-goodies-mfer` for Mint Club sell/burn. The UI still checks live wallet ownership, approval, token bond, reserve token, and sell estimate before prompting a transaction.
 
 The current v1 server config expects `MFERLAND_FISHING_POND_AWARD_SIGNER_PRIVATE_KEY`. If the launch needs KMS, Bankr API, or `AGENT_SIGNER_COMMAND`-style custody for pond vouchers, stop before live enablement and implement that signer adapter first.
 
@@ -168,6 +197,7 @@ Agent playbook:
 - Send `startFishing`, wait for observed fishing state `bite`, then send `reelFishing` before the bite expires.
 - Collect normal fish/junk loot windows with `lootCorpse`.
 - If an NFT catch appears, read the `fishingNftCatch` observation and wallet-action metadata, sign the `FishingPond.claim` transaction with the agent-controlled wallet, then send `submitFishingNftClaimTx` with `{ catchId, txHash }`.
+- If a confirmed catch includes `mintClubRedemption`, external wallet tooling may approve the Mint Club Bond, sell/burn one ERC-1155 unit, then send `submitMintClubRedemptionTx` with `{ catchId, txHash, status: "confirmed" }`. The server only records confirmation after the Mint Club `Burn` event matches the catch.
 - If the wallet hits the daily NFT cap, continue regular fishing; the cap only stops pond NFT awards.
 
 Declared agents have reduced fishing odds: normal non-quest reels get an extra 50% miss roll, rare fish chance is multiplied by `0.5`, and NFT pond chance is multiplied by `0.5`.
@@ -180,13 +210,14 @@ Live admin list:
 2. Choose the contract admin owner, preferably multisig or hardware-backed.
 3. Choose the dedicated award signer and custody path. This is different from the admin owner; it signs catch vouchers only.
 4. Choose the initial mint.club prize collection allowlist.
-5. Choose launch catch chance, wallet cap, global cap, and voucher TTL. Current defaults are `500` bps, wallet cap `3`, global cap `50`, and TTL `900` seconds.
-6. Approve open deposits with server-side award curation, or request a stricter contract policy before launch.
-7. Approve the first live prize batch and deposit plan.
-8. Fund any deployer/admin signer needed for Base transactions.
-9. Pick the launch window and monitoring owner.
-10. Decide whether NFT eligibility requires MFERGPT holding or a burned/onchain fishing pole before launch.
-11. Let Codex run migrations, builds, contract verification, env checks, local and production smoke tests, catalog/docs updates, and log monitoring after the values are known.
+5. Choose the Mint Club redemption allowlist. It can match the prize allowlist, but it is a separate env value.
+6. Choose launch catch chance, wallet cap, global cap, and voucher TTL. Current defaults are `500` bps, wallet cap `3`, global cap `50`, and TTL `900` seconds.
+7. Approve open deposits with server-side award curation, or request a stricter contract policy before launch.
+8. Approve the first live prize batch and deposit plan.
+9. Fund any deployer/admin signer needed for Base transactions.
+10. Pick the launch window and monitoring owner.
+11. Decide whether NFT eligibility requires MFERGPT holding or a burned/onchain fishing pole before launch.
+12. Let Codex run migrations, builds, contract verification, env checks, local and production smoke tests, catalog/docs updates, and log monitoring after the values are known.
 
 Live smoke after deploy:
 
@@ -196,7 +227,7 @@ curl -fsS https://game.mfergpt.lol/agent-catalog | jq '.fishing.pond'
 curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x0000000000000000000000000000000000000000"
 ```
 
-For the first real pond session, keep a small allowlist and cap, deposit low-value mint.club NFTs, run one human claim and one declared-agent fishing pass, then check the `FishingPond.CatchClaimed` event and server catch history before raising caps or adding more collections.
+For the first real pond session, keep a small allowlist and cap, deposit low-value mint.club NFTs, run one human claim and one declared-agent fishing pass, then check the `FishingPond.CatchClaimed` event and server catch history before raising caps or adding more collections. For Mint Club-enabled ERC-1155 catches, also open `onchain-goodies-mfer`, confirm the UI shows image/name/description, owned amount, approval state, WETH refund estimate, 3% sell royalty, min return, and contract links, then sell/burn one item and verify the server recorded the matching Mint Club `Burn` event.
 
 The default `500` bps catch chance can make the first human smoke noisy. For a monitored launch smoke only, temporarily set `MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="10000"` in the live root `.env`, restart, complete one low-value human test claim, then restore the launch value and restart again. This uses the normal production config path and does not require `MFERLAND_DEBUG_FISHING_NFT_GATE`. Declared agents still apply the intended 50% NFT catch multiplier, so an agent NFT claim may need multiple completed reels; a declared-agent fishing pass is enough to prove the agent playbook if a claim is not required.
 
@@ -207,7 +238,7 @@ cast logs \
   "CatchClaimed(bytes32,address,uint256,uint8,address,uint256,uint256,uint256)" \
   --from-block "$DEPLOY_BLOCK"
 
-psql "$DATABASE_URL" -c "select catch_id, wallet_address, status, token_standard, collection_address, token_id, pond_entry_id, tx_hash, error, created_at, updated_at from fishing_pond_catches order by updated_at desc limit 20;"
+psql "$DATABASE_URL" -c "select catch_id, wallet_address, status, token_standard, collection_address, token_id, pond_entry_id, tx_hash, mint_club_redemption_status, mint_club_redemption_tx_hash, error, created_at, updated_at from fishing_pond_catches order by updated_at desc limit 20;"
 ```
 
 Rollback or pause issuance:

@@ -216,6 +216,11 @@ export const fishingPondCatches = pgTable("fishing_pond_catches", {
   metadataUri: text("metadata_uri").notNull().default(""),
   voucherJson: jsonb("voucher_json").$type<Record<string, unknown>>().notNull().default({}),
   txHash: text("tx_hash").notNull().default(""),
+  mintClubRedemptionStatus: text("mint_club_redemption_status").notNull().default(""),
+  mintClubRedemptionTxHash: text("mint_club_redemption_tx_hash").notNull().default(""),
+  mintClubRedemptionError: text("mint_club_redemption_error").notNull().default(""),
+  mintClubRedemptionSubmittedAt: timestamp("mint_club_redemption_submitted_at", { withTimezone: true }),
+  mintClubRedemptionConfirmedAt: timestamp("mint_club_redemption_confirmed_at", { withTimezone: true }),
   error: text("error").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -226,6 +231,7 @@ export const fishingPondCatches = pgTable("fishing_pond_catches", {
   index("fishing_pond_catches_wallet_idx").on(table.walletAddress, table.createdAt),
   index("fishing_pond_catches_status_idx").on(table.status, table.createdAt),
   index("fishing_pond_catches_tx_hash_idx").on(table.chainId, table.txHash),
+  index("fishing_pond_catches_mint_club_tx_hash_idx").on(table.chainId, table.mintClubRedemptionTxHash),
 ]);
 
 export const agentCommandUsage = pgTable("agent_command_usage", {

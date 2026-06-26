@@ -25,6 +25,7 @@ import {
   type ClientInput,
   type ClientRemoveSeasonReferral,
   type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type CombatEvent,
   type CombatActionId,
   type EquipmentSlotId,
@@ -347,6 +348,7 @@ export class MferlandAgentClient {
         "reelFishing",
         "cancelFishing",
         "submitFishingNftClaimTx",
+        "submitMintClubRedemptionTx",
         "sellFishingItems",
         "selectTalent",
         "updateTraits",
@@ -686,6 +688,10 @@ export class MferlandAgentClient {
 
   submitFishingNftClaimTx(message: ClientSubmitFishingNftClaimTx) {
     this.room?.send("submitFishingNftClaimTx", message);
+  }
+
+  submitMintClubRedemptionTx(message: ClientSubmitMintClubRedemptionTx) {
+    this.room?.send("submitMintClubRedemptionTx", message);
   }
 
   async sellFishingItems(options: { itemId?: FishingSellableItemId; quantity?: number; sellAll?: boolean } = {}) {
@@ -1640,10 +1646,43 @@ function parseRuntimeFishingNftCatch(player: Pick<RuntimePlayer, "fishingNftCatc
       txHash: typeof parsed.txHash === "string" ? parsed.txHash : undefined,
       error: typeof parsed.error === "string" ? parsed.error : undefined,
       metadata: parseRuntimeFishingNftMetadata(parsed.metadata),
+      mintClubRedemption: parseRuntimeMintClubRedemption(parsed.mintClubRedemption),
     };
   } catch {
     return null;
   }
+}
+
+function parseRuntimeMintClubRedemption(value: unknown): FishingNftCatchSnapshot["mintClubRedemption"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const status = parsed.status === "claim_required"
+    || parsed.status === "eligible"
+    || parsed.status === "tx_submitted"
+    || parsed.status === "confirmed"
+    || parsed.status === "failed"
+    ? parsed.status
+    : "";
+  if (!status) return undefined;
+  return {
+    status,
+    walletActionRequired: Boolean(parsed.walletActionRequired),
+    npcId: "onchain-goodies-mfer",
+    chainId: readRuntimeFishingNumber(parsed.chainId),
+    collection: readAgentCommandText(parsed.collection),
+    tokenId: readAgentCommandText(parsed.tokenId),
+    bondAddress: readAgentCommandText(parsed.bondAddress),
+    erc1155Address: readAgentCommandText(parsed.erc1155Address),
+    reserveTokenAddress: readAgentCommandText(parsed.reserveTokenAddress),
+    reserveTokenSymbol: readAgentCommandText(parsed.reserveTokenSymbol) || "WETH",
+    reserveTokenDecimals: readRuntimeFishingNumber(parsed.reserveTokenDecimals) || 18,
+    sellRoyaltyBps: readRuntimeFishingNumber(parsed.sellRoyaltyBps),
+    slippageBps: readRuntimeFishingNumber(parsed.slippageBps),
+    txHash: typeof parsed.txHash === "string" ? parsed.txHash : undefined,
+    error: typeof parsed.error === "string" ? parsed.error : undefined,
+    submittedAt: readRuntimeFishingNumber(parsed.submittedAt) || undefined,
+    confirmedAt: readRuntimeFishingNumber(parsed.confirmedAt) || undefined,
+  };
 }
 
 function parseRuntimeFishingNftMetadata(value: unknown): FishingNftCatchSnapshot["metadata"] {

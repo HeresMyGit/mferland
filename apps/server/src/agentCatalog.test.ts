@@ -27,7 +27,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.quests, ["acceptQuest", "completeQuest", "cancelQuest"]);
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
-  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "submitFishingNftClaimTx", "sellFishingItems", "purchaseFishingSupply"]);
+  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "submitFishingNftClaimTx", "submitMintClubRedemptionTx", "sellFishingItems", "purchaseFishingSupply"]);
   assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents", "removeSeasonReferral"]);
   assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "purchaseFishingSupply", "respecTalents", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
@@ -42,6 +42,7 @@ test("agent catalog documents normal player menu controls", () => {
     "mintSeasonPassWithMfer",
     "mintSeasonPassWithMferGpt",
     "claimFishingPondNft",
+    "sellMintClubPondNft",
     "burnMferGptForPaymentProof",
   ]);
   assert.deepEqual(catalog.controls.localClientPreferences, [
@@ -66,9 +67,10 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.menus.respec.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.trashVendor.controls, ["sellTrashItems"]);
   assert.equal(catalog.menus.trashVendor.paidControlRequiresPaymentProof, false);
-  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "submitFishingNftClaimTx", "purchaseFishingSupply", "sellFishingItems"]);
+  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "submitFishingNftClaimTx", "submitMintClubRedemptionTx", "purchaseFishingSupply", "sellFishingItems"]);
   assert.equal(catalog.menus.fishing.tutorNpcId, "motherfisher");
   assert.equal(catalog.menus.fishing.vendorNpcId, "fish-monger");
+  assert.equal(catalog.menus.fishing.redemptionNpcId, "onchain-goodies-mfer");
   assert.equal(catalog.menus.fishing.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.traits.controls, ["selectTraitCategory", "setTrait", "clearTrait", "randomizeTraits", "updateTraits"]);
   assert.equal(catalog.menus.traits.paidControlRequiresPaymentProof, true);
@@ -133,12 +135,18 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.fishing.zone.id, "south-center-pond");
   assert.equal(catalog.fishing.tutorNpcId, "motherfisher");
   assert.equal(catalog.fishing.vendorNpcId, "fish-monger");
+  assert.equal(catalog.fishing.redemptionNpcId, "onchain-goodies-mfer");
   assert.deepEqual(catalog.fishing.controls.cast, { message: "startFishing", shape: { zoneId: "south-center-pond" } });
   assert.deepEqual(catalog.fishing.controls.buyChum, { message: "purchaseFishingSupply", shape: { payment: "MFERGPT burn proof for bucket of old chum" } });
   assert.deepEqual(catalog.fishing.controls.lootCatch, { message: "lootCorpse", shape: { npcId: "lootWindow.npcId from a fishing lootWindow" } });
+  assert.equal(catalog.fishing.controls.submitMintClubRedemptionTx.message, "submitMintClubRedemptionTx");
   assert.match(catalog.fishing.catchLootNote, /source=fishing/);
   assert.ok(catalog.fishing.playbook.some((step) => step.includes("startFishing")));
   assert.ok(catalog.fishing.playbook.some((step) => step.includes("submitFishingNftClaimTx")));
+  assert.ok(catalog.fishing.playbook.some((step) => step.includes("submitMintClubRedemptionTx")));
+  assert.equal(catalog.fishing.mintClubRedemption.npcId, "onchain-goodies-mfer");
+  assert.equal(catalog.fishing.mintClubRedemption.chainId, 84532);
+  assert.equal(catalog.fishing.mintClubRedemption.reserveTokenSymbol, "WETH");
   assert.equal(catalog.fishing.chum.price.amountWei, "5000000000000000000000000");
   assert.deepEqual(catalog.fishing.agentCatchPenalty, {
     reason: "fish can smell the metal",
