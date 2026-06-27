@@ -1160,13 +1160,30 @@ button.quest-row {
 
 .fishing-nft-prize-icon {
   display: grid;
+  position: relative;
   place-items: center;
   width: 36px;
   height: 36px;
-  border: 1px solid rgba(86, 207, 255, 0.55);
+  overflow: hidden;
+  border: 2px solid #f4c64f;
   border-radius: 6px;
-  color: #56cfff;
-  background: rgba(86, 207, 255, 0.12);
+  color: #ffe79a;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 221, 0.42), transparent 34%),
+    linear-gradient(145deg, rgba(255, 226, 129, 0.38), rgba(108, 67, 13, 0.4));
+  box-shadow:
+    0 0 0 1px rgba(75, 42, 6, 0.9),
+    0 0 14px rgba(255, 204, 73, 0.42),
+    inset 0 0 10px rgba(255, 246, 185, 0.22);
+}
+
+.fishing-nft-prize-icon::after {
+  position: absolute;
+  inset: 2px;
+  pointer-events: none;
+  content: "";
+  border: 1px solid rgba(255, 244, 185, 0.58);
+  border-radius: 4px;
 }
 
 .fishing-nft-prize-icon img {
