@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type ClientAcceptQuest,
   type ClientAgentStatus,
+  type ClientAbandonFishingNftCatch,
   type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
@@ -20,6 +21,7 @@ import {
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
   type ClientPurchaseFishingSupply,
+  type ClientPurchaseOnchainFishingRod,
   type ClientRegisterChainGear,
   type ClientReelFishing,
   type ClientRemoveSeasonReferral,
@@ -48,6 +50,7 @@ import {
   type JoinOptions,
   type LootWindow,
   type MintClubRedemptionResult,
+  type OnchainFishingRodMintResult,
   type NpcSnapshot,
   type PlayerSnapshot,
   type PotionShopPurchaseResult,
@@ -212,6 +215,7 @@ export function useTownRoom(identity: JoinOptions) {
   const [fishingNftCatchResult, setFishingNftCatchResult] = useState<FishingNftCatchResult | null>(null);
   const [fishingNftHistoryResult, setFishingNftHistoryResult] = useState<FishingNftHistoryResult | null>(null);
   const [mintClubRedemptionResult, setMintClubRedemptionResult] = useState<MintClubRedemptionResult | null>(null);
+  const [onchainFishingRodMintResult, setOnchainFishingRodMintResult] = useState<OnchainFishingRodMintResult | null>(null);
   const [fishingVendorSellResult, setFishingVendorSellResult] = useState<FishingVendorSellResult | null>(null);
   const [seasonReferralRemoveResult, setSeasonReferralRemoveResult] = useState<SeasonReferralRemoveResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
@@ -488,6 +492,9 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("mintClubRedemptionResult", (message: MintClubRedemptionResult) => {
           setMintClubRedemptionResult(message);
         });
+        room.onMessage("onchainFishingRodMintResult", (message: OnchainFishingRodMintResult) => {
+          setOnchainFishingRodMintResult(message);
+        });
         room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
           setFishingVendorSellResult(message);
         });
@@ -677,6 +684,9 @@ export function useTownRoom(identity: JoinOptions) {
   const sendPurchaseFishingSupply = useCallback((message: ClientPurchaseFishingSupply) => {
     roomRef.current?.send("purchaseFishingSupply", message);
   }, []);
+  const sendPurchaseOnchainFishingRod = useCallback((message: ClientPurchaseOnchainFishingRod = {}) => {
+    roomRef.current?.send("purchaseOnchainFishingRod", message);
+  }, []);
   const sendRespecTalents = useCallback((message: ClientRespecTalents) => {
     roomRef.current?.send("respecTalents", message);
   }, []);
@@ -695,8 +705,14 @@ export function useTownRoom(identity: JoinOptions) {
   const sendSubmitFishingNftClaimTx = useCallback((message: ClientSubmitFishingNftClaimTx) => {
     roomRef.current?.send("submitFishingNftClaimTx", message);
   }, []);
+  const sendAbandonFishingNftCatch = useCallback((message: ClientAbandonFishingNftCatch) => {
+    roomRef.current?.send("abandonFishingNftCatch", message);
+  }, []);
   const sendSubmitMintClubRedemptionTx = useCallback((message: ClientSubmitMintClubRedemptionTx) => {
     roomRef.current?.send("submitMintClubRedemptionTx", message);
+  }, []);
+  const sendRefreshFishingNftHistory = useCallback(() => {
+    roomRef.current?.send("refreshFishingNftHistory", {});
   }, []);
   const sendSellFishingItems = useCallback((message: ClientSellFishingItems) => {
     roomRef.current?.send("sellFishingItems", message);
@@ -807,6 +823,7 @@ export function useTownRoom(identity: JoinOptions) {
     fishingNftCatchResult,
     fishingNftHistoryResult,
     mintClubRedemptionResult,
+    onchainFishingRodMintResult,
     fishingVendorSellResult,
     seasonReferralRemoveResult,
     persistenceStatus,
@@ -832,13 +849,16 @@ export function useTownRoom(identity: JoinOptions) {
     sendRegisterChainGear,
     sendPurchasePotionShopItem,
     sendPurchaseFishingSupply,
+    sendPurchaseOnchainFishingRod,
     sendRespecTalents,
     sendSellTrashItems,
     sendStartFishing,
     sendReelFishing,
     sendCancelFishing,
     sendSubmitFishingNftClaimTx,
+    sendAbandonFishingNftCatch,
     sendSubmitMintClubRedemptionTx,
+    sendRefreshFishingNftHistory,
     sendSellFishingItems,
     sendRemoveSeasonReferral,
     sendDebugRegisterChainGear,
@@ -1684,6 +1704,7 @@ function readRuntimeFishingNftCatchStatus(value: unknown): NonNullable<PlayerSna
     || value === "confirmed"
     || value === "expired"
     || value === "failed"
+    || value === "abandoned"
     ? value
     : "";
 }

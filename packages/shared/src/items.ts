@@ -145,6 +145,14 @@ export const ITEMS = {
     iconColor: "#78b5d6",
     stackable: false,
   },
+  "onchain-fishing-rod": {
+    id: "onchain-fishing-rod",
+    name: "onchain fishing rod",
+    description: "wallet-held rod for hooking onchain goodies from the pond. regular fish do not care about it.",
+    quality: "rare",
+    iconColor: "#7fdbb6",
+    stackable: false,
+  },
   "old-mfer-shoe": {
     id: "old-mfer-shoe",
     name: "old mfer shoe",

@@ -51,6 +51,7 @@ const ITEM_ICON_SOURCES = {
   "dummy-splinter": `${ICON_ROOT}/items/dummy-splinter.png`,
   "fishing-pole": `${ICON_ROOT}/items/fishing-pole.png`,
   "loaner-fishing-pole": `${ICON_ROOT}/items/loaner-fishing-pole.png`,
+  "onchain-fishing-rod": `${ICON_ROOT}/items/fishing-pole.png`,
   "old-mfer-shoe": `${ICON_ROOT}/items/old-mfer-shoe.png`,
   "bucket-of-old-chum": `${ICON_ROOT}/items/bucket-of-old-chum.png`,
   "reply-gill-minnow": `${ICON_ROOT}/items/reply-gill-minnow.png`,

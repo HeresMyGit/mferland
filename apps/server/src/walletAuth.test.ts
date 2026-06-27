@@ -350,6 +350,53 @@ test("TownRoom.onAuth allows unsigned wallet joins for local-only development", 
   }
 });
 
+test("TownRoom.onAuth allows configured local debug wallet joins in development", async () => {
+  const previousInviteGate = process.env.MFERLAND_ENABLE_INVITE_GATE;
+  const previousRequireInvite = process.env.MFERLAND_REQUIRE_INVITE;
+  const previousInviteCode = process.env.MFERLAND_INVITE_CODE;
+  const previousLocalOnly = process.env.MFERLAND_LOCAL_ONLY;
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousLocalDebugBypass = process.env.MFERLAND_LOCAL_DEBUG_AUTH_BYPASS;
+  const previousLocalDebugWallet = process.env.MFERLAND_LOCAL_DEBUG_WALLET_ADDRESS;
+  const previousLocalDebugWallets = process.env.MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES;
+  delete process.env.MFERLAND_ENABLE_INVITE_GATE;
+  delete process.env.MFERLAND_REQUIRE_INVITE;
+  delete process.env.MFERLAND_INVITE_CODE;
+  delete process.env.MFERLAND_LOCAL_ONLY;
+  delete process.env.MFERLAND_LOCAL_DEBUG_WALLET_ADDRESS;
+  process.env.NODE_ENV = "development";
+  process.env.MFERLAND_LOCAL_DEBUG_AUTH_BYPASS = "1";
+
+  try {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const otherAccount = privateKeyToAccount(generatePrivateKey());
+    process.env.MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES = account.address;
+    const room = new TownRoom();
+    assert.equal(await room.onAuth({} as never, {
+      identityType: "wallet",
+      walletAddress: account.address,
+    }), true);
+    await assert.rejects(
+      () => room.onAuth({} as never, {
+        identityType: "wallet",
+        walletAddress: otherAccount.address,
+      }),
+      (error: unknown) => error instanceof ServerError
+        && error.code === ErrorCode.AUTH_FAILED
+        && error.message === "wallet signature required",
+    );
+  } finally {
+    restoreEnv("MFERLAND_ENABLE_INVITE_GATE", previousInviteGate);
+    restoreEnv("MFERLAND_REQUIRE_INVITE", previousRequireInvite);
+    restoreEnv("MFERLAND_INVITE_CODE", previousInviteCode);
+    restoreEnv("MFERLAND_LOCAL_ONLY", previousLocalOnly);
+    restoreEnv("NODE_ENV", previousNodeEnv);
+    restoreEnv("MFERLAND_LOCAL_DEBUG_AUTH_BYPASS", previousLocalDebugBypass);
+    restoreEnv("MFERLAND_LOCAL_DEBUG_WALLET_ADDRESS", previousLocalDebugWallet);
+    restoreEnv("MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES", previousLocalDebugWallets);
+  }
+});
+
 function restoreEnv(key: string, value: string | undefined) {
   if (value === undefined) {
     delete process.env[key];

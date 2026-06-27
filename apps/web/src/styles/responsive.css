@@ -415,7 +415,16 @@
     max-height: 180px;
   }
 
-  .mint-club-redemption-stats {
+  .mint-club-selected-goodie {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .mint-club-selected-icon {
+    width: 56px;
+    height: 56px;
+  }
+
+  .mint-club-step-rail {
     grid-template-columns: minmax(0, 1fr);
   }
 

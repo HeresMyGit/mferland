@@ -7,6 +7,8 @@ import type { TrashVendorItemId } from "./trashVendor.js";
 import type {
   FishingCatchItemId,
   FishingNftCatchSnapshot,
+  OnchainFishingRodRequirementSnapshot,
+  FishingWalletNftSnapshot,
   FishingSellableItemId,
   FishingState,
   FishingZoneId,
@@ -578,12 +580,33 @@ export type FishingNftCatchResult = {
 export type FishingNftHistoryResult = {
   ok: boolean;
   catches: FishingNftCatchSnapshot[];
+  walletNfts?: FishingWalletNftSnapshot[];
+  rodRequirement?: OnchainFishingRodRequirementSnapshot;
+  error?: string;
+};
+
+export type ClientPurchaseOnchainFishingRod = Record<string, never>;
+
+export type OnchainFishingRodMintResult = {
+  ok: boolean;
+  walletNft: FishingWalletNftSnapshot | null;
+  chainId: number;
+  contractAddress: string;
+  paymentAmountWei: string;
+  paymentRequired: boolean;
+  paymentTxHash?: string;
+  mintTxHash?: string;
+  alreadyOwned?: boolean;
   error?: string;
 };
 
 export type ClientSubmitFishingNftClaimTx = {
   catchId: string;
   txHash: string;
+};
+
+export type ClientAbandonFishingNftCatch = {
+  catchId: string;
 };
 
 export type ClientSubmitMintClubRedemptionTx = {
@@ -677,10 +700,13 @@ export type AgentObservation = {
     | "startFishing"
     | "reelFishing"
     | "cancelFishing"
+    | "refreshFishingNftHistory"
     | "submitFishingNftClaimTx"
+    | "abandonFishingNftCatch"
     | "submitMintClubRedemptionTx"
     | "sellFishingItems"
     | "purchaseFishingSupply"
+    | "purchaseOnchainFishingRod"
     | "selectTalent"
     | "updateTraits"
     | "respecTalents"

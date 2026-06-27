@@ -8,6 +8,7 @@ import {
   COMBAT,
   FISHING_POLE_ITEM_ID,
   FISHING_SELLABLE_ITEM_IDS,
+  FISHING_TUTOR_NPC_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
   ITEMS,
@@ -438,6 +439,8 @@ const ACTIONS = [
   "start_fishing",
   "reel_fishing",
   "cancel_fishing",
+  "refresh_fishing_nft_history",
+  "purchase_onchain_fishing_rod",
   "sell_fishing_items",
 ] as const;
 
@@ -867,7 +870,8 @@ export function makeVisibleObservation(
           "Before real raid attempts, use equip_item for clear same-slot upgrades in observation.self.inventory and use buy_potion_shop_item at potion-mfer to stock at least 5 red-juice plus exit-liquidity-elixir when MFERGPT payment is configured.",
           "Use sell_trash_items at trash-mfer when self.inventory contains sellableTrash items and you are safe. This is a normal free room message, not a wallet burn.",
           `Trash sells for a base value of 1 Season 0 point each. Declared agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.`,
-          "Fishing is a normal room-message loop: move to navigation.publicRallyPoints south-center-pond, use start_fishing when self.fishing.hasPole and nearZone are true, wait until self.fishing.state is bite, then use reel_fishing before the bite expires. A catch opens a fishing loot window and must be picked up with loot/lootCorpse before it reaches inventory or quest progress. Use cancel_fishing if danger appears.",
+          "Fishing is a normal room-message loop: move to navigation.publicRallyPoints south-center-pond, use start_fishing when self.fishing.hasPole and nearZone are true, wait until self.fishing.state is bite, then use reel_fishing before the bite expires. A catch opens a fishing loot window and must be picked up with loot/lootCorpse before it reaches inventory or quest progress. Use interact_npc with the pond ledger NPC when you need today's onchain-goodie claimed count, remaining claim slots, global cap state, and reset time. Use cancel_fishing if danger appears. Use purchase_onchain_fishing_rod at Motherfisher only when the wallet needs the rod and the catalog exposes the control. Use refresh_fishing_nft_history after reconnects or wallet actions to refresh pond catches, rod wallet-NFT rows, daily remaining count, and Mint Club redemption state.",
+          "Onchain goodie catches may require the wallet to hold an onchain fishing rod; if a rod-required notice appears, production wallet tooling should mint through the configured NFT/Manifold mint contract or mint URL instead of retry-spamming. If a rod_required_nft_hit notice appears, that reel would have produced an onchain goodie with the rod. The rod contract handles any MFERGPT burn/payment. NFT claims and Mint Club redemptions are wallet actions: the wallet signs FishingPond.claim or Mint Club Bond burn/sell txs, then sends the resulting tx hash through the normal submit message.",
           "Use sell_fishing_items at fish monger after lost-fishing-shoes when inventory contains sellableFishing items. Small fish require bundles, huge koi can score singly, and declared agents need larger bundles.",
           "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave caps, long hair, shades, and glasses unset because those clip into the model.",
@@ -956,7 +960,7 @@ class OpenAiActionPolicy implements ActionPolicy {
           "Use loot with a lootable corpse npcRef and no itemId to take all available loot.",
           "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates when retreating, regrouping, or staging.",
           "Use observation.stores for public merchant locations, item effects, prices, supported actions, and whether the configured MFERGPT burn flow can buy stock.",
-          "For fishing, move to south-center-pond, start_fishing only when self.fishing.hasPole and nearZone are true, wait for self.fishing.state=bite, then reel_fishing. Pick up successful catches from the fishing loot window before selling fish with sell_fishing_items at fish monger.",
+          "For fishing, move to south-center-pond, start_fishing only when self.fishing.hasPole and nearZone are true, wait for self.fishing.state=bite, then reel_fishing. Pick up successful catches from the fishing loot window before selling fish with sell_fishing_items at fish monger. Use refresh_fishing_nft_history after reconnects or wallet actions. If onchain goodie fishing says an onchain rod is required or shows rod_required_nft_hit, mint through the configured NFT/Manifold mint contract or mint URL. NFT claims and Mint Club redemptions require external wallet signing.",
           "For update_traits, choose a traits object from observation.self.appearanceTraits.categories only when you have a strong identity/style choice. If not, set traits to null or {} so the server picks deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents render with the mferGPT agent model, keep the robot face, force regular eyes and flat mouth, and should leave caps, long hair, shades, and glasses unset because those clip into the model.",
           "Use observation.season0 for Season 0 point caps, referral rules, and public season endpoints. Agents can explain human referral rules but do not participate in referral binding, counts, or bonuses.",
           "If observation.wallet.mferGptSwapConfigured is true and the wallet has ETH but little MFERGPT, you may use swap_eth_for_mfergpt before buying items. That is a normal wallet transaction through the configured swap route.",
@@ -1327,6 +1331,13 @@ async function executeDecision(
       agent.cancelFishing();
       await delay(300);
       return;
+    case "refresh_fishing_nft_history":
+      agent.refreshFishingNftHistory();
+      await delay(750);
+      return;
+    case "purchase_onchain_fishing_rod":
+      await purchaseOnchainFishingRod(agent);
+      return;
     case "sell_fishing_items":
       await sellFishingItems(agent, decision);
       return;
@@ -1500,6 +1511,19 @@ async function sellFishingItems(agent: MferlandAgentClient, decision: LlmDecisio
     quantity,
     sellAll: !itemId,
   });
+}
+
+async function purchaseOnchainFishingRod(agent: MferlandAgentClient) {
+  await agent.moveToNpc(FISHING_TUTOR_NPC_ID, {
+    range: 3,
+    timeoutMs: 120_000,
+    stopOnDanger: false,
+    maxSelfAttackers: 4,
+    maxCloseHostiles: 6,
+    dangerHealthRatio: 0.1,
+  });
+  await agent.interactWithNpc(FISHING_TUTOR_NPC_ID);
+  await agent.purchaseOnchainFishingRod({});
 }
 
 function shouldCommitSpawnedRaidBoss(agent: MferlandAgentClient, decision: LlmDecision) {
@@ -2740,7 +2764,7 @@ function getStoreObservations(
         : isTrashVendor
         ? ["move_near_npc", "interact_npc", "sell_trash_items"]
       : isFishingVendor
-        ? ["move_near_npc", "interact_npc", "loot", "sell_fishing_items", "start_fishing", "reel_fishing", "cancel_fishing"]
+        ? ["move_near_npc", "interact_npc", "loot", "sell_fishing_items", "start_fishing", "reel_fishing", "cancel_fishing", "refresh_fishing_nft_history"]
         : isRespecMfer && capabilities.mferGptPaymentConfigured && spentTalentPoints > 0
         ? ["move_near_npc", "interact_npc", "respec_talents"]
         : [...store.supportedActions],
@@ -3756,8 +3780,8 @@ const PUBLIC_STORES = [
     kind: "fish vendor",
     position: { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 1.6, z: FISHING_ZONE.z - 2.8 },
     payment: "free in-game fish sale after lost-fishing-shoes; server awards Season 0 points, applies fish stack rules, and applies declared-agent bundle multipliers",
-    status: "fishing status is computed from pole ownership, pond location, and fish inventory",
-    supportedActions: ["move_near_npc", "interact_npc", "loot", "start_fishing", "reel_fishing", "cancel_fishing", "sell_fishing_items"],
+    status: "fishing status is computed from pole ownership, pond location, fish inventory, pond history, and the pond ledger NPC",
+    supportedActions: ["move_near_npc", "interact_npc", "loot", "start_fishing", "reel_fishing", "cancel_fishing", "refresh_fishing_nft_history", "purchase_onchain_fishing_rod", "sell_fishing_items"],
   },
   {
     npcId: "respec-mfer",
@@ -3839,7 +3863,7 @@ function buildCodexActionPrompt(objective: string, observation: VisibleObservati
     "Use observation.navigation.publicRallyPoints for concrete public move_to coordinates; west-hog-pull is for farm hog quests, claim-booth-hog-pull is for hog-loop, loop-farm-road is the farm retreat point, plaza-safe is a full reset.",
     "Use travel_route instead of move_to for long cross-zone travel; move_to is for local positioning and nearby rally points.",
     "Use observation.stores for public merchant locations, item effects, prices, supported actions, whether the wallet route can swap ETH to MFERGPT, and whether the MFERGPT burn flow can buy potion-shop stock.",
-    "For fishing, move to south-center pond, start_fishing only with a pole and near the pond, wait until observation.self.fishing.state is bite, then reel_fishing before the bite expires. Pick up successful catches from the fishing loot window before using sell_fishing_items at fish monger for fish.",
+    "For fishing, move to south-center pond, start_fishing only with a pole and near the pond, wait until observation.self.fishing.state is bite, then reel_fishing before the bite expires. Pick up successful catches from the fishing loot window before using sell_fishing_items at fish monger for fish. Interact with the pond ledger NPC for today's onchain-goodie claimed count, remaining claim slots, global cap state, and reset time. Mint required rods through the configured NFT/Manifold mint contract or mint URL; rod_required_nft_hit means that reel would have produced an onchain goodie with the rod. Use refresh_fishing_nft_history after reconnects or wallet actions to refresh pond catches, onchain rod rows, daily remaining count, and Mint Club redemption state.",
     "If observation.wallet.mferGptSwapConfigured is true and MFERGPT is low, swap_eth_for_mfergpt with amountEth around observation.wallet.recommendedSwapEthAmount is a normal wallet action; uniswap-v4 mode uses the same Base route as swap-mfer.",
     "For active quest combat, prefer nearbyNpcs.activeQuestTargetIds containing the active quest id, including collection drop-source targets. Avoid unrelated safe targets unless defending yourself, clearing an add, grouping, or intentionally leveling.",
     "Use nearbyNpcs.pullRisk, pullAdvice, and nearbyHostileCount to choose targets. Do not describe a target as isolated unless nearbyHostileCount is 0.",

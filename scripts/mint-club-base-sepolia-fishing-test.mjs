@@ -18,6 +18,7 @@ import { baseSepolia } from "viem/chains";
 const repoRoot = resolve(import.meta.dirname, "..");
 const defaultWalletFile = resolve(repoRoot, ".mferland-base-sepolia-test-wallet.json");
 const defaultImagePath = resolve(repoRoot, "assets/mint-club-test/glass-spiral-cube.png");
+const DEFAULT_IMAGE_URL = "https://picsum.photos/seed/mferland-glass-spiral-cube/1024/1024";
 
 const CHAIN_ID = 84532;
 const RPC_URL = process.env.MFERLAND_MINT_CLUB_TEST_RPC_URL || process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
@@ -62,7 +63,8 @@ async function main() {
   const totalMintOutWeth = totalMintOut.weth;
   const initialPrice = Number(totalMintOutWeth) / Number(MAX_SUPPLY) * 0.45;
   const finalPrice = Number(totalMintOutWeth) / Number(MAX_SUPPLY) * 1.55;
-  const metadataUrl = await resolveMetadataUrl({ name, imagePath: defaultImagePath });
+  const hostedMetadataUrl = await resolveMetadataUrl({ name, imagePath: defaultImagePath });
+  const metadataUrl = hostedMetadataUrl || makeDataUriMetadataUrl({ name });
 
   console.log("Base Sepolia Mint Club Fishing Pond test");
   console.log(`mode: ${execute ? "execute" : "dry-run"}${execute ? "" : " (pass --execute to submit txs)"}`);
@@ -71,7 +73,7 @@ async function main() {
   console.log(`WETH: ${formatUnits(wethBalance, 18)}`);
   console.log(`symbol: ${symbol}`);
   console.log(`predicted collection: ${tokenAddress}`);
-  console.log(`metadata: ${metadataUrl || "(set MINT_CLUB_TEST_METADATA_URL or FILEBASE_API_KEY to create)"}`);
+  console.log(`metadata: ${hostedMetadataUrl ? metadataUrl : "data URI fallback"}`);
   console.log(`target total mint-out: ${totalMintOutWeth} WETH across ${MAX_SUPPLY.toString()} NFTs`);
   console.log(`mint-out pricing source: ${totalMintOut.source}`);
   console.log(`linear price range: ${formatPrice(initialPrice)} -> ${formatPrice(finalPrice)} WETH`);
@@ -80,10 +82,6 @@ async function main() {
   if (!execute) {
     printGameEnv({ tokenAddress, pondAddress });
     return;
-  }
-
-  if (!skipCreate && !metadataUrl) {
-    throw new Error("Live create requires MINT_CLUB_TEST_METADATA_URL or FILEBASE_API_KEY for IPFS metadata upload.");
   }
 
   const wrapAmount = parseEther(process.env.MINT_CLUB_TEST_WRAP_ETH || DEFAULT_WRAP_ETH);
@@ -149,6 +147,21 @@ async function resolveMetadataUrl({ name, imagePath }) {
       { trait_type: "Curve", value: "Linear" },
     ],
   });
+}
+
+function makeDataUriMetadataUrl({ name }) {
+  const metadata = {
+    name,
+    description: "A Base Sepolia Mint Club ERC-1155 test prize for the mferland Fishing Pond redemption flow.",
+    image: process.env.MINT_CLUB_TEST_IMAGE_URL || DEFAULT_IMAGE_URL,
+    external_url: "https://game.mfergpt.lol",
+    attributes: [
+      { trait_type: "Test run", value: "Base Sepolia Fishing Pond" },
+      { trait_type: "Reserve token", value: "WETH" },
+      { trait_type: "Curve", value: "Linear" },
+    ],
+  };
+  return `data:application/json,${encodeURIComponent(JSON.stringify(metadata))}`;
 }
 
 async function resolveTotalMintOutWeth() {

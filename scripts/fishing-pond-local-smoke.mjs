@@ -22,6 +22,7 @@ const localContractsPath = resolve(repoRoot, "apps/web/public/crypto/local-contr
 const anvilDefaultPrivateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const anvilAgentPrivateKey = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const anvilAllowlistTesterPrivateKey = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
+const requestedTestWalletAddress = "0x0a8138C495Cd47367E635B94FEB7612A230221a4";
 const fisherAccount = privateKeyToAccount(anvilDefaultPrivateKey);
 const agentAccount = privateKeyToAccount(anvilAgentPrivateKey);
 const allowlistTesterAccount = privateKeyToAccount(anvilAllowlistTesterPrivateKey);
@@ -95,6 +96,15 @@ const fishingPondAbi = [
     outputs: [],
   },
 ];
+const erc721BalanceAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
 
 const erc721Abi = [
   {
@@ -126,7 +136,9 @@ try {
 
   const localContracts = JSON.parse(await readFile(localContractsPath, "utf8"));
   const pondAddress = localContracts.addresses?.fishingPond;
+  const rodAddress = localContracts.addresses?.onchainFishingRod;
   assert.match(pondAddress, /^0x[0-9a-fA-F]{40}$/, "local FishingPond address missing");
+  assert.match(rodAddress, /^0x[0-9a-fA-F]{40}$/, "local onchain fishing rod address missing");
 
   await run("npm", ["run", "stock:fishing:local", "-w", "@mferland/chain"], {
     FISHING_POND_ADDRESS: pondAddress,
@@ -143,6 +155,10 @@ try {
   assert.match(allowedCollection, /^0x[0-9a-fA-F]{40}$/, "allowed pond collection missing");
   assert.match(disallowedCollection, /^0x[0-9a-fA-F]{40}$/, "disallowed pond collection missing");
   assert.notEqual(allowedCollection.toLowerCase(), disallowedCollection.toLowerCase(), "allowlist smoke needs two collections");
+  await assertRodOwnership(publicClient, rodAddress, fisherAccount.address);
+  await assertRodOwnership(publicClient, rodAddress, agentAccount.address);
+  await assertRodOwnership(publicClient, rodAddress, allowlistTesterAccount.address);
+  await assertRodOwnership(publicClient, rodAddress, requestedTestWalletAddress);
 
   let serverProcess = await startServer(pondAddress, smokeDatabaseUrl, [allowedCollection]);
   const health = await fetchJson(serverHealthUrl);
@@ -171,6 +187,12 @@ try {
 
   try {
     await waitFor(() => Boolean(state.self), "self snapshot", 8_000);
+    room.send("refreshFishingNftHistory", {});
+    await waitFor(() => state.historyResults.some((result) => (
+      result.ok === true
+      && Array.isArray(result.walletNfts)
+      && result.walletNfts.some((nft) => nft.itemId === "onchain-fishing-rod")
+    )), "wallet rod NFT stash history payload", 10_000);
     await ensureFishingPole(room, state);
     await teleportToPond(room, state);
 
@@ -234,6 +256,28 @@ try {
     }, null, 2));
   } finally {
     await room.leave().catch(() => undefined);
+  }
+
+  const requestedWalletRoom = await roomClient.joinOrCreate(ROOM_NAME, {
+    name: "pond requested wallet",
+    identityType: "wallet",
+    walletAddress: requestedTestWalletAddress,
+    createCharacter: true,
+  });
+  const requestedWalletState = installRoomObservers(requestedWalletRoom);
+  try {
+    await waitFor(() => Boolean(requestedWalletState.self), "requested test wallet self snapshot", 8_000);
+    requestedWalletRoom.send("refreshFishingNftHistory", {});
+    await waitFor(() => requestedWalletState.historyResults.some((result) => (
+      result.ok === true
+      && Array.isArray(result.walletNfts)
+      && result.walletNfts.some((nft) => (
+        nft.itemId === "onchain-fishing-rod"
+        && String(nft.walletAddress || "").toLowerCase() === requestedTestWalletAddress.toLowerCase()
+      ))
+    )), "requested test wallet rod NFT stash history payload", 10_000);
+  } finally {
+    await requestedWalletRoom.leave().catch(() => undefined);
   }
 
   await returnAllowedCollection({ publicClient, walletClient, pondAddress, allowedCollection });
@@ -377,6 +421,7 @@ async function startServer(pondAddress, databaseUrl, allowedCollections = []) {
     PORT: smokeServerPort,
     MFERLAND_ENABLE_DEBUG_MESSAGES: "1",
     MFERLAND_LOCAL_DEBUG_AUTH_BYPASS: "1",
+    MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES: [fisherAccount.address, requestedTestWalletAddress].join(","),
     MFERLAND_DEBUG_TRASH_VENDOR_STOCK: "1",
     MFERLAND_ENABLE_INVITE_GATE: "0",
     MFERLAND_REQUIRE_INVITE: "0",
@@ -562,6 +607,16 @@ async function readStockedCollections(publicClient, pondAddress) {
     allowedCollection: allowedEntry.collection,
     disallowedCollection: disallowedEntry.collection,
   };
+}
+
+async function assertRodOwnership(publicClient, rodAddress, walletAddress) {
+  const balance = await publicClient.readContract({
+    address: rodAddress,
+    abi: erc721BalanceAbi,
+    functionName: "balanceOf",
+    args: [walletAddress],
+  });
+  assert.ok(balance > 0n, `wallet ${walletAddress} should hold local onchain fishing rod`);
 }
 
 async function returnAllowedCollection({ publicClient, walletClient, pondAddress, allowedCollection }) {

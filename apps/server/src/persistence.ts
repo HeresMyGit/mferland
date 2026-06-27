@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
@@ -77,6 +77,8 @@ import {
 } from "./seasonReferralRules.js";
 
 type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
+const FISHING_POND_DAY_MS = 86_400_000;
+
 type SeasonReferralBonusAward = {
   referralId: string;
   referrerWalletAddress: string;
@@ -276,6 +278,8 @@ export type CreateFishingPondCatchRecord = {
   attemptId: string;
   voucher: FishingNftClaimVoucher;
   entryRemainingAmount?: string;
+  walletDailyCap?: number;
+  globalDailyCap?: number;
   metadata?: FishingNftMetadataSnapshot | null;
 };
 
@@ -794,6 +798,32 @@ export async function createFishingPondCatchRecord(record: CreateFishingPondCatc
 
   if (record.entryRemainingAmount !== undefined) {
     return await db.transaction(async (tx) => {
+      const day = Math.floor(now.getTime() / FISHING_POND_DAY_MS);
+      const dailyContractAddress = record.voucher.verifyingContract.toLowerCase();
+      const walletDailyCap = normalizeFishingPondDailyCap(record.walletDailyCap);
+      const globalDailyCap = normalizeFishingPondDailyCap(record.globalDailyCap);
+      if (walletDailyCap > 0) {
+        const walletLockKey = `fishing-pond-wallet-day:${record.voucher.chainId}:${dailyContractAddress}:${normalizedWallet}:${day}`;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${walletLockKey}), 0)`);
+        const walletIssuedCount = await countFishingPondDailyIssuedCatchesInDb(tx, {
+          walletAddress: normalizedWallet,
+          chainId: record.voucher.chainId,
+          contractAddress: dailyContractAddress,
+          day,
+        });
+        if (walletIssuedCount >= walletDailyCap) return null;
+      }
+      if (globalDailyCap > 0) {
+        const globalLockKey = `fishing-pond-global-day:${record.voucher.chainId}:${dailyContractAddress}:${day}`;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${globalLockKey}), 0)`);
+        const globalIssuedCount = await countFishingPondDailyIssuedCatchesInDb(tx, {
+          chainId: record.voucher.chainId,
+          contractAddress: dailyContractAddress,
+          day,
+        });
+        if (globalIssuedCount >= globalDailyCap) return null;
+      }
+
       const lockKey = `fishing-pond-entry:${record.voucher.chainId}:${record.voucher.verifyingContract.toLowerCase()}:${record.voucher.pondEntryId}`;
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
       const existingReservations = await tx.query.fishingPondCatches.findMany({
@@ -863,6 +893,66 @@ export async function findFishingPondCatchHistoryForWallet(walletAddress: string
   return rows.map(mapFishingPondCatchRow);
 }
 
+export async function countFishingPondDailyIssuedCatches({
+  walletAddress = "",
+  chainId,
+  contractAddress,
+  day,
+}: {
+  walletAddress?: string;
+  chainId: number;
+  contractAddress: string;
+  day: number;
+}) {
+  const db = getDatabase();
+  if (!db) return 0;
+  return countFishingPondDailyIssuedCatchesInDb(db, {
+    walletAddress,
+    chainId,
+    contractAddress,
+    day,
+  });
+}
+
+async function countFishingPondDailyIssuedCatchesInDb(
+  db: NonNullable<ReturnType<typeof getDatabase>> | DatabaseTransaction,
+  {
+    walletAddress = "",
+    chainId,
+    contractAddress,
+    day,
+  }: {
+    walletAddress?: string;
+    chainId: number;
+    contractAddress: string;
+    day: number;
+  },
+) {
+  const normalizedContract = normalizeWalletAddress(contractAddress);
+  if (!normalizedContract || !Number.isFinite(chainId)) return 0;
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const safeDay = Number.isFinite(day) ? Math.max(0, Math.floor(day)) : 0;
+  const start = new Date(safeDay * FISHING_POND_DAY_MS);
+  const end = new Date((safeDay + 1) * FISHING_POND_DAY_MS);
+  const conditions = [
+    eq(fishingPondCatches.chainId, Math.floor(chainId)),
+    eq(fishingPondCatches.contractAddress, normalizedContract),
+    gte(fishingPondCatches.createdAt, start),
+    lt(fishingPondCatches.createdAt, end),
+  ];
+  if (normalizedWallet) conditions.push(eq(fishingPondCatches.walletAddress, normalizedWallet));
+
+  const [row] = await db.select({ issuedCount: sql<number>`count(*)::int` })
+    .from(fishingPondCatches)
+    .where(and(...conditions));
+  return Number(row?.issuedCount ?? 0);
+}
+
+function normalizeFishingPondDailyCap(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.floor(value));
+}
+
 export async function markFishingPondCatchTxSubmitted(catchId: string, txHash: string) {
   const db = getRequiredDatabase();
   const now = new Date();
@@ -916,6 +1006,22 @@ export async function markFishingPondCatchExpired(catchId: string) {
       updatedAt: new Date(),
     })
     .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchAbandoned(catchId: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      status: "abandoned",
+      error: "claim offer forfeited",
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      inArray(fishingPondCatches.status, ["pending", "voucher_issued"]),
+    ))
     .returning();
   return row ? mapFishingPondCatchRow(row) : null;
 }
@@ -2156,6 +2262,7 @@ function normalizeFishingPondCatchStatus(value: string): FishingNftCatchStatus {
     || value === "confirmed"
     || value === "expired"
     || value === "failed"
+    || value === "abandoned"
   ) {
     return value;
   }

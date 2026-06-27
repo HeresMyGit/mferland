@@ -1,5 +1,6 @@
 import {
   COMBAT,
+  FISHING_POND_STATUS_NPC_ID,
   FISHING_TUTOR_NPC_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
@@ -38,6 +39,7 @@ export function getGameAgentHandbook() {
       { place: "swap mfer", x: 0, z: 25.4, npcId: "swap-mfer", note: "merchant for swapping ETH to MFERGPT; Base runs use the same Uniswap v4 route as the web swap menu" },
       { place: "south center pond", x: FISHING_ZONE.x, z: FISHING_ZONE.z, npcId: FISHING_TUTOR_NPC_ID, note: "fishing pond and Motherfisher tutorial/supply shack; cast only near the shore, reel when the bobber bites, and pick up the catch from the loot window" },
       { place: "fish monger", x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 4.6, z: FISHING_ZONE.z - 15.4, npcId: FISHING_VENDOR_NPC_ID, note: "fish buyer; unlock fish sales by completing lost-fishing-shoes after the Motherfisher lesson" },
+      { place: "pond ledger", x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 9.8, z: FISHING_ZONE.z - 5.2, npcId: FISHING_POND_STATUS_NPC_ID, note: "pond-side NPC that privately reports today's onchain-goodie claimed count, remaining claim slots, global cap state, and reset time" },
       { place: "daily signal camp", x: -69.4, z: -55.6, npcId: "mfergpt-daily-boss", note: "mferGPT daily boss area southwest of town" },
       { place: "loop farm", x: -64.5, z: 64.5, npcId: "hogwatch-mfer", note: "farm quest hub north west of town; stay on roads to avoid extra hog pulls" },
       { place: "route post", x: -119.2, z: 132.4, npcId: "field-guide-mfer", note: "field camp quest hub past loop farm" },

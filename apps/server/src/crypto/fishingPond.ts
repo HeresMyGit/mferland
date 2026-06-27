@@ -24,6 +24,8 @@ import { createPublicClient, decodeEventLog, http, parseAbi, type Hex } from "vi
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
 import { getDatabase } from "../db/client.js";
+import { countFishingPondDailyIssuedCatches } from "../persistence.js";
+import { readOnchainFishingRodRequirement } from "./onchainFishingRod.js";
 
 type CryptoContractsDocument = {
   chainId?: number;
@@ -106,16 +108,18 @@ export async function readFishingPondPublicConfig(walletAddress = ""): Promise<F
 
   try {
     const client = getFishingPondClient(config);
-    const [paused, drainStarted, perWalletCap, globalCap] = await Promise.all([
+    const [paused, drainStarted, perWalletCap, globalCap, rodRequirement] = await Promise.all([
       client.readContract({ address: config.contractAddress as Hex, abi: FISHING_POND_ABI, functionName: "paused" }),
       client.readContract({ address: config.contractAddress as Hex, abi: FISHING_POND_ABI, functionName: "drainStarted" }),
       client.readContract({ address: config.contractAddress as Hex, abi: FISHING_POND_ABI, functionName: "perWalletDailyCatchCap" }),
       client.readContract({ address: config.contractAddress as Hex, abi: FISHING_POND_ABI, functionName: "globalDailyCatchCap" }),
+      readOnchainFishingRodRequirement(walletAddress).catch(() => undefined),
     ]);
     const entries = await readFishingPondAvailableEntries(config);
-    const day = BigInt(Math.floor(Date.now() / 86_400_000));
+    const dayNumber = Math.floor(Date.now() / 86_400_000);
+    const day = BigInt(dayNumber);
     const normalizedWallet = normalizeWalletAddress(walletAddress);
-    const [walletCount, globalCount] = await Promise.all([
+    const [walletCount, globalCount, walletIssuedCount, globalIssuedCount] = await Promise.all([
       normalizedWallet
         ? client.readContract({
           address: config.contractAddress as Hex,
@@ -128,11 +132,26 @@ export async function readFishingPondPublicConfig(walletAddress = ""): Promise<F
         address: config.contractAddress as Hex,
         abi: FISHING_POND_ABI,
         functionName: "globalDailyCatchCount",
-        args: [day],
+          args: [day],
+        }),
+      normalizedWallet
+        ? countFishingPondDailyIssuedCatches({
+          walletAddress: normalizedWallet,
+          chainId: config.chainId,
+          contractAddress: config.contractAddress,
+          day: dayNumber,
+        })
+        : Promise.resolve(0),
+      countFishingPondDailyIssuedCatches({
+        chainId: config.chainId,
+        contractAddress: config.contractAddress,
+        day: dayNumber,
       }),
     ]);
-    const walletRemaining = Number(perWalletCap > walletCount ? perWalletCap - walletCount : 0n);
-    const globalRemaining = globalCap > 0n ? Number(globalCap > globalCount ? globalCap - globalCount : 0n) : null;
+    const walletUsed = maxBigInt(walletCount, BigInt(Math.max(0, Math.floor(walletIssuedCount))));
+    const globalUsed = maxBigInt(globalCount, BigInt(Math.max(0, Math.floor(globalIssuedCount))));
+    const walletRemaining = Number(perWalletCap > walletUsed ? perWalletCap - walletUsed : 0n);
+    const globalRemaining = globalCap > 0n ? Number(globalCap > globalUsed ? globalCap - globalUsed : 0n) : null;
 
     return {
       enabled: true,
@@ -147,6 +166,7 @@ export async function readFishingPondPublicConfig(walletAddress = ""): Promise<F
       stocked: entries.length > 0,
       drainMode: Boolean(drainStarted || paused),
       randomness: FISHING_NFT_POND_RANDOMNESS_NOTE,
+      rodRequirement,
     };
   } catch {
     return {
@@ -422,6 +442,10 @@ function readAllowedCollections(value: unknown) {
 
 function isFishingPondCollectionAllowed(config: FishingPondRuntimeConfig, collection: string) {
   return config.allowedCollections.length <= 0 || config.allowedCollections.includes(collection);
+}
+
+function maxBigInt(a: bigint, b: bigint) {
+  return a >= b ? a : b;
 }
 
 export function makeFishingNftCatchSnapshotFromVoucher({

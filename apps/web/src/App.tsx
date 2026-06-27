@@ -7,6 +7,7 @@ import {
   COMBAT,
   CRYPTO_MFER_NPC_ID,
   FISHING_POLE_ITEM_ID,
+  FISHING_POND_STATUS_NPC_ID,
   FISHING_TUTOR_NPC_ID,
   FISHING_VENDOR_NPC_ID,
   FISHING_ZONE,
@@ -45,6 +46,7 @@ import {
   type ClientEquipItem,
   type ClientLootCorpse,
   type ClientPurchaseFishingSupply,
+  type ClientPurchaseOnchainFishingRod,
   type ClientPurchasePotionShopItem,
   type ClientRegisterChainGear,
   type ClientRespecTalents,
@@ -78,6 +80,7 @@ import {
   rememberReferralWalletAddress,
   rememberName,
 } from "./auth/identity";
+import { getLocalDebugWalletAddress } from "./auth/debugWallet";
 import {
   getAvailableWalletConnectorChoices,
   getPreferredWalletConnector,
@@ -142,7 +145,7 @@ const AGENT_SKILL_URL = "https://game.mfergpt.lol/skills/mferland/SKILL.md";
 const AUTH_ONLINE_PLAYER_LIMIT = 40;
 const AUTH_ONLINE_REFRESH_MS = 10_000;
 const STREAM_CAMERA_PLAYER_NAME = "stream cam";
-const LOCAL_DEBUG_WALLET_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+const LOCAL_DEBUG_WALLET_ADDRESS = getLocalDebugWalletAddress();
 const HIDDEN_CAPTURE_NAMEPLATES = {
   localPlayer: false,
   otherPlayers: false,
@@ -154,6 +157,10 @@ const EMPTY_CAPTURE_CHAT_BUBBLES: never[] = [];
 const REAL_CAPTURE_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_REAL_CAPTURE === "1";
 const DEBUG_POND_SHORE_X = FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.8;
 const DEBUG_POND_SHORE_Z = FISHING_ZONE.z + 1.8;
+const DEBUG_ONCHAIN_GOODIES_X = 18.2;
+const DEBUG_ONCHAIN_GOODIES_Z = 122.2;
+const DEBUG_POND_LEDGER_X = 20;
+const DEBUG_POND_LEDGER_Z = 125.8;
 const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "gate", label: "Gate", x: 0, z: -10, yaw: Math.PI },
   { id: "plaza", label: "Plaza", x: 0, z: -8, yaw: 0 },
@@ -167,6 +174,8 @@ const DEBUG_TRAVEL_DESTINATIONS = [
   { id: "farm", label: "Farm", x: -76, z: 78, yaw: 0 },
   { id: "field", label: "Field", x: -118, z: 112, yaw: 0 },
   { id: "pond", label: "Pond", x: DEBUG_POND_SHORE_X, z: DEBUG_POND_SHORE_Z, yaw: Math.atan2(FISHING_ZONE.x - DEBUG_POND_SHORE_X, FISHING_ZONE.z - DEBUG_POND_SHORE_Z) },
+  { id: MINT_CLUB_REDEMPTION_NPC_ID, label: "Goodies", x: DEBUG_ONCHAIN_GOODIES_X, z: DEBUG_ONCHAIN_GOODIES_Z, yaw: Math.atan2(18.8 - DEBUG_ONCHAIN_GOODIES_X, 121.3 - DEBUG_ONCHAIN_GOODIES_Z) },
+  { id: FISHING_POND_STATUS_NPC_ID, label: "Ledger", x: DEBUG_POND_LEDGER_X, z: DEBUG_POND_LEDGER_Z, yaw: Math.atan2(20.6 - DEBUG_POND_LEDGER_X, 126.8 - DEBUG_POND_LEDGER_Z) },
   { id: "relay", label: "Relay", x: 136, z: -129, yaw: 0 },
   { id: "static", label: "Static", x: 150, z: -92, yaw: Math.PI },
 ] as const;
@@ -1625,6 +1634,10 @@ function GameShell({
     audio.play("inventoryLoot");
     room.sendPurchaseFishingSupply(message);
   }, [audio, room.sendPurchaseFishingSupply]);
+  const purchaseOnchainFishingRod = useCallback((message: ClientPurchaseOnchainFishingRod = {}) => {
+    audio.play("inventoryLoot");
+    room.sendPurchaseOnchainFishingRod(message);
+  }, [audio, room.sendPurchaseOnchainFishingRod]);
   const sellTrashItems = useCallback((message: ClientSellTrashItems) => {
     audio.play("inventoryLoot");
     room.sendSellTrashItems(message);
@@ -2037,7 +2050,9 @@ function GameShell({
             onDismissQuestStatus={room.dismissQuestStatus}
             onLootCorpse={lootCorpse}
             onSubmitFishingNftClaimTx={room.sendSubmitFishingNftClaimTx}
+            onAbandonFishingNftCatch={room.sendAbandonFishingNftCatch}
             onSubmitMintClubRedemptionTx={room.sendSubmitMintClubRedemptionTx}
+            onRefreshFishingNftHistory={room.sendRefreshFishingNftHistory}
             onEquipItem={equipItem}
             onUnequipItem={unequipItem}
             onUseItem={useItem}
@@ -2100,8 +2115,13 @@ function GameShell({
                 npc={fishingSupplyNpc}
                 player={localPlayer ?? null}
                 result={room.fishingSupplyPurchaseResult}
+                rodMintResult={room.onchainFishingRodMintResult}
+                rodRequirement={room.fishingNftHistoryResult?.rodRequirement}
+                walletNfts={room.fishingNftHistoryResult?.walletNfts ?? []}
                 onClose={() => setFishingSupplyNpcId(null)}
                 onPurchaseFishingSupply={purchaseFishingSupply}
+                onPurchaseOnchainFishingRod={purchaseOnchainFishingRod}
+                onRefreshFishingNftHistory={room.sendRefreshFishingNftHistory}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </MovableWindow>

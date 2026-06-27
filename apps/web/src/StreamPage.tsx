@@ -400,7 +400,9 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           onUseItem={noopUseItem}
           onRegisterChainGear={noopRegisterChainGear}
           onSubmitFishingNftClaimTx={noop}
+          onAbandonFishingNftCatch={noop}
           onSubmitMintClubRedemptionTx={noop}
+          onRefreshFishingNftHistory={noop}
           onCryptoStoreAnalytics={noopCryptoAnalytics}
           onSelectTalent={noopSelectTalent}
           onCloseLootWindow={noop}

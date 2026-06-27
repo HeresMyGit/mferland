@@ -22,7 +22,9 @@ import {
   type AgentObservation,
   type ChatMessage,
   type ClientAgentStatus,
+  type ClientAbandonFishingNftCatch,
   type ClientInput,
+  type ClientPurchaseOnchainFishingRod,
   type ClientRemoveSeasonReferral,
   type ClientSubmitFishingNftClaimTx,
   type ClientSubmitMintClubRedemptionTx,
@@ -43,6 +45,7 @@ import {
   type NpcModel,
   type NpcRole,
   type NpcSnapshot,
+  type OnchainFishingRodMintResult,
   type PlayerSnapshot,
   type PotionShopItemId,
   type PotionShopPurchaseQuantity,
@@ -227,6 +230,7 @@ export class MferlandAgentClient {
   private trashVendorResults: TrashVendorSellResult[] = [];
   private fishingResults: FishingResult[] = [];
   private fishingSupplyResults: FishingSupplyPurchaseResult[] = [];
+  private onchainFishingRodMintResults: OnchainFishingRodMintResult[] = [];
   private fishingVendorResults: FishingVendorSellResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
@@ -347,7 +351,9 @@ export class MferlandAgentClient {
         "startFishing",
         "reelFishing",
         "cancelFishing",
+        "refreshFishingNftHistory",
         "submitFishingNftClaimTx",
+        "abandonFishingNftCatch",
         "submitMintClubRedemptionTx",
         "sellFishingItems",
         "selectTalent",
@@ -634,6 +640,18 @@ export class MferlandAgentClient {
     return result;
   }
 
+  async purchaseOnchainFishingRod(message: ClientPurchaseOnchainFishingRod = {}) {
+    const previousResultCount = this.onchainFishingRodMintResults.length;
+    this.room?.send("purchaseOnchainFishingRod", message);
+    await this.waitFor(() => this.onchainFishingRodMintResults.length > previousResultCount, {
+      timeoutMs: 125_000,
+      intervalMs: 250,
+    }, "onchain fishing rod mint");
+    const result = this.onchainFishingRodMintResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "onchain fishing rod mint failed");
+    return result;
+  }
+
   async sellTrashItems(options: { itemId?: TrashVendorItemId; quantity?: number; sellAll?: boolean } = {}) {
     const previousResultCount = this.trashVendorResults.length;
     this.room?.send("sellTrashItems", options);
@@ -686,8 +704,16 @@ export class MferlandAgentClient {
     this.room?.send("cancelFishing", {});
   }
 
+  refreshFishingNftHistory() {
+    this.room?.send("refreshFishingNftHistory", {});
+  }
+
   submitFishingNftClaimTx(message: ClientSubmitFishingNftClaimTx) {
     this.room?.send("submitFishingNftClaimTx", message);
+  }
+
+  abandonFishingNftCatch(message: ClientAbandonFishingNftCatch) {
+    this.room?.send("abandonFishingNftCatch", message);
   }
 
   submitMintClubRedemptionTx(message: ClientSubmitMintClubRedemptionTx) {
@@ -1015,12 +1041,19 @@ export class MferlandAgentClient {
     room.onMessage("fishingResult", (message: FishingResult) => {
       this.fishingResults = [...this.fishingResults.slice(-8), message];
     });
+    room.onMessage("fishingNftCatchResult", () => undefined);
+    room.onMessage("fishingNftCapNotice", () => undefined);
+    room.onMessage("fishingNftHistoryResult", () => undefined);
     room.onMessage("fishingSupplyPurchaseResult", (message: FishingSupplyPurchaseResult) => {
       this.fishingSupplyResults = [...this.fishingSupplyResults.slice(-8), message];
+    });
+    room.onMessage("onchainFishingRodMintResult", (message: OnchainFishingRodMintResult) => {
+      this.onchainFishingRodMintResults = [...this.onchainFishingRodMintResults.slice(-8), message];
     });
     room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
       this.fishingVendorResults = [...this.fishingVendorResults.slice(-8), message];
     });
+    room.onMessage("mintClubRedemptionResult", () => undefined);
     room.onMessage("questOffer", () => undefined);
     room.onMessage("questStatus", () => undefined);
     room.onMessage("questTurnIn", () => undefined);
@@ -1704,6 +1737,7 @@ function readRuntimeFishingNftStatus(value: unknown): FishingNftCatchSnapshot["s
     || value === "confirmed"
     || value === "expired"
     || value === "failed"
+    || value === "abandoned"
     ? value
     : null;
 }

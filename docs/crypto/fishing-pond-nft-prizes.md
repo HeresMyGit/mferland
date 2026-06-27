@@ -80,8 +80,9 @@ The server stores NFT catches durably in `fishing_pond_catches` so pending catch
 - `confirmed`
 - `expired`
 - `failed`
+- `abandoned`
 
-The server issues unique catch ids, signs vouchers, sends the private voucher only to the owning client, and exposes a sanitized public catch snapshot in player state. Confirmation requires a transaction receipt containing the `CatchClaimed` event for the catch id.
+The server issues unique catch ids, signs vouchers, sends the private voucher only to the owning client, and exposes a sanitized public catch snapshot in player state. An issued voucher immediately counts against the wallet/global daily NFT catch limits, even if the player closes the panel, forfeits the claim, or lets the voucher expire. Confirmation requires a transaction receipt containing the `CatchClaimed` event for the catch id.
 
 Local/test env:
 
@@ -93,6 +94,13 @@ MFERLAND_FISHING_POND_CONTRACT_ADDRESS="0x..."
 MFERLAND_FISHING_POND_AWARD_SIGNER_PRIVATE_KEY="0x..."
 MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS="0x...,0x..."
 MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="500"
+
+MFERLAND_ONCHAIN_FISHING_ROD_ENABLED="true"
+MFERLAND_ONCHAIN_FISHING_ROD_REQUIRED="true"
+MFERLAND_ONCHAIN_FISHING_ROD_CHAIN_ID="31337"
+MFERLAND_ONCHAIN_FISHING_ROD_RPC_URL="http://127.0.0.1:8545"
+MFERLAND_ONCHAIN_FISHING_ROD_CONTRACT_ADDRESS="0x..."
+MFERLAND_ONCHAIN_FISHING_ROD_STANDARD="ERC721"
 ```
 
 Production env uses Base and must be persisted in the live repo root `.env` before the server restart:
@@ -106,6 +114,22 @@ MFERLAND_FISHING_POND_AWARD_SIGNER_PRIVATE_KEY="0x..."
 MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS="0x...,0x..."
 MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="500"
 MFERLAND_FISHING_POND_VOUCHER_TTL_SECONDS="900"
+
+MFERLAND_ONCHAIN_FISHING_ROD_ENABLED="true"
+MFERLAND_ONCHAIN_FISHING_ROD_REQUIRED="true"
+MFERLAND_ONCHAIN_FISHING_ROD_CHAIN_ID="8453"
+MFERLAND_ONCHAIN_FISHING_ROD_RPC_URL="https://mainnet.base.org"
+MFERLAND_ONCHAIN_FISHING_ROD_CONTRACT_ADDRESS="0x..."
+MFERLAND_ONCHAIN_FISHING_ROD_STANDARD="ERC721" # or ERC1155
+MFERLAND_ONCHAIN_FISHING_ROD_TOKEN_ID="" # required only for ERC1155
+MFERLAND_ONCHAIN_FISHING_ROD_LABEL="onchain fishing rod"
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_MODE="wallet" # wallet, url, or local/test server fallback
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_CONTRACT_ADDRESS="0x..."
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_FUNCTION="mint" # mint, mint(address), mint(uint256), or mint(address,uint256)
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_SPENDER_ADDRESS="0x..."
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_AMOUNT_WEI="25000000000000000000000000"
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_LABEL="25M $MFERGPT"
 ```
 
 Useful tuning env:
@@ -114,6 +138,9 @@ Useful tuning env:
 MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="500"
 MFERLAND_FISHING_POND_VOUCHER_TTL_SECONDS="900"
 MFERLAND_FISHING_POND_MAX_SCAN_ENTRIES="512"
+MFERLAND_ONCHAIN_FISHING_ROD_ENABLED="true"
+MFERLAND_ONCHAIN_FISHING_ROD_REQUIRED="true"
+MFERLAND_ONCHAIN_FISHING_ROD_STANDARD="ERC721"
 ```
 
 The server also accepts `MFERLAND_FISHING_NFT_POND_*` aliases for those pond-specific env vars.
@@ -121,7 +148,21 @@ The server also accepts `MFERLAND_FISHING_NFT_POND_*` aliases for those pond-spe
 `MFERLAND_FISHING_POND_MAX_SCAN_ENTRIES` limits how many currently active pond entries the server reads per availability check. If the active pond is larger, the server rotates the read window by minute.
 `MFERLAND_FISHING_POND_ALLOWED_COLLECTIONS` is a comma or whitespace separated list of collection addresses the server is allowed to award from. Deposits remain open on the contract, but the game only issues vouchers for allowlisted collections. Empty allowlists are only for local/open testing; production-like runtimes require a non-empty allowlist before the pond can issue catches.
 
+For production prep before launch, keep the live `.env` explicitly disabled even if final addresses are staged:
+
+```sh
+MFERLAND_FISHING_POND_ENABLED="0"
+MFERLAND_ONCHAIN_FISHING_ROD_ENABLED="0"
+MFERLAND_MINT_CLUB_REDEMPTION_ENABLED="0"
+```
+
+The rod config auto-enables when a contract address, RPC URL, and chain id are present unless `MFERLAND_ONCHAIN_FISHING_ROD_ENABLED="0"` is set. Leave those disabled flags in place until the pond contract, Manifold rod mint path, prize allowlist, Mint Club redemption allowlist, signer custody, and first deposits are ready.
+
 The server will also read the local exported chain suite address when `MFERLAND_FISHING_POND_CONTRACT_ADDRESS` is unset.
+
+The optional onchain fishing rod requirement is read separately from the pond. When enabled and required, the server checks the fisher wallet before issuing an NFT catch voucher. ERC-721 rods use `balanceOf(wallet) > 0`; ERC-1155 rods use `balanceOf(wallet, MFERLAND_ONCHAIN_FISHING_ROD_TOKEN_ID) > 0`. If the first daily cast check fails, the player sees a rod-required onchain-goodies popup and regular fish/junk still work. If a completed reel would have produced an NFT but the wallet lacks the rod, the server sends `fishingNftCapNotice.kind=rod_required_nft_hit` so the UI can say the player would have hooked an onchain goodie with the rod. That missed-rod notice does not issue a voucher or spend an NFT daily count. The Motherfisher UI can start a wallet-signed mint against the configured rod/Manifold mint contract; the NFT mint contract is responsible for taking/burning the 25M MFERGPT, not the game server. The configured rod contract also acts as the v1 rod stash allowlist: an owning wallet sees an `onchain fishing rod` row in the stash pond/NFT tab.
+
+For local wallet testing, the server's development-only `MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES` can include extra unsigned local test wallets, and the web can point its local test wallet button at the same address with `VITE_MFERLAND_DEBUG_WALLET_ADDRESS`.
 
 The pond is disabled unless the server has both an award signer and durable database access for `fishing_pond_catches`.
 
@@ -134,7 +175,7 @@ The admin owner and award signer are intentionally different:
 - The admin owner controls pause/unpause, daily caps, signer-role rotation, support returns, drain, and migration target configuration.
 - The award signer only signs EIP-712 catch vouchers. A valid voucher still has to match the fisher, pond entry, chain id, contract address, token, amount, expiry, unused catch id, and daily caps before the contract transfers anything.
 
-An optional anti-spam gate is still a launch decision. The clean v1 path is likely a small MFERGPT holding requirement for NFT eligibility; a burnable onchain fishing pole is more game-like, but needs a token/item contract and UX.
+The current anti-spam gate path is the onchain fishing rod. The game reads wallet ownership server-side before issuing NFT catch vouchers, while normal fish and junk remain available to everyone. Production needs the final rod contract address, standard, token id if it launches as ERC-1155, and the Manifold/rod mint contract/function details for Motherfisher's in-game mint button.
 
 ## Fishing And UI
 
@@ -146,7 +187,7 @@ Outcome priority in v1:
 2. Rare NFT catch, if the pond is enabled, stocked, not drained, the player has a wallet, and daily caps allow it.
 3. Existing fish or junk roll.
 
-NFT catches show a distinct claim panel. Claiming requires an injected wallet transaction. If there is no NFT catch, normal offchain fish and junk loot works as before.
+NFT catches show a distinct claim panel. Claiming requires an injected wallet transaction. The offer spends one of the player's daily NFT catches as soon as the voucher is issued; players may forfeit an unsubmitted claim, but that does not refund the daily count. If there is no NFT catch, normal offchain fish and junk loot works as before.
 
 Before opening the wallet transaction prompt, the web client preflights the exact `FishingPond.claim` calldata with `eth_call` from the connected wallet. If the voucher is expired, stale, paused, already claimed, over cap, or otherwise invalid, the UI stops before asking the player to spend gas.
 
@@ -158,7 +199,7 @@ If a wallet already has an active unclaimed pond catch, later reels resurface th
 
 ## Agents
 
-Agents see pond availability and pending claim state through catalog and observations. The harness only exposes normal room messages and wallet-action metadata. Agents should use the player's wallet to claim and then report the submitted tx with `submitFishingNftClaimTx`.
+Agents see pond availability and pending claim state through catalog and observations. The harness only exposes normal room messages and wallet-action metadata. Agents should use the player's wallet to claim and then report the submitted tx with `submitFishingNftClaimTx`, or send `abandonFishingNftCatch` before tx submission to forfeit an offer that still counts for the day.
 
 Declared agents use the same `startFishing`, `reelFishing`, `lootCorpse`, and `submitFishingNftClaimTx` room messages as players. `/agent-catalog` includes a fishing playbook:
 
@@ -166,7 +207,7 @@ Declared agents use the same `startFishing`, `reelFishing`, `lootCorpse`, and `s
 - move to the south-center pond shore
 - cast, wait for `self.fishing.state = bite`, then reel before the bite window expires
 - collect fishing loot windows with `lootCorpse`
-- for NFT catches, sign the wallet claim externally and submit the tx hash through the normal room message
+- for NFT catches, sign the wallet claim externally and submit the tx hash through the normal room message, or forfeit an unsubmitted offer with `abandonFishingNftCatch`
 
 Declared agents have lower odds because the fish can smell the metal:
 
@@ -207,7 +248,7 @@ These values need to be decided before live enablement and should not drift sile
 13. Drain/admin-return owner. Decide who can run support returns, drain workflows, and v2 migration workflows. Default: admin can return specific entries or collection slices; full drain is reserved for migration/shutdown; migration requires paused pond plus a reviewed migration target.
 14. First live prize batch. Decide the actual NFTs to seed for launch and how many to deposit. Default: small batch first, verify human and agent claims, then add more.
 15. Launch timing and monitoring. Decide the launch window and who watches logs/events. Default: launch while an operator is available to pause issuance, rotate signer, or return deposits if needed.
-16. Anti-spam gate. Decide whether NFT eligibility requires a small MFERGPT holding or a burned/onchain fishing pole. Default for this branch: no gate enforced until token/amount/item details are decided.
+16. Onchain fishing rod gate. Decide the final live rod contract source and token standard. Default for this branch: enable the server-side ERC-721/ERC-1155 ownership check with `MFERLAND_ONCHAIN_FISHING_ROD_*`; the configured rod also appears in the stash pond/NFT tab for owning wallets.
 
 Admin needs to choose the live contract/admin/signer/caps/allowlist/chance values, fund any needed deployer or admin gas, and approve launch timing. Codex can deploy or verify the contract once those values exist, set or check env, run migrations/builds/smokes, and monitor logs during the first pond session.
 
@@ -275,7 +316,7 @@ cast call "$PRIZE_721_COLLECTION" "ownerOf(uint256)(address)" "$TOKEN_ID" --rpc-
 cast call "$PRIZE_1155_COLLECTION" "balanceOf(address,uint256)(uint256)" "$FISHING_POND_ADDRESS" "$TOKEN_ID" --rpc-url "$BASE_RPC_URL"
 ```
 
-For the first monitored production smoke, it is okay to temporarily set `MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="10000"` in the live root `.env`, restart, complete one low-value human test claim, then restore the launch value and restart. This uses normal config, not `MFERLAND_DEBUG_FISHING_NFT_GATE`. Declared agents still apply the intended 50% NFT catch multiplier, so an agent NFT claim may need multiple completed reels.
+For the first monitored production smoke, it is okay to temporarily set `MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="2500"` in the live root `.env`, restart, complete one low-value human test claim, then restore the launch value and restart. This uses normal config, not `MFERLAND_DEBUG_FISHING_NFT_GATE`. A 25% smoke rate can still take a few reels; avoid `10000` unless an explicitly deterministic single-cast proof is worth the product distortion. Declared agents still apply the intended 50% NFT catch multiplier, so an agent NFT claim may need multiple completed reels.
 
 After a live claim, verify both chain event and server history:
 

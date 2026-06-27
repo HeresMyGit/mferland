@@ -785,6 +785,7 @@ const DECISION_ACTIONS = [
   "purchase_fishing_supply",
   "sell_trash_items",
   "fish",
+  "refresh_fishing_nft_history",
   "sell_fish_items",
   "update_traits",
   "emote",
@@ -1033,8 +1034,13 @@ class AgentBridgeSession {
       this.recordFishingNftCapNotice(message);
       this.remember(`fishingNftCap:${messageSummary(message)}`, true);
     });
+    room.onMessage("fishingNftHistoryResult", (message: unknown) => {
+      this.recordFishingNftHistoryResult(message);
+      this.remember(`fishingNftHistory:${messageSummary(message)}`, true);
+    });
     room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => this.remember(`fishingSupply:${messageSummary(message)}`, true));
     room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
+    room.onMessage("mintClubRedemptionResult", (message: unknown) => this.remember(`mintClubRedemption:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
     room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
@@ -3385,6 +3391,7 @@ class AgentBridgeSession {
       case "sell_trash_items":
       case "sell_fish_items":
       case "fish":
+      case "refresh_fishing_nft_history":
         return 10_000;
       case "loot":
         return 8_000;
@@ -3444,7 +3451,8 @@ class AgentBridgeSession {
       || action === "interact_npc"
       || action === "sell_trash_items"
       || action === "sell_fish_items"
-      || action === "fish";
+      || action === "fish"
+      || action === "refresh_fishing_nft_history";
   }
 
   private checkDurableOutcome(
@@ -3550,6 +3558,11 @@ class AgentBridgeSession {
         if (this.recentMessages.some((message) => message.startsWith("fishing:"))) {
           if (this.getOpenFishingLootWindow()) return null;
           return { status: "completed", stoppedBecause: this.lastAction.startsWith("loot_fishing") ? "fishing_loot_collected" : "fishing_result", durationMs };
+        }
+        return null;
+      case "refresh_fishing_nft_history":
+        if (this.recentMessages.some((message) => message.startsWith("fishingNftHistory:"))) {
+          return { status: "completed", stoppedBecause: "fishing_nft_history_refreshed", durationMs };
         }
         return null;
       default:
@@ -3683,6 +3696,11 @@ class AgentBridgeSession {
         this.lastAction = "start_fishing";
         return;
       }
+      case "refresh_fishing_nft_history":
+        this.clearRoute();
+        this.send("refreshFishingNftHistory", {});
+        this.lastAction = "refresh_fishing_nft_history";
+        return;
       case "sell_fish_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) return;
@@ -4334,6 +4352,11 @@ class AgentBridgeSession {
         this.lastAction = "start_fishing";
         return null;
       }
+      case "refresh_fishing_nft_history":
+        this.clearEngagement();
+        this.send("refreshFishingNftHistory", {});
+        this.lastAction = "refresh_fishing_nft_history";
+        return null;
       case "sell_fish_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) throw new Error("sell_fish_items requires fish monger to be visible in room state");
@@ -6805,6 +6828,14 @@ class AgentBridgeSession {
     if (record.catch) this.recordFishingNftCatch(record.catch);
   }
 
+  private recordFishingNftHistoryResult(message: unknown) {
+    const command = this.runningCommand();
+    if (!command) return;
+    const catches = asRecord(message).catches;
+    if (!Array.isArray(catches)) return;
+    catches.forEach((catchRecord) => this.recordFishingNftCatch(catchRecord));
+  }
+
   private recordFishingNftCatch(catchRecord: unknown) {
     const command = this.runningCommand();
     if (!command) return;
@@ -8598,6 +8629,8 @@ function buildAgentCommandFishingRecap(
           ? getNumber(capNotice.globalDailyRemaining)
           : null;
   const dailyResetAt = getNumber(capNotice?.dailyResetAt) || getFishingNftDailyResetAt();
+  const rodRequirement = asRecord(config.rodRequirement) || asRecord(capNotice?.rodRequirement);
+  const rodWalletActionRequired = Boolean(rodRequirement?.walletActionRequired);
   const pendingWalletActionCount = catches.filter((entry) => Boolean(entry.walletActionRequired)).length;
   const confirmedCount = catches.filter((entry) => getString(entry.status) === "confirmed").length;
   const mintClubReadyCount = catches.filter((entry) => getString(asRecord(entry.mintClubRedemption)?.status) === "eligible").length;
@@ -8609,6 +8642,7 @@ function buildAgentCommandFishingRecap(
     nftCatchCount > 0 ? `${nftCatchCount} NFT catch${nftCatchCount === 1 ? "" : "es"} (${confirmedCount} confirmed${pendingWalletActionCount > 0 ? `, ${pendingWalletActionCount} need wallet` : ""})` : "",
     mintClubReadyCount > 0 ? `${mintClubReadyCount} Mint Club goodie${mintClubReadyCount === 1 ? "" : "s"} ready` : "",
     pondEnabled && perWalletDailyCap > 0 ? `${walletDailyRemaining}/${perWalletDailyCap} NFT catches remaining today` : "",
+    rodWalletActionRequired ? `${getString(rodRequirement?.label) || "onchain fishing rod"} required for NFT catches; mint through the rod contract${getString(rodRequirement?.mintPriceLabel) ? ` (${getString(rodRequirement?.mintPriceLabel)})` : ""}` : "",
   ].filter(Boolean);
   return {
     summary: parts.length ? `fishing ${parts.join(", ")}` : "",
@@ -8630,6 +8664,7 @@ function buildAgentCommandFishingRecap(
       globalDailyCap,
       globalDailyRemaining,
       dailyResetAt,
+      rodRequirement,
     },
     lastCapNotice: capNotice,
   };

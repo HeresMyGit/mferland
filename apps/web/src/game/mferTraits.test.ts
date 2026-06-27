@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { FISHING_POND_STATUS_NPC_ID, FISHING_TUTOR_NPC_ID, FISHING_VENDOR_NPC_ID, MINT_CLUB_REDEMPTION_NPC_ID } from "@mferland/shared";
 import { generateMferTraitsForActor, traitsToMeshes } from "./mferTraits";
 
 test("renders zombie eye base underneath glasses", () => {
@@ -41,4 +42,42 @@ test("oldhead cap does not inherit random mohawk", () => {
     assert.equal(traits.short_hair, undefined);
     assert.equal(traits.long_hair, undefined);
   }
+});
+
+test("fishing pond npcs have distinct outfits", () => {
+  const motherfisher = generateMferTraitsForActor(123, {
+    id: FISHING_TUTOR_NPC_ID,
+    name: "Motherfisher",
+    role: "merchant",
+  });
+  const fishMonger = generateMferTraitsForActor(123, {
+    id: FISHING_VENDOR_NPC_ID,
+    name: "fish monger",
+    role: "merchant",
+  });
+  const onchainGoodies = generateMferTraitsForActor(123, {
+    id: MINT_CLUB_REDEMPTION_NPC_ID,
+    name: "onchain goodies mfer",
+    role: "merchant",
+  });
+  const pondLedger = generateMferTraitsForActor(123, {
+    id: FISHING_POND_STATUS_NPC_ID,
+    name: "pond ledger mfer",
+    role: "wanderer",
+  });
+
+  assert.equal(motherfisher.hat_over_headphones, "cowboy");
+  assert.equal(motherfisher.eyes, "eyepatch");
+  assert.equal(fishMonger.type, "ape");
+  assert.equal(fishMonger.shirt, "hoodie_down_gray");
+  assert.equal(onchainGoodies.type, "based");
+  assert.equal(onchainGoodies.chain, "onchain");
+  assert.equal(pondLedger.type, "plain");
+  assert.equal(pondLedger.eyes, "nerd");
+  assert.notDeepEqual(motherfisher, fishMonger);
+  assert.notDeepEqual(motherfisher, onchainGoodies);
+  assert.notDeepEqual(motherfisher, pondLedger);
+  assert.notDeepEqual(fishMonger, onchainGoodies);
+  assert.notDeepEqual(fishMonger, pondLedger);
+  assert.notDeepEqual(onchainGoodies, pondLedger);
 });

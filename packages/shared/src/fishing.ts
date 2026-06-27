@@ -4,9 +4,11 @@ import { ELIXIR_SHOP_MFERGPT_AMOUNT_LABEL, ELIXIR_SHOP_MFERGPT_AMOUNT_WEI, FISHI
 export const FISHING_TUTOR_NPC_ID = "motherfisher";
 export const FISHING_VENDOR_NPC_ID = "fish-monger";
 export const MINT_CLUB_REDEMPTION_NPC_ID = "onchain-goodies-mfer";
+export const FISHING_POND_STATUS_NPC_ID = "pond-ledger-mfer";
 export const FISHING_ZONE_ID = "south-center-pond";
 export const FISHING_POLE_ITEM_ID = "fishing-pole";
 export const LOANER_FISHING_POLE_ITEM_ID = "loaner-fishing-pole";
+export const ONCHAIN_FISHING_ROD_ITEM_ID = "onchain-fishing-rod";
 export const FISHING_CHUM_ITEM_ID = "bucket-of-old-chum";
 export const FISHING_SUPPLY_PRODUCT_ID = "fishing-supplies";
 export const FISHING_CHUM_MFERGPT_AMOUNT_WEI = ELIXIR_SHOP_MFERGPT_AMOUNT_WEI;
@@ -18,6 +20,10 @@ export const FISHING_NFT_POND_CHAIN_STANDARD = {
   ERC721: 1,
   ERC1155: 2,
 } as const;
+export const ONCHAIN_FISHING_ROD_DEFAULT_LABEL = "onchain fishing rod";
+export const ONCHAIN_FISHING_ROD_PRODUCT_ID = "onchain-fishing-rod";
+export const ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI = "25000000000000000000000000";
+export const ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_LABEL = "25M $MFERGPT";
 export const FISHING_NFT_POND_DEFAULT_CATCH_CHANCE_BPS = 500;
 export const FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP = 3;
 export const FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP = 50;
@@ -45,6 +51,7 @@ export const FISHING_NFT_POND_V1_DECISIONS = {
   deposits: "open contract deposits; production server awards only from configured collection allowlist",
   gasPayment: "players pay gas for claim transactions in v1; relayers are a later option",
   metadataDisplay: "v1 reads standard NFT metadata for name, description, and image when available, with collection/token fallback",
+  onchainFishingRod: "optional server-side wallet ownership gate; supports ERC-721 balance checks or ERC-1155 token-id balance checks",
   randomness: FISHING_NFT_POND_RANDOMNESS_NOTE,
 } as const;
 
@@ -90,6 +97,7 @@ export const FISHING_SELLABLE_ITEM_IDS = [
 export const FISHING_ITEM_IDS = [
   FISHING_POLE_ITEM_ID,
   LOANER_FISHING_POLE_ITEM_ID,
+  ONCHAIN_FISHING_ROD_ITEM_ID,
   FISHING_CHUM_ITEM_ID,
   ...FISHING_CATCH_ITEM_IDS,
 ] as const;
@@ -101,9 +109,50 @@ export type FishingItemId = typeof FISHING_ITEM_IDS[number];
 export type FishingZoneId = typeof FISHING_ZONE_ID;
 export type FishingState = "" | "casting" | "waiting" | "bite";
 export type FishingNftTokenStandard = keyof typeof FISHING_NFT_POND_CHAIN_STANDARD;
-export type FishingNftCatchStatus = "pending" | "voucher_issued" | "tx_submitted" | "confirmed" | "expired" | "failed";
-export type FishingNftCapNoticeKind = "wallet_daily_cap" | "global_daily_cap";
+export type FishingNftCatchStatus = "pending" | "voucher_issued" | "tx_submitted" | "confirmed" | "expired" | "failed" | "abandoned";
+export type FishingNftCapNoticeKind = "wallet_daily_cap" | "global_daily_cap" | "rod_required" | "rod_required_nft_hit";
 export type MintClubRedemptionStatus = "claim_required" | "eligible" | "tx_submitted" | "confirmed" | "failed";
+export type OnchainFishingRodStandard = "ERC721" | "ERC1155";
+export type OnchainFishingRodMintMode = "wallet" | "server" | "url";
+export type OnchainFishingRodMintFunction = "mint" | "mintTo" | "mintQuantity" | "mintToQuantity";
+
+export type OnchainFishingRodRequirementSnapshot = {
+  enabled: boolean;
+  required: boolean;
+  walletOwnsRod: boolean;
+  walletActionRequired: boolean;
+  chainId: number;
+  contractAddress: string;
+  standard: OnchainFishingRodStandard;
+  tokenId: string;
+  label: string;
+  mintUrl?: string;
+  mintPriceAmountWei?: string;
+  mintPriceLabel?: string;
+  mintMode?: OnchainFishingRodMintMode;
+  mintContractAddress?: string;
+  mintFunction?: OnchainFishingRodMintFunction;
+  mintPaymentTokenAddress?: string;
+  mintPaymentSpenderAddress?: string;
+  adminMintEnabled?: boolean;
+  adminMintPaymentRequired?: boolean;
+  error?: string;
+};
+
+export type FishingWalletNftSnapshot = {
+  id: string;
+  walletAddress: string;
+  standard: OnchainFishingRodStandard;
+  collection: string;
+  tokenId: string;
+  amount: string;
+  chainId: number;
+  itemId?: typeof ONCHAIN_FISHING_ROD_ITEM_ID;
+  label: string;
+  description: string;
+  image?: string;
+  action: "hold" | "use" | "sell" | "equip" | "redeem";
+};
 
 export type FishingNftCapNotice = {
   kind: FishingNftCapNoticeKind;
@@ -114,6 +163,7 @@ export type FishingNftCapNotice = {
   walletDailyRemaining?: number;
   globalDailyCap?: number;
   globalDailyRemaining?: number | null;
+  rodRequirement?: OnchainFishingRodRequirementSnapshot;
 };
 
 export type FishingNftPondConfig = {
@@ -129,6 +179,7 @@ export type FishingNftPondConfig = {
   stocked: boolean;
   drainMode: boolean;
   randomness: typeof FISHING_NFT_POND_RANDOMNESS_NOTE;
+  rodRequirement?: OnchainFishingRodRequirementSnapshot;
 };
 
 export type FishingNftClaimVoucher = {
@@ -264,6 +315,10 @@ export function isFishingPoleItemId(value: unknown): value is typeof FISHING_POL
 
 export function getFishingSupplyPrice() {
   return { amountWei: FISHING_CHUM_MFERGPT_AMOUNT_WEI, label: FISHING_CHUM_MFERGPT_AMOUNT_LABEL };
+}
+
+export function getOnchainFishingRodMintPrice() {
+  return { amountWei: ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI, label: ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_LABEL };
 }
 
 export function getFishingSaleRule(itemId: FishingSellableItemId) {

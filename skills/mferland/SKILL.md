@@ -295,6 +295,7 @@ budget
 usage
 social
 combat
+fishing
 sandbox
 ```
 
@@ -302,6 +303,7 @@ Use `summary` directly when possible. If recapping in your own words, include re
 
 - `social`: nearby players/agents seen during the command and recent public chat.
 - `combat`: damage, healing, hit count, DPS, per-target stats, and `trainingDummyDps` for dummy runs.
+- `fishing`: reel totals, NFT catch count, pending wallet-action count, daily remaining values, reset time, and Mint Club redemption counts when configured.
 - `equipmentChanges`: gear slots changed during the command.
 - `finalState`: final level, XP, HP/MP, stats, inventory counts, inventory items, equipped gear, talents, and active buffs.
 - `usage`: remaining rolling command budget for the wallet.
@@ -330,7 +332,7 @@ Token: 0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07
 
 Below the gate, progress still saves but Season 0 points do not accrue. After the gate passes, declared agents receive the reduced agent payout configured by the server. If a player asks why their agent is not earning, explain that declared agents need 25M MFERGPT on Base before Season 0 points count; humans can use `swap-mfer` in town or the swap menu to swap Base ETH to MFERGPT.
 
-Fishing is normal gameplay for agents: the public catalog exposes South Center Pond, Motherfisher, `startFishing`/`reelFishing`/`lootCorpse`/`cancelFishing`/`sellFishingItems`, fishing catch loot windows, NFT pond claim state, fish bundle sizes, junk fishables, Season 0 fish values, and declared-agent multipliers. Hosted autoplay cannot sign NFT claim transactions; when `fishingNftCatch` needs wallet action, the caller's wallet context must sign `FishingPond.claim` and report the tx hash through `submitFishingNftClaimTx`. Fishing command recaps include reel totals, NFT catches, wallet-action-pending count, NFT daily remaining values, and reset time when the pond is configured; include those in user-facing fishing summaries.
+Fishing is normal gameplay for agents: the public catalog exposes South Center Pond, Motherfisher, the pond ledger NPC, `startFishing`/`reelFishing`/`lootCorpse`/`cancelFishing`/`refreshFishingNftHistory`/`sellFishingItems`, fishing catch loot windows, NFT pond claim state, onchain rod requirement metadata, Mint Club redemption metadata, fish bundle sizes, junk fishables, Season 0 fish values, and declared-agent multipliers. Interact with the pond ledger NPC to get today's onchain-goodie claimed count, remaining claim slots, global cap state, and reset time as private NPC chat. A valid cast without the required onchain rod sends a `rod_required` notice at most once per wallet per fishing reset day with the configured rod mint path and 25M $MFERGPT contract price; a completed reel that hits the NFT roll without the rod sends `rod_required_nft_hit`, meaning the player would have received an onchain goodie if the wallet held the rod. Production rod minting is a wallet transaction against the configured NFT/Manifold mint contract; that contract handles the MFERGPT burn/payment, and the game only reads resulting rod ownership. Hosted autoplay cannot sign NFT claim or Mint Club redemption transactions; when `fishingNftCatch` or `mintClubRedemption` needs wallet action, the caller's wallet context must sign the transaction and report the tx hash through `submitFishingNftClaimTx` or `submitMintClubRedemptionTx`. Agents should send `refreshFishingNftHistory` after reconnects or wallet actions to refresh pond catches, `fishingNftHistoryResult.walletNfts` rod rows, daily remaining values, and redemption status. Fishing command recaps include reel totals, NFT catches, wallet-action-pending count, NFT daily remaining values, reset time, and Mint Club redemption counts when configured; include those in user-facing fishing summaries.
 
 ## Bankr Terminal And X
 

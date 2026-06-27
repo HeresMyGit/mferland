@@ -306,6 +306,8 @@ const DECISION_ACTIONS = [
   "purchase_potion_shop_item",
   "sell_trash_items",
   "fish",
+  "refresh_fishing_nft_history",
+  "purchase_onchain_fishing_rod",
   "sell_fish_items",
   "update_traits",
   "respec_talents",
@@ -962,7 +964,12 @@ class MferlandRunner {
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
     room.onMessage("fishingResult", (message: unknown) => this.remember(`fishing:${messageSummary(message)}`, true));
+    room.onMessage("fishingNftCatchResult", (message: unknown) => this.remember(`fishingNft:${messageSummary(message)}`, true));
+    room.onMessage("fishingNftCapNotice", (message: unknown) => this.remember(`fishingNftCap:${messageSummary(message)}`, true));
+    room.onMessage("fishingNftHistoryResult", (message: unknown) => this.remember(`fishingNftHistory:${messageSummary(message)}`, true));
+    room.onMessage("onchainFishingRodMintResult", (message: unknown) => this.remember(`onchainFishingRod:${messageSummary(message)}`, true));
     room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
+    room.onMessage("mintClubRedemptionResult", (message: unknown) => this.remember(`mintClubRedemption:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
     room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
@@ -1365,7 +1372,8 @@ class MferlandRunner {
         "If a corpse has loot and you are safe, use loot to clear it.",
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
         "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
-        "Use fish near catalog.fishing.zone when self has a fishing pole, is safe, and fishing progress or fish inventory would help. The harness casts, waits for bite, reels, and loots the fishing lootWindow through normal room messages.",
+        "Use fish near catalog.fishing.zone when self has a fishing pole, is safe, and fishing progress or fish inventory would help. The harness casts, waits for bite, reels, and loots the fishing lootWindow through normal room messages. NFT claim offers immediately spend one daily NFT catch; rod_required_nft_hit means the reel would have produced an onchain goodie if the wallet held the rod. Use refresh_fishing_nft_history after reconnects or wallet actions to refresh pond catches, onchain rod rows, daily remaining count, and Mint Club redemption state.",
+        "Onchain goodie catches may require an onchain fishing rod wallet holding. Production wallet tooling should mint through the configured NFT/Manifold mint contract or mint URL; that contract handles any MFERGPT burn/payment. NFT claims and Mint Club redemptions are wallet actions: external wallet tooling signs the transaction, then reports the tx hash through the normal submit message.",
         "Use sell_fish_items at catalog.fishing.npcId to sell fish bundles and clear zero-point pond junk. Declared agents need catalog.fishing.agentBundleMultiplier times each fish bundle size for the same Season 0 points.",
         "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
         "Season point caps, referral rules, and public season endpoints are in catalog.season0 and catalog.endpoints. Agents do not bind, count, or earn human referral bonuses.",
@@ -1375,7 +1383,7 @@ class MferlandRunner {
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
-        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, sell_trash_items, fish, sell_fish_items, and respec_talents through normal room messages when the observation shows a useful reason.",
+        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, sell_trash_items, fish, refresh_fishing_nft_history, sell_fish_items, and respec_talents through normal room messages when the observation shows a useful reason.",
         "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH. In uniswap-v4 mode this uses the same Base ETH to MFERGPT route as swap-mfer.",
         "Paid shop, respec, and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item and respec_talents can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Use respec_talents at respec-mfer only when resetting spent talent ranks has a clear build/survival reason. Do not casually burn MFERGPT just to reshuffle talents.",
@@ -2172,6 +2180,7 @@ class MferlandRunner {
       "register_chain_gear",
       "update_traits",
       "respec_talents",
+      "purchase_onchain_fishing_rod",
     ].includes(action);
   }
 
@@ -2860,6 +2869,23 @@ class MferlandRunner {
         this.lastAction = "start_fishing";
         return;
       }
+      case "refresh_fishing_nft_history":
+        this.clearEngagement();
+        this.send("refreshFishingNftHistory", {});
+        this.lastAction = "refresh_fishing_nft_history";
+        return;
+      case "purchase_onchain_fishing_rod": {
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("motherfisher");
+        if (npc && distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_onchain_fishing_rod ${npc.id}`;
+          return;
+        }
+        this.clearEngagement();
+        this.send("purchaseOnchainFishingRod", {});
+        this.lastAction = "purchase_onchain_fishing_rod";
+        return;
+      }
       case "sell_fish_items": {
         const fishing = asRecord(this.catalog?.fishing);
         const fishingNpcId = cleanText(fishing.npcId, 96) || "motherfisher";
@@ -3024,6 +3050,8 @@ class MferlandRunner {
         return "next: registering chain gear";
       case "purchase_potion_shop_item":
         return itemId ? `next: buying ${itemId}` : "";
+      case "purchase_onchain_fishing_rod":
+        return "next: minting onchain fishing rod";
       case "update_traits":
         return "next: updating traits";
       case "respec_talents":
