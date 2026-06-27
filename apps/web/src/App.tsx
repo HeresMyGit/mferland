@@ -2751,7 +2751,12 @@ function reconcileActionSlots({
 
   if (playerHasFishingPole(player) && !next.includes("fish")) {
     const emptyIndex = next.findIndex((slot) => !slot);
-    if (emptyIndex >= 0) next[emptyIndex] = "fish";
+    if (emptyIndex >= 0) {
+      next[emptyIndex] = "fish";
+    } else {
+      const fallbackIndex = findFishingActionFallbackSlot(next);
+      if (fallbackIndex >= 0) next[fallbackIndex] = "fish";
+    }
   }
 
   return {
@@ -2763,6 +2768,15 @@ function reconcileActionSlots({
 function getMoveUnlockSourceLabel(actionId: CombatActionId, player: PlayerSnapshot) {
   const unlockTalent = getCombatActionUnlockTalent(actionId);
   return unlockTalent ? "Talent" : `Level ${player.level}`;
+}
+
+function findFishingActionFallbackSlot(slots: ActionSlot[]) {
+  for (let index = slots.length - 1; index >= 0; index -= 1) {
+    const slot = slots[index];
+    if (!slot || slot === "fish" || slot === "interact" || isItemActionSlot(slot)) continue;
+    return index;
+  }
+  return -1;
 }
 
 function migrateStoredActionSlots(slots: ActionSlot[], storedLength: number) {

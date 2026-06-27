@@ -7,7 +7,9 @@ import {
   EMOTES,
   EQUIPMENT_SLOT_IDS,
   EQUIPMENT_SLOTS,
+  FISHING_POLE_ITEM_ID,
   ITEMS,
+  LOANER_FISHING_POLE_ITEM_ID,
   QUESTS,
   SOCIAL,
   SEASON_0_DAILY_POINT_CAP,
@@ -1829,6 +1831,7 @@ export function Hud({
                     {visibleInventory.map((item) => {
                   const equipment = getItemEquipment(item.id);
                   const consumable = getItemConsumable(item.id);
+                  const actionSlot = getInventoryItemActionSlot(item, consumable);
                   const comparison = getItemComparison(item, localPlayer);
                   const isEquipped = isInventoryItemEquipped(localPlayer, item);
                   const title = getInventoryItemTitle(item, localPlayer, comparison);
@@ -1853,14 +1856,14 @@ export function Hud({
                     >
                       {content}
                     </button>
-                  ) : consumable ? (
+                  ) : actionSlot ? (
                     <button
                       key={getInventoryItemKey(item.id, item.chainTokenId)}
                       type="button"
-                      className="menu-tile inventory-slot consumable"
+                      className={consumable ? "menu-tile inventory-slot consumable" : "menu-tile inventory-slot action-item"}
                       data-tooltip={title}
                       aria-label={formatTooltipLabel(title)}
-                      onPointerDown={(event) => beginSlotDrag(makeItemActionSlot(item.id, item.chainTokenId), event)}
+                      onPointerDown={(event) => beginSlotDrag(actionSlot, event)}
                       onPointerMove={updateActionDrag}
                       onPointerUp={endActionDrag}
                       onPointerCancel={endActionDrag}
@@ -3980,6 +3983,7 @@ function getInventoryItemTitle(
   const equipment = getItemEquipment(item.id);
   const consumable = getItemConsumable(item.id);
   const equipped = isInventoryItemEquipped(player, item);
+  const actionSlot = getInventoryItemActionSlot(item, consumable);
   return [
     definition.name,
     definition.description,
@@ -3990,8 +3994,21 @@ function getInventoryItemTitle(
     consumable ? formatConsumableEffect(item.id) : "",
     formatItemUtility(item.id),
     comparison?.text ?? "",
-    equipped ? "Currently equipped" : equipment ? "Click to equip" : consumable ? "Click to use, drag to hotbar" : "",
+    equipped ? "Currently equipped" : equipment ? "Click to equip" : consumable ? "Click to use, drag to hotbar" : actionSlot ? "Drag to hotbar" : "",
   ].filter(Boolean).join("\n");
+}
+
+function getInventoryItemActionSlot(
+  item: Pick<InventoryItemSnapshot, "id" | "chainTokenId">,
+  consumable: ReturnType<typeof getItemConsumable>,
+): NonNullable<ActionSlot> | null {
+  if (isFishingPoleActionItem(item)) return "fish";
+  if (consumable) return makeItemActionSlot(item.id, item.chainTokenId);
+  return null;
+}
+
+function isFishingPoleActionItem(item: Pick<InventoryItemSnapshot, "id" | "chainTokenId">) {
+  return !item.chainTokenId && (item.id === FISHING_POLE_ITEM_ID || item.id === LOANER_FISHING_POLE_ITEM_ID);
 }
 
 function getLootItemTitle(item: { id: ItemId; count: number }) {
