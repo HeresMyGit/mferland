@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
@@ -24,6 +24,11 @@ import {
   normalizeAvatarSeed,
   normalizeMferAppearanceTraits,
   normalizeWalletAddress,
+  type MintClubRedemptionStatus,
+  type FishingNftCatchStatus,
+  type FishingNftClaimVoucher,
+  type FishingNftMetadataSnapshot,
+  type FishingNftTokenStandard,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
   type ActiveBuffSnapshot,
@@ -49,6 +54,7 @@ import {
   characterTalents,
   characters,
   cryptoPurchaseEvents,
+  fishingPondCatches,
   inviteCodes,
   seasonRewardEvents,
   seasonReferrals,
@@ -71,6 +77,8 @@ import {
 } from "./seasonReferralRules.js";
 
 type DatabaseTransaction = Parameters<Parameters<NonNullable<ReturnType<typeof getDatabase>>["transaction"]>[0]>[0];
+const FISHING_POND_DAY_MS = 86_400_000;
+
 type SeasonReferralBonusAward = {
   referralId: string;
   referrerWalletAddress: string;
@@ -231,6 +239,54 @@ export type SeasonReferralRemovePersistenceResult = {
   referrerSeason0DailyPoints: number;
   refereeSeason0Points: number;
   refereeSeason0DailyPoints: number;
+  error?: string;
+};
+
+export type PersistedFishingPondCatch = {
+  catchId: string;
+  characterId: string;
+  walletAddress: string;
+  attemptId: string;
+  status: FishingNftCatchStatus;
+  chainId: number;
+  contractAddress: string;
+  standard: FishingNftTokenStandard;
+  collection: string;
+  tokenId: string;
+  amount: string;
+  pondEntryId: string;
+  metadata: FishingNftMetadataSnapshot | null;
+  voucher: FishingNftClaimVoucher | null;
+  txHash: string;
+  mintClubRedemptionStatus: MintClubRedemptionStatus | "";
+  mintClubRedemptionTxHash: string;
+  mintClubRedemptionError: string;
+  mintClubRedemptionSubmittedAt: Date | null;
+  mintClubRedemptionConfirmedAt: Date | null;
+  error: string;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt: Date;
+  txSubmittedAt: Date | null;
+  confirmedAt: Date | null;
+};
+
+export type CreateFishingPondCatchRecord = {
+  catchId: string;
+  characterId: string;
+  walletAddress: string;
+  attemptId: string;
+  voucher: FishingNftClaimVoucher;
+  entryRemainingAmount?: string;
+  walletDailyCap?: number;
+  globalDailyCap?: number;
+  metadata?: FishingNftMetadataSnapshot | null;
+};
+
+export type MarkMintClubRedemptionRecord = {
+  catchId: string;
+  txHash: string;
+  status: "tx_submitted" | "confirmed";
   error?: string;
 };
 
@@ -708,6 +764,304 @@ export async function saveCharacterProgressWithCryptoPurchase(state: Persistable
 
     await saveCharacterProgressRows(tx, state);
   });
+}
+
+export async function createFishingPondCatchRecord(record: CreateFishingPondCatchRecord) {
+  const db = getRequiredDatabase();
+  const normalizedWallet = normalizeWalletAddress(record.walletAddress);
+  if (!normalizedWallet) throw new Error("wallet required");
+
+  const now = new Date();
+  const expiresAt = new Date(record.voucher.expiresAt * 1000);
+  const rowValues = {
+    catchId: record.catchId,
+    characterId: record.characterId || null,
+    walletAddress: normalizedWallet,
+    attemptId: record.attemptId,
+    status: "voucher_issued",
+    chainId: record.voucher.chainId,
+    contractAddress: record.voucher.verifyingContract,
+    tokenStandard: record.voucher.standard,
+    collectionAddress: record.voucher.collection,
+    tokenId: record.voucher.tokenId,
+    amount: record.voucher.amount,
+    pondEntryId: record.voucher.pondEntryId,
+    metadataName: sanitizeFishingPondMetadataText(record.metadata?.name, 160),
+    metadataDescription: sanitizeFishingPondMetadataText(record.metadata?.description, 600),
+    metadataImage: sanitizeFishingPondMetadataText(record.metadata?.image, 600),
+    metadataUri: sanitizeFishingPondMetadataText(record.metadata?.tokenUri, 600),
+    voucherJson: record.voucher,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt,
+  } as const;
+
+  if (record.entryRemainingAmount !== undefined) {
+    return await db.transaction(async (tx) => {
+      const day = Math.floor(now.getTime() / FISHING_POND_DAY_MS);
+      const dailyContractAddress = record.voucher.verifyingContract.toLowerCase();
+      const walletDailyCap = normalizeFishingPondDailyCap(record.walletDailyCap);
+      const globalDailyCap = normalizeFishingPondDailyCap(record.globalDailyCap);
+      if (walletDailyCap > 0) {
+        const walletLockKey = `fishing-pond-wallet-day:${record.voucher.chainId}:${dailyContractAddress}:${normalizedWallet}:${day}`;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${walletLockKey}), 0)`);
+        const walletIssuedCount = await countFishingPondDailyIssuedCatchesInDb(tx, {
+          walletAddress: normalizedWallet,
+          chainId: record.voucher.chainId,
+          contractAddress: dailyContractAddress,
+          day,
+        });
+        if (walletIssuedCount >= walletDailyCap) return null;
+      }
+      if (globalDailyCap > 0) {
+        const globalLockKey = `fishing-pond-global-day:${record.voucher.chainId}:${dailyContractAddress}:${day}`;
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${globalLockKey}), 0)`);
+        const globalIssuedCount = await countFishingPondDailyIssuedCatchesInDb(tx, {
+          chainId: record.voucher.chainId,
+          contractAddress: dailyContractAddress,
+          day,
+        });
+        if (globalIssuedCount >= globalDailyCap) return null;
+      }
+
+      const lockKey = `fishing-pond-entry:${record.voucher.chainId}:${record.voucher.verifyingContract.toLowerCase()}:${record.voucher.pondEntryId}`;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
+      const existingReservations = await tx.query.fishingPondCatches.findMany({
+        where: and(
+          eq(fishingPondCatches.chainId, record.voucher.chainId),
+          eq(fishingPondCatches.contractAddress, record.voucher.verifyingContract),
+          eq(fishingPondCatches.pondEntryId, record.voucher.pondEntryId),
+          inArray(fishingPondCatches.status, ["pending", "voucher_issued", "tx_submitted"]),
+          gte(fishingPondCatches.expiresAt, now),
+        ),
+      });
+      const reservedAmount = existingReservations.reduce(
+        (total, row) => total + parseFishingPondAmount(row.amount),
+        0n,
+      );
+      const voucherAmount = parseFishingPondAmount(record.voucher.amount);
+      const entryRemainingAmount = parseFishingPondAmount(record.entryRemainingAmount ?? "0");
+      if (voucherAmount <= 0n || reservedAmount + voucherAmount > entryRemainingAmount) return null;
+
+      const [row] = await tx.insert(fishingPondCatches)
+        .values(rowValues)
+        .returning();
+      return mapFishingPondCatchRow(row);
+    });
+  }
+
+  const [row] = await db.insert(fishingPondCatches)
+    .values(rowValues)
+    .returning();
+  return mapFishingPondCatchRow(row);
+}
+
+export async function findFishingPondCatch(catchId: string) {
+  const db = getDatabase();
+  if (!db) return null;
+  const row = await db.query.fishingPondCatches.findFirst({
+    where: eq(fishingPondCatches.catchId, catchId),
+  });
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function findLatestActiveFishingPondCatchForWallet(walletAddress: string) {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return null;
+  const db = getDatabase();
+  if (!db) return null;
+  const row = await db.query.fishingPondCatches.findFirst({
+    where: and(
+      eq(fishingPondCatches.walletAddress, normalizedWallet),
+      inArray(fishingPondCatches.status, ["pending", "voucher_issued", "tx_submitted"]),
+    ),
+    orderBy: [desc(fishingPondCatches.createdAt)],
+  });
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function findFishingPondCatchHistoryForWallet(walletAddress: string, limit = 20) {
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  if (!normalizedWallet) return [];
+  const db = getDatabase();
+  if (!db) return [];
+  const rows = await db.query.fishingPondCatches.findMany({
+    where: eq(fishingPondCatches.walletAddress, normalizedWallet),
+    orderBy: [desc(fishingPondCatches.createdAt)],
+    limit: Math.max(1, Math.min(50, Math.floor(limit))),
+  });
+  return rows.map(mapFishingPondCatchRow);
+}
+
+export async function countFishingPondDailyIssuedCatches({
+  walletAddress = "",
+  chainId,
+  contractAddress,
+  day,
+}: {
+  walletAddress?: string;
+  chainId: number;
+  contractAddress: string;
+  day: number;
+}) {
+  const db = getDatabase();
+  if (!db) return 0;
+  return countFishingPondDailyIssuedCatchesInDb(db, {
+    walletAddress,
+    chainId,
+    contractAddress,
+    day,
+  });
+}
+
+async function countFishingPondDailyIssuedCatchesInDb(
+  db: NonNullable<ReturnType<typeof getDatabase>> | DatabaseTransaction,
+  {
+    walletAddress = "",
+    chainId,
+    contractAddress,
+    day,
+  }: {
+    walletAddress?: string;
+    chainId: number;
+    contractAddress: string;
+    day: number;
+  },
+) {
+  const normalizedContract = normalizeWalletAddress(contractAddress);
+  if (!normalizedContract || !Number.isFinite(chainId)) return 0;
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const safeDay = Number.isFinite(day) ? Math.max(0, Math.floor(day)) : 0;
+  const start = new Date(safeDay * FISHING_POND_DAY_MS);
+  const end = new Date((safeDay + 1) * FISHING_POND_DAY_MS);
+  const conditions = [
+    eq(fishingPondCatches.chainId, Math.floor(chainId)),
+    eq(fishingPondCatches.contractAddress, normalizedContract),
+    gte(fishingPondCatches.createdAt, start),
+    lt(fishingPondCatches.createdAt, end),
+  ];
+  if (normalizedWallet) conditions.push(eq(fishingPondCatches.walletAddress, normalizedWallet));
+
+  const [row] = await db.select({ issuedCount: sql<number>`count(*)::int` })
+    .from(fishingPondCatches)
+    .where(and(...conditions));
+  return Number(row?.issuedCount ?? 0);
+}
+
+function normalizeFishingPondDailyCap(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.floor(value));
+}
+
+export async function markFishingPondCatchTxSubmitted(catchId: string, txHash: string) {
+  const db = getRequiredDatabase();
+  const now = new Date();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      status: "tx_submitted",
+      txHash,
+      txSubmittedAt: now,
+      updatedAt: now,
+      error: "",
+    })
+    .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchConfirmed(catchId: string, txHash: string) {
+  const db = getRequiredDatabase();
+  const now = new Date();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      status: "confirmed",
+      txHash,
+      confirmedAt: now,
+      updatedAt: now,
+      error: "",
+    })
+    .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchFailed(catchId: string, error: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      status: "failed",
+      error: error.slice(0, 500),
+      updatedAt: new Date(),
+    })
+    .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchExpired(catchId: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      status: "expired",
+      updatedAt: new Date(),
+    })
+    .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchAbandoned(catchId: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      status: "abandoned",
+      error: "claim offer forfeited",
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      inArray(fishingPondCatches.status, ["pending", "voucher_issued"]),
+    ))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchMintClubRedemption(record: MarkMintClubRedemptionRecord) {
+  const db = getRequiredDatabase();
+  const now = new Date();
+  const setValues = record.status === "confirmed"
+    ? {
+      mintClubRedemptionStatus: "confirmed",
+      mintClubRedemptionTxHash: record.txHash,
+      mintClubRedemptionError: "",
+      mintClubRedemptionConfirmedAt: now,
+      updatedAt: now,
+    }
+    : {
+      mintClubRedemptionStatus: "tx_submitted",
+      mintClubRedemptionTxHash: record.txHash,
+      mintClubRedemptionError: sanitizeFishingPondMetadataText(record.error, 500),
+      mintClubRedemptionSubmittedAt: now,
+      updatedAt: now,
+    };
+  const [row] = await db.update(fishingPondCatches)
+    .set(setValues)
+    .where(eq(fishingPondCatches.catchId, record.catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
+}
+
+export async function markFishingPondCatchMintClubRedemptionFailed(catchId: string, error: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      mintClubRedemptionStatus: "failed",
+      mintClubRedemptionError: sanitizeFishingPondMetadataText(error, 500),
+      updatedAt: new Date(),
+    })
+    .where(eq(fishingPondCatches.catchId, catchId))
+    .returning();
+  return row ? mapFishingPondCatchRow(row) : null;
 }
 
 async function saveCharacterProgressRows(tx: DatabaseTransaction, state: PersistableCharacterState) {
@@ -1852,6 +2206,114 @@ function normalizeInviteCode(value: string) {
     .toUpperCase()
     .replace(/\s+/g, "")
     .slice(0, 80);
+}
+
+function mapFishingPondCatchRow(row: typeof fishingPondCatches.$inferSelect): PersistedFishingPondCatch {
+  return {
+    catchId: row.catchId,
+    characterId: row.characterId ?? "",
+    walletAddress: normalizeWalletAddress(row.walletAddress),
+    attemptId: row.attemptId,
+    status: normalizeFishingPondCatchStatus(row.status),
+    chainId: row.chainId,
+    contractAddress: row.contractAddress,
+    standard: normalizeFishingPondStandard(row.tokenStandard),
+    collection: row.collectionAddress,
+    tokenId: row.tokenId,
+    amount: row.amount,
+    pondEntryId: row.pondEntryId,
+    metadata: normalizeFishingPondMetadata(row),
+    voucher: normalizeFishingPondVoucher(row.voucherJson),
+    txHash: row.txHash,
+    mintClubRedemptionStatus: normalizeMintClubRedemptionStatus(row.mintClubRedemptionStatus),
+    mintClubRedemptionTxHash: row.mintClubRedemptionTxHash,
+    mintClubRedemptionError: row.mintClubRedemptionError,
+    mintClubRedemptionSubmittedAt: row.mintClubRedemptionSubmittedAt,
+    mintClubRedemptionConfirmedAt: row.mintClubRedemptionConfirmedAt,
+    error: row.error,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    expiresAt: row.expiresAt,
+    txSubmittedAt: row.txSubmittedAt,
+    confirmedAt: row.confirmedAt,
+  };
+}
+
+function normalizeFishingPondMetadata(row: typeof fishingPondCatches.$inferSelect): FishingNftMetadataSnapshot | null {
+  const metadata = {
+    name: sanitizeFishingPondMetadataText(row.metadataName, 160),
+    description: sanitizeFishingPondMetadataText(row.metadataDescription, 600),
+    image: sanitizeFishingPondMetadataText(row.metadataImage, 600),
+    tokenUri: sanitizeFishingPondMetadataText(row.metadataUri, 600),
+  };
+  return metadata.name || metadata.description || metadata.image || metadata.tokenUri ? metadata : null;
+}
+
+function sanitizeFishingPondMetadataText(value: unknown, maxLength: number) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function normalizeFishingPondCatchStatus(value: string): FishingNftCatchStatus {
+  if (
+    value === "pending"
+    || value === "voucher_issued"
+    || value === "tx_submitted"
+    || value === "confirmed"
+    || value === "expired"
+    || value === "failed"
+    || value === "abandoned"
+  ) {
+    return value;
+  }
+  return "failed";
+}
+
+function normalizeMintClubRedemptionStatus(value: string): MintClubRedemptionStatus | "" {
+  if (
+    value === "claim_required"
+    || value === "eligible"
+    || value === "tx_submitted"
+    || value === "confirmed"
+    || value === "failed"
+  ) {
+    return value;
+  }
+  return "";
+}
+
+function normalizeFishingPondStandard(value: string): FishingNftTokenStandard {
+  return value === "ERC1155" ? "ERC1155" : "ERC721";
+}
+
+function parseFishingPondAmount(value: string) {
+  try {
+    const amount = BigInt(value);
+    return amount > 0n ? amount : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+function normalizeFishingPondVoucher(value: unknown): FishingNftClaimVoucher | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<FishingNftClaimVoucher>;
+  if (typeof candidate.catchId !== "string" || typeof candidate.signature !== "string") return null;
+  if (candidate.standard !== "ERC721" && candidate.standard !== "ERC1155") return null;
+  return {
+    catchId: candidate.catchId,
+    fisher: typeof candidate.fisher === "string" ? candidate.fisher : "",
+    tokenStandard: candidate.standard === "ERC1155" ? 2 : 1,
+    standard: candidate.standard,
+    collection: typeof candidate.collection === "string" ? candidate.collection : "",
+    tokenId: typeof candidate.tokenId === "string" ? candidate.tokenId : "0",
+    amount: typeof candidate.amount === "string" ? candidate.amount : "1",
+    pondEntryId: typeof candidate.pondEntryId === "string" ? candidate.pondEntryId : "0",
+    expiresAt: Number(candidate.expiresAt) || 0,
+    chainId: Number(candidate.chainId) || 0,
+    verifyingContract: typeof candidate.verifyingContract === "string" ? candidate.verifyingContract : "",
+    signature: candidate.signature,
+  };
 }
 
 function isKnownItemId(value: string): value is ItemId {

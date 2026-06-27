@@ -185,6 +185,7 @@ const OUTPOST_BUILDING_DETAILS = {
   "field-post": { sign: "ROADPOST", accent: MFER_COLORS.friendly },
   "trail-shed": { sign: "STASH", accent: MFER_COLORS.local },
   "hub-watch": { sign: "CAMP", accent: MFER_COLORS.player },
+  "fishing-shack": { sign: "FISHIN", accent: MFER_COLORS.signal },
   "ridge-post": { sign: "RIDGE", accent: MFER_COLORS.signal },
   "signal-shed": { sign: "STATIC", accent: MFER_COLORS.relay },
   "relay-watch": { sign: "BEACON", accent: MFER_COLORS.fire },

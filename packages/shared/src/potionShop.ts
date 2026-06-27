@@ -1,9 +1,9 @@
 import {
-  ELIXIR_ITEM_IDS,
   ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_LABEL,
   ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_WEI,
   ELIXIR_SHOP_MFERGPT_AMOUNT_LABEL,
   ELIXIR_SHOP_MFERGPT_AMOUNT_WEI,
+  POTION_SHOP_ELIXIR_ITEM_IDS,
   isElixirItemId,
 } from "./elixirs.js";
 
@@ -17,7 +17,7 @@ export const POTION_SHOP_ITEM_IDS = [
   "red-juice",
   "blue-juice",
   "field-snack",
-  ...ELIXIR_ITEM_IDS,
+  ...POTION_SHOP_ELIXIR_ITEM_IDS,
 ] as const;
 export const POTION_SHOP_PURCHASE_QUANTITIES = [1, 5] as const;
 

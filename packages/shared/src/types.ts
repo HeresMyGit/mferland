@@ -4,6 +4,15 @@ import type { ElixirBuffId, ElixirItemId } from "./elixirs.js";
 import type { EquipmentSlotId, ITEMS } from "./items.js";
 import type { PotionShopItemId, PotionShopPurchaseQuantity } from "./potionShop.js";
 import type { TrashVendorItemId } from "./trashVendor.js";
+import type {
+  FishingCatchItemId,
+  FishingNftCatchSnapshot,
+  OnchainFishingRodRequirementSnapshot,
+  FishingWalletNftSnapshot,
+  FishingSellableItemId,
+  FishingState,
+  FishingZoneId,
+} from "./fishing.js";
 import type { QUESTS } from "./quests.js";
 import type { TalentId, TalentTreeId } from "./talents.js";
 import type { PLAZA_BOUNDS } from "./world.js";
@@ -11,13 +20,13 @@ import type { MferAppearanceTraits, TraitPaymentToken } from "./appearance.js";
 
 export type IdentityType = "guest" | "wallet" | "agent";
 export type SpeakerType = IdentityType | "npc";
-export type AnimationState = "idle" | "walk" | "run" | "jump";
+export type AnimationState = "idle" | "walk" | "run" | "jump" | "fishCast" | "fishIdle" | "fishReel";
 export type EmoteId = keyof typeof EMOTES;
 export type NpcRole = "wanderer" | "quest_giver" | "merchant" | "guard" | "enemy" | "critter" | "beast" | "farmer";
 export type NpcModel = "mfer" | "mfergpt" | "rabbit" | "deer" | "hog" | "training-dummy";
 export type TargetKind = "player" | "npc";
 export type CombatActionId = keyof typeof COMBAT.actions;
-export type ActionId = "interact" | CombatActionId;
+export type ActionId = "interact" | "fish" | CombatActionId;
 export type NpcDisposition = "friendly" | "neutral" | "hostile";
 export type QuestId = keyof typeof QUESTS;
 export type QuestStatus = "active" | "ready" | "completed";
@@ -124,6 +133,7 @@ export type LootItemSnapshot = {
 export type LootWindow = {
   npcId: string;
   npcName: string;
+  source?: "corpse" | "fishing";
   items: LootItemSnapshot[];
 };
 
@@ -282,6 +292,15 @@ export type PlayerSnapshot = {
   lastCastAt: number;
   lastDamagedAt: number;
   frozenUntil: number;
+  fishingAttemptId: string;
+  fishingZoneId: FishingZoneId | "";
+  fishingState: FishingState;
+  fishingCastAt: number;
+  fishingBiteAt: number;
+  fishingExpiresAt: number;
+  fishingBobberX: number;
+  fishingBobberZ: number;
+  fishingNftCatch: FishingNftCatchSnapshot | null;
   quests: QuestSnapshot[];
   inventory: InventoryItemSnapshot[];
   equipment: EquipmentSlotSnapshot[];
@@ -359,7 +378,7 @@ export type ExperienceEvent = {
 
 export type AgentVisiblePlayer = Pick<
   PlayerSnapshot,
-  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation"
+  "sessionId" | "name" | "identityType" | "isAgent" | "agentStatusAction" | "agentStatusThought" | "agentStatusObjective" | "agentStatusQuest" | "agentStatusUpdatedAt" | "agentCommandStatus" | "agentCommandBudgetTier" | "agentCommandStartedAt" | "agentCommandMaxSeconds" | "agentCommandSessionUsedSeconds" | "agentCommandSessionRemainingSeconds" | "agentCommandDailyUsedSeconds" | "agentCommandDailyRemainingSeconds" | "agentCommandDailySeconds" | "avatarSeed" | "health" | "maxHealth" | "mana" | "maxMana" | "x" | "y" | "z" | "yaw" | "animation" | "fishingAttemptId" | "fishingZoneId" | "fishingState" | "fishingBiteAt" | "fishingExpiresAt" | "fishingBobberX" | "fishingBobberZ" | "fishingNftCatch"
 > & {
   distance: number;
 };
@@ -493,6 +512,21 @@ export type PotionShopPurchaseResult = {
   error?: string;
 };
 
+export type ClientPurchaseFishingSupply = {
+  payment?: MferGptPaymentProof;
+};
+
+export type FishingSupplyPurchaseResult = {
+  ok: boolean;
+  itemId: "bucket-of-old-chum" | "";
+  itemName: string;
+  count: number;
+  paymentAmountWei: string;
+  chainId: number;
+  txHash?: string;
+  error?: string;
+};
+
 export type ClientSellTrashItems = {
   itemId?: TrashVendorItemId;
   quantity?: number;
@@ -509,6 +543,101 @@ export type TrashVendorSoldItem = {
 export type TrashVendorSellResult = {
   ok: boolean;
   sold: TrashVendorSoldItem[];
+  quantity: number;
+  points: number;
+  season0Points: number;
+  season0DailyPoints: number;
+  error?: string;
+};
+
+export type ClientStartFishing = {
+  zoneId?: FishingZoneId;
+};
+
+export type ClientReelFishing = {
+  attemptId?: string;
+};
+
+export type ClientCancelFishing = Record<string, never>;
+
+export type FishingResult = {
+  ok: boolean;
+  attemptId: string;
+  outcome: "caught" | "junk" | "missed" | "too_early" | "expired" | "nft";
+  itemId: FishingCatchItemId | "";
+  itemName: string;
+  quantity: number;
+  nftCatch?: FishingNftCatchSnapshot;
+  error?: string;
+};
+
+export type FishingNftCatchResult = {
+  ok: boolean;
+  catch: FishingNftCatchSnapshot | null;
+  error?: string;
+};
+
+export type FishingNftHistoryResult = {
+  ok: boolean;
+  catches: FishingNftCatchSnapshot[];
+  walletNfts?: FishingWalletNftSnapshot[];
+  rodRequirement?: OnchainFishingRodRequirementSnapshot;
+  error?: string;
+};
+
+export type ClientPurchaseOnchainFishingRod = Record<string, never>;
+
+export type OnchainFishingRodMintResult = {
+  ok: boolean;
+  walletNft: FishingWalletNftSnapshot | null;
+  chainId: number;
+  contractAddress: string;
+  paymentAmountWei: string;
+  paymentRequired: boolean;
+  paymentTxHash?: string;
+  mintTxHash?: string;
+  alreadyOwned?: boolean;
+  error?: string;
+};
+
+export type ClientSubmitFishingNftClaimTx = {
+  catchId: string;
+  txHash: string;
+};
+
+export type ClientAbandonFishingNftCatch = {
+  catchId: string;
+};
+
+export type ClientSubmitMintClubRedemptionTx = {
+  catchId: string;
+  txHash: string;
+  status?: "tx_submitted" | "confirmed";
+};
+
+export type MintClubRedemptionResult = {
+  ok: boolean;
+  catch: FishingNftCatchSnapshot | null;
+  error?: string;
+};
+
+export type ClientSellFishingItems = {
+  itemId?: FishingSellableItemId;
+  quantity?: number;
+  sellAll?: boolean;
+};
+
+export type FishingVendorSoldItem = {
+  itemId: FishingSellableItemId;
+  itemName: string;
+  quantity: number;
+  points: number;
+  bundleSize: number;
+};
+
+export type FishingVendorSellResult = {
+  ok: boolean;
+  sold: FishingVendorSoldItem[];
   quantity: number;
   points: number;
   season0Points: number;
@@ -568,6 +697,16 @@ export type AgentObservation = {
     | "equipItem"
     | "unequipItem"
     | "useItem"
+    | "startFishing"
+    | "reelFishing"
+    | "cancelFishing"
+    | "refreshFishingNftHistory"
+    | "submitFishingNftClaimTx"
+    | "abandonFishingNftCatch"
+    | "submitMintClubRedemptionTx"
+    | "sellFishingItems"
+    | "purchaseFishingSupply"
+    | "purchaseOnchainFishingRod"
     | "selectTalent"
     | "updateTraits"
     | "respecTalents"

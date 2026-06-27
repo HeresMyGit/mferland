@@ -20,6 +20,7 @@ type MovableWindowProps = HTMLAttributes<HTMLElement> & {
   children: ReactNode;
   allowInteractiveDrag?: boolean;
   disabled?: boolean;
+  disablePositionPersistence?: boolean;
 };
 
 type PendingWindowDrag = {
@@ -58,6 +59,7 @@ const MOBILE_TOP_RESERVED_WINDOW_IDS = new Set([
   "hud.swap",
   "hud.potion-shop",
   "hud.trash-vendor",
+  "hud.fishing-vendor",
   "hud.respec",
   "hud.quest-offer",
   "hud.quest-turn-in",
@@ -70,21 +72,24 @@ export function MovableWindow({
   className = "",
   style,
   disabled = false,
+  disablePositionPersistence = false,
   onPointerDown,
   onClickCapture,
   children,
   allowInteractiveDrag = false,
   ...props
 }: MovableWindowProps) {
-  const [position, setPosition] = useState<MovableWindowPosition | null>(() => readMovableWindowPosition(id));
+  const [position, setPosition] = useState<MovableWindowPosition | null>(() => (
+    disablePositionPersistence ? null : readMovableWindowPosition(id)
+  ));
   const [dragging, setDragging] = useState(false);
   const elementRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<PendingWindowDrag | null>(null);
   const suppressClickRef = useRef(false);
 
   useEffect(() => {
-    setPosition(readMovableWindowPosition(id));
-  }, [id]);
+    setPosition(disablePositionPersistence ? null : readMovableWindowPosition(id));
+  }, [disablePositionPersistence, id]);
 
   useEffect(() => {
     function handleReset() {
@@ -106,11 +111,12 @@ export function MovableWindow({
     const nextPosition = getClampedMovableWindowPosition(id, rect.left, rect.top, rect.width, rect.height);
     if (nextPosition.x === position.x && nextPosition.y === position.y) return;
     setPosition(nextPosition);
-    writeMovableWindowPosition(id, nextPosition);
-  }, [id, position]);
+    if (!disablePositionPersistence) writeMovableWindowPosition(id, nextPosition);
+  }, [disablePositionPersistence, id, position]);
 
   useEffect(() => {
     function handleResize() {
+      if (disablePositionPersistence) return;
       const element = elementRef.current;
       if (!element) return;
       setPosition((current) => {
@@ -125,7 +131,7 @@ export function MovableWindow({
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [id]);
+  }, [disablePositionPersistence, id]);
 
   useEffect(() => {
     function handlePointerMove(event: globalThis.PointerEvent) {
@@ -167,7 +173,7 @@ export function MovableWindow({
           drag.height,
         );
         setPosition(nextPosition);
-        writeMovableWindowPosition(id, nextPosition);
+        if (!disablePositionPersistence) writeMovableWindowPosition(id, nextPosition);
         suppressClickRef.current = true;
         window.setTimeout(() => {
           suppressClickRef.current = false;

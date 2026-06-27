@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type ClientAcceptQuest,
   type ClientAgentStatus,
+  type ClientAbandonFishingNftCatch,
   type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
@@ -14,16 +15,24 @@ import {
   type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
+  type ClientCancelFishing,
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
+  type ClientPurchaseFishingSupply,
+  type ClientPurchaseOnchainFishingRod,
   type ClientRegisterChainGear,
+  type ClientReelFishing,
   type ClientRemoveSeasonReferral,
   type ClientRespecTalents,
   type ClientSelectTalent,
+  type ClientSellFishingItems,
   type ClientSellTrashItems,
   type ClientShareQuestLink,
+  type ClientStartFishing,
+  type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
@@ -31,9 +40,17 @@ import {
   type ActiveBuffSnapshot,
   type EquipmentSlotSnapshot,
   type ExperienceEvent,
+  type FishingResult,
+  type FishingNftCapNotice,
+  type FishingNftCatchResult,
+  type FishingNftHistoryResult,
+  type FishingSupplyPurchaseResult,
+  type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type JoinOptions,
   type LootWindow,
+  type MintClubRedemptionResult,
+  type OnchainFishingRodMintResult,
   type NpcSnapshot,
   type PlayerSnapshot,
   type PotionShopPurchaseResult,
@@ -77,9 +94,11 @@ type RuntimeActiveBuffState = {
 type RuntimeActiveBuffCollection = {
   forEach(callback: (buff: RuntimeActiveBuffState, id: string) => void): void;
 };
-type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
+type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "fishingNftCatch" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
   agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
+  fishingJson?: string;
+  fishingNftCatchJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -188,8 +207,16 @@ export function useTownRoom(identity: JoinOptions) {
   const [debugPlacementMap, setDebugPlacementMap] = useState<DebugPlacementMapDocument | null>(null);
   const [traitUpdateResult, setTraitUpdateResult] = useState<TraitUpdateResult | null>(null);
   const [potionShopPurchaseResult, setPotionShopPurchaseResult] = useState<PotionShopPurchaseResult | null>(null);
+  const [fishingSupplyPurchaseResult, setFishingSupplyPurchaseResult] = useState<FishingSupplyPurchaseResult | null>(null);
   const [talentRespecResult, setTalentRespecResult] = useState<TalentRespecResult | null>(null);
   const [trashVendorSellResult, setTrashVendorSellResult] = useState<TrashVendorSellResult | null>(null);
+  const [fishingResult, setFishingResult] = useState<FishingResult | null>(null);
+  const [fishingNftCapNotice, setFishingNftCapNotice] = useState<FishingNftCapNotice | null>(null);
+  const [fishingNftCatchResult, setFishingNftCatchResult] = useState<FishingNftCatchResult | null>(null);
+  const [fishingNftHistoryResult, setFishingNftHistoryResult] = useState<FishingNftHistoryResult | null>(null);
+  const [mintClubRedemptionResult, setMintClubRedemptionResult] = useState<MintClubRedemptionResult | null>(null);
+  const [onchainFishingRodMintResult, setOnchainFishingRodMintResult] = useState<OnchainFishingRodMintResult | null>(null);
+  const [fishingVendorSellResult, setFishingVendorSellResult] = useState<FishingVendorSellResult | null>(null);
   const [seasonReferralRemoveResult, setSeasonReferralRemoveResult] = useState<SeasonReferralRemoveResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
   const roomRef = useRef<Room<RuntimeTownState> | null>(null);
@@ -440,11 +467,36 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("potionShopPurchaseResult", (message: PotionShopPurchaseResult) => {
           setPotionShopPurchaseResult(message);
         });
+        room.onMessage("fishingSupplyPurchaseResult", (message: FishingSupplyPurchaseResult) => {
+          setFishingSupplyPurchaseResult(message);
+        });
         room.onMessage("talentRespecResult", (message: TalentRespecResult) => {
           setTalentRespecResult(message);
         });
         room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
           setTrashVendorSellResult(message);
+        });
+        room.onMessage("fishingResult", (message: FishingResult) => {
+          setFishingResult(message);
+          if (message.nftCatch) setFishingNftCatchResult({ ok: true, catch: message.nftCatch });
+        });
+        room.onMessage("fishingNftCatchResult", (message: FishingNftCatchResult) => {
+          setFishingNftCatchResult(message);
+        });
+        room.onMessage("fishingNftCapNotice", (message: FishingNftCapNotice) => {
+          setFishingNftCapNotice(message);
+        });
+        room.onMessage("fishingNftHistoryResult", (message: FishingNftHistoryResult) => {
+          setFishingNftHistoryResult(message);
+        });
+        room.onMessage("mintClubRedemptionResult", (message: MintClubRedemptionResult) => {
+          setMintClubRedemptionResult(message);
+        });
+        room.onMessage("onchainFishingRodMintResult", (message: OnchainFishingRodMintResult) => {
+          setOnchainFishingRodMintResult(message);
+        });
+        room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
+          setFishingVendorSellResult(message);
         });
         room.onMessage("seasonReferralRemoveResult", (message: SeasonReferralRemoveResult) => {
           setSeasonReferralRemoveResult(message);
@@ -540,6 +592,7 @@ export function useTownRoom(identity: JoinOptions) {
 
   useEffect(() => {
     if (!lootWindow) return;
+    if (lootWindow.source === "fishing") return;
     const npc = npcsRef.current.get(lootWindow.npcId);
     if (!npc?.hasLoot) setLootWindow(null);
   }, [lootWindow, snapshotRevision]);
@@ -628,11 +681,41 @@ export function useTownRoom(identity: JoinOptions) {
   const sendPurchasePotionShopItem = useCallback((message: ClientPurchasePotionShopItem) => {
     roomRef.current?.send("purchasePotionShopItem", message);
   }, []);
+  const sendPurchaseFishingSupply = useCallback((message: ClientPurchaseFishingSupply) => {
+    roomRef.current?.send("purchaseFishingSupply", message);
+  }, []);
+  const sendPurchaseOnchainFishingRod = useCallback((message: ClientPurchaseOnchainFishingRod = {}) => {
+    roomRef.current?.send("purchaseOnchainFishingRod", message);
+  }, []);
   const sendRespecTalents = useCallback((message: ClientRespecTalents) => {
     roomRef.current?.send("respecTalents", message);
   }, []);
   const sendSellTrashItems = useCallback((message: ClientSellTrashItems) => {
     roomRef.current?.send("sellTrashItems", message);
+  }, []);
+  const sendStartFishing = useCallback((message: ClientStartFishing = {}) => {
+    roomRef.current?.send("startFishing", message);
+  }, []);
+  const sendReelFishing = useCallback((message: ClientReelFishing = {}) => {
+    roomRef.current?.send("reelFishing", message);
+  }, []);
+  const sendCancelFishing = useCallback((message: ClientCancelFishing = {}) => {
+    roomRef.current?.send("cancelFishing", message);
+  }, []);
+  const sendSubmitFishingNftClaimTx = useCallback((message: ClientSubmitFishingNftClaimTx) => {
+    roomRef.current?.send("submitFishingNftClaimTx", message);
+  }, []);
+  const sendAbandonFishingNftCatch = useCallback((message: ClientAbandonFishingNftCatch) => {
+    roomRef.current?.send("abandonFishingNftCatch", message);
+  }, []);
+  const sendSubmitMintClubRedemptionTx = useCallback((message: ClientSubmitMintClubRedemptionTx) => {
+    roomRef.current?.send("submitMintClubRedemptionTx", message);
+  }, []);
+  const sendRefreshFishingNftHistory = useCallback(() => {
+    roomRef.current?.send("refreshFishingNftHistory", {});
+  }, []);
+  const sendSellFishingItems = useCallback((message: ClientSellFishingItems) => {
+    roomRef.current?.send("sellFishingItems", message);
   }, []);
   const sendRemoveSeasonReferral = useCallback((message: ClientRemoveSeasonReferral) => {
     roomRef.current?.send("removeSeasonReferral", message);
@@ -732,8 +815,16 @@ export function useTownRoom(identity: JoinOptions) {
     debugPlacementMap,
     traitUpdateResult,
     potionShopPurchaseResult,
+    fishingSupplyPurchaseResult,
     talentRespecResult,
     trashVendorSellResult,
+    fishingResult,
+    fishingNftCapNotice,
+    fishingNftCatchResult,
+    fishingNftHistoryResult,
+    mintClubRedemptionResult,
+    onchainFishingRodMintResult,
+    fishingVendorSellResult,
     seasonReferralRemoveResult,
     persistenceStatus,
     leaveAndWait,
@@ -757,8 +848,18 @@ export function useTownRoom(identity: JoinOptions) {
     sendUseItem,
     sendRegisterChainGear,
     sendPurchasePotionShopItem,
+    sendPurchaseFishingSupply,
+    sendPurchaseOnchainFishingRod,
     sendRespecTalents,
     sendSellTrashItems,
+    sendStartFishing,
+    sendReelFishing,
+    sendCancelFishing,
+    sendSubmitFishingNftClaimTx,
+    sendAbandonFishingNftCatch,
+    sendSubmitMintClubRedemptionTx,
+    sendRefreshFishingNftHistory,
+    sendSellFishingItems,
     sendRemoveSeasonReferral,
     sendDebugRegisterChainGear,
     sendDebugUpdateChainGearTier,
@@ -965,6 +1066,8 @@ function applyActiveLocalTraitUpdateOverride(
 
 function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot {
   const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
+  const fishing = parseRuntimeFishing(player);
+  const fishingNftCatch = parseRuntimeFishingNftCatch(player);
   return {
     sessionId: id,
     name: player.name,
@@ -1028,6 +1131,15 @@ function createPlayerSnapshot(player: RuntimePlayer, id: string): PlayerSnapshot
     lastCastAt: player.lastCastAt,
     lastDamagedAt: player.lastDamagedAt,
     frozenUntil: player.frozenUntil,
+    fishingAttemptId: fishing.attemptId,
+    fishingZoneId: fishing.zoneId,
+    fishingState: fishing.state,
+    fishingCastAt: fishing.castAt,
+    fishingBiteAt: fishing.biteAt,
+    fishingExpiresAt: fishing.expiresAt,
+    fishingBobberX: fishing.bobberX,
+    fishingBobberZ: fishing.bobberZ,
+    fishingNftCatch,
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
@@ -1112,6 +1224,26 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   changed = target.lastCastAt !== player.lastCastAt || changed;
   changed = target.lastDamagedAt !== player.lastDamagedAt || changed;
   changed = target.frozenUntil !== player.frozenUntil || changed;
+  const nextFishing = parseRuntimeFishing(player);
+  const nextFishingAttemptId = nextFishing.attemptId;
+  const nextFishingZoneId = nextFishing.zoneId;
+  const nextFishingState = nextFishing.state;
+  const nextFishingCastAt = nextFishing.castAt;
+  const nextFishingBiteAt = nextFishing.biteAt;
+  const nextFishingExpiresAt = nextFishing.expiresAt;
+  const nextFishingBobberX = nextFishing.bobberX;
+  const nextFishingBobberZ = nextFishing.bobberZ;
+  const nextFishingNftCatch = parseRuntimeFishingNftCatch(player);
+  const nextFishingNftCatchKey = fishingNftCatchKey(nextFishingNftCatch);
+  changed = target.fishingAttemptId !== nextFishingAttemptId || changed;
+  changed = target.fishingZoneId !== nextFishingZoneId || changed;
+  changed = target.fishingState !== nextFishingState || changed;
+  changed = target.fishingCastAt !== nextFishingCastAt || changed;
+  changed = target.fishingBiteAt !== nextFishingBiteAt || changed;
+  changed = target.fishingExpiresAt !== nextFishingExpiresAt || changed;
+  changed = target.fishingBobberX !== nextFishingBobberX || changed;
+  changed = target.fishingBobberZ !== nextFishingBobberZ || changed;
+  changed = fishingNftCatchKey(target.fishingNftCatch) !== nextFishingNftCatchKey || changed;
 
   target.sessionId = id;
   target.name = player.name;
@@ -1175,6 +1307,15 @@ function updatePlayerSnapshot(target: PlayerSnapshot, player: RuntimePlayer, id:
   target.lastCastAt = player.lastCastAt;
   target.lastDamagedAt = player.lastDamagedAt;
   target.frozenUntil = player.frozenUntil;
+  target.fishingAttemptId = nextFishingAttemptId;
+  target.fishingZoneId = nextFishingZoneId;
+  target.fishingState = nextFishingState;
+  target.fishingCastAt = nextFishingCastAt;
+  target.fishingBiteAt = nextFishingBiteAt;
+  target.fishingExpiresAt = nextFishingExpiresAt;
+  target.fishingBobberX = nextFishingBobberX;
+  target.fishingBobberZ = nextFishingBobberZ;
+  target.fishingNftCatch = nextFishingNftCatch;
   const nextQuests = snapshotQuests(player.quests);
   const nextInventory = snapshotInventory(player.inventory);
   const nextEquipment = snapshotEquipment(player.equipment);
@@ -1425,6 +1566,160 @@ function readAgentCommandText(value: unknown) {
 function readAgentCommandNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function parseRuntimeFishing(player: Pick<RuntimePlayer, "fishingJson">) {
+  const fallback = {
+    attemptId: "",
+    zoneId: "" as PlayerSnapshot["fishingZoneId"],
+    state: "" as PlayerSnapshot["fishingState"],
+    castAt: 0,
+    biteAt: 0,
+    expiresAt: 0,
+    bobberX: 0,
+    bobberZ: 0,
+  };
+
+  if (!player.fishingJson) return fallback;
+
+  try {
+    const parsed = JSON.parse(player.fishingJson) as Record<string, unknown>;
+    const state = readRuntimeFishingState(parsed.state);
+    return {
+      attemptId: readAgentCommandText(parsed.attemptId),
+      zoneId: readAgentCommandText(parsed.zoneId) as PlayerSnapshot["fishingZoneId"],
+      state,
+      castAt: readRuntimeFishingNumber(parsed.castAt),
+      biteAt: readRuntimeFishingNumber(parsed.biteAt),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      bobberX: readRuntimeFishingNumber(parsed.bobberX),
+      bobberZ: readRuntimeFishingNumber(parsed.bobberZ),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function parseRuntimeFishingNftCatch(player: Pick<RuntimePlayer, "fishingNftCatchJson">): PlayerSnapshot["fishingNftCatch"] {
+  if (!player.fishingNftCatchJson) return null;
+  try {
+    const parsed = JSON.parse(player.fishingNftCatchJson) as Record<string, unknown>;
+    const status = readRuntimeFishingNftCatchStatus(parsed.status);
+    if (!status) return null;
+    const standard = parsed.standard === "ERC1155" ? "ERC1155" : parsed.standard === "ERC721" ? "ERC721" : "";
+    if (!standard) return null;
+    return {
+      catchId: readAgentCommandText(parsed.catchId),
+      status,
+      walletActionRequired: Boolean(parsed.walletActionRequired),
+      walletAddress: readAgentCommandText(parsed.walletAddress),
+      standard,
+      collection: readAgentCommandText(parsed.collection),
+      tokenId: readAgentCommandText(parsed.tokenId),
+      amount: readAgentCommandText(parsed.amount) || "1",
+      pondEntryId: readAgentCommandText(parsed.pondEntryId),
+      chainId: readRuntimeFishingNumber(parsed.chainId),
+      contractAddress: readAgentCommandText(parsed.contractAddress),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      txHash: readAgentCommandText(parsed.txHash) || undefined,
+      error: readAgentCommandText(parsed.error) || undefined,
+      metadata: parseRuntimeFishingNftMetadata(parsed.metadata),
+      voucher: parseRuntimeFishingNftVoucher(parsed.voucher),
+      mintClubRedemption: parseRuntimeMintClubRedemption(parsed.mintClubRedemption),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRuntimeMintClubRedemption(value: unknown): NonNullable<PlayerSnapshot["fishingNftCatch"]>["mintClubRedemption"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const status = parsed.status === "claim_required"
+    || parsed.status === "eligible"
+    || parsed.status === "tx_submitted"
+    || parsed.status === "confirmed"
+    || parsed.status === "failed"
+    ? parsed.status
+    : "";
+  if (!status) return undefined;
+  return {
+    status,
+    walletActionRequired: Boolean(parsed.walletActionRequired),
+    npcId: "onchain-goodies-mfer",
+    chainId: readRuntimeFishingNumber(parsed.chainId),
+    collection: readAgentCommandText(parsed.collection),
+    tokenId: readAgentCommandText(parsed.tokenId),
+    bondAddress: readAgentCommandText(parsed.bondAddress),
+    erc1155Address: readAgentCommandText(parsed.erc1155Address),
+    reserveTokenAddress: readAgentCommandText(parsed.reserveTokenAddress),
+    reserveTokenSymbol: readAgentCommandText(parsed.reserveTokenSymbol) || "WETH",
+    reserveTokenDecimals: readRuntimeFishingNumber(parsed.reserveTokenDecimals) || 18,
+    sellRoyaltyBps: readRuntimeFishingNumber(parsed.sellRoyaltyBps),
+    slippageBps: readRuntimeFishingNumber(parsed.slippageBps),
+    txHash: readAgentCommandText(parsed.txHash) || undefined,
+    error: readAgentCommandText(parsed.error) || undefined,
+    submittedAt: readRuntimeFishingNumber(parsed.submittedAt) || undefined,
+    confirmedAt: readRuntimeFishingNumber(parsed.confirmedAt) || undefined,
+  };
+}
+
+function parseRuntimeFishingNftMetadata(value: unknown): NonNullable<PlayerSnapshot["fishingNftCatch"]>["metadata"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const metadata = {
+    name: readAgentCommandText(parsed.name) || undefined,
+    description: readAgentCommandText(parsed.description) || undefined,
+    image: readAgentCommandText(parsed.image) || undefined,
+    tokenUri: readAgentCommandText(parsed.tokenUri) || undefined,
+  };
+  return metadata.name || metadata.description || metadata.image || metadata.tokenUri ? metadata : undefined;
+}
+
+function parseRuntimeFishingNftVoucher(value: unknown): NonNullable<PlayerSnapshot["fishingNftCatch"]>["voucher"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const standard = parsed.standard === "ERC1155" ? "ERC1155" : parsed.standard === "ERC721" ? "ERC721" : "";
+  if (!standard) return undefined;
+  return {
+    catchId: readAgentCommandText(parsed.catchId),
+    fisher: readAgentCommandText(parsed.fisher),
+    tokenStandard: standard === "ERC1155" ? 2 : 1,
+    standard,
+    collection: readAgentCommandText(parsed.collection),
+    tokenId: readAgentCommandText(parsed.tokenId),
+    amount: readAgentCommandText(parsed.amount) || "1",
+    pondEntryId: readAgentCommandText(parsed.pondEntryId),
+    expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+    chainId: readRuntimeFishingNumber(parsed.chainId),
+    verifyingContract: readAgentCommandText(parsed.verifyingContract),
+    signature: readAgentCommandText(parsed.signature),
+  };
+}
+
+function readRuntimeFishingNftCatchStatus(value: unknown): NonNullable<PlayerSnapshot["fishingNftCatch"]>["status"] | "" {
+  return value === "pending"
+    || value === "voucher_issued"
+    || value === "tx_submitted"
+    || value === "confirmed"
+    || value === "expired"
+    || value === "failed"
+    || value === "abandoned"
+    ? value
+    : "";
+}
+
+function fishingNftCatchKey(value: PlayerSnapshot["fishingNftCatch"]) {
+  return value ? JSON.stringify(value) : "";
+}
+
+function readRuntimeFishingState(value: unknown): PlayerSnapshot["fishingState"] {
+  return value === "casting" || value === "waiting" || value === "bite" ? value : "";
+}
+
+function readRuntimeFishingNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function questSnapshotsEqual(left: QuestSnapshot[], right: QuestSnapshot[]) {

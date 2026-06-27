@@ -1,8 +1,9 @@
-import { memo, Suspense, useEffect, useMemo, useRef } from "react";
-import { Text } from "@react-three/drei";
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { Billboard, Text } from "@react-three/drei";
 import { type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import {
+  FISHING_CAST_MS,
   INPUT_SEND_RATE,
   getNpcDisposition,
   getNpcQuestMarker,
@@ -14,7 +15,7 @@ import {
   type TargetSelection,
 } from "@mferland/shared";
 import { CreatureAvatar } from "../components/CreatureAvatar";
-import { MferAvatar } from "../components/MferAvatar";
+import { MferAvatar, type HeldPropAnchorPoints, type HeldPropAnchorUpdate } from "../components/MferAvatar";
 import { MferGptAvatar } from "../components/MferGptAvatar";
 import { TrainingDummyAvatar } from "../components/TrainingDummyAvatar";
 import { type ChatBubble } from "./chatBubbles";
@@ -88,6 +89,7 @@ type TownSceneProps = {
   onSelectTarget: (target: TargetSelection | null) => void;
   onSelectNpcTarget?: (npcId: string) => void;
   onInteractAction: () => void;
+  onReelFishing?: (attemptId?: string) => void;
   sendInput: (input: ClientInput) => void;
   debugTravelView?: {
     x: number;
@@ -120,6 +122,14 @@ const OBSERVER_HEIGHT_SNAP = 3;
 const OBSERVER_POSITION_DECAY = 0.78;
 const OBSERVER_HEIGHT_DECAY = 0.62;
 const OBSERVER_ROTATION_DECAY = 0.72;
+const FISHING_BOBBER_BASE_Y = 0.18;
+const FISHING_BOBBER_FLING_START = 0.83;
+const FISHING_BOBBER_FLING_ARC = 1.05;
+const FISHING_REEL_VISUAL_MS = 2200;
+const FISHING_ROD_TIP_HEIGHT = 2.08;
+const FISHING_ROD_TIP_FORWARD_OFFSET = 0.88;
+const FISHING_ROD_TIP_RIGHT_OFFSET = 0.42;
+const FISHING_LINE_UP = new THREE.Vector3(0, 1, 0);
 const IDLE_CAMERA_ORBIT_SECONDS = 48;
 const IDLE_CAMERA_DISTANCE = 8.8;
 const IDLE_CAMERA_HEIGHT = 2.7;
@@ -144,6 +154,21 @@ const DEBUG_PLACEMENT_CLICK_Y = 18;
 const EMPTY_MOBILE_MOVE_INPUT: MobileMoveInput = { active: false, forward: 0, right: 0, sprint: false };
 const CAPTURE_INPUT_STALE_MS = 260;
 
+type FishingVisualState = PlayerSnapshot["fishingState"] | "reeling";
+type HeldPropAnchorSnapshot = {
+  anchors: HeldPropAnchorPoints;
+  updatedAt: number;
+};
+type HeldPropAnchorRef = MutableRefObject<Map<string, Map<string, HeldPropAnchorSnapshot>>>;
+
+type FishingVisualSnapshot = Pick<
+  PlayerSnapshot,
+  "sessionId" | "x" | "y" | "z" | "yaw" | "animation" | "fishingAttemptId" | "fishingCastAt" | "fishingBobberX" | "fishingBobberZ"
+> & {
+  fishingState: FishingVisualState;
+  reelStartedAt: number;
+};
+
 function TownSceneComponent({
   players,
   npcs,
@@ -156,6 +181,7 @@ function TownSceneComponent({
   onSelectTarget,
   onSelectNpcTarget,
   onInteractAction,
+  onReelFishing,
   sendInput,
   debugTravelView = null,
   nameplateVisibility = DEFAULT_NAMEPLATE_VISIBILITY,
@@ -198,6 +224,7 @@ function TownSceneComponent({
   const escapeHeld = useRef(false);
   const jumpHeld = useRef(false);
   const localVisualPlayer = useRef<PlayerSnapshot | null>(null);
+  const heldPropAnchorsRef = useRef(new Map<string, Map<string, HeldPropAnchorSnapshot>>());
   const frameForward = useMemo(() => new THREE.Vector3(), []);
   const frameRight = useMemo(() => new THREE.Vector3(), []);
   const frameMove = useMemo(() => new THREE.Vector3(), []);
@@ -244,6 +271,18 @@ function TownSceneComponent({
       : getRenderableNpcs(npcs, viewerPosition, selectedTarget, resolvedRenderProfile),
     [npcs, _sceneRevision, debugPlacementMode, selectedTarget, resolvedRenderProfile, viewerPosition?.x, viewerPosition?.z],
   );
+  const updateHeldPropAnchor = useCallback((update: HeldPropAnchorUpdate) => {
+    const ownerMap = heldPropAnchorsRef.current.get(update.ownerId);
+    if (!update.anchors) {
+      ownerMap?.delete(update.propId);
+      if (ownerMap && ownerMap.size === 0) heldPropAnchorsRef.current.delete(update.ownerId);
+      return;
+    }
+
+    const nextOwnerMap = ownerMap ?? new Map<string, HeldPropAnchorSnapshot>();
+    nextOwnerMap.set(update.propId, { anchors: update.anchors, updatedAt: Date.now() });
+    heldPropAnchorsRef.current.set(update.ownerId, nextOwnerMap);
+  }, []);
 
   useEffect(() => {
     if (!controlsEnabled) {
@@ -706,6 +745,7 @@ function TownSceneComponent({
                 isDefeated={renderedPlayer.health <= 0}
                 chatBubble={chatBubbleBySessionId.get(sessionId)}
                 viewerPosition={viewerPosition}
+                onHeldPropAnchorUpdate={updateHeldPropAnchor}
                 onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
               />
             );
@@ -721,6 +761,7 @@ function TownSceneComponent({
               isDefeated={player.health <= 0}
               chatBubble={chatBubbleBySessionId.get(sessionId)}
               viewerPosition={viewerPosition}
+              onHeldPropAnchorUpdate={updateHeldPropAnchor}
               onTarget={isLocalPlayer ? undefined : () => onSelectTarget({ kind: "player", id: sessionId })}
             />
           );
@@ -805,6 +846,12 @@ function TownSceneComponent({
             />
           );
         })}
+        <FishingBobberLayer
+          players={players}
+          localSessionId={localSessionId}
+          onReelFishing={onReelFishing}
+          heldPropAnchorsRef={heldPropAnchorsRef}
+        />
         <CombatFeedbackLayer
           combatEvents={combatEvents}
           experienceEvents={experienceEvents}
@@ -832,6 +879,7 @@ function areTownScenePropsEqual(previous: TownSceneProps, next: TownSceneProps) 
     && previous.onSelectTarget === next.onSelectTarget
     && previous.onSelectNpcTarget === next.onSelectNpcTarget
     && previous.onInteractAction === next.onInteractAction
+    && previous.onReelFishing === next.onReelFishing
     && previous.sendInput === next.sendInput
     && previous.debugTravelView === next.debugTravelView
     && previous.nameplateVisibility === next.nameplateVisibility
@@ -859,6 +907,297 @@ function clearMobileMoveInput(inputRef: MobileMoveInputRef | undefined) {
   inputRef.current.forward = 0;
   inputRef.current.right = 0;
   inputRef.current.sprint = false;
+}
+
+function FishingBobberLayer({
+  players,
+  localSessionId,
+  onReelFishing,
+  heldPropAnchorsRef,
+}: {
+  players: Map<string, PlayerSnapshot>;
+  localSessionId: string | null;
+  onReelFishing?: (attemptId?: string) => void;
+  heldPropAnchorsRef: HeldPropAnchorRef;
+}) {
+  const recentFishingRef = useRef(new Map<string, FishingVisualSnapshot>());
+  const now = Date.now();
+  const bobbers = Array.from(players.values()).flatMap((player) => {
+    const active = Boolean(player.fishingState && player.fishingAttemptId);
+    if (active) {
+      const visual = makeFishingVisualSnapshot(player, player.fishingState, 0);
+      recentFishingRef.current.set(player.sessionId, visual);
+      return [visual];
+    }
+
+    const recent = recentFishingRef.current.get(player.sessionId);
+    if (player.animation === "fishReel" && recent) {
+      const reelStartedAt = recent.reelStartedAt || now;
+      const visual: FishingVisualSnapshot = {
+        ...recent,
+        x: player.x,
+        y: player.y,
+        z: player.z,
+        yaw: player.yaw,
+        animation: player.animation,
+        fishingState: "reeling",
+        reelStartedAt,
+      };
+      recentFishingRef.current.set(player.sessionId, visual);
+      return [visual];
+    }
+
+    recentFishingRef.current.delete(player.sessionId);
+    return [];
+  });
+
+  return (
+    <>
+      {bobbers.map((player) => (
+        <FishingBobber
+          key={player.sessionId}
+          player={player}
+          local={player.sessionId === localSessionId}
+          onReelFishing={onReelFishing}
+          heldPropAnchorsRef={heldPropAnchorsRef}
+        />
+      ))}
+    </>
+  );
+}
+
+function makeFishingVisualSnapshot(player: PlayerSnapshot, fishingState: FishingVisualState, reelStartedAt: number): FishingVisualSnapshot {
+  return {
+    sessionId: player.sessionId,
+    x: player.x,
+    y: player.y,
+    z: player.z,
+    yaw: player.yaw,
+    animation: player.animation,
+    fishingAttemptId: player.fishingAttemptId,
+    fishingState,
+    fishingCastAt: player.fishingCastAt,
+    fishingBobberX: player.fishingBobberX,
+    fishingBobberZ: player.fishingBobberZ,
+    reelStartedAt,
+  };
+}
+
+function FishingBobber({
+  player,
+  local,
+  onReelFishing,
+  heldPropAnchorsRef,
+}: {
+  player: FishingVisualSnapshot;
+  local: boolean;
+  onReelFishing?: (attemptId?: string) => void;
+  heldPropAnchorsRef: HeldPropAnchorRef;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const bobberPosition = useMemo(() => new THREE.Vector3(), []);
+  const bite = player.fishingState === "bite";
+  const landed = player.fishingState !== "casting" && player.fishingState !== "reeling";
+
+  useFrame(({ clock }) => {
+    const group = groupRef.current;
+    if (!group) return;
+    const rodAnchor = getFishingPoleAnchor(heldPropAnchorsRef, player.sessionId);
+    const visible = getFishingBobberVisualPosition(player, Date.now(), clock.elapsedTime, bobberPosition, rodAnchor);
+    group.visible = visible;
+    if (!visible) return;
+    group.position.copy(bobberPosition);
+    group.rotation.z = bite ? Math.sin(clock.elapsedTime * 22) * 0.22 : Math.sin(clock.elapsedTime * 2.4) * 0.04;
+  });
+
+  function reel(event: ThreeEvent<PointerEvent>) {
+    event.stopPropagation();
+    if (!local || !bite) return;
+    onReelFishing?.(player.fishingAttemptId);
+  }
+
+  return (
+    <>
+      <FishingLineSegment player={player} heldPropAnchorsRef={heldPropAnchorsRef} />
+      <group
+        ref={groupRef}
+        visible={false}
+        onClick={reel}
+      >
+        {landed && (
+          <mesh rotation-x={-Math.PI / 2}>
+            <ringGeometry args={[0.38, 0.44, 40]} />
+            <meshBasicMaterial color={bite ? MFER_COLORS.fire : MFER_COLORS.signal} transparent opacity={bite ? 0.82 : 0.42} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+        {landed && bite && (
+          <mesh rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}>
+            <ringGeometry args={[0.66, 0.72, 44]} />
+            <meshBasicMaterial color="#f8f1cf" transparent opacity={0.58} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+        <mesh position={[0, 0.34, 0]}>
+          <sphereGeometry args={[0.16, 16, 12]} />
+          <meshBasicMaterial color={bite ? "#ff6f4f" : "#f9f3df"} />
+        </mesh>
+        <mesh position={[0, 0.12, 0]}>
+          <cylinderGeometry args={[0.035, 0.035, 0.46, 10]} />
+          <meshBasicMaterial color="#d44131" />
+        </mesh>
+        {local && bite && (
+          <Billboard position={[0, 1.04, 0]}>
+            <Text
+              fontSize={0.3}
+              color="#201914"
+              outlineWidth={0.035}
+              outlineColor="#f8f1cf"
+              anchorX="center"
+              anchorY="middle"
+            >
+              reel
+            </Text>
+          </Billboard>
+        )}
+      </group>
+    </>
+  );
+}
+
+function FishingLineSegment({
+  player,
+  heldPropAnchorsRef,
+}: {
+  player: FishingVisualSnapshot;
+  heldPropAnchorsRef: HeldPropAnchorRef;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const rodTip = useMemo(() => new THREE.Vector3(), []);
+  const bobber = useMemo(() => new THREE.Vector3(), []);
+  const direction = useMemo(() => new THREE.Vector3(), []);
+  const midpoint = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame(({ clock }) => {
+    const group = groupRef.current;
+    if (!group) return;
+    const now = Date.now();
+    const rodAnchor = getFishingPoleAnchor(heldPropAnchorsRef, player.sessionId);
+    if (!getFishingRodTipPosition(player, rodTip, rodAnchor)) {
+      group.visible = false;
+      return;
+    }
+    const visible = getFishingBobberVisualPosition(player, now, clock.elapsedTime, bobber, rodAnchor);
+    if (!visible) {
+      group.visible = false;
+      return;
+    }
+    direction.subVectors(bobber, rodTip);
+    const length = direction.length();
+    if (length < 0.05) {
+      group.visible = false;
+      return;
+    }
+    midpoint.copy(rodTip).add(bobber).multiplyScalar(0.5);
+    group.visible = true;
+    group.position.copy(midpoint);
+    group.quaternion.setFromUnitVectors(FISHING_LINE_UP, direction.normalize());
+    group.scale.set(1, length, 1);
+  });
+
+  return (
+    <group ref={groupRef} visible={false}>
+      <mesh>
+        <cylinderGeometry args={[0.012, 0.006, 1, 6]} />
+        <meshBasicMaterial color="#f8f2d7" transparent opacity={0.78} />
+      </mesh>
+    </group>
+  );
+}
+
+function getFishingPoleAnchor(heldPropAnchorsRef: HeldPropAnchorRef, ownerId: string) {
+  return heldPropAnchorsRef.current.get(ownerId)?.get("fishingPole") ?? null;
+}
+
+function copyHeldPropAnchorPosition(anchor: HeldPropAnchorSnapshot | null, name: string, target: THREE.Vector3) {
+  const position = anchor?.anchors[name];
+  if (!position) return false;
+  target.set(position[0], position[1], position[2]);
+  return true;
+}
+
+function getFishingRodTipPosition(
+  player: FishingVisualSnapshot,
+  target: THREE.Vector3,
+  rodAnchor: HeldPropAnchorSnapshot | null = null,
+) {
+  if (copyHeldPropAnchorPosition(rodAnchor, "tip", target)) {
+    return true;
+  }
+  const forwardX = Math.sin(player.yaw);
+  const forwardZ = Math.cos(player.yaw);
+  const rightX = Math.cos(player.yaw);
+  const rightZ = -Math.sin(player.yaw);
+  target.set(
+    player.x + rightX * FISHING_ROD_TIP_RIGHT_OFFSET + forwardX * FISHING_ROD_TIP_FORWARD_OFFSET,
+    player.y + FISHING_ROD_TIP_HEIGHT,
+    player.z + rightZ * FISHING_ROD_TIP_RIGHT_OFFSET + forwardZ * FISHING_ROD_TIP_FORWARD_OFFSET,
+  );
+  return false;
+}
+
+function getFishingBobberVisualPosition(
+  player: FishingVisualSnapshot,
+  now: number,
+  elapsedTime: number,
+  target: THREE.Vector3,
+  rodAnchor: HeldPropAnchorSnapshot | null = null,
+) {
+  const bite = player.fishingState === "bite";
+  const finalY = FISHING_BOBBER_BASE_Y + Math.sin(elapsedTime * (bite ? 18 : 3.2)) * (bite ? 0.12 : 0.035);
+  if (player.fishingState === "reeling") {
+    if (isFishingReelVisualComplete(player, now)) return false;
+    const reelProgress = easeOutCubic(Math.max(0, Math.min(1, (now - player.reelStartedAt) / FISHING_REEL_VISUAL_MS)));
+    getFishingRodTipPosition(player, target, rodAnchor);
+    const rodX = target.x;
+    const rodY = target.y - 0.08;
+    const rodZ = target.z;
+    target.set(
+      THREE.MathUtils.lerp(player.fishingBobberX, rodX, reelProgress),
+      THREE.MathUtils.lerp(finalY, rodY, reelProgress) + Math.sin(reelProgress * Math.PI) * 0.28,
+      THREE.MathUtils.lerp(player.fishingBobberZ, rodZ, reelProgress),
+    );
+    return true;
+  }
+  if (player.fishingState === "casting") {
+    const castProgress = player.fishingCastAt > 0
+      ? Math.max(0, Math.min(1, (now - player.fishingCastAt) / FISHING_CAST_MS))
+      : 0;
+    if (castProgress < FISHING_BOBBER_FLING_START) {
+      getFishingRodTipPosition(player, target, rodAnchor);
+      return false;
+    }
+    const flightProgress = easeOutCubic((castProgress - FISHING_BOBBER_FLING_START) / (1 - FISHING_BOBBER_FLING_START));
+    getFishingRodTipPosition(player, target, rodAnchor);
+    const rodX = target.x;
+    const rodY = target.y;
+    const rodZ = target.z;
+    target.set(
+      THREE.MathUtils.lerp(rodX, player.fishingBobberX, flightProgress),
+      THREE.MathUtils.lerp(rodY, finalY, flightProgress) + Math.sin(flightProgress * Math.PI) * FISHING_BOBBER_FLING_ARC,
+      THREE.MathUtils.lerp(rodZ, player.fishingBobberZ, flightProgress),
+    );
+    return true;
+  }
+  target.set(player.fishingBobberX, finalY, player.fishingBobberZ);
+  return true;
+}
+
+function isFishingReelVisualComplete(player: FishingVisualSnapshot, now: number) {
+  return player.fishingState === "reeling" && player.reelStartedAt > 0 && now - player.reelStartedAt >= FISHING_REEL_VISUAL_MS;
+}
+
+function easeOutCubic(value: number) {
+  const t = Math.max(0, Math.min(1, value));
+  return 1 - Math.pow(1 - t, 3);
 }
 
 function updateObserverVisualPlayer(visual: PlayerSnapshot, authoritative: PlayerSnapshot, delta: number) {

@@ -1,4 +1,4 @@
-import { WORLD_LANDMARKS, type NpcSnapshot } from "@mferland/shared";
+import { FISHING_ZONE, WORLD_LANDMARKS, type NpcSnapshot } from "@mferland/shared";
 import {
   MARKET_STALLS,
   OUTPOST_BUILDINGS,
@@ -67,6 +67,8 @@ export const DEBUG_WORLD_PLACEMENT_TARGETS: DebugPlacementTarget[] = [
   makeWorldTarget("model:castle-gate", "Castle gate", "model", 0, -30, 0, "Buildings.tsx", { hitSize: [15, 5.8], hitHeight: 8 }),
   ...WATCH_TOWER_TARGETS,
   makeWorldTarget("model:farm", "Rundown farm", "model", -82, 92, -0.18, "Farm.tsx", { hitSize: [24, 19], hitHeight: 7 }),
+  makeWorldTarget("model:fishing-pond", FISHING_ZONE.name, "model", FISHING_ZONE.x, FISHING_ZONE.z, 0, "TownWorld.tsx", { hitRadius: FISHING_ZONE.waterRadius + 1.5, hitHeight: 0.4 }),
+  makeWorldTarget("prop:fishing-dock", "Fishing dock", "prop", FISHING_ZONE.x + 7.2, FISHING_ZONE.z - 4.8, -0.62, "TownWorld.tsx", { hitSize: [4.6, 1.3], hitHeight: 0.8 }),
   makeWorldTarget("model:signal-relay", "Signal relay", "model", 136, -121, 0, "TownWorld.tsx", { hitRadius: 3.2, hitHeight: 7 }),
   ...WORLD_LANDMARKS.map((landmark) => (
     makeWorldTarget(`prop:route-marker:${landmark.id}`, `${landmark.name} route marker`, "prop", landmark.x, landmark.z, -Math.PI / 2, "TownWorld.tsx", { hitSize: [2.1, 0.9], hitHeight: 2.7 })

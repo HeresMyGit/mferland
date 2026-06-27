@@ -22,6 +22,9 @@ import {
   ActorNameplate,
   ColdStatusEffect,
   DispositionBaseMarker,
+  FishingPoleRig,
+  HandAttachment,
+  type HeldPropAnchorUpdateHandler,
   FrozenStatusEffect,
   LootSparkles,
   MFER_AVATAR_WORLD_HEIGHT,
@@ -30,6 +33,7 @@ import {
   QuestMarker,
   TargetRing,
   getMferAnimationClips,
+  isFishingAnimationState,
   updateMferDeathPose,
 } from "./MferAvatar";
 
@@ -47,6 +51,7 @@ type MferGptAvatarProps = {
   viewerPosition?: { x: number; z: number } | null;
   showNameplate?: boolean;
   showNameplateHealthBar?: boolean;
+  onHeldPropAnchorUpdate?: HeldPropAnchorUpdateHandler;
   onTarget?: () => void;
 };
 
@@ -84,6 +89,10 @@ const MFER_GPT_NAMEPLATE_Y = 3.08;
 const MFER_GPT_QUEST_MARKER_Y = 3.95;
 const MFER_GPT_CHAT_BUBBLE_Y = 3.76;
 const MFER_GPT_CHAT_BUBBLE_WITH_QUEST_Y = 4.72;
+const MFER_GPT_FISHING_POLE_FALLBACK_POSITION: [number, number, number] = [0.48, 1.12, 0.36];
+const MFER_GPT_FISHING_POLE_FALLBACK_ROTATION: [number, number, number] = [0.18, -0.3, -0.62];
+const MFER_GPT_FISHING_POLE_HAND_POSITION: [number, number, number] = [0.04, 0.05, 0.02];
+const MFER_GPT_FISHING_POLE_HAND_ROTATION: [number, number, number] = [0.12, -0.2, -0.82];
 const MFER_GPT_LOW_LIGHT_FILL_COLOR = new THREE.Color("#9fa6a6");
 const MFER_GPT_TYPE_LOW_LIGHT_STYLE = { emissiveColor: new THREE.Color("#ffffff"), emissiveIntensity: 0.18, useColorMap: true, maxRoughness: 0.52 };
 const MFER_GPT_VISOR_LOW_LIGHT_STYLE = { emissiveColor: new THREE.Color("#ffffff"), emissiveIntensity: 0.2, useColorMap: true, maxRoughness: 0.5 };
@@ -143,6 +152,7 @@ function MferGptAvatarRig({
   viewerPosition = null,
   showNameplate: canShowNameplate = true,
   showNameplateHealthBar = true,
+  onHeldPropAnchorUpdate,
   onTarget,
   agentTraitSourceScene = null,
 }: MferGptAvatarProps & { agentTraitSourceScene?: THREE.Group | null }) {
@@ -186,6 +196,7 @@ function MferGptAvatarRig({
   const showSignalBeacon = variant !== "agent" && !isDefeated && !isHostile;
   const isFrozen = motionSource.frozenUntil > Date.now();
   const isCold = !isFrozen && npc.slowedUntil > Date.now();
+  const showFishingPole = Boolean(liveAgentPlayer?.fishingState) || isFishingAnimationState(liveAgentPlayer?.animation);
 
   useEffect(() => {
     mixerRef.current?.stopAllAction();
@@ -295,6 +306,25 @@ function MferGptAvatarRig({
           decay={antennaPointLightDecay}
         />
         <primitive object={avatar} dispose={null} />
+        {showFishingPole && (
+          <HandAttachment
+            avatar={avatar}
+            slot="rightHand"
+            position={MFER_GPT_FISHING_POLE_HAND_POSITION}
+            rotation={MFER_GPT_FISHING_POLE_HAND_ROTATION}
+            scale={0.92}
+            fallbackPosition={MFER_GPT_FISHING_POLE_FALLBACK_POSITION}
+            fallbackRotation={MFER_GPT_FISHING_POLE_FALLBACK_ROTATION}
+            fallbackScale={0.95}
+          >
+            <FishingPoleRig
+              ownerId={liveAgentPlayer?.sessionId}
+              state={liveAgentPlayer?.fishingState ?? ""}
+              animation={liveAgentPlayer?.animation}
+              onHeldPropAnchorUpdate={onHeldPropAnchorUpdate}
+            />
+          </HandAttachment>
+        )}
         {showNameplate && (
           <Billboard position={[0, MFER_GPT_NAMEPLATE_Y, 0]}>
             <ActorNameplate

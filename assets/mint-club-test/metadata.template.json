@@ -1,0 +1,20 @@
+{
+  "name": "Glass Spiral Cube",
+  "description": "A Base Sepolia Mint Club ERC-1155 test prize for the mferland Fishing Pond redemption flow.",
+  "image": "ipfs://REPLACE_WITH_IMAGE_CID",
+  "external_url": "https://game.mfergpt.lol",
+  "attributes": [
+    {
+      "trait_type": "Test run",
+      "value": "Base Sepolia Fishing Pond"
+    },
+    {
+      "trait_type": "Reserve token",
+      "value": "WETH"
+    },
+    {
+      "trait_type": "Curve",
+      "value": "Linear"
+    }
+  ]
+}

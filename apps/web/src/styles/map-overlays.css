@@ -860,6 +860,10 @@
   background: #79d67f;
 }
 
+.tab-badge.pond {
+  background: #56cfff;
+}
+
 .emote-popout {
   position: absolute;
   z-index: 74;
@@ -950,6 +954,11 @@
 }
 
 .crypto-store-anchor {
+  right: 108px;
+  top: 92px;
+}
+
+.mint-club-redemption-anchor {
   right: 108px;
   top: 92px;
 }
@@ -2773,7 +2782,8 @@
   text-transform: none;
 }
 
-.character-tabs {
+.character-tabs,
+.inventory-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
@@ -2784,7 +2794,8 @@
   background: rgba(0, 0, 0, 0.3);
 }
 
-.character-tabs button {
+.character-tabs button,
+.inventory-tabs button {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -2803,7 +2814,10 @@
 
 .character-tabs button.active,
 .character-tabs button:hover,
-.character-tabs button:focus-visible {
+.character-tabs button:focus-visible,
+.inventory-tabs button.active,
+.inventory-tabs button:hover,
+.inventory-tabs button:focus-visible {
   color: #1a1308;
   background: var(--mfer-yellow);
   outline: none;
@@ -3455,6 +3469,148 @@
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 10px;
   min-height: 110px;
+}
+
+.pond-log-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 248, 224, 0.12);
+}
+
+.pond-log-section.tab-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.pond-log-header {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.pond-log-header > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pond-log-header strong,
+.pond-log-header span,
+.pond-log-header em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pond-log-header strong {
+  color: var(--mfer-yellow);
+  font-size: 12px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.pond-log-header span,
+.pond-log-header em {
+  color: rgba(255, 248, 224, 0.68);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.pond-log-list {
+  display: grid;
+  gap: 6px;
+}
+
+.pond-log-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 24px;
+  gap: 8px;
+  align-items: center;
+  min-height: 46px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #fff8e0;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.pond-log-row.mapped {
+  border-color: rgba(86, 207, 255, 0.36);
+}
+
+.pond-log-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(86, 207, 255, 0.38);
+  border-radius: 6px;
+  color: #56cfff;
+  background: rgba(86, 207, 255, 0.12);
+}
+
+.pond-log-icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.pond-log-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pond-log-copy b,
+.pond-log-copy span,
+.pond-log-copy em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pond-log-copy b {
+  color: #e9fbff;
+  font-size: 12px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.pond-log-copy span,
+.pond-log-copy em {
+  color: rgba(233, 251, 255, 0.7);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.pond-log-row a {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(86, 207, 255, 0.28);
+  border-radius: 5px;
+  color: #56cfff;
+  background: rgba(86, 207, 255, 0.1);
+  text-decoration: none;
+}
+
+.pond-log-row a:hover,
+.pond-log-row a:focus-visible {
+  border-color: rgba(86, 207, 255, 0.62);
+  background: rgba(86, 207, 255, 0.18);
 }
 
 .inventory-slot {

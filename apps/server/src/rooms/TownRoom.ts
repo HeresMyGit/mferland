@@ -1,3 +1,4 @@
+import { randomBytes, randomInt as cryptoRandomInt } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,11 +7,33 @@ import {
   CHAT,
   COMBAT,
   EMOTES,
+  FISHING_BITE_MAX_MS,
+  FISHING_BITE_MIN_MS,
+  FISHING_BITE_WINDOW_MS,
+  FISHING_AGENT_BUNDLE_MULTIPLIER,
+  FISHING_AGENT_CATCH_CHANCE_MULTIPLIER,
+  FISHING_AGENT_NFT_CHANCE_MULTIPLIER,
+  FISHING_AGENT_RARE_CHANCE_MULTIPLIER,
+  FISHING_CAST_MS,
+  FISHING_CHUM_ITEM_ID,
+  FISHING_LOST_SHOE_ITEM_ID,
+  FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP,
+  FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP,
+  FISHING_POND_STATUS_NPC_ID,
+  FISHING_POLE_ITEM_ID,
+  FISHING_SELLABLE_ITEM_IDS,
+  FISHING_SUPPLY_PRODUCT_ID,
+  FISHING_TUTOR_NPC_ID,
+  FISHING_VENDOR_NPC_ID,
+  FISHING_ZONE,
+  FISHING_ZONE_ID,
   ITEMS,
+  LOANER_FISHING_POLE_ITEM_ID,
   LOOT,
   MAX_PLAYERS,
   MFERGPT,
   MFERGPT_DAILY_BOSS_NPC_ID,
+  ONCHAIN_FISHING_ROD_PRODUCT_ID,
   PLAYER,
   POTION_SHOP_NPC_ID,
   POTION_SHOP_PRODUCT_ID,
@@ -32,6 +55,12 @@ import {
   clamp,
   getAgentTrashVendorAwardPoints,
   getAgentTrashVendorPayableQuantity,
+  getFishingBobberPosition,
+  getFishingPayableQuantity,
+  getFishingRequiredBundleSize,
+  getFishingSellAwardPoints,
+  getFishingSaleRule,
+  getFishingSupplyPrice,
   getTrashVendorSellValue,
   getNpcDisposition,
   getChainGearItemId,
@@ -42,6 +71,8 @@ import {
   hasExplicitMferAppearanceTraits,
   isPotionShopItemId,
   isPotionShopPurchaseQuantity,
+  isFishingSellableItemId,
+  isNearFishingZone,
   isTrashVendorItemId,
   normalizeAvatarSeed,
   normalizeChainTokenId,
@@ -52,6 +83,7 @@ import {
   parseMferAppearanceTraitsJson,
   resolveAgentMferAppearanceTraitsForUpdate,
   resolveWorldCollision,
+  rollFishingCatch,
   serializeAgentMferAppearanceTraits,
   serializeMferAppearanceTraits,
   setWorldCollisionPlacementOverrides,
@@ -60,6 +92,7 @@ import {
   type ChatMessage,
   type ClientAcceptQuest,
   type ClientAgentStatus,
+  type ClientAbandonFishingNftCatch,
   type ClientCancelQuest,
   type ClientCompleteQuest,
   type ClientCombatAction,
@@ -67,25 +100,48 @@ import {
   type ClientDebugUpdateChainGearTier,
   type ClientEmote,
   type ClientEquipItem,
+  type ClientCancelFishing,
   type ClientInteract,
   type ClientInput,
   type ClientLootCorpse,
   type ClientPurchasePotionShopItem,
+  type ClientPurchaseFishingSupply,
+  type ClientPurchaseOnchainFishingRod,
   type ClientRegisterChainGear,
+  type ClientReelFishing,
   type ClientRemoveSeasonReferral,
   type ClientRespecTalents,
   type ClientSelectTalent,
+  type ClientSellFishingItems,
   type ClientSellTrashItems,
   type ClientShareQuestLink,
+  type ClientStartFishing,
+  type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type ClientUpdateTraits,
   type ClientUnequipItem,
   type ClientUseItem,
   type CombatActionId,
   type EmoteId,
   type ExperienceEvent,
+  type FishingCatchItemId,
+  type FishingNftCapNotice,
+  type FishingNftCatchResult,
+  type FishingNftHistoryResult,
+  type FishingNftCatchStatus,
+  type FishingNftCatchSnapshot,
+  type FishingWalletNftSnapshot,
+  type MintClubRedemptionResult,
+  type OnchainFishingRodMintResult,
+  type FishingSellableItemId,
+  type FishingResult,
+  type FishingSupplyPurchaseResult,
+  type FishingVendorSellResult,
+  type FishingVendorSoldItem,
   type IdentityType,
   type ItemId,
   type JoinOptions,
+  type LootWindow,
   type PotionShopPurchaseResult,
   type QuestId,
   type SeasonReferralRemoveResult,
@@ -98,13 +154,38 @@ import { ActiveBuffState, EquipmentSlotState, InventoryItemState, PlayerState, Q
 import type { TrackedInput } from "../types.js";
 import { recordAnalyticsEvent, type AnalyticsProperties } from "../analytics.js";
 import { areAgentsEnabled } from "../agentAccess.js";
+import { getDatabase } from "../db/client.js";
 import {
   getAgentSeason0MferGptGateStatus,
   makeAgentSeason0MferGptGateMessage,
   type AgentSeason0MferGptGateStatus,
 } from "../agentMferGptGate.js";
 import { verifyChainGearOwnership } from "../crypto/chainGear.js";
-import type { VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
+import {
+  makeFishingNftCatchSnapshotFromVoucher,
+  makeFishingPondClaimVoucher,
+  readFishingPondAvailableEntries,
+  readFishingPondEntryMetadata,
+  readFishingPondPublicConfig,
+  resolveFishingPondConfig,
+  verifyFishingPondClaimReceipt,
+} from "../crypto/fishingPond.js";
+import { selectWeightedFishingPondEntry } from "../crypto/fishingPondSelection.js";
+import {
+  isMintClubRedemptionEligibleCatch,
+  makeMintClubRedemptionSnapshot,
+  resolveMintClubRedemptionConfig,
+  verifyMintClubRedemptionReceipt,
+} from "../crypto/mintClubRedemption.js";
+import {
+  isOnchainFishingRodRequirementSatisfied,
+  mintOnchainFishingRodForWallet,
+  readOnchainFishingRodRequirement,
+  readOnchainFishingRodWalletNft,
+  resolveOnchainFishingRodConfig,
+} from "../crypto/onchainFishingRod.js";
+import { verifyFishingSupplyPaymentProof, type VerifiedFishingSupplyPayment } from "../crypto/fishingSupplyPayments.js";
+import { verifyMferGptBurnPaymentProof, type VerifiedMferGptBurnPayment } from "../crypto/mferGptBurnPayments.js";
 import { verifyPotionShopPaymentProof, type VerifiedPotionShopPayment } from "../crypto/potionShopPayments.js";
 import { verifyTalentRespecPaymentProof, type VerifiedTalentRespecPayment } from "../crypto/talentRespecPayments.js";
 import { verifyTraitPaymentProof, type VerifiedTraitPayment } from "../crypto/traitPayments.js";
@@ -119,10 +200,22 @@ import {
   saveCharacterProgressWithCryptoPurchase,
   saveCharacterProgressWithSeason0Reward,
   saveCharacterProgressWithTraitPayment,
+  createFishingPondCatchRecord,
+  markFishingPondCatchAbandoned,
+  findFishingPondCatch,
+  findFishingPondCatchHistoryForWallet,
+  findLatestActiveFishingPondCatchForWallet,
+  markFishingPondCatchConfirmed,
+  markFishingPondCatchExpired,
+  markFishingPondCatchFailed,
+  markFishingPondCatchMintClubRedemption,
+  markFishingPondCatchMintClubRedemptionFailed,
+  markFishingPondCatchTxSubmitted,
   PersistenceUnavailableError,
   WalletClientKindMismatchError,
   type PersistableCharacterState,
   type PersistedCharacter,
+  type PersistedFishingPondCatch,
   type SeasonRewardAwardResult,
 } from "../persistence.js";
 import {
@@ -146,7 +239,7 @@ import {
   type PendingCombatImpact,
 } from "../systems/combat.js";
 import { makeNpcUtilityEvent } from "../systems/combatEvents.js";
-import { removeExpiredPlayerBuffs, snapshotActiveBuffs } from "../systems/buffs.js";
+import { getPlayerBuffEffectTotals, removeExpiredPlayerBuffs, snapshotActiveBuffs } from "../systems/buffs.js";
 import { clearConsumableCooldownsForPlayer, grantStarterConsumables, useInventoryConsumable } from "../systems/consumables.js";
 import {
   equipInventoryItem,
@@ -189,6 +282,8 @@ import {
   makeQuestTurnIn,
   normalizeQuestId,
   addInventoryItem,
+  progressFishingQuest,
+  progressLootQuests,
   progressTraitQuest,
   progressMferGptAskQuest,
   progressMferGptMentionQuest,
@@ -231,7 +326,7 @@ const DEBUG_PLACEMENT_MAP_PATH = fileURLToPath(new URL("../../data/debug-placeme
 const SESSION_REPLACED_CLOSE_CODE = 4000;
 const AGENT_IDLE_CLOSE_CODE = 4001;
 const DEBUG_TRASH_VENDOR_STOCK_COUNT = 20;
-const LOCAL_DEBUG_WALLET_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+const DEFAULT_LOCAL_DEBUG_WALLET_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
   "agentStatus",
   "combatAction",
@@ -244,7 +339,16 @@ const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
   "unequipItem",
   "registerChainGear",
   "purchasePotionShopItem",
+  "purchaseFishingSupply",
+  "purchaseOnchainFishingRod",
   "sellTrashItems",
+  "startFishing",
+  "reelFishing",
+  "cancelFishing",
+  "submitFishingNftClaimTx",
+  "abandonFishingNftCatch",
+  "submitMintClubRedemptionTx",
+  "sellFishingItems",
   "selectTalent",
   "updateTraits",
   "respawn",
@@ -301,6 +405,21 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "trash_vendor_sell_started",
   "trash_vendor_sell_confirmed",
   "trash_vendor_sell_failed",
+  "fishing_started",
+  "fishing_reel",
+  "fishing_failed",
+  "fishing_vendor_opened",
+  "fishing_vendor_item_selected",
+  "fishing_vendor_sell_started",
+  "fishing_vendor_sell_confirmed",
+  "fishing_vendor_sell_failed",
+  "fishing_supply_opened",
+  "fishing_supply_purchase_started",
+  "fishing_supply_purchase_failed",
+  "fishing_supply_purchase_confirmed",
+  "onchain_fishing_rod_mint_started",
+  "onchain_fishing_rod_mint_confirmed",
+  "onchain_fishing_rod_mint_failed",
 ]);
 
 export function areDebugMessagesEnabled() {
@@ -319,14 +438,27 @@ export function isLocalDebugWalletAuthBypassEnabled() {
   return process.env.NODE_ENV === "development" && process.env.MFERLAND_LOCAL_DEBUG_AUTH_BYPASS === "1";
 }
 
+function getLocalDebugWalletAddresses() {
+  const configured = [
+    process.env.MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES,
+    process.env.MFERLAND_LOCAL_DEBUG_WALLET_ADDRESS,
+    process.env.MFERLAND_DEBUG_WALLET_ADDRESS,
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .flatMap((value) => value.split(","))
+    .map((value) => normalizeWalletAddress(value))
+    .filter((value): value is string => Boolean(value));
+  return new Set([DEFAULT_LOCAL_DEBUG_WALLET_ADDRESS, ...configured]);
+}
+
 function isCryptoSmokeWalletAuthBypassAllowed(walletAddress: string) {
   return isCryptoSmokeWalletAuthBypassEnabled()
-    && walletAddress === LOCAL_DEBUG_WALLET_ADDRESS;
+    && walletAddress === DEFAULT_LOCAL_DEBUG_WALLET_ADDRESS;
 }
 
 function isLocalDebugWalletAllowed(walletAddress: string) {
   return isLocalDebugWalletAuthBypassEnabled()
-    && walletAddress === LOCAL_DEBUG_WALLET_ADDRESS;
+    && getLocalDebugWalletAddresses().has(walletAddress);
 }
 
 function isWalletAuthBypassAllowed(walletAddress: string) {
@@ -617,6 +749,38 @@ export function getTownAdminSnapshots(now = Date.now()): AdminRoomSnapshot[] {
   return [...activeTownRooms].map((room) => room.getAdminSnapshot(now));
 }
 
+type ActiveFishingAttempt = {
+  attemptId: string;
+  zoneId: typeof FISHING_ZONE_ID;
+  castAt: number;
+  biteAt: number;
+  expiresAt: number;
+};
+
+type PendingFishingLoot = {
+  sourceId: string;
+  attemptId: string;
+  itemId: FishingCatchItemId;
+  count: number;
+  createdAt: number;
+  readyAt: number;
+  expiresAt: number;
+  windowSentAt: number;
+  chatMessage: string;
+};
+
+type PlayerAnimationHold = {
+  animation: PlayerState["animation"];
+  until: number;
+};
+
+const FISHING_LOOT_SOURCE_PREFIX = "fishing:";
+const FISHING_LOOT_PICKUP_MS = 45_000;
+const FISHING_REEL_ANIMATION_MS = 2400;
+const FISHING_NFT_CAP_NOTICE_COOLDOWN_MS = 60_000;
+const FISHING_NFT_DAILY_CAP_MS = 86_400_000;
+const FISHING_NFT_TX_SUBMISSION_GRACE_MS = 5 * 60_000;
+
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
 
@@ -645,6 +809,11 @@ export class TownRoom extends Room<TownState> {
   private readonly consumableCooldowns = new Map<string, number>();
   private readonly pendingDebugPlacementSaves = new Map<string, PendingDebugPlacementSave>();
   private readonly agentSeason0GateStatuses = new Map<string, AgentSeason0MferGptGateStatus>();
+  private readonly fishingAttempts = new Map<string, ActiveFishingAttempt>();
+  private readonly pendingFishingLoot = new Map<string, PendingFishingLoot>();
+  private readonly fishingNftCapNoticeAt = new Map<string, number>();
+  private readonly fishingNftRodDailyNoticeKeys = new Set<string>();
+  private readonly playerAnimationHolds = new Map<string, PlayerAnimationHold>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private lastAgentIdleSweepAt = 0;
@@ -808,9 +977,60 @@ export class TownRoom extends Room<TownState> {
       void this.handlePurchasePotionShopItem(client, message);
     });
 
+    this.onMessage("purchaseFishingSupply", (client, message: Partial<ClientPurchaseFishingSupply> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "purchaseFishingSupply");
+      void this.handlePurchaseFishingSupply(client, message);
+    });
+
+    this.onMessage("purchaseOnchainFishingRod", (client, message: Partial<ClientPurchaseOnchainFishingRod> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "purchaseOnchainFishingRod");
+      void this.handlePurchaseOnchainFishingRod(client, message);
+    });
+
     this.onMessage("sellTrashItems", (client, message: Partial<ClientSellTrashItems> = {}) => {
       this.markAgentMessageActivity(client.sessionId, "sellTrashItems");
       void this.handleSellTrashItems(client, message);
+    });
+
+    this.onMessage("startFishing", (client, message: Partial<ClientStartFishing> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "startFishing");
+      this.handleStartFishing(client, message);
+    });
+
+    this.onMessage("reelFishing", (client, message: Partial<ClientReelFishing> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "reelFishing");
+      void this.handleReelFishing(client, message);
+    });
+
+    this.onMessage("cancelFishing", (client, _message: Partial<ClientCancelFishing> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "cancelFishing");
+      const player = this.state.players.get(client.sessionId);
+      if (player) this.cancelFishing(client.sessionId, player);
+    });
+
+    this.onMessage("submitFishingNftClaimTx", (client, message: Partial<ClientSubmitFishingNftClaimTx> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "submitFishingNftClaimTx");
+      void this.handleSubmitFishingNftClaimTx(client, message);
+    });
+
+    this.onMessage("abandonFishingNftCatch", (client, message: Partial<ClientAbandonFishingNftCatch> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "abandonFishingNftCatch");
+      void this.handleAbandonFishingNftCatch(client, message);
+    });
+
+    this.onMessage("submitMintClubRedemptionTx", (client, message: Partial<ClientSubmitMintClubRedemptionTx> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "submitMintClubRedemptionTx");
+      void this.handleSubmitMintClubRedemptionTx(client, message);
+    });
+
+    this.onMessage("refreshFishingNftHistory", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) void this.syncFishingNftHistory(client, player);
+    });
+
+    this.onMessage("sellFishingItems", (client, message: Partial<ClientSellFishingItems> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "sellFishingItems");
+      void this.handleSellFishingItems(client, message);
     });
 
     this.onMessage("removeSeasonReferral", (client, message: Partial<ClientRemoveSeasonReferral> = {}) => {
@@ -1015,6 +1235,12 @@ export class TownRoom extends Room<TownState> {
         return;
       }
 
+      if (npc.id === FISHING_POND_STATUS_NPC_ID) {
+        void this.sendFishingPondStatus(client, player, npc, now);
+        this.persistPlayerProgress(client.sessionId, player);
+        return;
+      }
+
       const payload: ChatMessage = {
         sessionId: npc.id,
         name: npc.name,
@@ -1122,6 +1348,11 @@ export class TownRoom extends Room<TownState> {
     if (player.isAgent) {
       void this.notifyAgentSeason0GateStatus(client, player, "login").catch((error) => {
         console.error(`Failed to read agent MFERGPT earning gate for ${player.walletAddress}`, error);
+      });
+    }
+    if (player.identityType === "wallet" && walletAddress) {
+      void this.syncLatestFishingNftCatch(client, player).catch((error) => {
+        console.error(`Failed to sync fishing NFT catch for ${walletAddress}`, error);
       });
     }
     if (persistedCharacter) {
@@ -1283,6 +1514,7 @@ export class TownRoom extends Room<TownState> {
     player.animation = "idle";
     clearPlayerEmote(player);
     clearPlayerCast(player);
+    this.cancelFishing(sessionId, player);
     this.inputs.delete(sessionId);
     this.jumpHeld.set(sessionId, false);
     this.removePlayerThreat(sessionId);
@@ -1304,6 +1536,12 @@ export class TownRoom extends Room<TownState> {
     this.sessionJoinedAt.delete(sessionId);
     this.deadSessionIds.delete(sessionId);
     this.pendingDebugPlacementSaves.delete(sessionId);
+    this.fishingAttempts.delete(sessionId);
+    this.pendingFishingLoot.delete(sessionId);
+    for (const key of this.fishingNftCapNoticeAt.keys()) {
+      if (key.startsWith(`${sessionId}:`)) this.fishingNftCapNoticeAt.delete(key);
+    }
+    this.playerAnimationHolds.delete(sessionId);
     clearConsumableCooldownsForPlayer(this.consumableCooldowns, sessionId);
     this.removePlayerThreat(sessionId);
   }
@@ -1751,6 +1989,7 @@ export class TownRoom extends Room<TownState> {
     if (player.health <= 0) return;
     const now = Date.now();
     if (player.frozenUntil > now) return;
+    if (player.fishingState) this.cancelFishing(client.sessionId, player);
     clearPlayerEmote(player);
 
     const actionId = normalizeCombatActionId(message?.actionId);
@@ -2323,6 +2562,1403 @@ export class TownRoom extends Room<TownState> {
       chainId: verifiedPayment.chainId,
       txHash: verifiedPayment.txHash,
     });
+  }
+
+  private async handlePurchaseFishingSupply(client: Client, message: Partial<ClientPurchaseFishingSupply>) {
+    const player = this.state.players.get(client.sessionId);
+    const itemId = FISHING_CHUM_ITEM_ID;
+    const itemName = ITEMS[itemId].name;
+    const price = getFishingSupplyPrice();
+    const sendResult = (result: Omit<FishingSupplyPurchaseResult, "itemId" | "itemName" | "count" | "paymentAmountWei" | "chainId"> & Partial<FishingSupplyPurchaseResult>) => {
+      client.send("fishingSupplyPurchaseResult", {
+        ok: result.ok,
+        itemId,
+        itemName,
+        count: result.count ?? 0,
+        paymentAmountWei: result.paymentAmountWei ?? price.amountWei,
+        chainId: result.chainId ?? 0,
+        txHash: result.txHash,
+        error: result.error,
+      } satisfies FishingSupplyPurchaseResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+
+    const fishinLesson = player.quests.get("fishin-lesson");
+    if (fishinLesson?.status !== "completed") {
+      sendResult({ ok: false, error: "finish Motherfisher's lesson first" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    if (player.identityType !== "wallet" || !player.walletAddress || !characterId) {
+      this.recordPlayerAnalyticsEvent("fishing_supply_purchase_failed", client.sessionId, player, {
+        supportKind: "fishing_supply_purchase",
+        npcId: FISHING_TUTOR_NPC_ID,
+        itemId,
+        itemName,
+        stage: "preflight",
+        error: "wallet character required",
+      });
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    const npc = this.state.npcs.get(FISHING_TUTOR_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? FISHING_TUTOR_NPC_ID,
+      npcName: npc?.name ?? "Motherfisher",
+      npcDistance,
+    };
+
+    this.recordPlayerAnalyticsEvent("fishing_supply_purchase_started", client.sessionId, player, {
+      supportKind: "fishing_supply_purchase",
+      ...npcAnalytics,
+      itemId,
+      itemName,
+      priceLabel: price.label,
+      expectedPaymentAmountWei: price.amountWei,
+      ...summarizeMferGptPaymentProof(message?.payment),
+    });
+
+    let verifiedPayment: VerifiedFishingSupplyPayment;
+    try {
+      verifiedPayment = await verifyFishingSupplyPaymentProof(message?.payment, player.walletAddress);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "payment verification failed";
+      this.recordPlayerAnalyticsEvent("fishing_supply_purchase_failed", client.sessionId, player, {
+        supportKind: "fishing_supply_purchase",
+        ...npcAnalytics,
+        itemId,
+        itemName,
+        stage: "payment_verification",
+        error: errorMessage,
+        ...summarizeMferGptPaymentProof(message?.payment),
+      });
+      sendResult({ ok: false, error: errorMessage });
+      return;
+    }
+
+    const inventoryKey = getInventoryItemKey(itemId);
+    const previousItem = player.inventory.get(inventoryKey);
+    const previousCount = previousItem?.count ?? 0;
+    addInventoryItem(player, itemId, 1);
+    const nextCount = player.inventory.get(inventoryKey)?.count ?? 0;
+    const persisted = await this.queueCharacterSave(
+      client.sessionId,
+      characterId,
+      makePersistableCharacterState(characterId, player),
+      undefined,
+      (state) => saveCharacterProgressWithCryptoPurchase(state, {
+        ...verifiedPayment,
+        productId: FISHING_SUPPLY_PRODUCT_ID,
+        tokenId: getFishingSupplyLedgerTokenId(),
+        paymentToken: "MFERGPT",
+        note: `Motherfisher ${itemName}`,
+      }),
+    );
+
+    if (!persisted) {
+      if (previousItem) previousItem.count = previousCount;
+      else player.inventory.delete(inventoryKey);
+      this.recordPlayerAnalyticsEvent("fishing_supply_purchase_failed", client.sessionId, player, {
+        supportKind: "fishing_supply_purchase",
+        ...npcAnalytics,
+        itemId,
+        itemName,
+        stage: "save",
+        error: "wallet progress failed to save",
+        ...summarizeVerifiedMferGptPayment(verifiedPayment),
+      });
+      sendResult({
+        ok: false,
+        error: "wallet progress failed to save; retry before reloading",
+        paymentAmountWei: verifiedPayment.amountWei,
+        chainId: verifiedPayment.chainId,
+        txHash: verifiedPayment.txHash,
+      });
+      return;
+    }
+
+    this.recordPlayerAnalyticsEvent("fishing_supply_purchase_confirmed", client.sessionId, player, {
+      supportKind: "fishing_supply_purchase",
+      ...npcAnalytics,
+      itemId,
+      itemName,
+      count: nextCount,
+      productId: FISHING_SUPPLY_PRODUCT_ID,
+      ...summarizeVerifiedMferGptPayment(verifiedPayment),
+    });
+    sendResult({
+      ok: true,
+      count: nextCount,
+      paymentAmountWei: verifiedPayment.amountWei,
+      chainId: verifiedPayment.chainId,
+      txHash: verifiedPayment.txHash,
+    });
+  }
+
+  private async handlePurchaseOnchainFishingRod(client: Client, _message: Partial<ClientPurchaseOnchainFishingRod>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: Partial<OnchainFishingRodMintResult> & Pick<OnchainFishingRodMintResult, "ok">) => {
+      client.send("onchainFishingRodMintResult", {
+        ok: result.ok,
+        walletNft: result.walletNft ?? null,
+        chainId: result.chainId ?? 0,
+        contractAddress: result.contractAddress ?? "",
+        paymentAmountWei: result.paymentAmountWei ?? "0",
+        paymentRequired: false,
+        paymentTxHash: result.paymentTxHash,
+        mintTxHash: result.mintTxHash,
+        alreadyOwned: result.alreadyOwned,
+        error: result.error,
+      } satisfies OnchainFishingRodMintResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (player.identityType !== "wallet" || !walletAddress || !characterId) {
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    const npc = this.state.npcs.get(FISHING_TUTOR_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? FISHING_TUTOR_NPC_ID,
+      npcName: npc?.name ?? "Motherfisher",
+      npcDistance,
+    };
+
+    let config;
+    try {
+      config = await resolveOnchainFishingRodConfig();
+      const currentRod = await readOnchainFishingRodWalletNft(walletAddress, config);
+      const baseResult = {
+        chainId: config.chainId,
+        contractAddress: config.contractAddress,
+        paymentAmountWei: "0",
+        paymentRequired: false,
+      };
+      if (currentRod) {
+        sendResult({ ok: true, ...baseResult, walletNft: currentRod, alreadyOwned: true });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+      if (!config.enabled) {
+        sendResult({ ok: false, ...baseResult, error: "rod minting unavailable" });
+        return;
+      }
+      if (config.mintMode !== "server" || !config.adminMintEnabled) {
+        sendResult({ ok: false, ...baseResult, error: config.mintUrl ? "use the wallet mint link" : "wallet mint required" });
+        return;
+      }
+      if (config.standard !== "ERC721") {
+        sendResult({ ok: false, ...baseResult, error: "in-game rod mint supports ERC-721 rods only" });
+        return;
+      }
+
+      this.recordPlayerAnalyticsEvent("onchain_fishing_rod_mint_started", client.sessionId, player, {
+        supportKind: "onchain_fishing_rod_mint",
+        ...npcAnalytics,
+        productId: ONCHAIN_FISHING_ROD_PRODUCT_ID,
+        mintMode: config.mintMode,
+      });
+
+      const minted = await mintOnchainFishingRodForWallet(walletAddress, config);
+
+      client.send("chat", makeSystemChat("Fishing", minted.alreadyOwned ? "Onchain fishing rod already in wallet." : "Onchain fishing rod minted."));
+      this.recordPlayerAnalyticsEvent("onchain_fishing_rod_mint_confirmed", client.sessionId, player, {
+        supportKind: "onchain_fishing_rod_mint",
+        ...npcAnalytics,
+        productId: ONCHAIN_FISHING_ROD_PRODUCT_ID,
+        mintTxHash: minted.txHash,
+        alreadyOwned: minted.alreadyOwned,
+      });
+      sendResult({
+        ok: true,
+        ...baseResult,
+        walletNft: minted.walletNft,
+        mintTxHash: minted.txHash || undefined,
+        alreadyOwned: minted.alreadyOwned,
+      });
+      await this.syncFishingNftHistory(client, player);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "rod mint failed";
+      this.recordPlayerAnalyticsEvent("onchain_fishing_rod_mint_failed", client.sessionId, player, {
+        supportKind: "onchain_fishing_rod_mint",
+        ...npcAnalytics,
+        stage: "mint",
+        error: errorMessage,
+      });
+      sendResult({
+        ok: false,
+        chainId: config?.chainId ?? 0,
+        contractAddress: config?.contractAddress ?? "",
+        paymentAmountWei: "0",
+        paymentRequired: false,
+        error: errorMessage,
+      });
+    }
+  }
+
+  private handleStartFishing(client: Client, message: Partial<ClientStartFishing>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: Partial<FishingResult> & Pick<FishingResult, "ok" | "outcome">) => {
+      client.send("fishingResult", {
+        ok: result.ok,
+        attemptId: result.attemptId ?? player?.fishingAttemptId ?? "",
+        outcome: result.outcome,
+        itemId: result.itemId ?? "",
+        itemName: result.itemName ?? "",
+        quantity: result.quantity ?? 0,
+        nftCatch: result.nftCatch,
+        error: result.error,
+      } satisfies FishingResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, outcome: "missed", error: "player unavailable" });
+      return;
+    }
+    const now = Date.now();
+    if (message?.zoneId && message.zoneId !== FISHING_ZONE_ID) {
+      sendResult({ ok: false, outcome: "missed", error: "unknown fishing water" });
+      return;
+    }
+    if (player.frozenUntil > now) {
+      sendResult({ ok: false, outcome: "missed", error: "frozen" });
+      return;
+    }
+    if (player.castingAction || player.fishingState) {
+      sendResult({ ok: false, outcome: "missed", error: "already busy" });
+      return;
+    }
+    if (!this.playerHasFishingPole(player)) {
+      sendResult({ ok: false, outcome: "missed", error: "fishing pole required" });
+      return;
+    }
+    if (!isNearFishingZone(player.x, player.z)) {
+      sendResult({ ok: false, outcome: "missed", error: "get closer to south center pond" });
+      return;
+    }
+    if (!isPlayerStationary(player, this.inputs.get(client.sessionId), now)) {
+      sendResult({ ok: false, outcome: "missed", error: "stand still to cast" });
+      return;
+    }
+
+    const bobber = getFishingBobberPosition(player);
+    const attemptId = makeFishingAttemptId(client.sessionId);
+    const biteAt = now + FISHING_CAST_MS + randomInt(FISHING_BITE_MIN_MS, FISHING_BITE_MAX_MS);
+    const expiresAt = biteAt + FISHING_BITE_WINDOW_MS;
+    const pendingLoot = this.pendingFishingLoot.get(client.sessionId);
+    if (pendingLoot) {
+      this.pendingFishingLoot.delete(client.sessionId);
+      client.send("closeLootWindow", { npcId: pendingLoot.sourceId });
+    }
+    this.fishingAttempts.set(client.sessionId, {
+      attemptId,
+      zoneId: FISHING_ZONE_ID,
+      castAt: now,
+      biteAt,
+      expiresAt,
+    });
+
+    clearPlayerEmote(player);
+    clearPlayerCast(player);
+    this.playerAnimationHolds.delete(client.sessionId);
+    player.fishingAttemptId = attemptId;
+    player.fishingZoneId = FISHING_ZONE_ID;
+    player.fishingState = "casting";
+    player.fishingCastAt = now;
+    player.fishingBiteAt = biteAt;
+    player.fishingExpiresAt = expiresAt;
+    player.fishingBobberX = bobber.x;
+    player.fishingBobberZ = bobber.z;
+    player.animation = "fishCast";
+    syncPlayerFishingJson(player);
+
+    this.recordPlayerAnalyticsEvent("fishing_started", client.sessionId, player, {
+      supportKind: "fishing",
+      zoneId: FISHING_ZONE_ID,
+      x: Math.round(player.x * 10) / 10,
+      z: Math.round(player.z * 10) / 10,
+      bobberX: Math.round(bobber.x * 10) / 10,
+      bobberZ: Math.round(bobber.z * 10) / 10,
+      isAgent: player.isAgent,
+    });
+    client.send("chat", makeSystemChat("Fishing", "Cast landed. Watch the bobber and reel when it jiggles."));
+    void this.maybeSendDailyFishingRodNotice(client, player, now);
+  }
+
+  private async handleReelFishing(client: Client, message: Partial<ClientReelFishing>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: Partial<FishingResult> & Pick<FishingResult, "ok" | "outcome">) => {
+      client.send("fishingResult", {
+        ok: result.ok,
+        attemptId: result.attemptId ?? player?.fishingAttemptId ?? "",
+        outcome: result.outcome,
+        itemId: result.itemId ?? "",
+        itemName: result.itemName ?? "",
+        quantity: result.quantity ?? 0,
+        nftCatch: result.nftCatch,
+        error: result.error,
+      } satisfies FishingResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, outcome: "missed", error: "player unavailable" });
+      return;
+    }
+    const attempt = this.fishingAttempts.get(client.sessionId);
+    if (!attempt || !player.fishingAttemptId) {
+      sendResult({ ok: false, outcome: "missed", error: "nothing to reel" });
+      return;
+    }
+    if (message?.attemptId && message.attemptId !== attempt.attemptId) {
+      sendResult({ ok: false, outcome: "missed", attemptId: attempt.attemptId, error: "old bobber" });
+      return;
+    }
+
+    const now = Date.now();
+    if (now < attempt.biteAt) {
+      this.cancelFishing(client.sessionId, player);
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "too_early",
+        isAgent: player.isAgent,
+      });
+      return;
+    }
+    if (now > attempt.expiresAt) {
+      const attemptId = attempt.attemptId;
+      this.cancelFishing(client.sessionId, player);
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "expired",
+        isAgent: player.isAgent,
+      });
+      sendResult({ ok: true, outcome: "expired", attemptId });
+      return;
+    }
+
+    const attemptId = attempt.attemptId;
+    const questItemId = shouldCatchLostFishingShoe(player) && Math.random() < 0.1
+      ? FISHING_LOST_SHOE_ITEM_ID
+      : null;
+    this.cancelFishing(client.sessionId, player, "fishReel");
+
+    if (!questItemId) {
+      const nftCatch = await this.tryCreateFishingNftCatch(client, player, attemptId, now);
+      if (nftCatch) {
+        this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+          supportKind: "fishing",
+          outcome: "nft",
+          catchId: nftCatch.catchId,
+          standard: nftCatch.standard,
+          collection: nftCatch.collection,
+          tokenId: nftCatch.tokenId,
+          pondEntryId: nftCatch.pondEntryId,
+          isAgent: player.isAgent,
+        });
+        client.send("chat", makeSystemChat("Fishing", "You hooked an onchain pond prize. Claim it with your wallet before the voucher expires."));
+        client.send("fishingNftCatchResult", { ok: true, catch: nftCatch } satisfies FishingNftCatchResult);
+        sendResult({
+          ok: true,
+          outcome: "nft",
+          attemptId,
+          itemName: "onchain pond prize",
+          quantity: 1,
+          nftCatch,
+        });
+        return;
+      }
+    }
+
+    if (!questItemId && player.isAgent && Math.random() >= FISHING_AGENT_CATCH_CHANCE_MULTIPLIER) {
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "missed",
+        agentCatchPenalty: true,
+        isAgent: player.isAgent,
+      });
+      sendResult({ ok: true, outcome: "missed", attemptId });
+      return;
+    }
+
+    const rareChanceMultiplier = getFishingRareChanceMultiplier(player, now);
+    const rareChanceScale = player.isAgent ? FISHING_AGENT_RARE_CHANCE_MULTIPLIER : 1;
+    const itemId = questItemId ?? rollFishingCatch(Math.random, rareChanceMultiplier, rareChanceScale);
+    if (!itemId) {
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "missed",
+        isAgent: player.isAgent,
+      });
+      sendResult({ ok: true, outcome: "missed", attemptId });
+      return;
+    }
+
+    const item = ITEMS[itemId];
+    const outcome = isFishingSellableItemId(itemId) ? "caught" : "junk";
+    const sourceId = makeFishingLootSourceId(attemptId);
+    const lootReadyAt = now + FISHING_REEL_ANIMATION_MS;
+    this.pendingFishingLoot.set(client.sessionId, {
+      sourceId,
+      attemptId,
+      itemId,
+      count: 1,
+      createdAt: now,
+      readyAt: lootReadyAt,
+      expiresAt: lootReadyAt + FISHING_LOOT_PICKUP_MS,
+      windowSentAt: 0,
+      chatMessage: getFishingLootChatMessage(itemId, item.name),
+    });
+    this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+      supportKind: "fishing",
+      outcome,
+      itemId,
+      itemName: item.name,
+      isAgent: player.isAgent,
+    });
+    sendResult({
+      ok: true,
+      outcome,
+      attemptId,
+      itemId,
+      itemName: item.name,
+      quantity: 1,
+    });
+  }
+
+  private async tryCreateFishingNftCatch(client: Client, player: PlayerState, attemptId: string, now: number) {
+    const debugGate = process.env.MFERLAND_DEBUG_FISHING_NFT_GATE === "1";
+    const logDebugGate = (reason: string, details: Record<string, unknown> = {}) => {
+      if (!debugGate) return;
+      console.info("fishing_nft_gate", {
+        reason,
+        sessionId: client.sessionId,
+        player: player.name,
+        walletAddress: player.walletAddress,
+        identityType: player.identityType,
+        isAgent: player.isAgent,
+        attemptId,
+        ...details,
+      });
+    };
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) {
+      logDebugGate("missing_wallet");
+      return null;
+    }
+
+    try {
+      const config = await resolveFishingPondConfig();
+      if (!config.enabled || config.catchChanceBps <= 0) {
+        logDebugGate("config_disabled", {
+          enabled: config.enabled,
+          catchChanceBps: config.catchChanceBps,
+          contractAddress: config.contractAddress,
+          hasDatabase: Boolean(getDatabase()),
+        });
+        return null;
+      }
+
+      const activeRecord = await this.resolveActiveFishingNftCatch(walletAddress, now);
+      const activeSnapshot = makeFishingNftCatchSnapshot(activeRecord);
+      if (activeSnapshot) {
+        logDebugGate("active_catch_exists", {
+          catchId: activeSnapshot.catchId,
+          status: activeSnapshot.status,
+          expiresAt: activeSnapshot.expiresAt,
+        });
+        syncPlayerFishingNftCatchJson(player, activeSnapshot);
+        client.send("fishingNftCatchResult", { ok: true, catch: activeSnapshot } satisfies FishingNftCatchResult);
+        await this.syncFishingNftHistory(client, player);
+        return null;
+      }
+
+      const effectiveCatchChanceBps = Math.floor(
+        config.catchChanceBps * (player.isAgent ? FISHING_AGENT_NFT_CHANCE_MULTIPLIER : 1),
+      );
+      const roll = cryptoRandomInt(10_000);
+      if (effectiveCatchChanceBps <= 0 || roll >= effectiveCatchChanceBps) {
+        logDebugGate("chance_missed", {
+          catchChanceBps: config.catchChanceBps,
+          effectiveCatchChanceBps,
+          roll,
+        });
+        return null;
+      }
+
+      const publicConfig = await readFishingPondPublicConfig(walletAddress);
+      if (!publicConfig.enabled || publicConfig.drainMode || !publicConfig.stocked) {
+        logDebugGate("public_config_unavailable", {
+          enabled: publicConfig.enabled,
+          drainMode: publicConfig.drainMode,
+          stocked: publicConfig.stocked,
+          walletDailyRemaining: publicConfig.walletDailyRemaining,
+          globalDailyRemaining: publicConfig.globalDailyRemaining,
+        });
+        return null;
+      }
+      if (publicConfig.walletDailyRemaining <= 0) {
+        logDebugGate("wallet_daily_cap", {
+          walletDailyRemaining: publicConfig.walletDailyRemaining,
+          perWalletDailyCap: publicConfig.perWalletDailyCap,
+        });
+        const dailyResetAt = getFishingNftDailyResetAt(now);
+        this.sendFishingNftCapNotice(
+          client,
+          `wallet:${walletAddress}`,
+          now,
+          {
+            kind: "wallet_daily_cap",
+            text: "No more onchain goodies today. Regular fish are still biting.",
+            sentAt: now,
+            dailyResetAt,
+            perWalletDailyCap: publicConfig.perWalletDailyCap,
+            walletDailyRemaining: publicConfig.walletDailyRemaining,
+            globalDailyCap: publicConfig.globalDailyCap,
+            globalDailyRemaining: publicConfig.globalDailyRemaining,
+          },
+        );
+        return null;
+      }
+      if (publicConfig.globalDailyRemaining !== null && publicConfig.globalDailyRemaining <= 0) {
+        logDebugGate("global_daily_cap", {
+          globalDailyRemaining: publicConfig.globalDailyRemaining,
+          globalDailyCap: publicConfig.globalDailyCap,
+        });
+        const dailyResetAt = getFishingNftDailyResetAt(now);
+        this.sendFishingNftCapNotice(
+          client,
+          "global",
+          now,
+          {
+            kind: "global_daily_cap",
+            text: "The pond is out of onchain goodies today. Regular fish are still biting.",
+            sentAt: now,
+            dailyResetAt,
+            perWalletDailyCap: publicConfig.perWalletDailyCap,
+            walletDailyRemaining: publicConfig.walletDailyRemaining,
+            globalDailyCap: publicConfig.globalDailyCap,
+            globalDailyRemaining: publicConfig.globalDailyRemaining,
+          },
+        );
+        return null;
+      }
+
+      const rodRequirement = publicConfig.rodRequirement ?? await readOnchainFishingRodRequirement(walletAddress);
+      if (!isOnchainFishingRodRequirementSatisfied(rodRequirement)) {
+        logDebugGate("rod_required_nft_hit", {
+          chainId: rodRequirement.chainId,
+          contractAddress: rodRequirement.contractAddress,
+          standard: rodRequirement.standard,
+          tokenId: rodRequirement.tokenId,
+          error: rodRequirement.error,
+        });
+        this.sendFishingNftCapNotice(
+          client,
+          `rod-hit:${walletAddress}:${attemptId}`,
+          now,
+          {
+            kind: "rod_required_nft_hit",
+            text: `You would have hooked an onchain goodie if this wallet held the ${rodRequirement.label}. Regular fish are still biting.`,
+            sentAt: now,
+            dailyResetAt: getFishingNftDailyResetAt(now),
+            perWalletDailyCap: publicConfig.perWalletDailyCap,
+            walletDailyRemaining: publicConfig.walletDailyRemaining,
+            globalDailyCap: publicConfig.globalDailyCap,
+            globalDailyRemaining: publicConfig.globalDailyRemaining,
+            rodRequirement,
+          },
+        );
+        return null;
+      }
+
+      const entries = await readFishingPondAvailableEntries(config);
+      if (entries.length <= 0) {
+        logDebugGate("no_entries");
+        return null;
+      }
+
+      const candidateEntries = [...entries];
+      while (candidateEntries.length > 0) {
+        const entry = selectWeightedFishingPondEntry(candidateEntries);
+        if (!entry) break;
+        const entryIndex = candidateEntries.findIndex((candidate) => candidate.pondEntryId === entry.pondEntryId);
+        if (entryIndex >= 0) candidateEntries.splice(entryIndex, 1);
+
+        const catchId = makeFishingNftCatchId();
+        const voucher = await makeFishingPondClaimVoucher({
+          catchId,
+          fisher: walletAddress,
+          entry,
+          now,
+        });
+        const metadata = await readFishingPondEntryMetadata(entry, config);
+        const record = await createFishingPondCatchRecord({
+          catchId,
+          characterId: this.persistentCharacterIds.get(client.sessionId) ?? "",
+          walletAddress,
+          attemptId,
+          voucher,
+          entryRemainingAmount: entry.remainingAmount,
+          walletDailyCap: publicConfig.perWalletDailyCap,
+          globalDailyCap: publicConfig.globalDailyCap,
+          metadata,
+        });
+        const snapshot = makeFishingNftCatchSnapshot(record);
+        logDebugGate("created", {
+          catchId,
+          pondEntryId: entry.pondEntryId,
+          standard: entry.standard,
+          tokenId: entry.tokenId,
+          remainingAmount: entry.remainingAmount,
+          snapshotCreated: Boolean(snapshot),
+        });
+        if (!snapshot) continue;
+        syncPlayerFishingNftCatchJson(player, snapshot);
+        await this.syncFishingNftHistory(client, player);
+        return snapshot;
+      }
+      logDebugGate("snapshot_unavailable");
+      return null;
+    } catch (error) {
+      logDebugGate("error", {
+        error: error instanceof Error ? error.message : "unknown fishing pond error",
+      });
+      this.recordPlayerAnalyticsEvent("fishing_reel", client.sessionId, player, {
+        supportKind: "fishing",
+        outcome: "nft_unavailable",
+        error: error instanceof Error ? error.message : "unknown fishing pond error",
+        isAgent: player.isAgent,
+      });
+      return null;
+    }
+  }
+
+  private async maybeSendDailyFishingRodNotice(client: Client, player: PlayerState, now: number) {
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) return;
+
+    try {
+      const rodRequirement = await readOnchainFishingRodRequirement(walletAddress);
+      if (isOnchainFishingRodRequirementSatisfied(rodRequirement)) return;
+
+      const publicConfig = await readFishingPondPublicConfig(walletAddress).catch(() => null);
+      this.sendFishingRodRequiredNotice(client, walletAddress, now, {
+        kind: "rod_required",
+        text: `Mint an ${rodRequirement.label} through the rod contract to unlock onchain goodie catches. Regular fish still bite without it.`,
+        sentAt: now,
+        dailyResetAt: getFishingNftDailyResetAt(now),
+        perWalletDailyCap: publicConfig?.perWalletDailyCap ?? FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP,
+        walletDailyRemaining: publicConfig?.walletDailyRemaining ?? FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP,
+        globalDailyCap: publicConfig?.globalDailyCap ?? FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP,
+        globalDailyRemaining: publicConfig?.globalDailyRemaining ?? FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP,
+        rodRequirement,
+      });
+    } catch {
+      // The reminder should never interrupt ordinary fishing.
+    }
+  }
+
+  private sendFishingRodRequiredNotice(
+    client: Client,
+    walletAddress: string,
+    now: number,
+    notice: FishingNftCapNotice,
+  ) {
+    const day = getFishingNftDay(now);
+    const dailyKey = `${walletAddress}:${day}`;
+    if (this.fishingNftRodDailyNoticeKeys.has(dailyKey)) return;
+    this.fishingNftRodDailyNoticeKeys.add(dailyKey);
+    this.pruneFishingRodDailyNoticeKeys(day);
+    this.sendFishingNftCapNotice(client, `rod:${dailyKey}`, now, notice);
+  }
+
+  private pruneFishingRodDailyNoticeKeys(currentDay: number) {
+    if (this.fishingNftRodDailyNoticeKeys.size < 1000) return;
+    for (const key of this.fishingNftRodDailyNoticeKeys) {
+      const day = Number(key.split(":").pop());
+      if (day !== currentDay) this.fishingNftRodDailyNoticeKeys.delete(key);
+    }
+  }
+
+  private sendFishingNftCapNotice(client: Client, noticeKey: string, now: number, notice: FishingNftCapNotice) {
+    const mapKey = `${client.sessionId}:${noticeKey}`;
+    const lastSentAt = this.fishingNftCapNoticeAt.get(mapKey) ?? 0;
+    if (now - lastSentAt < FISHING_NFT_CAP_NOTICE_COOLDOWN_MS) return;
+    this.fishingNftCapNoticeAt.set(mapKey, now);
+    client.send("chat", makeSystemChat("Fishing", notice.text));
+    client.send("fishingNftCapNotice", notice);
+    const player = this.state.players.get(client.sessionId);
+    this.recordPlayerAnalyticsEvent("fishing_nft_notice_sent", client.sessionId, player, {
+      supportKind: "fishing_nft_notice",
+      noticeKind: notice.kind,
+      resetAt: notice.dailyResetAt,
+      perPlayerDailyCap: notice.perWalletDailyCap,
+      playerDailyRemaining: notice.walletDailyRemaining,
+      globalDailyCap: notice.globalDailyCap,
+      globalDailyRemaining: notice.globalDailyRemaining,
+      rodRequired: notice.rodRequirement?.required,
+      rodOwned: notice.rodRequirement?.walletOwnsRod,
+      rodChainId: notice.rodRequirement?.chainId,
+      rodStandard: notice.rodRequirement?.standard,
+      rodContractAddress: notice.rodRequirement?.contractAddress,
+      rodMintMode: notice.rodRequirement?.mintMode,
+    });
+  }
+
+  private async syncLatestFishingNftCatch(client: Client, player: PlayerState) {
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) return;
+
+    const record = await this.resolveActiveFishingNftCatch(walletAddress, Date.now());
+    if (!record) {
+      syncPlayerFishingNftCatchJson(player, null);
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const snapshot = makeFishingNftCatchSnapshot(record);
+    syncPlayerFishingNftCatchJson(player, snapshot);
+    if (snapshot) {
+      client.send("fishingNftCatchResult", { ok: true, catch: snapshot } satisfies FishingNftCatchResult);
+    }
+    await this.syncFishingNftHistory(client, player);
+  }
+
+  private async resolveActiveFishingNftCatch(walletAddress: string, now: number) {
+    const record = await findLatestActiveFishingPondCatchForWallet(walletAddress);
+    if (!record) return null;
+
+    const expiresAt = record.expiresAt.getTime();
+    const shouldExpire = record.status === "tx_submitted"
+      ? expiresAt + FISHING_NFT_TX_SUBMISSION_GRACE_MS <= now
+      : expiresAt <= now;
+    if (!shouldExpire) return record;
+
+    return await markFishingPondCatchExpired(record.catchId);
+  }
+
+  private async sendFishingPondStatus(client: Client, player: PlayerState, npc: NpcState, now: number) {
+    const text = await this.buildFishingPondStatusText(player, now).catch(() => (
+      makeFishingPondDefaultStatusText(now, "i couldn't read the live ledger, but the default daily setup is")
+    ));
+    client.send("chat", {
+      sessionId: npc.id,
+      name: npc.name,
+      identityType: "npc",
+      text: `${player.name}, ${text}`,
+      sentAt: now,
+    } satisfies ChatMessage);
+  }
+
+  private async buildFishingPondStatusText(player: PlayerState, now: number) {
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) {
+      const resetAt = getFishingNftDailyResetAt(now);
+      return `connect a wallet for your exact onchain-goodie count. daily cap is ${FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP}, global cap is ${FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP}, and reset is ${formatFishingPondUtcReset(resetAt)} (${formatFishingPondResetCountdown(resetAt, now)}).`;
+    }
+
+    const config = await readFishingPondPublicConfig(walletAddress);
+    if (!config.enabled) {
+      return `${makeFishingPondDefaultStatusText(now, "today's onchain-goodie setup is")}. pond awards are offline right now.`;
+    }
+
+    const activeRecord = await this.resolveActiveFishingNftCatch(walletAddress, now);
+    const used = Math.max(0, config.perWalletDailyCap - config.walletDailyRemaining);
+    const resetAt = getFishingNftDailyResetAt(now);
+    const parts = [
+      `you've used ${used}/${config.perWalletDailyCap} onchain-goodie catches today`,
+      `${config.walletDailyRemaining} NFT catch${config.walletDailyRemaining === 1 ? "" : "es"} left`,
+      `resets at ${formatFishingPondUtcReset(resetAt)} (${formatFishingPondResetCountdown(resetAt, now)})`,
+    ];
+
+    if (config.globalDailyRemaining !== null) {
+      parts.push(`global pond: ${config.globalDailyRemaining}/${config.globalDailyCap} left today`);
+    }
+    if (activeRecord) {
+      parts.push(`you have a ${formatFishingPondCatchStatus(activeRecord.status)} catch waiting on wallet action`);
+    }
+    if (config.drainMode) {
+      parts.push("pond is draining, so no new onchain goodies right now");
+    } else if (!config.stocked) {
+      parts.push("pond has no eligible onchain goodies stocked right now");
+    }
+
+    return `${parts.join(". ")}.`;
+  }
+
+  private async syncFishingNftHistory(client: Client, player: PlayerState) {
+    const walletAddress = normalizeWalletAddress(player.walletAddress);
+    if (!walletAddress) return;
+
+    try {
+      const records = await findFishingPondCatchHistoryForWallet(walletAddress, 20);
+      const catches = records
+        .map(makeFishingNftCatchSnapshot)
+        .filter((snapshot): snapshot is FishingNftCatchSnapshot => Boolean(snapshot))
+        .map(sanitizeFishingNftCatchSnapshotForState);
+      const rodRequirement = await readOnchainFishingRodRequirement(walletAddress).catch(() => undefined);
+      const walletNfts = (await Promise.all([
+        readOnchainFishingRodWalletNft(walletAddress).catch(() => null),
+      ])).filter((snapshot): snapshot is FishingWalletNftSnapshot => Boolean(snapshot));
+      client.send("fishingNftHistoryResult", { ok: true, catches, walletNfts, rodRequirement } satisfies FishingNftHistoryResult);
+    } catch (error) {
+      console.error(`Failed to sync fishing NFT history for ${walletAddress}`, error);
+      client.send("fishingNftHistoryResult", {
+        ok: false,
+        catches: [],
+        error: "pond history unavailable",
+      } satisfies FishingNftHistoryResult);
+    }
+  }
+
+  private async handleSubmitFishingNftClaimTx(client: Client, message: Partial<ClientSubmitFishingNftClaimTx>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: FishingNftCatchResult) => client.send("fishingNftCatchResult", result);
+    if (!player) {
+      sendResult({ ok: false, catch: null, error: "player unavailable" });
+      return;
+    }
+
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const txHash = typeof message.txHash === "string" ? message.txHash.trim().toLowerCase() : "";
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
+      sendResult({ ok: false, catch: null, error: "catch not found" });
+      return;
+    }
+    if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "claim transaction hash required" });
+      return;
+    }
+    if (record.status === "confirmed") {
+      const snapshot = makeFishingNftCatchSnapshot(record);
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      sendResult({ ok: true, catch: snapshot });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const submitted = await markFishingPondCatchTxSubmitted(catchId, txHash);
+    if (submitted) {
+      const submittedSnapshot = makeFishingNftCatchSnapshot(submitted);
+      syncPlayerFishingNftCatchJson(player, submittedSnapshot);
+      sendResult({ ok: true, catch: submittedSnapshot });
+      await this.syncFishingNftHistory(client, player);
+    }
+
+    try {
+      const confirmation = await verifyFishingPondClaimReceipt({ catchId, txHash });
+      if (normalizeWalletAddress(confirmation.fisher) !== normalizeWalletAddress(player.walletAddress)) {
+        throw new Error("claim event fisher mismatch");
+      }
+      const confirmed = await markFishingPondCatchConfirmed(catchId, confirmation.txHash);
+      const snapshot = confirmed ? makeFishingNftCatchSnapshot(confirmed) : null;
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      client.send("chat", makeSystemChat("Fishing", "Onchain pond prize claimed."));
+      sendResult({ ok: true, catch: snapshot });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("fishing_nft_claim_confirmed", client.sessionId, player, {
+        supportKind: "fishing_nft_claim",
+        catchId,
+        txHash,
+        pondEntryId: confirmation.pondEntryId,
+        logIndex: confirmation.logIndex,
+      });
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "claim confirmation failed";
+      if (/timeout|timed out|not found|could not find/i.test(messageText)) {
+        const snapshot = submitted ? makeFishingNftCatchSnapshot(submitted) : makeFishingNftCatchSnapshot(record);
+        syncPlayerFishingNftCatchJson(player, snapshot);
+        sendResult({ ok: true, catch: snapshot, error: "waiting for claim confirmation" });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+
+      const failed = await markFishingPondCatchFailed(catchId, messageText);
+      const snapshot = failed ? makeFishingNftCatchSnapshot(failed) : null;
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      sendResult({ ok: false, catch: snapshot, error: messageText });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("fishing_nft_claim_failed", client.sessionId, player, {
+        supportKind: "fishing_nft_claim",
+        catchId,
+        txHash,
+        error: messageText,
+      });
+    }
+  }
+
+  private async handleAbandonFishingNftCatch(client: Client, message: Partial<ClientAbandonFishingNftCatch>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: FishingNftCatchResult) => client.send("fishingNftCatchResult", result);
+    if (!player) {
+      sendResult({ ok: false, catch: null, error: "player unavailable" });
+      return;
+    }
+
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
+      sendResult({ ok: false, catch: null, error: "catch not found" });
+      return;
+    }
+    if (record.status === "tx_submitted") {
+      const snapshot = makeFishingNftCatchSnapshot(record);
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      sendResult({ ok: false, catch: snapshot, error: "claim transaction already submitted" });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+    if (record.status !== "pending" && record.status !== "voucher_issued") {
+      const snapshot = makeFishingNftCatchSnapshot(record);
+      syncPlayerFishingNftCatchJson(player, snapshot);
+      sendResult({ ok: true, catch: snapshot });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const abandoned = await markFishingPondCatchAbandoned(catchId);
+    if (!abandoned) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "claim offer could not be forfeited" });
+      return;
+    }
+
+    syncPlayerFishingNftCatchJson(player, null);
+    client.send("chat", makeSystemChat("Fishing", "Onchain goodie offer passed. It still counts for today's pond limit."));
+    sendResult({ ok: true, catch: null });
+    await this.syncFishingNftHistory(client, player);
+    this.recordPlayerAnalyticsEvent("fishing_nft_claim_abandoned", client.sessionId, player, {
+      supportKind: "fishing_nft_claim",
+      catchId,
+      pondEntryId: abandoned.pondEntryId,
+      status: abandoned.status,
+    });
+  }
+
+  private async handleSubmitMintClubRedemptionTx(client: Client, message: Partial<ClientSubmitMintClubRedemptionTx>) {
+    const player = this.state.players.get(client.sessionId);
+    const sendResult = (result: MintClubRedemptionResult) => client.send("mintClubRedemptionResult", result);
+    if (!player) {
+      sendResult({ ok: false, catch: null, error: "player unavailable" });
+      return;
+    }
+
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const txHash = typeof message.txHash === "string" ? message.txHash.trim().toLowerCase() : "";
+    const requestedStatus = message.status === "confirmed" ? "confirmed" : "tx_submitted";
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
+      sendResult({ ok: false, catch: null, error: "catch not found" });
+      return;
+    }
+    if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "redemption transaction hash required" });
+      return;
+    }
+    if (record.status !== "confirmed") {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "claim the pond NFT first" });
+      return;
+    }
+
+    const config = resolveMintClubRedemptionConfig();
+    if (!isMintClubRedemptionEligibleCatch(record, config)) {
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "not an onchain goodies item" });
+      return;
+    }
+    if (record.mintClubRedemptionStatus === "confirmed") {
+      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(record) });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    const submitted = await markFishingPondCatchMintClubRedemption({
+      catchId,
+      txHash,
+      status: "tx_submitted",
+    });
+    if (requestedStatus !== "confirmed") {
+      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(submitted) });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+
+    try {
+      const confirmation = await verifyMintClubRedemptionReceipt({ txHash, record, config });
+      const confirmed = await markFishingPondCatchMintClubRedemption({
+        catchId,
+        txHash: confirmation.txHash,
+        status: "confirmed",
+      });
+      client.send("chat", makeSystemChat("Fishing", "Onchain goodie sold through Mint Club."));
+      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(confirmed) });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("mint_club_redemption_confirmed", client.sessionId, player, {
+        supportKind: "mint_club_redemption",
+        catchId,
+        txHash,
+        collection: record.collection,
+        amountBurned: confirmation.amountBurned,
+        refundAmount: confirmation.refundAmount,
+      });
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "Mint Club redemption confirmation failed";
+      if (/timeout|timed out|not found|could not find/i.test(messageText)) {
+        sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(submitted), error: "waiting for redemption confirmation" });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+
+      const failed = await markFishingPondCatchMintClubRedemptionFailed(catchId, messageText);
+      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(failed), error: messageText });
+      await this.syncFishingNftHistory(client, player);
+      this.recordPlayerAnalyticsEvent("mint_club_redemption_failed", client.sessionId, player, {
+        supportKind: "mint_club_redemption",
+        catchId,
+        txHash,
+        collection: record.collection,
+        error: messageText,
+      });
+    }
+  }
+
+  private async handleSellFishingItems(client: Client, message: Partial<ClientSellFishingItems>) {
+    const player = this.state.players.get(client.sessionId);
+    const selectedItemId = isFishingSellableItemId(message?.itemId) ? message.itemId : null;
+    const sellAll = message?.sellAll === true;
+    const sendResult = (result: Partial<FishingVendorSellResult> & Pick<FishingVendorSellResult, "ok">) => {
+      client.send("fishingVendorSellResult", {
+        ok: result.ok,
+        sold: result.sold ?? [],
+        quantity: result.quantity ?? 0,
+        points: result.points ?? 0,
+        season0Points: result.season0Points ?? player?.season0Points ?? 0,
+        season0DailyPoints: result.season0DailyPoints ?? player?.season0DailyPoints ?? 0,
+        error: result.error,
+      } satisfies FishingVendorSellResult);
+    };
+
+    if (!player || player.health <= 0) {
+      sendResult({ ok: false, error: "player unavailable" });
+      return;
+    }
+    if (!sellAll && !selectedItemId) {
+      sendResult({ ok: false, error: "pick a fish" });
+      return;
+    }
+
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    const useLocalDebugWallet = isLocalDebugWalletAllowed(player.walletAddress);
+    if (player.identityType !== "wallet" || !player.walletAddress || (!characterId && !useLocalDebugWallet)) {
+      sendResult({ ok: false, error: "wallet character required" });
+      return;
+    }
+
+    const fishMongerQuest = player.quests.get("lost-fishing-shoes");
+    if (fishMongerQuest?.status !== "completed") {
+      sendResult({ ok: false, error: "fish monger needs his fishing shoes first" });
+      return;
+    }
+
+    const npc = this.state.npcs.get(FISHING_VENDOR_NPC_ID);
+    const npcDistance = npc ? Math.round(distanceToNpc(player, npc) * 100) / 100 : null;
+    const npcAnalytics = {
+      npcId: npc?.id ?? FISHING_VENDOR_NPC_ID,
+      npcName: npc?.name ?? "fish monger",
+      npcDistance,
+    };
+    if (!npc || npcDistance === null || npcDistance > LOOT.interactRange) {
+      this.recordPlayerAnalyticsEvent("fishing_vendor_sell_failed", client.sessionId, player, {
+        supportKind: "fishing_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        stage: "preflight",
+        error: "fish monger too far",
+      });
+      sendResult({ ok: false, error: "fish monger too far" });
+      return;
+    }
+
+    const remainingDaily = Math.max(0, SEASON_0_DAILY_POINT_CAP - player.season0DailyPoints);
+    const remainingSeason = Math.max(0, SEASON_0_TOTAL_POINT_CAP - player.season0Points);
+    const pointCapacity = Math.min(remainingDaily, remainingSeason);
+    const requestedQuantity = sellAll
+      ? Number.MAX_SAFE_INTEGER
+      : normalizeFishingSellQuantity(message?.quantity);
+    const sale = planFishingSale(player, {
+      itemId: selectedItemId,
+      requestedQuantity,
+      pointCapacity,
+      isAgent: player.isAgent,
+    });
+    if (sale.quantity <= 0) {
+      const availableQuantity = getSellableFishingItemCount(player, selectedItemId);
+      sendResult({
+        ok: false,
+        error: selectedItemId && availableQuantity > 0
+          ? getFishingSaleBlockedMessage(selectedItemId, player.isAgent)
+          : "no fish in stash",
+      });
+      return;
+    }
+
+    let agentTokenGate: AgentSeason0MferGptGateStatus | undefined;
+    if (sale.points > 0 && player.isAgent) {
+      agentTokenGate = await this.notifyAgentSeason0GateStatus(client, player, "fishing_vendor");
+      if (agentTokenGate && !agentTokenGate.eligible) {
+        this.recordPlayerAnalyticsEvent("fishing_vendor_sell_failed", client.sessionId, player, {
+          supportKind: "fishing_vendor_sell",
+          ...npcAnalytics,
+          itemId: selectedItemId ?? "",
+          stage: "agent_token_gate",
+          error: "agent rewards inactive",
+          agentTokenGateEligible: agentTokenGate.eligible,
+          agentTokenGateReason: agentTokenGate.reason,
+          agentTokenGateRequiredWei: agentTokenGate.requiredWei,
+          agentTokenGateBalanceWei: agentTokenGate.balanceWei,
+        });
+        client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(agentTokenGate)));
+        sendResult({ ok: false, error: "agent rewards inactive" });
+        return;
+      }
+    }
+
+    this.recordPlayerAnalyticsEvent("fishing_vendor_sell_started", client.sessionId, player, {
+      supportKind: "fishing_vendor_sell",
+      ...npcAnalytics,
+      itemId: selectedItemId ?? "",
+      sellAll,
+      quantity: sale.quantity,
+      points: sale.points,
+      isAgent: player.isAgent,
+      agentBundleMultiplier: player.isAgent ? FISHING_AGENT_BUNDLE_MULTIPLIER : 1,
+      agentTokenGateEligible: agentTokenGate?.eligible,
+      agentTokenGateReason: agentTokenGate?.reason,
+    });
+
+    const previousInventory = snapshotInventoryState(player);
+    applyFishingSale(player, sale.removals);
+    const soldLabel = formatFishingSoldSummary(sale.sold);
+    if (!characterId && useLocalDebugWallet) {
+      player.season0Points += sale.points;
+      player.season0DailyPoints += sale.points;
+      this.recordPlayerAnalyticsEvent("fishing_vendor_sell_confirmed", client.sessionId, player, {
+        supportKind: "fishing_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        sellAll,
+        quantity: sale.quantity,
+        points: sale.points,
+        isAgent: player.isAgent,
+        dailyTotal: player.season0DailyPoints,
+        seasonTotal: player.season0Points,
+        localDebug: true,
+      });
+      client.send("chat", makeSystemChat(
+        sale.points > 0 ? "Season points" : "Fishing",
+        `Sold ${soldLabel}${sale.points > 0 ? ` for ${formatSeasonPoints(sale.points)}` : " for 0 points"} in local debug mode.`,
+      ));
+      sendResult({
+        ok: true,
+        sold: sale.sold,
+        quantity: sale.quantity,
+        points: sale.points,
+        season0Points: player.season0Points,
+        season0DailyPoints: player.season0DailyPoints,
+      });
+      return;
+    }
+
+    let persisted = false;
+    let awardResult: SeasonRewardAwardResult | null = null;
+    if (sale.points > 0) {
+      persisted = await this.queueCharacterSave(
+        client.sessionId,
+        characterId,
+        makePersistableCharacterState(characterId, player),
+        undefined,
+        async (state) => {
+          awardResult = await saveCharacterProgressWithSeason0Reward(state, {
+            walletAddress: player.walletAddress,
+            sourceType: "event",
+            sourceId: makeFishingVendorSeasonRewardSourceId(client.sessionId),
+            points: sale.points,
+            basePoints: sale.basePoints,
+            agentMultiplier: player.isAgent ? 1 / FISHING_AGENT_BUNDLE_MULTIPLIER : 1,
+            agentTokenGate,
+            isAgent: player.isAgent,
+            label: player.isAgent
+              ? `fish monger sale: ${soldLabel} (agent fish bundles)`
+              : `fish monger sale: ${soldLabel}`,
+          });
+          if (awardResult.status !== "awarded") {
+            throw new Error(`fishing sale reward ${awardResult.status}`);
+          }
+        },
+      );
+    } else {
+      persisted = await this.queueCharacterSave(
+        client.sessionId,
+        characterId,
+        makePersistableCharacterState(characterId, player),
+      );
+    }
+
+    const savedAwardResult = awardResult as SeasonRewardAwardResult | null;
+    if (!persisted || (sale.points > 0 && (!savedAwardResult || savedAwardResult.status !== "awarded"))) {
+      restoreInventoryState(player, previousInventory);
+      this.recordPlayerAnalyticsEvent("fishing_vendor_sell_failed", client.sessionId, player, {
+        supportKind: "fishing_vendor_sell",
+        ...npcAnalytics,
+        itemId: selectedItemId ?? "",
+        sellAll,
+        quantity: sale.quantity,
+        points: sale.points,
+        isAgent: player.isAgent,
+        stage: "save",
+        rewardStatus: savedAwardResult?.status ?? "save_failed",
+        error: "wallet progress failed to save",
+      });
+      sendResult({ ok: false, error: savedAwardResult?.status === "capped" ? "season point cap reached" : "wallet progress failed to save" });
+      return;
+    }
+
+    if (savedAwardResult) {
+      player.season0Points = savedAwardResult.seasonTotal;
+      player.season0DailyPoints = savedAwardResult.dailyTotal;
+      this.applyReferralBonusToOnlineReferrer(savedAwardResult);
+    }
+    this.recordPlayerAnalyticsEvent("fishing_vendor_sell_confirmed", client.sessionId, player, {
+      supportKind: "fishing_vendor_sell",
+      ...npcAnalytics,
+      itemId: selectedItemId ?? "",
+      sellAll,
+      quantity: sale.quantity,
+      points: savedAwardResult?.points ?? sale.points,
+      basePoints: sale.basePoints,
+      isAgent: player.isAgent,
+      dailyTotal: player.season0DailyPoints,
+      seasonTotal: player.season0Points,
+    });
+    client.send("chat", makeSystemChat(
+      sale.points > 0 ? "Season points" : "Fishing",
+      `Sold ${soldLabel}${sale.points > 0 ? ` for ${formatSeasonPoints(savedAwardResult?.points ?? sale.points)}` : " for 0 points"}. Daily ${player.season0DailyPoints}/${SEASON_0_DAILY_POINT_CAP}, season ${player.season0Points}/${SEASON_0_TOTAL_POINT_CAP}.`,
+    ));
+    sendResult({
+      ok: true,
+      sold: sale.sold,
+      quantity: sale.quantity,
+      points: savedAwardResult?.points ?? sale.points,
+      season0Points: player.season0Points,
+      season0DailyPoints: player.season0DailyPoints,
+    });
+  }
+
+  private playerHasFishingPole(player: PlayerState) {
+    return getPlayerItemCount(player, FISHING_POLE_ITEM_ID) > 0
+      || getPlayerItemCount(player, LOANER_FISHING_POLE_ITEM_ID) > 0;
+  }
+
+  private updateFishingAttempt(sessionId: string, player: PlayerState, activeInput: TrackedInput | null, now: number, grounded: boolean) {
+    if (!player.fishingState) return;
+    const attempt = this.fishingAttempts.get(sessionId);
+    if (!attempt || attempt.attemptId !== player.fishingAttemptId) {
+      this.cancelFishing(sessionId, player);
+      return;
+    }
+    if (player.health <= 0 || player.frozenUntil > now || !grounded) {
+      this.cancelFishing(sessionId, player);
+      return;
+    }
+    const inputLength = activeInput ? Math.hypot(activeInput.x, activeInput.z) : 0;
+    if (inputLength >= 0.01 || activeInput?.jump) {
+      this.cancelFishing(sessionId, player);
+      return;
+    }
+    if (now >= attempt.expiresAt) {
+      this.cancelFishing(sessionId, player);
+      return;
+    }
+    if (now >= attempt.biteAt) {
+      player.fishingState = "bite";
+      player.animation = "fishIdle";
+      syncPlayerFishingJson(player);
+      return;
+    }
+    if (now >= attempt.castAt + FISHING_CAST_MS) {
+      player.fishingState = "waiting";
+      player.animation = "fishIdle";
+      syncPlayerFishingJson(player);
+      return;
+    }
+    player.animation = "fishCast";
+  }
+
+  private cancelFishing(sessionId: string, player: PlayerState, animation: PlayerState["animation"] = "idle") {
+    this.fishingAttempts.delete(sessionId);
+    player.fishingAttemptId = "";
+    player.fishingZoneId = "";
+    player.fishingState = "";
+    player.fishingCastAt = 0;
+    player.fishingBiteAt = 0;
+    player.fishingExpiresAt = 0;
+    player.fishingBobberX = 0;
+    player.fishingBobberZ = 0;
+    player.animation = animation;
+    if (animation === "fishReel") {
+      this.holdPlayerAnimation(sessionId, animation, FISHING_REEL_ANIMATION_MS);
+    } else {
+      this.playerAnimationHolds.delete(sessionId);
+    }
+    syncPlayerFishingJson(player);
+  }
+
+  private holdPlayerAnimation(sessionId: string, animation: PlayerState["animation"], durationMs: number) {
+    this.playerAnimationHolds.set(sessionId, {
+      animation,
+      until: Date.now() + Math.max(0, durationMs),
+    });
+  }
+
+  private applyPlayerAnimationHold(sessionId: string, player: PlayerState, now: number) {
+    const hold = this.playerAnimationHolds.get(sessionId);
+    if (!hold) return false;
+    if (now >= hold.until) {
+      this.playerAnimationHolds.delete(sessionId);
+      return false;
+    }
+    player.animation = hold.animation;
+    return true;
+  }
+
+  private flushReadyFishingLoot(now: number) {
+    for (const [sessionId, loot] of this.pendingFishingLoot) {
+      if (loot.windowSentAt > 0 || now < loot.readyAt) continue;
+      const client = this.clients.find((candidate) => candidate.sessionId === sessionId);
+      if (!client) continue;
+      if (now > loot.expiresAt) {
+        this.pendingFishingLoot.delete(sessionId);
+        client.send("closeLootWindow", { npcId: loot.sourceId });
+        continue;
+      }
+      loot.windowSentAt = now;
+      client.send("chat", makeSystemChat("Fishing", loot.chatMessage));
+      client.send("lootWindow", makeFishingLootWindow(loot));
+    }
   }
 
   private async handleSellTrashItems(client: Client, message: Partial<ClientSellTrashItems>) {
@@ -3016,6 +4652,11 @@ export class TownRoom extends Room<TownState> {
     if (!player || player.health <= 0) return;
 
     const npcId = typeof message?.npcId === "string" ? message.npcId : "";
+    if (npcId.startsWith(FISHING_LOOT_SOURCE_PREFIX)) {
+      this.handleFishingLootPickup(client, player, message, npcId);
+      return;
+    }
+
     const npc = this.state.npcs.get(npcId);
     if (!npc || isNpcAlive(npc) || !npcHasLoot(npc)) return;
     if (distanceToNpc(player, npc) > LOOT.interactRange) return;
@@ -3057,6 +4698,45 @@ export class TownRoom extends Room<TownState> {
     npc.despawnAt = Date.now() + LOOT.lootedDespawnMs;
     npc.respawnAt = npc.id === "raid-ogre-mfer" ? 0 : Math.max(npc.respawnAt, npc.despawnAt + 250);
     client.send("closeLootWindow", { npcId: npc.id });
+    this.persistPlayerProgress(client.sessionId, player);
+  }
+
+  private handleFishingLootPickup(
+    client: Client,
+    player: PlayerState,
+    message: Partial<ClientLootCorpse>,
+    sourceId: string,
+  ) {
+    const pending = this.pendingFishingLoot.get(client.sessionId);
+    if (!pending || pending.sourceId !== sourceId) return;
+    const now = Date.now();
+    if (now < pending.readyAt) return;
+    if (now > pending.expiresAt) {
+      this.pendingFishingLoot.delete(client.sessionId);
+      client.send("closeLootWindow", { npcId: sourceId });
+      return;
+    }
+
+    const requestedItemId = message?.itemId;
+    const itemId = requestedItemId === undefined ? null : normalizeItemId(requestedItemId);
+    if (requestedItemId !== undefined && itemId !== pending.itemId) return;
+    const chainTokenId = normalizeChainTokenId(message?.chainTokenId);
+    if (chainTokenId) return;
+
+    addInventoryItem(player, pending.itemId, pending.count);
+    progressFishingQuest(player);
+    progressLootQuests(player, pending.itemId, pending.count);
+    this.pendingFishingLoot.delete(client.sessionId);
+    this.recordPlayerAnalyticsEvent("fishing_loot_collected", client.sessionId, player, {
+      supportKind: "fishing",
+      sourceId,
+      attemptId: pending.attemptId,
+      itemId: pending.itemId,
+      itemName: ITEMS[pending.itemId].name,
+      quantity: pending.count,
+      isAgent: player.isAgent,
+    });
+    client.send("closeLootWindow", { npcId: sourceId });
     this.persistPlayerProgress(client.sessionId, player);
   }
 
@@ -3310,7 +4990,7 @@ export class TownRoom extends Room<TownState> {
   private async notifyAgentSeason0GateStatus(
     client: Client,
     player: PlayerState,
-    phase: "login" | "quest_turn_in" | "trash_vendor",
+    phase: "login" | "quest_turn_in" | "trash_vendor" | "fishing_vendor",
   ): Promise<AgentSeason0MferGptGateStatus | undefined> {
     if (!player.isAgent || player.identityType !== "wallet" || !player.walletAddress) return undefined;
 
@@ -3537,13 +5217,19 @@ export class TownRoom extends Room<TownState> {
         }
         player.verticalVelocity = 0;
         player.animation = "idle";
+        this.playerAnimationHolds.delete(sessionId);
         clearPlayerEmote(player);
         clearPlayerCast(player);
+        this.cancelFishing(sessionId, player);
         return;
       }
       if (player.frozenUntil > 0 && player.frozenUntil <= now) player.frozenUntil = 0;
       const isPlayerFrozen = player.frozenUntil > now;
-      if (isPlayerFrozen) clearPlayerCast(player);
+      if (isPlayerFrozen) {
+        clearPlayerCast(player);
+        this.playerAnimationHolds.delete(sessionId);
+        if (player.fishingState) this.cancelFishing(sessionId, player);
+      }
       if (player.emote && player.emoteEndsAt > 0 && now >= player.emoteEndsAt) {
         clearPlayerEmote(player);
       }
@@ -3586,17 +5272,31 @@ export class TownRoom extends Room<TownState> {
         }
       }
 
+      if (player.fishingState) {
+        this.updateFishingAttempt(sessionId, player, activeInput, now, grounded);
+        if (player.fishingState) {
+          if (activeInput) {
+            player.yaw = activeInput.yaw;
+            player.lastSeq = activeInput.seq;
+          }
+          this.jumpHeld.set(sessionId, false);
+          return;
+        }
+      }
+
       if (isPlayerFrozen) {
         if (activeInput) {
           player.yaw = activeInput.yaw;
           player.lastSeq = activeInput.seq;
         }
         player.animation = grounded ? "idle" : "jump";
+        this.applyPlayerAnimationHold(sessionId, player, now);
         return;
       }
 
       if (!activeInput) {
         player.animation = grounded ? "idle" : "jump";
+        this.applyPlayerAnimationHold(sessionId, player, now);
         return;
       }
 
@@ -3606,6 +5306,7 @@ export class TownRoom extends Room<TownState> {
 
       if (length < 0.01) {
         player.animation = grounded ? "idle" : "jump";
+        this.applyPlayerAnimationHold(sessionId, player, now);
         return;
       }
 
@@ -3621,8 +5322,10 @@ export class TownRoom extends Room<TownState> {
       player.x = nextPosition.x;
       player.z = nextPosition.z;
       player.animation = grounded ? (activeInput.sprint ? "run" : "walk") : "jump";
+      this.applyPlayerAnimationHold(sessionId, player, now);
       this.markAgentMovementActivity(sessionId, player, now);
     });
+    this.flushReadyFishingLoot(now);
     this.autosaveWalletCharacters(now);
     this.publishLiveMemoryStatus(now);
   }
@@ -4298,6 +6001,14 @@ type TrashSalePlan = {
   points: number;
 };
 
+type FishingSalePlan = {
+  sold: FishingVendorSoldItem[];
+  removals: Array<{ key: string; quantity: number }>;
+  quantity: number;
+  points: number;
+  basePoints: number;
+};
+
 type InventoryStateSnapshot = Array<{
   key: string;
   id: ItemId;
@@ -4307,6 +6018,12 @@ type InventoryStateSnapshot = Array<{
 }>;
 
 function normalizeTrashSellQuantity(value: unknown) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return 1;
+  return clamp(Math.floor(quantity), 1, 999);
+}
+
+function normalizeFishingSellQuantity(value: unknown) {
   const quantity = Number(value);
   if (!Number.isFinite(quantity)) return 1;
   return clamp(Math.floor(quantity), 1, 999);
@@ -4388,6 +6105,83 @@ function applyTrashSale(player: PlayerState, removals: TrashSalePlan["removals"]
   }
 }
 
+function planFishingSale(
+  player: PlayerState,
+  options: {
+    itemId: FishingSellableItemId | null;
+    requestedQuantity: number;
+    pointCapacity: number;
+    isAgent: boolean;
+  },
+): FishingSalePlan {
+  const requestedQuantity = Number.isFinite(options.requestedQuantity)
+    ? Math.max(0, Math.floor(options.requestedQuantity))
+    : Number.MAX_SAFE_INTEGER;
+  const candidateItemIds = options.itemId ? [options.itemId] : [...FISHING_SELLABLE_ITEM_IDS];
+  const soldCounts = new Map<FishingSellableItemId, number>();
+  const removals: FishingSalePlan["removals"] = [];
+  let remainingRequested = requestedQuantity;
+  let remainingPointCapacity = Number.isFinite(options.pointCapacity)
+    ? Math.max(0, Math.floor(options.pointCapacity))
+    : Number.MAX_SAFE_INTEGER;
+
+  for (const itemId of candidateItemIds) {
+    if (remainingRequested <= 0) break;
+    const rule = getFishingSaleRule(itemId);
+    const available = getSellableFishingItemCount(player, itemId);
+    const cappedByRequest = Math.min(available, remainingRequested);
+    const quantity = getFishingPayableQuantity(itemId, cappedByRequest, remainingPointCapacity, options.isAgent);
+    if (quantity <= 0) continue;
+    const points = getFishingSellAwardPoints(itemId, quantity, options.isAgent);
+    let remainingForItem = quantity;
+    player.inventory.forEach((item, key) => {
+      if (remainingForItem <= 0) return;
+      if (item.id !== itemId || normalizeChainTokenId(item.chainTokenId)) return;
+      if (!isFishingSellableItemId(item.id) || item.count <= 0) return;
+
+      const removalQuantity = Math.min(item.count, remainingForItem);
+      removals.push({ key, quantity: removalQuantity });
+      soldCounts.set(item.id, (soldCounts.get(item.id) ?? 0) + removalQuantity);
+      remainingForItem -= removalQuantity;
+    });
+    remainingRequested -= quantity;
+    if (rule.seasonPoints > 0) remainingPointCapacity = Math.max(0, remainingPointCapacity - points);
+  }
+
+  const sold: FishingVendorSoldItem[] = [];
+  for (const itemId of candidateItemIds) {
+    const quantity = soldCounts.get(itemId) ?? 0;
+    if (quantity <= 0) continue;
+    sold.push({
+      itemId,
+      itemName: ITEMS[itemId].name,
+      quantity,
+      points: getFishingSellAwardPoints(itemId, quantity, options.isAgent),
+      bundleSize: getFishingRequiredBundleSize(itemId, options.isAgent),
+    });
+  }
+  const quantity = sold.reduce((total, item) => total + item.quantity, 0);
+  const points = sold.reduce((total, item) => total + item.points, 0);
+  const basePoints = sold.reduce((total, item) => total + getFishingSellAwardPoints(item.itemId, item.quantity, false), 0);
+
+  return {
+    sold,
+    removals,
+    quantity,
+    points,
+    basePoints,
+  };
+}
+
+function applyFishingSale(player: PlayerState, removals: FishingSalePlan["removals"]) {
+  for (const removal of removals) {
+    const item = player.inventory.get(removal.key);
+    if (!item) continue;
+    item.count = Math.max(0, item.count - removal.quantity);
+    if (item.count <= 0) player.inventory.delete(removal.key);
+  }
+}
+
 function snapshotInventoryState(player: PlayerState): InventoryStateSnapshot {
   const snapshot: InventoryStateSnapshot = [];
   player.inventory.forEach((item, key) => {
@@ -4418,6 +6212,10 @@ function formatTrashSoldSummary(sold: TrashVendorSoldItem[]) {
   return sold.map((item) => `${item.itemName} x${item.quantity}`).join(", ") || "trash";
 }
 
+function formatFishingSoldSummary(sold: FishingVendorSoldItem[]) {
+  return sold.map((item) => `${item.itemName} x${item.quantity}`).join(", ") || "pond stuff";
+}
+
 function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
 }
@@ -4438,6 +6236,51 @@ function makeTrashVendorSeasonRewardSourceId(sessionId: string) {
   return `trash-vendor:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
 }
 
+function makeFishingVendorSeasonRewardSourceId(sessionId: string) {
+  return `fishing-vendor:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
+}
+
+function getFishingSupplyLedgerTokenId() {
+  return `${FISHING_CHUM_ITEM_ID}:single`;
+}
+
+function makeFishingAttemptId(sessionId: string) {
+  return `fish:${Date.now()}:${stableHash(`${sessionId}:${Math.random()}`)}`;
+}
+
+function makeFishingLootSourceId(attemptId: string) {
+  return `${FISHING_LOOT_SOURCE_PREFIX}${stableHash(attemptId)}`;
+}
+
+function makeFishingLootWindow(loot: PendingFishingLoot): LootWindow {
+  return {
+    npcId: loot.sourceId,
+    npcName: "Fishing bobber",
+    source: "fishing",
+    items: [{ id: loot.itemId, chainTokenId: "", count: loot.count }],
+  };
+}
+
+function getFishingRareChanceMultiplier(player: PlayerState, now: number) {
+  const bonusPercent = getPlayerBuffEffectTotals(player, now).fishingRareChancePercent ?? 0;
+  return 1 + Math.max(0, bonusPercent) / 100;
+}
+
+function shouldCatchLostFishingShoe(player: PlayerState) {
+  return player.quests.get("lost-fishing-shoes")?.status === "active";
+}
+
+function getFishingLootChatMessage(itemId: FishingCatchItemId, itemName: string) {
+  if (itemId === FISHING_LOST_SHOE_ITEM_ID) {
+    return `You reeled up ${itemName}. Fish monger is going to pretend those are still wearable. Pick them up before they sink.`;
+  }
+  return `You caught ${itemName}. Pick it up before it slips away.`;
+}
+
+function randomInt(min: number, max: number) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
 function getAgentTraitSeed(player: PlayerState) {
   return `${player.walletAddress || "agent"}:${player.name || "mfer-agent"}:${player.avatarSeed}`;
 }
@@ -4445,6 +6288,118 @@ function getAgentTraitSeed(player: PlayerState) {
 function getSellableTrashItemCount(player: PlayerState, itemId: TrashVendorItemId | null) {
   const candidateItemIds = itemId ? [itemId] : [...TRASH_VENDOR_ITEM_IDS];
   return candidateItemIds.reduce((total, candidateItemId) => total + getPlayerItemCount(player, candidateItemId), 0);
+}
+
+function getSellableFishingItemCount(player: PlayerState, itemId: FishingSellableItemId | null) {
+  const candidateItemIds = itemId ? [itemId] : [...FISHING_SELLABLE_ITEM_IDS];
+  return candidateItemIds.reduce((total, candidateItemId) => total + getPlayerItemCount(player, candidateItemId), 0);
+}
+
+function getFishingSaleBlockedMessage(itemId: FishingSellableItemId, isAgent: boolean) {
+  const required = getFishingRequiredBundleSize(itemId, isAgent);
+  const points = getFishingSaleRule(itemId).seasonPoints;
+  return isAgent
+    ? `agents need ${required} ${ITEMS[itemId].name} for ${formatSeasonPoints(points)}`
+    : `need ${required} ${ITEMS[itemId].name} for ${formatSeasonPoints(points)}`;
+}
+
+function syncPlayerFishingJson(player: PlayerState) {
+  if (!player.fishingState || !player.fishingAttemptId) {
+    player.fishingJson = "";
+    return;
+  }
+  player.fishingJson = JSON.stringify({
+    attemptId: player.fishingAttemptId,
+    zoneId: player.fishingZoneId,
+    state: player.fishingState,
+    castAt: player.fishingCastAt,
+    biteAt: player.fishingBiteAt,
+    expiresAt: player.fishingExpiresAt,
+    bobberX: player.fishingBobberX,
+    bobberZ: player.fishingBobberZ,
+  });
+}
+
+function syncPlayerFishingNftCatchJson(player: PlayerState, catchSnapshot: FishingNftCatchSnapshot | null) {
+  player.fishingNftCatchJson = catchSnapshot ? JSON.stringify(sanitizeFishingNftCatchSnapshotForState(catchSnapshot)) : "";
+}
+
+function sanitizeFishingNftCatchSnapshotForState(catchSnapshot: FishingNftCatchSnapshot): FishingNftCatchSnapshot {
+  const { voucher: _voucher, ...publicSnapshot } = catchSnapshot;
+  return publicSnapshot;
+}
+
+function makeFishingNftCatchSnapshot(record: PersistedFishingPondCatch | null): FishingNftCatchSnapshot | null {
+  if (!record) return null;
+  if (record.voucher) {
+    const snapshot = makeFishingNftCatchSnapshotFromVoucher({
+      status: record.status,
+      walletAddress: record.walletAddress,
+      voucher: record.voucher,
+      metadata: record.metadata,
+      txHash: record.txHash,
+      error: record.error,
+    });
+    const mintClubRedemption = makeMintClubRedemptionSnapshot(record);
+    return mintClubRedemption ? { ...snapshot, mintClubRedemption } : snapshot;
+  }
+
+  const mintClubRedemption = makeMintClubRedemptionSnapshot(record);
+  return {
+    catchId: record.catchId,
+    status: record.status,
+    walletActionRequired: record.status === "voucher_issued" || record.status === "tx_submitted",
+    walletAddress: record.walletAddress,
+    standard: record.standard,
+    collection: record.collection,
+    tokenId: record.tokenId,
+    amount: record.amount,
+    pondEntryId: record.pondEntryId,
+    chainId: record.chainId,
+    contractAddress: record.contractAddress,
+    expiresAt: Math.floor(record.expiresAt.getTime() / 1000),
+    txHash: record.txHash || undefined,
+    error: record.error || undefined,
+    metadata: record.metadata || undefined,
+    mintClubRedemption,
+  };
+}
+
+function makeFishingNftCatchId() {
+  return `0x${randomBytes(32).toString("hex")}`;
+}
+
+function getFishingNftDailyResetAt(now: number) {
+  return Math.floor((getFishingNftDay(now) + 1) * FISHING_NFT_DAILY_CAP_MS / 1000);
+}
+
+function getFishingNftDay(now: number) {
+  return Math.floor(now / FISHING_NFT_DAILY_CAP_MS);
+}
+
+function formatFishingPondUtcReset(resetAtSeconds: number) {
+  return new Date(resetAtSeconds * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC");
+}
+
+function makeFishingPondDefaultStatusText(now: number, prefix: string) {
+  const resetAt = getFishingNftDailyResetAt(now);
+  return `${prefix}: 0/${FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP} onchain-goodie catches used today, ${FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP} NFT catches left, global pond ${FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP}/${FISHING_NFT_POND_DEFAULT_GLOBAL_DAILY_CAP} left today, resets at ${formatFishingPondUtcReset(resetAt)} (${formatFishingPondResetCountdown(resetAt, now)})`;
+}
+
+function formatFishingPondResetCountdown(resetAtSeconds: number, now: number) {
+  const remainingSeconds = Math.max(0, resetAtSeconds - Math.floor(now / 1000));
+  const hours = Math.floor(remainingSeconds / 3600);
+  const minutes = Math.floor((remainingSeconds % 3600) / 60);
+  if (hours <= 0) return minutes <= 1 ? "in about 1 minute" : `in ${minutes} minutes`;
+  if (minutes <= 0) return hours === 1 ? "in 1 hour" : `in ${hours} hours`;
+  return `in ${hours}h ${minutes}m`;
+}
+
+function formatFishingPondCatchStatus(status: FishingNftCatchStatus) {
+  if (status === "tx_submitted") return "submitted";
+  if (status === "voucher_issued") return "claim-ready";
+  if (status === "abandoned") return "forfeited";
+  return status;
 }
 
 function grantDebugTrashVendorStock(player: PlayerState) {

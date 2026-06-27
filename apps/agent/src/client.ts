@@ -5,6 +5,9 @@ import {
   AGENT,
   CHAT,
   COMBAT,
+  FISHING_BITE_MAX_MS,
+  FISHING_BITE_WINDOW_MS,
+  FISHING_ZONE,
   INPUT_SEND_RATE,
   PLAZA_BOUNDS,
   ROOM_NAME,
@@ -19,12 +22,21 @@ import {
   type AgentObservation,
   type ChatMessage,
   type ClientAgentStatus,
+  type ClientAbandonFishingNftCatch,
   type ClientInput,
+  type ClientPurchaseOnchainFishingRod,
   type ClientRemoveSeasonReferral,
+  type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type CombatEvent,
   type CombatActionId,
   type EquipmentSlotId,
   type EquipmentSlotSnapshot,
+  type FishingNftCatchSnapshot,
+  type FishingSellableItemId,
+  type FishingResult,
+  type FishingSupplyPurchaseResult,
+  type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type ItemId,
   type LootWindow,
@@ -33,6 +45,7 @@ import {
   type NpcModel,
   type NpcRole,
   type NpcSnapshot,
+  type OnchainFishingRodMintResult,
   type PlayerSnapshot,
   type PotionShopItemId,
   type PotionShopPurchaseQuantity,
@@ -69,6 +82,8 @@ export type MferlandAgentOptions = {
 type RuntimePlayer = Omit<PlayerSnapshot, "sessionId" | "appearanceTraits" | "quests" | "inventory" | "equipment" | "talents" | "activeBuffs"> & {
   agentCommandBudgetJson?: string;
   appearanceTraitsJson?: string;
+  fishingJson?: string;
+  fishingNftCatchJson?: string;
   quests?: RuntimeQuestCollection;
   inventory?: RuntimeInventoryCollection;
   equipment?: RuntimeEquipmentCollection;
@@ -213,6 +228,10 @@ export class MferlandAgentClient {
   private potionShopResults: PotionShopPurchaseResult[] = [];
   private talentRespecResults: TalentRespecResult[] = [];
   private trashVendorResults: TrashVendorSellResult[] = [];
+  private fishingResults: FishingResult[] = [];
+  private fishingSupplyResults: FishingSupplyPurchaseResult[] = [];
+  private onchainFishingRodMintResults: OnchainFishingRodMintResult[] = [];
+  private fishingVendorResults: FishingVendorSellResult[] = [];
   private targetPoint: Point | null = null;
   private selectedTarget: TargetSelection | null = null;
   private sprint = false;
@@ -329,6 +348,14 @@ export class MferlandAgentClient {
         "equipItem",
         "unequipItem",
         "useItem",
+        "startFishing",
+        "reelFishing",
+        "cancelFishing",
+        "refreshFishingNftHistory",
+        "submitFishingNftClaimTx",
+        "abandonFishingNftCatch",
+        "submitMintClubRedemptionTx",
+        "sellFishingItems",
         "selectTalent",
         "updateTraits",
         "respecTalents",
@@ -601,6 +628,30 @@ export class MferlandAgentClient {
     if (!result?.ok) throw new Error(result?.error || `potion shop purchase ${itemId} failed`);
   }
 
+  async purchaseFishingSupply(payment: MferGptPaymentProof) {
+    const previousResultCount = this.fishingSupplyResults.length;
+    this.room?.send("purchaseFishingSupply", { payment });
+    await this.waitFor(() => this.fishingSupplyResults.length > previousResultCount, {
+      timeoutMs: 95_000,
+      intervalMs: 250,
+    }, "fishing supply purchase");
+    const result = this.fishingSupplyResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "fishing supply purchase failed");
+    return result;
+  }
+
+  async purchaseOnchainFishingRod(message: ClientPurchaseOnchainFishingRod = {}) {
+    const previousResultCount = this.onchainFishingRodMintResults.length;
+    this.room?.send("purchaseOnchainFishingRod", message);
+    await this.waitFor(() => this.onchainFishingRodMintResults.length > previousResultCount, {
+      timeoutMs: 125_000,
+      intervalMs: 250,
+    }, "onchain fishing rod mint");
+    const result = this.onchainFishingRodMintResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "onchain fishing rod mint failed");
+    return result;
+  }
+
   async sellTrashItems(options: { itemId?: TrashVendorItemId; quantity?: number; sellAll?: boolean } = {}) {
     const previousResultCount = this.trashVendorResults.length;
     this.room?.send("sellTrashItems", options);
@@ -610,6 +661,74 @@ export class MferlandAgentClient {
     }, "trash vendor sale");
     const result = this.trashVendorResults.at(-1);
     if (!result?.ok) throw new Error(result?.error || "trash vendor sale failed");
+    return result;
+  }
+
+  async startFishing() {
+    const previousResultCount = this.fishingResults.length;
+    this.room?.send("startFishing", {});
+    await this.waitFor(() => {
+      const self = this.getSelf();
+      return Boolean(self?.fishingAttemptId) || this.fishingResults.length > previousResultCount;
+    }, { timeoutMs: DEFAULT_WAIT_TIMEOUT_MS, intervalMs: 250 }, "start fishing");
+    const result = this.fishingResults.at(-1);
+    if (result && !result.ok) throw new Error(result.error || "start fishing failed");
+  }
+
+  async reelFishing(attemptId?: string) {
+    const previousResultCount = this.fishingResults.length;
+    this.room?.send("reelFishing", attemptId ? { attemptId } : {});
+    await this.waitFor(() => this.fishingResults.length > previousResultCount, {
+      timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+      intervalMs: 250,
+    }, "reel fishing");
+    const result = this.fishingResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "reel fishing failed");
+    return result;
+  }
+
+  async fishOnce() {
+    await this.moveToPoint({
+      x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.8,
+      z: FISHING_ZONE.z + 1.8,
+    }, { range: 2.6 });
+    await this.startFishing();
+    await this.waitFor(() => this.getSelf()?.fishingState === "bite", {
+      timeoutMs: FISHING_BITE_MAX_MS + FISHING_BITE_WINDOW_MS + 5000,
+      intervalMs: 250,
+    }, "fishing bite");
+    return this.reelFishing(this.getSelf()?.fishingAttemptId);
+  }
+
+  cancelFishing() {
+    this.room?.send("cancelFishing", {});
+  }
+
+  refreshFishingNftHistory() {
+    this.room?.send("refreshFishingNftHistory", {});
+  }
+
+  submitFishingNftClaimTx(message: ClientSubmitFishingNftClaimTx) {
+    this.room?.send("submitFishingNftClaimTx", message);
+  }
+
+  abandonFishingNftCatch(message: ClientAbandonFishingNftCatch) {
+    this.room?.send("abandonFishingNftCatch", message);
+  }
+
+  submitMintClubRedemptionTx(message: ClientSubmitMintClubRedemptionTx) {
+    this.room?.send("submitMintClubRedemptionTx", message);
+  }
+
+  async sellFishingItems(options: { itemId?: FishingSellableItemId; quantity?: number; sellAll?: boolean } = {}) {
+    const previousResultCount = this.fishingVendorResults.length;
+    this.room?.send("sellFishingItems", options);
+    await this.waitFor(() => this.fishingVendorResults.length > previousResultCount, {
+      timeoutMs: DEFAULT_WAIT_TIMEOUT_MS,
+      intervalMs: 250,
+    }, "fishing vendor sale");
+    const result = this.fishingVendorResults.at(-1);
+    if (!result?.ok) throw new Error(result?.error || "fishing vendor sale failed");
     return result;
   }
 
@@ -919,6 +1038,22 @@ export class MferlandAgentClient {
     room.onMessage("trashVendorSellResult", (message: TrashVendorSellResult) => {
       this.trashVendorResults = [...this.trashVendorResults.slice(-8), message];
     });
+    room.onMessage("fishingResult", (message: FishingResult) => {
+      this.fishingResults = [...this.fishingResults.slice(-8), message];
+    });
+    room.onMessage("fishingNftCatchResult", () => undefined);
+    room.onMessage("fishingNftCapNotice", () => undefined);
+    room.onMessage("fishingNftHistoryResult", () => undefined);
+    room.onMessage("fishingSupplyPurchaseResult", (message: FishingSupplyPurchaseResult) => {
+      this.fishingSupplyResults = [...this.fishingSupplyResults.slice(-8), message];
+    });
+    room.onMessage("onchainFishingRodMintResult", (message: OnchainFishingRodMintResult) => {
+      this.onchainFishingRodMintResults = [...this.onchainFishingRodMintResults.slice(-8), message];
+    });
+    room.onMessage("fishingVendorSellResult", (message: FishingVendorSellResult) => {
+      this.fishingVendorResults = [...this.fishingVendorResults.slice(-8), message];
+    });
+    room.onMessage("mintClubRedemptionResult", () => undefined);
     room.onMessage("questOffer", () => undefined);
     room.onMessage("questStatus", () => undefined);
     room.onMessage("questTurnIn", () => undefined);
@@ -1319,6 +1454,7 @@ export class MferlandAgentClient {
 
 function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapshot {
   const agentCommandBudget = parseAgentCommandBudgetJson(player.agentCommandBudgetJson);
+  const fishing = parseRuntimeFishing(player);
   return {
     sessionId,
     name: player.name,
@@ -1382,6 +1518,15 @@ function snapshotPlayer(sessionId: string, player: RuntimePlayer): PlayerSnapsho
     lastCastAt: player.lastCastAt,
     lastDamagedAt: player.lastDamagedAt,
     frozenUntil: player.frozenUntil,
+    fishingAttemptId: fishing.attemptId,
+    fishingZoneId: fishing.zoneId,
+    fishingState: fishing.state,
+    fishingCastAt: fishing.castAt,
+    fishingBiteAt: fishing.biteAt,
+    fishingExpiresAt: fishing.expiresAt,
+    fishingBobberX: fishing.bobberX,
+    fishingBobberZ: fishing.bobberZ,
+    fishingNftCatch: parseRuntimeFishingNftCatch(player),
     quests: snapshotQuests(player.quests),
     inventory: snapshotInventory(player.inventory),
     equipment: snapshotEquipment(player.equipment),
@@ -1468,6 +1613,133 @@ function readAgentCommandText(value: unknown) {
 function readAgentCommandNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function parseRuntimeFishing(player: Pick<RuntimePlayer, "fishingJson">) {
+  const fallback = {
+    attemptId: "",
+    zoneId: "" as PlayerSnapshot["fishingZoneId"],
+    state: "" as PlayerSnapshot["fishingState"],
+    castAt: 0,
+    biteAt: 0,
+    expiresAt: 0,
+    bobberX: 0,
+    bobberZ: 0,
+  };
+
+  if (!player.fishingJson) return fallback;
+
+  try {
+    const parsed = JSON.parse(player.fishingJson) as Record<string, unknown>;
+    return {
+      attemptId: readAgentCommandText(parsed.attemptId),
+      zoneId: readAgentCommandText(parsed.zoneId) as PlayerSnapshot["fishingZoneId"],
+      state: readRuntimeFishingState(parsed.state),
+      castAt: readRuntimeFishingNumber(parsed.castAt),
+      biteAt: readRuntimeFishingNumber(parsed.biteAt),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      bobberX: readRuntimeFishingNumber(parsed.bobberX),
+      bobberZ: readRuntimeFishingNumber(parsed.bobberZ),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function readRuntimeFishingState(value: unknown): PlayerSnapshot["fishingState"] {
+  return value === "casting" || value === "waiting" || value === "bite" ? value : "";
+}
+
+function readRuntimeFishingNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function parseRuntimeFishingNftCatch(player: Pick<RuntimePlayer, "fishingNftCatchJson">): FishingNftCatchSnapshot | null {
+  if (!player.fishingNftCatchJson) return null;
+
+  try {
+    const parsed = JSON.parse(player.fishingNftCatchJson) as Record<string, unknown>;
+    const status = readRuntimeFishingNftStatus(parsed.status);
+    const standard = parsed.standard === "ERC721" || parsed.standard === "ERC1155" ? parsed.standard : null;
+    if (!status || !standard) return null;
+    return {
+      catchId: readAgentCommandText(parsed.catchId),
+      status,
+      walletActionRequired: Boolean(parsed.walletActionRequired),
+      walletAddress: readAgentCommandText(parsed.walletAddress),
+      standard,
+      collection: readAgentCommandText(parsed.collection),
+      tokenId: readAgentCommandText(parsed.tokenId),
+      amount: readAgentCommandText(parsed.amount),
+      pondEntryId: readAgentCommandText(parsed.pondEntryId),
+      chainId: Math.max(0, Math.floor(Number(parsed.chainId) || 0)),
+      contractAddress: readAgentCommandText(parsed.contractAddress),
+      expiresAt: readRuntimeFishingNumber(parsed.expiresAt),
+      txHash: typeof parsed.txHash === "string" ? parsed.txHash : undefined,
+      error: typeof parsed.error === "string" ? parsed.error : undefined,
+      metadata: parseRuntimeFishingNftMetadata(parsed.metadata),
+      mintClubRedemption: parseRuntimeMintClubRedemption(parsed.mintClubRedemption),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseRuntimeMintClubRedemption(value: unknown): FishingNftCatchSnapshot["mintClubRedemption"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const status = parsed.status === "claim_required"
+    || parsed.status === "eligible"
+    || parsed.status === "tx_submitted"
+    || parsed.status === "confirmed"
+    || parsed.status === "failed"
+    ? parsed.status
+    : "";
+  if (!status) return undefined;
+  return {
+    status,
+    walletActionRequired: Boolean(parsed.walletActionRequired),
+    npcId: "onchain-goodies-mfer",
+    chainId: readRuntimeFishingNumber(parsed.chainId),
+    collection: readAgentCommandText(parsed.collection),
+    tokenId: readAgentCommandText(parsed.tokenId),
+    bondAddress: readAgentCommandText(parsed.bondAddress),
+    erc1155Address: readAgentCommandText(parsed.erc1155Address),
+    reserveTokenAddress: readAgentCommandText(parsed.reserveTokenAddress),
+    reserveTokenSymbol: readAgentCommandText(parsed.reserveTokenSymbol) || "WETH",
+    reserveTokenDecimals: readRuntimeFishingNumber(parsed.reserveTokenDecimals) || 18,
+    sellRoyaltyBps: readRuntimeFishingNumber(parsed.sellRoyaltyBps),
+    slippageBps: readRuntimeFishingNumber(parsed.slippageBps),
+    txHash: typeof parsed.txHash === "string" ? parsed.txHash : undefined,
+    error: typeof parsed.error === "string" ? parsed.error : undefined,
+    submittedAt: readRuntimeFishingNumber(parsed.submittedAt) || undefined,
+    confirmedAt: readRuntimeFishingNumber(parsed.confirmedAt) || undefined,
+  };
+}
+
+function parseRuntimeFishingNftMetadata(value: unknown): FishingNftCatchSnapshot["metadata"] {
+  if (!value || typeof value !== "object") return undefined;
+  const parsed = value as Record<string, unknown>;
+  const metadata = {
+    name: readAgentCommandText(parsed.name) || undefined,
+    description: readAgentCommandText(parsed.description) || undefined,
+    image: readAgentCommandText(parsed.image) || undefined,
+    tokenUri: readAgentCommandText(parsed.tokenUri) || undefined,
+  };
+  return metadata.name || metadata.description || metadata.image || metadata.tokenUri ? metadata : undefined;
+}
+
+function readRuntimeFishingNftStatus(value: unknown): FishingNftCatchSnapshot["status"] | null {
+  return value === "pending"
+    || value === "voucher_issued"
+    || value === "tx_submitted"
+    || value === "confirmed"
+    || value === "expired"
+    || value === "failed"
+    || value === "abandoned"
+    ? value
+    : null;
 }
 
 function snapshotInventory(inventory: RuntimeInventoryCollection | undefined): InventoryItemSnapshot[] {
@@ -1566,6 +1838,8 @@ function getQuestGiverNpcId(questId: QuestId) {
     "farm-road-handoff": "wearables-mfer",
     "ask-mfergpt": "wearables-mfer",
     "mfergpt-checkin": "mfergpt",
+    "fishin-lesson": "motherfisher",
+    "lost-fishing-shoes": "fish-monger",
     "mfergpt-daily-signal": "mfergpt",
     "tweet-town-link": "mfergpt",
     "boar-bristle-cull": "hogwatch-mfer",

@@ -25,6 +25,13 @@ type AnyRecord = Record<string, unknown>;
 type Point = { x: number; z: number };
 type TargetSelection = { kind: "npc"; id: string } | { kind: "player"; id: string };
 type CombatActionId = typeof COMBAT_ACTION_IDS[number];
+const FALLBACK_FISHING_CATCH_ITEM_IDS = new Set([
+  "wet-boot",
+  "reply-gill-minnow",
+  "blue-smoke-bluegill",
+  "based-bass",
+  "huge-sartoshi-koi",
+]);
 
 type AgentConfig = {
   roomServer: string;
@@ -113,6 +120,12 @@ type RuntimePlayer = AnyRecord & {
   equipment: AnyRecord[];
   talents: AnyRecord[];
   activeBuffs: AnyRecord[];
+};
+
+type OpenLootWindow = {
+  npcId: string;
+  source: string;
+  observedAt: number;
 };
 
 type RuntimeNpc = {
@@ -292,6 +305,10 @@ const DECISION_ACTIONS = [
   "register_chain_gear",
   "purchase_potion_shop_item",
   "sell_trash_items",
+  "fish",
+  "refresh_fishing_nft_history",
+  "purchase_onchain_fishing_rod",
+  "sell_fish_items",
   "update_traits",
   "respec_talents",
   "emote",
@@ -788,6 +805,7 @@ class MferlandRunner {
   private lastNpcRefs = new Map<string, string>();
   private lastPlayerRefs = new Map<string, string>();
   private recentMessages: string[] = [];
+  private openLootWindow: OpenLootWindow | null = null;
   private pendingSocialMessages: SocialMessage[] = [];
   private questMemory = new Map<string, QuestMemory>();
   private focusedQuestId = "";
@@ -933,11 +951,25 @@ class MferlandRunner {
     room.onMessage("chat", (message: unknown) => this.handleChatMessage(message));
     room.onMessage("combatEvent", (event: unknown) => this.remember(`combat:${messageSummary(event)}`));
     room.onMessage("experienceEvent", (event: unknown) => this.remember(`xp:${messageSummary(event)}`, true));
-    room.onMessage("lootWindow", (message: unknown) => this.remember(`lootWindow:${messageSummary(message)}`, true));
+    room.onMessage("lootWindow", (message: unknown) => {
+      this.openLootWindow = readOpenLootWindow(message);
+      this.remember(`lootWindow:${messageSummary(message)}`, true);
+    });
     room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
-    room.onMessage("closeLootWindow", (message: unknown) => this.remember(`closeLoot:${messageSummary(message)}`));
+    room.onMessage("closeLootWindow", (message: unknown) => {
+      const npcId = cleanText(asRecord(message).npcId, 128);
+      if (!npcId || this.openLootWindow?.npcId === npcId) this.openLootWindow = null;
+      this.remember(`closeLoot:${messageSummary(message)}`);
+    });
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
+    room.onMessage("fishingResult", (message: unknown) => this.remember(`fishing:${messageSummary(message)}`, true));
+    room.onMessage("fishingNftCatchResult", (message: unknown) => this.remember(`fishingNft:${messageSummary(message)}`, true));
+    room.onMessage("fishingNftCapNotice", (message: unknown) => this.remember(`fishingNftCap:${messageSummary(message)}`, true));
+    room.onMessage("fishingNftHistoryResult", (message: unknown) => this.remember(`fishingNftHistory:${messageSummary(message)}`, true));
+    room.onMessage("onchainFishingRodMintResult", (message: unknown) => this.remember(`onchainFishingRod:${messageSummary(message)}`, true));
+    room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
+    room.onMessage("mintClubRedemptionResult", (message: unknown) => this.remember(`mintClubRedemption:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
     room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
@@ -1340,6 +1372,9 @@ class MferlandRunner {
         "If a corpse has loot and you are safe, use loot to clear it.",
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
         "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
+        "Use fish near catalog.fishing.zone when self has a fishing pole, is safe, and fishing progress or fish inventory would help. The harness casts, waits for bite, reels, and loots the fishing lootWindow through normal room messages. NFT claim offers immediately spend one daily NFT catch; rod_required_nft_hit means the reel would have produced an onchain goodie if the wallet held the rod. Use refresh_fishing_nft_history after reconnects or wallet actions to refresh pond catches, onchain rod rows, daily remaining count, and Mint Club redemption state.",
+        "Onchain goodie catches may require an onchain fishing rod wallet holding. Production wallet tooling should mint through the configured NFT/Manifold mint contract or mint URL; that contract handles any MFERGPT burn/payment. NFT claims and Mint Club redemptions are wallet actions: external wallet tooling signs the transaction, then reports the tx hash through the normal submit message.",
+        "Use sell_fish_items at catalog.fishing.npcId to sell fish bundles and clear zero-point pond junk. Declared agents need catalog.fishing.agentBundleMultiplier times each fish bundle size for the same Season 0 points.",
         "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
         "Season point caps, referral rules, and public season endpoints are in catalog.season0 and catalog.endpoints. Agents do not bind, count, or earn human referral bonuses.",
         "If a human asks about referrals, explain the human-only wallet link format, immediate referral earning from eligible human base Season 0 quest/event points, cumulative 20% bonus, 500 bonus cap per side, 10-referral limit, no cascade, that human referrers can remove a referral from the Referrals tab to reclaim the slot and remove referral bonus points, and the /season/leaderboard and /season/referrals?wallet=... endpoints.",
@@ -1348,7 +1383,7 @@ class MferlandRunner {
         "You can use chat or emote to answer nearby player chat, greet helpers, coordinate pulls, or ask for a group. Keep it short and do not answer every message.",
         "Inventory is the character stash. Equipment observations include slot, item stats, quality, chain token, and chain tier when present.",
         "If talentPoints is positive, choose select_talent based on the archetype you want. Talent choices and requirements are in catalog.talentChoices.",
-        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, sell_trash_items, and respec_talents through normal room messages when the observation shows a useful reason.",
+        "Use equip_item, unequip_item, use_item, select_talent, register_chain_gear, purchase_potion_shop_item, sell_trash_items, fish, refresh_fishing_nft_history, sell_fish_items, and respec_talents through normal room messages when the observation shows a useful reason.",
         "Use swap_eth_for_mfergpt when wallet.mferGptSwapConfigured is true, MFERGPT is low, and you choose to fund item burns from your own wallet ETH. In uniswap-v4 mode this uses the same Base ETH to MFERGPT route as swap-mfer.",
         "Paid shop, respec, and paid trait actions require a real MFERGPT burn payment proof. If wallet tools are configured, purchase_potion_shop_item and respec_talents can burn MFERGPT for the catalog price before sending the normal room message; otherwise include paymentTxHash, paymentAmountWei, paymentChainId, and paymentContractAddress.",
         "Use respec_talents at respec-mfer only when resetting spent talent ranks has a clear build/survival reason. Do not casually burn MFERGPT just to reshuffle talents.",
@@ -2145,6 +2180,7 @@ class MferlandRunner {
       "register_chain_gear",
       "update_traits",
       "respec_talents",
+      "purchase_onchain_fishing_rod",
     ].includes(action);
   }
 
@@ -2679,6 +2715,14 @@ class MferlandRunner {
         return;
       }
       case "loot": {
+        const lootWindow = this.resolveOpenLootWindow(decision.npcRef);
+        if (lootWindow) {
+          this.clearEngagement();
+          this.targetPoint = null;
+          this.send("lootCorpse", { npcId: lootWindow.npcId, itemId: cleanText(decision.itemId, 96) || undefined });
+          this.lastAction = lootWindow.source === "fishing" ? `loot_fishing ${lootWindow.npcId}` : `loot_window ${lootWindow.npcId}`;
+          return;
+        }
         const npc = this.resolveNpc(decision.npcRef);
         if (!npc) throw new Error("loot requires npcRef");
         this.clearEngagement();
@@ -2787,6 +2831,77 @@ class MferlandRunner {
         this.targetPoint = null;
         this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
         this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
+        return;
+      }
+      case "fish": {
+        this.clearEngagement();
+        const lootWindow = this.getOpenFishingLootWindow();
+        if (lootWindow) {
+          this.targetPoint = null;
+          this.send("lootCorpse", { npcId: lootWindow.npcId });
+          this.lastAction = `loot_fishing ${lootWindow.npcId}`;
+          return;
+        }
+        const fishing = asRecord(this.catalog?.fishing);
+        const zone = asRecord(fishing.zone);
+        const zoneX = readFiniteNumber(zone.x) ?? 0;
+        const zoneZ = readFiniteNumber(zone.z) ?? 132;
+        const waterRadius = readFiniteNumber(zone.waterRadius) ?? 10.8;
+        const shore = { x: zoneX + waterRadius + 3.2, z: zoneZ - 1.2 };
+        if (distance2d(self, shore) > 2.6) {
+          this.moveTo(shore);
+          this.lastAction = "move_to_fishing_pond";
+          return;
+        }
+        const fishingState = cleanText(self.fishingState, 24);
+        const attemptId = cleanText(self.fishingAttemptId, 128);
+        this.targetPoint = null;
+        if (fishingState === "bite") {
+          this.send("reelFishing", attemptId ? { attemptId } : {});
+          this.lastAction = "reel_fishing";
+          return;
+        }
+        if (fishingState) {
+          this.lastAction = `wait_fishing_${fishingState}`;
+          return;
+        }
+        this.send("startFishing", {});
+        this.lastAction = "start_fishing";
+        return;
+      }
+      case "refresh_fishing_nft_history":
+        this.clearEngagement();
+        this.send("refreshFishingNftHistory", {});
+        this.lastAction = "refresh_fishing_nft_history";
+        return;
+      case "purchase_onchain_fishing_rod": {
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc("motherfisher");
+        if (npc && distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_onchain_fishing_rod ${npc.id}`;
+          return;
+        }
+        this.clearEngagement();
+        this.send("purchaseOnchainFishingRod", {});
+        this.lastAction = "purchase_onchain_fishing_rod";
+        return;
+      }
+      case "sell_fish_items": {
+        const fishing = asRecord(this.catalog?.fishing);
+        const fishingNpcId = cleanText(fishing.npcId, 96) || "motherfisher";
+        const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(fishingNpcId);
+        if (!npc) throw new Error("sell_fish_items requires Motherfisher to be visible in room state");
+        this.clearEngagement();
+        if (distance2d(self, npc) > QUEST_SEND_RANGE) {
+          this.moveNearNpc(self, npc);
+          this.lastAction = `move_to_sell_fish ${npc.id}`;
+          return;
+        }
+        const itemId = resolveFishingCatchItemId(decision.itemId, fishing);
+        const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
+        this.targetPoint = null;
+        this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
+        this.lastAction = itemId ? `sell_fish_items ${itemId} x${quantity}` : "sell_fish_items all";
         return;
       }
       case "update_traits": {
@@ -2914,7 +3029,7 @@ class MferlandRunner {
             ? `next: using ${actionId} on ${npc.name}`
             : "";
       case "loot":
-        return npc ? `next: looting ${npc.name}` : "";
+        return npc ? `next: looting ${npc.name}` : this.resolveOpenLootWindow(decision.npcRef) ? "next: looting catch" : "";
       case "equip_item":
         return itemId ? `next: equipping ${itemId}` : "";
       case "unequip_item": {
@@ -2935,6 +3050,8 @@ class MferlandRunner {
         return "next: registering chain gear";
       case "purchase_potion_shop_item":
         return itemId ? `next: buying ${itemId}` : "";
+      case "purchase_onchain_fishing_rod":
+        return "next: minting onchain fishing rod";
       case "update_traits":
         return "next: updating traits";
       case "respec_talents":
@@ -2950,6 +3067,18 @@ class MferlandRunner {
     if (!questId) return "";
     const memory = this.questMemory.get(questId);
     return memory?.title || questId;
+  }
+
+  private getOpenFishingLootWindow() {
+    return this.openLootWindow?.source === "fishing" ? this.openLootWindow : null;
+  }
+
+  private resolveOpenLootWindow(ref: unknown) {
+    const lootWindow = this.openLootWindow;
+    if (!lootWindow) return null;
+    const key = cleanText(ref, 128).toLowerCase();
+    if (!key) return lootWindow.source === "fishing" ? lootWindow : null;
+    return key === lootWindow.npcId.toLowerCase() || key === lootWindow.source.toLowerCase() ? lootWindow : null;
   }
 
   private canSendChat() {
@@ -4474,6 +4603,17 @@ function readFiniteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function readOpenLootWindow(value: unknown): OpenLootWindow | null {
+  const record = asRecord(value);
+  const npcId = cleanText(record.npcId, 128);
+  if (!npcId) return null;
+  return {
+    npcId,
+    source: cleanText(record.source, 40) || "corpse",
+    observedAt: Date.now(),
+  };
+}
+
 function readInteger(value: unknown) {
   const parsed = readFiniteNumber(value);
   if (parsed === undefined || !Number.isInteger(parsed) || parsed <= 0) return 0;
@@ -4488,6 +4628,20 @@ function normalizeTrashSellQuantity(value: unknown, defaultQuantity = 1) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return Math.min(999, Math.max(1, Math.floor(defaultQuantity)));
   return Math.min(999, Math.max(1, Math.floor(parsed)));
+}
+
+function normalizeFishingSellQuantity(value: unknown, defaultQuantity = 999) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.min(999, Math.max(1, Math.floor(defaultQuantity)));
+  return Math.min(999, Math.max(1, Math.floor(parsed)));
+}
+
+function resolveFishingCatchItemId(value: unknown, fishingCatalog: AnyRecord) {
+  const itemId = cleanText(value, 96);
+  if (!itemId) return "";
+  const catalogItemIds = new Set(stringArray(fishingCatalog.itemIds));
+  const knownItemIds = catalogItemIds.size ? catalogItemIds : FALLBACK_FISHING_CATCH_ITEM_IDS;
+  return knownItemIds.has(itemId) ? itemId : "";
 }
 
 function normalizePositiveIntegerString(value: unknown) {

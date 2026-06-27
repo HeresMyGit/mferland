@@ -17,6 +17,7 @@ apps/web/public/crypto/production-contracts.json
 docs/db-handoff.local.md
 invite.zip
 db-backups/
+.mferland-base-sepolia-test-wallet.json
 
 # Internal project notes kept locally only.
 /MFERLAND_*_PLAN.md

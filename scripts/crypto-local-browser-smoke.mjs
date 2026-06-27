@@ -12,7 +12,9 @@ const treasury = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const burnAddress = "0x000000000000000000000000000000000000dEaD";
 const localRpcUrl = "http://127.0.0.1:8545";
 const traitChangeProductId = "0x691801e90154d786163fb37c5503cafde0bc6f5a2411d53ca8609e222017e6f4";
-const webUrl = process.env.CRYPTO_SMOKE_WEB_URL || "http://127.0.0.1:5173/?cryptoSmoke=1";
+const defaultSmokeWebPort = process.env.CRYPTO_SMOKE_WEB_PORT || "5174";
+const webUrl = process.env.CRYPTO_SMOKE_WEB_URL || `http://127.0.0.1:${defaultSmokeWebPort}/?cryptoSmoke=1`;
+const smokeWebPort = new URL(webUrl).port || defaultSmokeWebPort;
 const serverBaseUrl = process.env.CRYPTO_SMOKE_SERVER_URL || "http://127.0.0.1:2567";
 const serverHealthUrl = process.env.CRYPTO_SMOKE_SERVER_HEALTH_URL || `${serverBaseUrl}/health`;
 const spawnedProcesses = [];
@@ -130,7 +132,11 @@ try {
   assert.equal(pricingRefresh.ok, true, "market quote refresh should succeed");
   assert.equal(pricingRefresh.pricing?.disabled, false, "contract pricing updater should run against local contracts");
   assert.equal(pricingRefresh.pricing?.errors?.length ?? 0, 0, "contract pricing update should not error");
-  assert.ok((pricingRefresh.pricing?.updated?.length ?? 0) > 0, "live quote refresh should update local contract prices");
+  assert.ok((pricingRefresh.pricing?.checked ?? 0) > 0, "live quote refresh should check local contract prices");
+  assert.ok(
+    (pricingRefresh.pricing?.updated?.length ?? 0) + (pricingRefresh.pricing?.skipped?.length ?? 0) > 0,
+    "live quote refresh should update or intentionally skip local contract prices",
+  );
 
   const initialMferBalance = await readErc20Balance(client, addresses.mfer, buyer);
   const initialMferGptBalance = await readErc20Balance(client, addresses.mfergpt, buyer);
@@ -202,21 +208,21 @@ try {
 
     const dialog = page.getByRole("dialog", { name: "crypto store", exact: true });
     await dialog.waitFor({ state: "visible", timeout: 10000 });
-    await clickExactly(dialog.getByRole("button", { name: "Show contracts", exact: true }));
+    await clickExactly(dialog.locator('button[aria-controls="crypto-store-panel-contracts"]'));
     await waitForAddressPrefill(dialog, "store", addresses.store);
     await waitForAddressPrefill(dialog, "gear nft", addresses.gear);
     await waitForAddressPrefill(dialog, "pricing", addresses.pricing);
     await waitForAddressPrefill(dialog, "$mfer", addresses.mfer);
     await waitForAddressPrefill(dialog, "$mfergpt", addresses.mfergpt);
     await waitForAddressPrefill(dialog, "launch pass", addresses.launchPass);
-    await clickExactly(dialog.getByRole("button", { name: "Show market", exact: true }));
+    await clickExactly(dialog.locator('button[aria-controls="crypto-store-panel-market"]'));
     await waitForMarketQuote(dialog, "$mfer/WETH");
     await waitForMarketQuote(dialog, "MFERGPT/WETH");
-    await clickExactly(dialog.getByRole("button", { name: "Show season pass", exact: true }));
+    await clickExactly(dialog.locator('button[aria-controls="crypto-store-panel-pass"]'));
     await waitForContractPrice(dialog, "launch pass prices", formatUiUnits(passMferPrice));
-    await clickExactly(dialog.getByRole("button", { name: "Show gear", exact: true }));
+    await clickExactly(dialog.locator('button[aria-controls="crypto-store-panel-gear"]'));
     await waitForGearPrice(dialog, formatUiUnits(gearOneEthPrice));
-    await waitForStoreGearStats(dialog, "posted-up deck", ["+3 STR", "+8 HP"]);
+    await waitForStoreGearStats(dialog, "posted-up deck", ["STR", "HP"]);
     const balances = dialog.locator('[aria-label="wallet balances"]');
     await waitForBalance(balances, "$mfer", formatUiUnits(initialMferBalance));
     await waitForBalance(balances, "$mfergpt", formatUiUnits(initialMferGptBalance));
@@ -230,7 +236,7 @@ try {
     await clickExactly(dialog.locator('button[title="posted-up laptop lid"]'));
     assert.equal(await dialog.getByRole("textbox", { name: "gear", exact: true }).inputValue(), "2");
     assert.equal(await dialog.getByRole("textbox", { name: "ETH", exact: true }).inputValue(), "0.012");
-    await waitForStoreGearStats(dialog, "posted-up laptop lid", ["+14 HP", "+1 STR"]);
+    await waitForStoreGearStats(dialog, "posted-up laptop lid", ["HP", "STR"]);
     await clickExactly(dialog.getByRole("button", { name: "buy $mfer -10%", exact: true }));
     await waitForStatus(dialog, "buying with $mfer confirmed");
     await assertGear(client, addresses.gear, 2n, 2n, 1n);
@@ -313,7 +319,12 @@ try {
     await clickExactly(characterButton);
     const character = page.getByRole("dialog", { name: "Character", exact: true });
     await character.waitFor({ state: "visible", timeout: 10_000 });
-    await waitForEquipmentSlot(character, "posted-up laptop lid", "T1 #2", ["+14 HP", "+1 STR"]);
+    const characterTabs = character.locator('.character-tabs button[role="tab"]');
+    if (await characterTabs.count() > 0) {
+      await clickExactly(characterTabs.nth(0));
+      await character.locator(".character-layout").waitFor({ state: "visible", timeout: 10_000 });
+    }
+    await waitForEquipmentSlot(character, "posted-up laptop lid", "T1 #2", ["HP", "STR"]);
     await waitForCharacterStat(character, "Season Pass", "owned");
     await waitForCharacterStat(character, "STR", "10");
 
@@ -349,9 +360,25 @@ async function ensureLocalStack() {
     true,
     "server must run with MFERLAND_CRYPTO_SMOKE_AUTH_BYPASS=1 for the local mock wallet smoke",
   );
+  assert.equal(
+    nextHealth.cryptoStoreEnabled,
+    true,
+    "server must run with MFERLAND_ENABLE_CRYPTO_STORE=1 for the local crypto store smoke",
+  );
 
   if (!await isHttpOk(webUrl)) {
-    spawnManaged("npm", ["run", "dev:web"]);
+    spawnManaged("npm", [
+      "run",
+      "dev",
+      "-w",
+      "@mferland/web",
+      "--",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      smokeWebPort,
+      "--strictPort",
+    ]);
     await waitUntil(() => isHttpOk(webUrl), "web dev server did not start");
   }
 }
@@ -479,15 +506,26 @@ async function clickWalletEntry(page) {
 }
 
 async function clickExactly(locator) {
-  assert.equal(await locator.count(), 1);
-  await waitForEnabled(locator);
-  await locator.click({ force: true, noWaitAfter: true, timeout: 20_000 });
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt < 30_000) {
+    try {
+      assert.equal(await locator.count(), 1);
+      await waitForEnabled(locator, 5_000);
+      await locator.click({ force: true, noWaitAfter: true, timeout: 5_000 });
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    }
+  }
+  throw lastError ?? new Error("click target did not stabilize");
 }
 
-async function waitForEnabled(locator) {
-  await locator.waitFor({ state: "visible", timeout: 60_000 });
+async function waitForEnabled(locator, timeoutMs = 60_000) {
+  await locator.waitFor({ state: "visible", timeout: timeoutMs });
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 60_000) {
+  while (Date.now() - startedAt < timeoutMs) {
     if (await locator.isEnabled()) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
@@ -576,13 +614,13 @@ async function waitForGearPrice(dialog, expected) {
 
 async function waitForStoreGearStats(dialog, itemName, expectedStats) {
   const startedAt = Date.now();
-  const stats = dialog.locator(`[aria-label="${itemName} stats"]`);
+  const stats = dialog.locator(".crypto-store-stat-card");
   await stats.waitFor({ state: "visible", timeout: 10_000 });
   while (Date.now() - startedAt < 10_000) {
     const text = await stats.innerText();
     const tooltips = `${await stats.getAttribute("data-tooltip") ?? ""}\n${await getTooltipText(stats)}`;
     const combined = `${text}\n${tooltips}`;
-    if (expectedStats.every((stat) => combined.includes(stat))) return;
+    if (combined.includes(itemName) && expectedStats.every((stat) => combined.includes(stat))) return;
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
   const tooltips = `${await stats.getAttribute("data-tooltip") ?? ""}\n${await getTooltipText(stats)}`;

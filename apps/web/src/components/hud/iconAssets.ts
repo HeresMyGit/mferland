@@ -49,6 +49,15 @@ const ITEM_ICON_SOURCES = {
   "farmhand-bandana": `${ICON_ROOT}/items/farmhand-bandana.png`,
   "signal-scrap": `${ICON_ROOT}/items/signal-scrap.png`,
   "dummy-splinter": `${ICON_ROOT}/items/dummy-splinter.png`,
+  "fishing-pole": `${ICON_ROOT}/items/fishing-pole.png`,
+  "loaner-fishing-pole": `${ICON_ROOT}/items/loaner-fishing-pole.png`,
+  "onchain-fishing-rod": `${ICON_ROOT}/items/fishing-pole.png`,
+  "old-mfer-shoe": `${ICON_ROOT}/items/old-mfer-shoe.png`,
+  "bucket-of-old-chum": `${ICON_ROOT}/items/bucket-of-old-chum.png`,
+  "reply-gill-minnow": `${ICON_ROOT}/items/reply-gill-minnow.png`,
+  "blue-smoke-bluegill": `${ICON_ROOT}/items/blue-smoke-bluegill.png`,
+  "based-bass": `${ICON_ROOT}/items/based-bass.png`,
+  "huge-sartoshi-koi": `${ICON_ROOT}/items/huge-sartoshi-koi.png`,
   "field-snack": `${ICON_ROOT}/items/field-snack.png`,
   "red-juice": `${ICON_ROOT}/items/red-juice.png`,
   "blue-juice": `${ICON_ROOT}/items/blue-juice.png`,
@@ -92,6 +101,7 @@ const ITEM_ICON_SOURCES = {
 
 const ACTION_ICON_SOURCES = {
   interact: `${ICON_ROOT}/abilities/interact.png`,
+  fish: `${ICON_ROOT}/abilities/fish.png`,
   attack: `${ICON_ROOT}/abilities/attack.png`,
   shoot: `${ICON_ROOT}/abilities/shoot.png`,
   signalShot: `${ICON_ROOT}/abilities/signal-shot.png`,

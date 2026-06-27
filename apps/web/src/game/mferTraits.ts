@@ -1,5 +1,9 @@
 import { seeded } from "./random";
 import {
+  FISHING_POND_STATUS_NPC_ID,
+  FISHING_TUTOR_NPC_ID,
+  FISHING_VENDOR_NPC_ID,
+  MINT_CLUB_REDEMPTION_NPC_ID,
   RESPEC_MFER_NPC_ID,
   hasExplicitMferAppearanceTraits,
   normalizeMferAppearanceTraits,
@@ -424,6 +428,69 @@ function applyNpcTraitTheme(seed: number, npc: NpcTraitSource, traits: MferTrait
     traits.shirt = npc.id === "ridge-merchant" ? "hoodie_down_blue" : "collared_pink";
     traits.watch = npc.id === "ridge-merchant" ? "sub_black" : "sub_rose";
     delete traits.hat_over_headphones;
+    return;
+  }
+
+  if (npc.id === FISHING_TUTOR_NPC_ID) {
+    traits.type = "plain";
+    traits.eyes = "eyepatch";
+    traits.mouth = "smile";
+    traits.headphones = "green";
+    traits.hat_over_headphones = "cowboy";
+    traits.shirt = "collared_turquoise";
+    traits.watch = "timex";
+    traits.smoke = "pipe_brown";
+    delete traits.hat_under_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
+    return;
+  }
+
+  if (npc.id === FISHING_VENDOR_NPC_ID) {
+    traits.type = "ape";
+    traits.eyes = "shades";
+    traits.mouth = "flat";
+    traits.headphones = "black_square";
+    traits.shirt = "hoodie_down_gray";
+    traits.watch = "sub_black";
+    traits.beard = "full";
+    traits.smoke = "cig_black";
+    delete traits.hat_over_headphones;
+    delete traits.hat_under_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
+    delete traits.chain;
+    return;
+  }
+
+  if (npc.id === MINT_CLUB_REDEMPTION_NPC_ID) {
+    traits.type = "based";
+    traits.eyes = "mfercoin";
+    traits.mouth = "smile";
+    traits.headphones = "gold";
+    traits.hat_under_headphones = "cap_based_blue";
+    traits.shirt = "hoodie_down_green";
+    traits.watch = "sub_blue";
+    traits.chain = "onchain";
+    delete traits.hat_over_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
+    return;
+  }
+
+  if (npc.id === FISHING_POND_STATUS_NPC_ID) {
+    traits.type = "plain";
+    traits.eyes = "nerd";
+    traits.mouth = "flat";
+    traits.headphones = "black_square";
+    traits.hat_under_headphones = "beanie";
+    traits.shirt = "collared_pink";
+    traits.watch = "sub_rose";
+    traits.smoke = "cig_white";
+    delete traits.hat_over_headphones;
+    delete traits.short_hair;
+    delete traits.long_hair;
+    delete traits.chain;
     return;
   }
 

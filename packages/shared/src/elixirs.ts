@@ -3,6 +3,7 @@ export const ELIXIR_SHOP_MFERGPT_AMOUNT_WEI = "5000000000000000000000000";
 export const ELIXIR_SHOP_MFERGPT_AMOUNT_LABEL = "5M $MFERGPT";
 export const ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_WEI = "20000000000000000000000000";
 export const ELIXIR_SHOP_BULK_MFERGPT_AMOUNT_LABEL = "20M $MFERGPT";
+export const FISHING_CHUM_BUFF_ID = "old-chum";
 
 export type ElixirBuffEffects = {
   maxHealth?: number;
@@ -15,6 +16,7 @@ export type ElixirBuffEffects = {
   walkSpeed?: number;
   runSpeed?: number;
   actionCooldownReductionPercent?: number;
+  fishingRareChancePercent?: number;
 };
 
 export const ELIXIR_BUFFS = {
@@ -71,6 +73,18 @@ export const ELIXIR_BUFFS = {
       actionCooldownReductionPercent: 10,
     },
   },
+  [FISHING_CHUM_BUFF_ID]: {
+    id: FISHING_CHUM_BUFF_ID,
+    itemId: "bucket-of-old-chum",
+    name: "Bucket of Old Chum",
+    shortName: "Chum",
+    description: "pond stink does the targeting for one hour.",
+    effectLabel: "+25% rare fish",
+    durationMs: ELIXIR_DURATION_MS,
+    effects: {
+      fishingRareChancePercent: 25,
+    },
+  },
 } as const satisfies Record<string, {
   id: string;
   itemId: string;
@@ -87,6 +101,9 @@ export type ElixirItemId = typeof ELIXIR_BUFFS[ElixirBuffId]["itemId"];
 
 export const ELIXIR_BUFF_IDS = Object.keys(ELIXIR_BUFFS) as ElixirBuffId[];
 export const ELIXIR_ITEM_IDS = ELIXIR_BUFF_IDS.map((buffId) => ELIXIR_BUFFS[buffId].itemId) as ElixirItemId[];
+export const POTION_SHOP_ELIXIR_ITEM_IDS = ELIXIR_BUFF_IDS
+  .filter((buffId) => buffId !== FISHING_CHUM_BUFF_ID)
+  .map((buffId) => ELIXIR_BUFFS[buffId].itemId) as Exclude<ElixirItemId, "bucket-of-old-chum">[];
 
 export function isElixirBuffId(value: unknown): value is ElixirBuffId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(ELIXIR_BUFFS, value);

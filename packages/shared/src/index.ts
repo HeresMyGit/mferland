@@ -7,6 +7,7 @@ export * from "./quests.js";
 export * from "./elixirs.js";
 export * from "./potionShop.js";
 export * from "./trashVendor.js";
+export * from "./fishing.js";
 export * from "./respec.js";
 export * from "./types.js";
 export * from "./utils.js";

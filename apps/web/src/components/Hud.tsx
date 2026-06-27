@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, RefreshCw, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -16,6 +16,7 @@ import {
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BASE_RPC_URL,
   doesItemRevealAllNpcsOnMinimap,
+  getFishingNftGameItemMapping,
   getLevelProgress,
   getInventoryItemKey,
   getItemConsumable,
@@ -31,6 +32,7 @@ import {
   type ChatMessage,
   type CombatActionId,
   type EmoteId,
+  type ClientAbandonFishingNftCatch,
   type ClientAcceptQuest,
   type ClientCancelQuest,
   type ClientCompleteQuest,
@@ -40,12 +42,19 @@ import {
   type ClientRegisterChainGear,
   type ClientSelectTalent,
   type ClientShareQuestLink,
+  type ClientSubmitFishingNftClaimTx,
+  type ClientSubmitMintClubRedemptionTx,
   type ClientUnequipItem,
   type ClientUseItem,
   type EquipmentSlotId,
   type InventoryItemSnapshot,
+  type FishingNftCapNotice,
+  type FishingNftCatchSnapshot,
+  type FishingNftCatchResult,
+  type FishingNftHistoryResult,
   type ItemId,
   type LootWindow,
+  type MintClubRedemptionResult,
   type NpcSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
@@ -92,6 +101,15 @@ import {
 } from "./hud/mapUtils";
 import { getActiveQuestGuidance, getPrimaryQuestGuidanceTarget, type ActiveQuestGuidance, type QuestGuidanceTarget } from "./hud/questGuidance";
 import { formatTooltipLabel, getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
+import { executeFishingPondClaim, getFishingPondClaimTxUrl, getLocalDebugEthereumProvider, getLocalFishingPondClaimProvider } from "../crypto/fishingPond";
+import {
+  approveMintClubRedemption,
+  getMintClubRedemptionTxUrl,
+  readMintClubRedemptionWalletState,
+  sellMintClubRedemption,
+  type MintClubRedemptionWalletState,
+} from "../crypto/mintClubRedemption";
+import type { EthereumProvider } from "../crypto/transactionReceipts";
 
 const HUD_TICK_MS = 200;
 const IDLE_HUD_TICK_MIN_MS = 1000;
@@ -149,6 +167,7 @@ type SeasonPassOwnershipState = {
 };
 
 type CharacterPanelTab = "gear" | "referrals";
+type InventoryPanelTab = "items" | "pond";
 type SeasonReferralSummaryState = {
   state: "idle" | "loading" | "ready" | "error";
   summary: SeasonReferralSummary | null;
@@ -190,12 +209,17 @@ type HudProps = {
   selectedTarget: TargetSelection | null;
   selectedTargetUnit: PlayerSnapshot | NpcSnapshot | null;
   cryptoStoreNpc: NpcSnapshot | null;
+  mintClubRedemptionNpc: NpcSnapshot | null;
   localSessionId: string | null;
   localPlayer: PlayerSnapshot | null;
   questOffer: QuestOffer | null;
   questTurnIn: QuestTurnIn | null;
   questStatus: QuestStatusNotice | null;
   lootWindow: LootWindow | null;
+  fishingNftCapNotice: FishingNftCapNotice | null;
+  fishingNftCatchResult: FishingNftCatchResult | null;
+  fishingNftHistoryResult: FishingNftHistoryResult | null;
+  mintClubRedemptionResult: MintClubRedemptionResult | null;
   actionError: { id: number; text: string } | null;
   moveUnlockNotice: MoveUnlockNotice | null;
   globalCooldownReadyAt?: number;
@@ -210,6 +234,10 @@ type HudProps = {
   onDismissQuestTurnIn: () => void;
   onDismissQuestStatus: () => void;
   onLootCorpse: (message: ClientLootCorpse) => void;
+  onSubmitFishingNftClaimTx: (message: ClientSubmitFishingNftClaimTx) => void;
+  onAbandonFishingNftCatch: (message: ClientAbandonFishingNftCatch) => void;
+  onSubmitMintClubRedemptionTx: (message: ClientSubmitMintClubRedemptionTx) => void;
+  onRefreshFishingNftHistory: () => void;
   onEquipItem: (message: ClientEquipItem) => void;
   onUnequipItem: (message: ClientUnequipItem) => void;
   onUseItem: (message: ClientUseItem) => void;
@@ -220,6 +248,7 @@ type HudProps = {
   onRemoveSeasonReferral?: (message: ClientRemoveSeasonReferral) => void;
   onCloseLootWindow: () => void;
   onCloseCryptoStore: () => void;
+  onCloseMintClubRedemption: () => void;
   onSendChat: (text: string) => void;
   onEmote: (emoteId: EmoteId) => void;
   onRespawn: () => void;
@@ -243,12 +272,17 @@ export function Hud({
   selectedTarget,
   selectedTargetUnit,
   cryptoStoreNpc,
+  mintClubRedemptionNpc,
   localSessionId,
   localPlayer,
   questOffer,
   questTurnIn,
   questStatus,
   lootWindow,
+  fishingNftCapNotice,
+  fishingNftCatchResult,
+  fishingNftHistoryResult,
+  mintClubRedemptionResult,
   actionError,
   moveUnlockNotice,
   globalCooldownReadyAt = 0,
@@ -263,6 +297,10 @@ export function Hud({
   onDismissQuestTurnIn,
   onDismissQuestStatus,
   onLootCorpse,
+  onSubmitFishingNftClaimTx,
+  onAbandonFishingNftCatch,
+  onSubmitMintClubRedemptionTx,
+  onRefreshFishingNftHistory,
   onEquipItem,
   onUnequipItem,
   onUseItem,
@@ -273,6 +311,7 @@ export function Hud({
   onRemoveSeasonReferral = () => undefined,
   onCloseLootWindow,
   onCloseCryptoStore,
+  onCloseMintClubRedemption,
   onSendChat,
   onEmote,
   onRespawn,
@@ -301,10 +340,14 @@ export function Hud({
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isCharacterOpen, setIsCharacterOpen] = useState(false);
   const [characterPanelTab, setCharacterPanelTab] = useState<CharacterPanelTab>("gear");
+  const [inventoryPanelTab, setInventoryPanelTab] = useState<InventoryPanelTab>("items");
   const [seasonPassOwnership, setSeasonPassOwnership] = useState<SeasonPassOwnershipState>(EMPTY_SEASON_PASS_OWNERSHIP);
   const [seasonReferralSummary, setSeasonReferralSummary] = useState<SeasonReferralSummaryState>(EMPTY_REFERRAL_SUMMARY);
   const [referralCopyStatus, setReferralCopyStatus] = useState("");
   const [pendingReferralRemoval, setPendingReferralRemoval] = useState<PendingReferralRemoval | null>(null);
+  const [hiddenFishingNftCatchId, setHiddenFishingNftCatchId] = useState("");
+  const [hiddenFishingNftCapNoticeKey, setHiddenFishingNftCapNoticeKey] = useState("");
+  const [pendingFishingNftClose, setPendingFishingNftClose] = useState<NonNullable<PlayerSnapshot["fishingNftCatch"]> | null>(null);
   const [isReferralInfoOpen, setIsReferralInfoOpen] = useState(false);
   const [hasSeenReferralsBadge, setHasSeenReferralsBadge] = useState(() => readReferralsBadgeSeen());
   const [isAbilitiesOpen, setIsAbilitiesOpen] = useState(false);
@@ -330,6 +373,9 @@ export function Hud({
     [localPlayer?.appearanceTraits, portraitSeed],
   );
   const characterWalletAddress = localPlayer?.walletAddress || identity.walletAddress || "";
+  useEffect(() => {
+    if (characterWalletAddress) onRefreshFishingNftHistory();
+  }, [characterWalletAddress, onRefreshFishingNftHistory]);
   const questLog = useMemo(() => localPlayer?.quests ?? [], [localPlayer?.quests]);
   const visibleQuestLog = useMemo(
     () => showCompletedQuests ? questLog : questLog.filter((quest) => quest.status !== "completed"),
@@ -346,8 +392,27 @@ export function Hud({
       revealAllNpcsOnMinimap,
     }));
   const visibleInventory = localPlayer?.inventory.filter((item) => !isInventoryItemEquipped(localPlayer, item)) ?? [];
+  const fishingNftHistory = fishingNftHistoryResult?.catches ?? [];
+  const fishingWalletNfts = fishingNftHistoryResult?.walletNfts ?? [];
+  const fishingNftStashCount = fishingNftHistory.length + fishingWalletNfts.length;
+  const inventoryItemCount = visibleInventory.length + fishingWalletNfts.length;
+  const mintClubRedeemableCatches = fishingNftHistory.filter((catchSnapshot) => (
+    catchSnapshot.status === "confirmed"
+    && catchSnapshot.mintClubRedemption
+    && catchSnapshot.mintClubRedemption.status !== "claim_required"
+  ));
+  const showFishingNftHistory = Boolean(fishingNftHistoryResult);
+  const effectiveInventoryPanelTab: InventoryPanelTab = showFishingNftHistory ? inventoryPanelTab : "items";
   const talentPointCount = localPlayer?.talentPoints ?? 0;
   const showSeasonPoints = localPlayer?.identityType === "wallet";
+  const activeFishingNftCatch = fishingNftCatchResult?.catch ?? localPlayer?.fishingNftCatch ?? null;
+  const visibleFishingNftCatch = activeFishingNftCatch?.catchId === hiddenFishingNftCatchId ? null : activeFishingNftCatch;
+  const fishingNftCapNoticeKey = getFishingNftCapNoticeKey(fishingNftCapNotice);
+  const visibleFishingNftCapNotice = fishingNftCapNotice
+    && fishingNftCapNoticeKey !== hiddenFishingNftCapNoticeKey
+    && !hasSeenFishingRodNotice(characterWalletAddress, fishingNftCapNotice)
+    ? fishingNftCapNotice
+    : null;
   const effectiveCharacterPanelTab: CharacterPanelTab = characterWalletAddress ? characterPanelTab : "gear";
   const showReferralsBadge = Boolean(characterWalletAddress && !hasSeenReferralsBadge);
   const mobileMenuBadge = talentPointCount > 0 ? String(talentPointCount) : showReferralsBadge ? "!" : "";
@@ -538,6 +603,25 @@ export function Hud({
     setPendingReferralRemoval(null);
   }
 
+  function requestCloseFishingNftClaim(catchSnapshot: NonNullable<PlayerSnapshot["fishingNftCatch"]>) {
+    if (shouldConfirmFishingNftClaimClose(catchSnapshot)) {
+      setPendingFishingNftClose(catchSnapshot);
+      return;
+    }
+    closeFishingNftClaim(catchSnapshot.catchId);
+  }
+
+  function closeFishingNftClaim(catchId: string) {
+    setHiddenFishingNftCatchId(catchId);
+    setPendingFishingNftClose(null);
+  }
+
+  function forfeitFishingNftClaim(catchId: string) {
+    onAbandonFishingNftCatch({ catchId });
+    setHiddenFishingNftCatchId(catchId);
+    setPendingFishingNftClose(null);
+  }
+
   function markReferralsBadgeSeen() {
     if (hasSeenReferralsBadge) return;
     writeReferralsBadgeSeen();
@@ -671,6 +755,9 @@ export function Hud({
     questOffer,
     questTurnIn,
     questStatus,
+    visibleFishingNftCatch,
+    visibleFishingNftCapNotice,
+    pendingFishingNftClose,
     onCloseLootWindow,
     onDismissQuestOffer,
     onDismissQuestTurnIn,
@@ -685,8 +772,20 @@ export function Hud({
       setDropSlot(null);
       return true;
     }
+    if (pendingFishingNftClose) {
+      setPendingFishingNftClose(null);
+      return true;
+    }
+    if (visibleFishingNftCapNotice) {
+      dismissFishingNftCapNotice(characterWalletAddress, visibleFishingNftCapNotice, setHiddenFishingNftCapNoticeKey);
+      return true;
+    }
     if (lootWindow) {
       onCloseLootWindow();
+      return true;
+    }
+    if (visibleFishingNftCatch) {
+      requestCloseFishingNftClaim(visibleFishingNftCatch);
       return true;
     }
     if (questStatus) {
@@ -1140,6 +1239,27 @@ export function Hud({
         </MovableWindow>
       )}
 
+      {visibleFishingNftCatch && (
+        <MovableWindow id="hud.fishing-nft-claim" as="section" className="loot-panel fishing-nft-claim-panel" disablePositionPersistence>
+          <FishingNftClaimPanel
+            catchSnapshot={visibleFishingNftCatch}
+            player={localPlayer}
+            onSubmitFishingNftClaimTx={onSubmitFishingNftClaimTx}
+            onClose={() => requestCloseFishingNftClaim(visibleFishingNftCatch)}
+          />
+        </MovableWindow>
+      )}
+
+      {visibleFishingNftCapNotice && (
+        <MovableWindow id="hud.fishing-nft-cap" as="section" className="loot-panel fishing-nft-cap-panel" disablePositionPersistence>
+          <FishingNftCapPanel
+            notice={visibleFishingNftCapNotice}
+            now={now}
+            onClose={() => dismissFishingNftCapNotice(characterWalletAddress, visibleFishingNftCapNotice, setHiddenFishingNftCapNoticeKey)}
+          />
+        </MovableWindow>
+      )}
+
       {selectedTarget && selectedTargetUnit && (
         <TargetFrame
           kind={selectedTarget.kind}
@@ -1157,6 +1277,19 @@ export function Hud({
             onClose={onCloseCryptoStore}
             onRegisterChainGear={onRegisterChainGear}
             onAnalyticsEvent={onCryptoStoreAnalytics}
+          />
+        </MovableWindow>
+      )}
+
+      {mintClubRedemptionNpc && (
+        <MovableWindow id="hud.mint-club-redemption" as="section" className="floating-menu-overlay mint-club-redemption-anchor" role="dialog" aria-label="onchain goodies">
+          <MintClubRedemptionPanel
+            npc={mintClubRedemptionNpc}
+            player={localPlayer}
+            catches={mintClubRedeemableCatches}
+            result={mintClubRedemptionResult}
+            onSubmitMintClubRedemptionTx={onSubmitMintClubRedemptionTx}
+            onClose={onCloseMintClubRedemption}
           />
         </MovableWindow>
       )}
@@ -1572,6 +1705,31 @@ export function Hud({
         </section>
       )}
 
+      {pendingFishingNftClose && (
+        <section className="hud-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Close NFT claim">
+          <MovableWindow id="hud.fishing-nft-close" className="hud-confirm-dialog fishing-nft-close-dialog" disablePositionPersistence>
+            <div className="world-map-header">
+              <div>
+                <strong>close prize claim?</strong>
+                <span>{getFishingNftDisplayName(pendingFishingNftClose)}</span>
+              </div>
+              <button type="button" title="Cancel" aria-label="Cancel close" onClick={() => setPendingFishingNftClose(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <p>This onchain goodie offer already used one of today's NFT catches. Forfeiting releases the pending claim, but it still counts for today's pond limit.</p>
+            <div className="hud-confirm-actions">
+              <button type="button" className="secondary-btn" onClick={() => setPendingFishingNftClose(null)}>
+                keep open
+              </button>
+              <button type="button" className="primary-btn danger" onClick={() => forfeitFishingNftClaim(pendingFishingNftClose.catchId)}>
+                forfeit
+              </button>
+            </div>
+          </MovableWindow>
+        </section>
+      )}
+
       {isAbilitiesOpen && (
         <MovableWindow id="hud.abilities" as="section" className="floating-menu-overlay abilities-anchor" role="dialog" aria-label="moves">
           <div className="abilities-panel">
@@ -1603,68 +1761,198 @@ export function Hud({
             <div className="world-map-header">
               <div>
                 <strong>stash</strong>
-                <span>{visibleInventory.length} stacks</span>
+                <span>
+                  {effectiveInventoryPanelTab === "pond"
+                    ? fishingNftStashCount === 1 ? "1 NFT item" : `${fishingNftStashCount} NFT items`
+                    : inventoryItemCount === 1 ? "1 item" : `${inventoryItemCount} items`}
+                </span>
               </div>
               <button type="button" title="Close stash" aria-label="Close stash" onClick={() => setIsInventoryOpen(false)}>
                 <X size={22} />
               </button>
             </div>
-            <div className="inventory-grid">
-              {visibleInventory.length > 0 ? visibleInventory.map((item) => {
-                const equipment = getItemEquipment(item.id);
-                const consumable = getItemConsumable(item.id);
-                const comparison = getItemComparison(item, localPlayer);
-                const isEquipped = isInventoryItemEquipped(localPlayer, item);
-                const title = getInventoryItemTitle(item, localPlayer, comparison);
-                const content = (
+            {showFishingNftHistory && (
+              <div className="inventory-tabs" role="tablist" aria-label="Stash views">
+                <button
+                  type="button"
+                  className={effectiveInventoryPanelTab === "items" ? "active" : ""}
+                  role="tab"
+                  aria-selected={effectiveInventoryPanelTab === "items"}
+                  onClick={() => setInventoryPanelTab("items")}
+                >
+                  <Package size={15} />
+                  items
+                </button>
+                <button
+                  type="button"
+                  className={effectiveInventoryPanelTab === "pond" ? "active" : ""}
+                  role="tab"
+                  aria-selected={effectiveInventoryPanelTab === "pond"}
+                  onClick={() => setInventoryPanelTab("pond")}
+                >
+                  <Gift size={15} />
+                  pond
+                  {fishingNftStashCount > 0 && <em className="tab-badge pond" aria-hidden="true">{fishingNftStashCount}</em>}
+                </button>
+              </div>
+            )}
+            {effectiveInventoryPanelTab === "items" ? (
+              <div className="inventory-grid">
+                {inventoryItemCount > 0 ? (
                   <>
-                    <ItemIcon itemId={item.id} />
-                    <strong>{ITEMS[item.id].name}</strong>
-                    {formatChainGearLabel(item) ? <em>{formatChainGearLabel(item)}</em> : null}
-                    <span className="tile-count">{item.count > 1 ? `x${item.count}` : ""}</span>
-                    {isEquipped && <span className="tile-state">On</span>}
-                  </>
-                );
+                    {fishingWalletNfts.map((walletNft) => {
+                      const title = [
+                        walletNft.label,
+                        walletNft.description,
+                        `Wallet NFT: ${shortAddress(walletNft.collection)}${walletNft.standard === "ERC1155" ? ` / token ${walletNft.tokenId}` : ""}`,
+                      ].filter(Boolean).join("\n");
+                      return (
+                        <div
+                          key={walletNft.id}
+                          className="menu-tile inventory-slot wallet-nft"
+                          data-tooltip={title}
+                          aria-label={formatTooltipLabel(title)}
+                        >
+                          {walletNft.itemId ? (
+                            <ItemIcon itemId={walletNft.itemId} />
+                          ) : walletNft.image ? (
+                            <span className="wallet-nft-thumb" aria-hidden="true"><img src={walletNft.image} alt="" loading="lazy" /></span>
+                          ) : (
+                            <Gift size={18} />
+                          )}
+                          <strong>{walletNft.label}</strong>
+                          <em>wallet NFT</em>
+                          <span className="tile-state">Hold</span>
+                        </div>
+                      );
+                    })}
+                    {visibleInventory.map((item) => {
+                  const equipment = getItemEquipment(item.id);
+                  const consumable = getItemConsumable(item.id);
+                  const comparison = getItemComparison(item, localPlayer);
+                  const isEquipped = isInventoryItemEquipped(localPlayer, item);
+                  const title = getInventoryItemTitle(item, localPlayer, comparison);
+                  const content = (
+                    <>
+                      <ItemIcon itemId={item.id} />
+                      <strong>{ITEMS[item.id].name}</strong>
+                      {formatChainGearLabel(item) ? <em>{formatChainGearLabel(item)}</em> : null}
+                      <span className="tile-count">{item.count > 1 ? `x${item.count}` : ""}</span>
+                      {isEquipped && <span className="tile-state">On</span>}
+                    </>
+                  );
 
-                return equipment ? (
-                  <button
-                    key={getInventoryItemKey(item.id, item.chainTokenId)}
-                    type="button"
-                    className={isEquipped ? "menu-tile inventory-slot equipped" : "menu-tile inventory-slot"}
-                    data-tooltip={title}
-                    aria-label={formatTooltipLabel(title)}
-                    onClick={() => onEquipItem({ itemId: item.id, chainTokenId: item.chainTokenId })}
-                  >
-                    {content}
-                  </button>
-                ) : consumable ? (
-                  <button
-                    key={getInventoryItemKey(item.id, item.chainTokenId)}
-                    type="button"
-                    className="menu-tile inventory-slot consumable"
-                    data-tooltip={title}
-                    aria-label={formatTooltipLabel(title)}
-                    onPointerDown={(event) => beginSlotDrag(makeItemActionSlot(item.id, item.chainTokenId), event)}
-                    onPointerMove={updateActionDrag}
-                    onPointerUp={endActionDrag}
-                    onPointerCancel={endActionDrag}
-                  >
-                    {content}
-                  </button>
+                  return equipment ? (
+                    <button
+                      key={getInventoryItemKey(item.id, item.chainTokenId)}
+                      type="button"
+                      className={isEquipped ? "menu-tile inventory-slot equipped" : "menu-tile inventory-slot"}
+                      data-tooltip={title}
+                      aria-label={formatTooltipLabel(title)}
+                      onClick={() => onEquipItem({ itemId: item.id, chainTokenId: item.chainTokenId })}
+                    >
+                      {content}
+                    </button>
+                  ) : consumable ? (
+                    <button
+                      key={getInventoryItemKey(item.id, item.chainTokenId)}
+                      type="button"
+                      className="menu-tile inventory-slot consumable"
+                      data-tooltip={title}
+                      aria-label={formatTooltipLabel(title)}
+                      onPointerDown={(event) => beginSlotDrag(makeItemActionSlot(item.id, item.chainTokenId), event)}
+                      onPointerMove={updateActionDrag}
+                      onPointerUp={endActionDrag}
+                      onPointerCancel={endActionDrag}
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    <div
+                      key={getInventoryItemKey(item.id, item.chainTokenId)}
+                      className="menu-tile inventory-slot"
+                      data-tooltip={title}
+                      aria-label={formatTooltipLabel(title)}
+                    >
+                      {content}
+                    </div>
+                  );
+                })}
+                  </>
                 ) : (
-                  <div
-                    key={getInventoryItemKey(item.id, item.chainTokenId)}
-                    className="menu-tile inventory-slot"
-                    data-tooltip={title}
-                    aria-label={formatTooltipLabel(title)}
-                  >
-                    {content}
+                  <p className="quest-empty">stash is empty</p>
+                )}
+              </div>
+            ) : (
+              <section className="pond-log-section tab-panel" aria-label="Fishing pond NFT log">
+                <div className="pond-log-header">
+                  <div>
+                    <strong>pond log</strong>
+                    <span>{fishingNftStashCount === 1 ? "1 NFT item" : `${fishingNftStashCount} NFT items`}</span>
                   </div>
-                );
-              }) : (
-                <p className="quest-empty">stash is empty</p>
-              )}
-            </div>
+                  {fishingNftHistoryResult && !fishingNftHistoryResult.ok && fishingNftHistoryResult.error ? (
+                    <em>{fishingNftHistoryResult.error}</em>
+                  ) : null}
+                </div>
+                <div className="pond-log-list">
+                  {fishingNftStashCount > 0 ? (
+                    <>
+                      {fishingWalletNfts.map((walletNft) => (
+                        <div key={walletNft.id} className="pond-log-row mapped wallet-nft">
+                          <span className="pond-log-icon" aria-hidden="true">
+                            {walletNft.itemId ? (
+                              <ItemIcon itemId={walletNft.itemId} />
+                            ) : walletNft.image ? (
+                              <img src={walletNft.image} alt="" loading="lazy" />
+                            ) : (
+                              <Gift size={16} />
+                            )}
+                          </span>
+                          <span className="pond-log-copy">
+                            <b>{walletNft.label}</b>
+                            <span>{shortAddress(walletNft.collection)} / {walletNft.standard === "ERC1155" ? `token ${walletNft.tokenId}` : "wallet owned"}</span>
+                            {walletNft.description ? <span>{walletNft.description}</span> : null}
+                            <em>{walletNft.action} item / in wallet</em>
+                          </span>
+                        </div>
+                      ))}
+                      {fishingNftHistory.map((catchSnapshot) => {
+                    const mappedItem = getFishingNftGameItemMapping(catchSnapshot);
+                    const displayName = getFishingNftDisplayName(catchSnapshot, mappedItem?.label);
+                    const description = catchSnapshot.metadata?.description ?? "";
+                    const expired = isFishingNftCatchExpiredForDisplay(catchSnapshot, now);
+                    const status = formatFishingNftStatus(catchSnapshot, expired);
+                    const txUrl = catchSnapshot.txHash ? getFishingPondClaimTxUrl(catchSnapshot.chainId, catchSnapshot.txHash) : "";
+                    return (
+                      <div key={catchSnapshot.catchId} className={mappedItem ? "pond-log-row mapped" : "pond-log-row"}>
+                        <span className="pond-log-icon" aria-hidden="true">
+                          {catchSnapshot.metadata?.image ? (
+                            <img src={catchSnapshot.metadata.image} alt="" loading="lazy" />
+                          ) : (
+                            <Gift size={16} />
+                          )}
+                        </span>
+                        <span className="pond-log-copy">
+                          <b>{displayName}</b>
+                          <span>{shortAddress(catchSnapshot.collection)} / entry {catchSnapshot.pondEntryId}</span>
+                          {description ? <span>{description}</span> : null}
+                          <em>{mappedItem ? `${mappedItem.action} item / ${status}` : status}</em>
+                        </span>
+                        {txUrl ? (
+                          <a href={txUrl} target="_blank" rel="noreferrer" title="View claim transaction" aria-label="View claim transaction">
+                            <ExternalLink size={14} />
+                          </a>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                    </>
+                  ) : (
+                    <p className="quest-empty">no pond prizes yet</p>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         </MovableWindow>
       )}
@@ -2773,6 +3061,621 @@ function QuestRewardList({ rewards }: { rewards: string[] }) {
       </span>
     </div>
   );
+}
+
+function FishingNftCapPanel({
+  notice,
+  now,
+  onClose,
+}: {
+  notice: FishingNftCapNotice;
+  now: number;
+  onClose: () => void;
+}) {
+  const isRodHitNotice = notice.kind === "rod_required_nft_hit";
+  const isRodNotice = notice.kind === "rod_required" || isRodHitNotice;
+  const resetLabel = formatFishingNftResetTime(notice.dailyResetAt, now);
+  const walletCapUsed = typeof notice.perWalletDailyCap === "number" && typeof notice.walletDailyRemaining === "number"
+    ? Math.max(0, notice.perWalletDailyCap - notice.walletDailyRemaining)
+    : null;
+  const globalCapUsed = typeof notice.globalDailyCap === "number" && typeof notice.globalDailyRemaining === "number"
+    ? Math.max(0, notice.globalDailyCap - notice.globalDailyRemaining)
+    : null;
+  const capLabel = isRodHitNotice
+    ? "Rod blocked NFT"
+    : isRodNotice
+    ? "Rod needed"
+    : notice.kind === "global_daily_cap"
+    ? "Pond restock"
+    : "Daily NFT casts";
+  const rodRequirement = notice.rodRequirement;
+  const capDetail = isRodNotice
+    ? rodRequirement
+      ? `${rodRequirement.standard}${rodRequirement.standard === "ERC1155" && rodRequirement.tokenId ? ` #${rodRequirement.tokenId}` : ""}`
+      : "onchain rod needed"
+    : notice.kind === "global_daily_cap" && globalCapUsed !== null && notice.globalDailyCap
+    ? `${globalCapUsed}/${notice.globalDailyCap} claimed today`
+    : walletCapUsed !== null && notice.perWalletDailyCap
+      ? `${walletCapUsed}/${notice.perWalletDailyCap} caught today`
+      : "daily limit reached";
+  const nextCastLabel = isRodNotice ? "after rod is in wallet" : resetLabel;
+  const rodMintPriceLabel = rodRequirement?.mintPriceLabel || "25M $MFERGPT";
+  const rodMintUrl = rodRequirement?.mintUrl || "";
+  const rodNoticeTitle = isRodHitNotice ? "You almost hooked one" : "Onchain rod needed";
+  const rodNoticeDetail = isRodHitNotice
+    ? `That roll would have been an onchain goodie. Contract mint: ${rodMintPriceLabel}. Hold the rod in this wallet before the next lucky reel.`
+    : `Contract mint: ${rodMintPriceLabel}. Hold the rod in this wallet before fishing for onchain goodies.`;
+
+  return (
+    <>
+      <button className="quest-offer-close" type="button" title="Close notice" aria-label="Close NFT cast notice" onClick={onClose}>
+        <X size={17} />
+      </button>
+      <strong>{isRodNotice ? rodNoticeTitle : "Onchain goodies tapped"}</strong>
+      <div className="fishing-nft-cap-card">
+        <div className="fishing-nft-cap-icon">
+          <Gift size={22} />
+        </div>
+        <div>
+          <b>{capLabel}</b>
+          <span>{notice.text}</span>
+          <em>{isRodNotice ? rodNoticeDetail : `NFT casts reset ${resetLabel}`}</em>
+        </div>
+      </div>
+      <div className="fishing-nft-cap-details">
+        <span>
+          <b>{isRodNotice ? "Requirement" : "Today"}</b>
+          <em>{capDetail}</em>
+        </span>
+        <span>
+          <b>{isRodNotice ? "Collection" : "Next NFT cast"}</b>
+          <em>{isRodNotice ? rodRequirement?.contractAddress ? shortAddress(rodRequirement.contractAddress) : "not configured" : nextCastLabel}</em>
+        </span>
+        {isRodNotice && (
+          <span>
+            <b>Mint</b>
+            <em>{rodMintUrl ? "open mint page" : "talk to Motherfisher"}</em>
+          </span>
+        )}
+        {isRodNotice && (
+          <span>
+            <b>Reminder reset</b>
+            <em>{resetLabel}</em>
+          </span>
+        )}
+      </div>
+      <div className="fishing-nft-claim-actions">
+        {isRodNotice && (rodMintUrl ? (
+          <a className="quest-accept-btn fishing-nft-mint-btn" href={rodMintUrl} target="_blank" rel="noreferrer">
+            <ExternalLink size={17} />
+            mint rod ({rodMintPriceLabel})
+          </a>
+        ) : (
+          <button className="quest-accept-btn fishing-nft-mint-btn" type="button" disabled title="Rod mint URL is not configured yet">
+            <ExternalLink size={17} />
+            mint rod ({rodMintPriceLabel})
+          </button>
+        ))}
+        <button className="quest-accept-btn" type="button" onClick={onClose}>
+          <Check size={17} />
+          got it
+        </button>
+      </div>
+    </>
+  );
+}
+
+function FishingNftClaimPanel({
+  catchSnapshot,
+  player,
+  onSubmitFishingNftClaimTx,
+  onClose,
+}: {
+  catchSnapshot: NonNullable<PlayerSnapshot["fishingNftCatch"]>;
+  player: PlayerSnapshot | null;
+  onSubmitFishingNftClaimTx: (message: ClientSubmitFishingNftClaimTx) => void;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const expiresInMs = catchSnapshot.expiresAt > 0 ? catchSnapshot.expiresAt * 1000 - Date.now() : 0;
+  const expired = catchSnapshot.status === "expired" || (catchSnapshot.status === "voucher_issued" && expiresInMs <= 0);
+  const claimable = catchSnapshot.status === "voucher_issued" && Boolean(catchSnapshot.voucher) && !expired;
+  const txUrl = catchSnapshot.txHash ? getFishingPondClaimTxUrl(catchSnapshot.chainId, catchSnapshot.txHash) : "";
+  const displayName = getFishingNftDisplayName(catchSnapshot);
+  const description = catchSnapshot.metadata?.description ?? "";
+
+  useEffect(() => {
+    if (catchSnapshot.status === "confirmed") {
+      setBusy(false);
+      setStatus("claimed");
+    } else if (catchSnapshot.status === "failed") {
+      setBusy(false);
+      setStatus(catchSnapshot.error ?? "claim failed");
+    } else if (catchSnapshot.status === "tx_submitted") {
+      setBusy(false);
+      setStatus("confirming onchain");
+    } else if (expired) {
+      setBusy(false);
+      setStatus("voucher expired");
+    }
+  }, [catchSnapshot.error, catchSnapshot.status, expired]);
+
+  async function claim() {
+    if (!player?.walletAddress || player.identityType !== "wallet") {
+      setStatus("wallet character required");
+      return;
+    }
+    if (!catchSnapshot.voucher) {
+      setStatus("claim voucher missing");
+      return;
+    }
+    const provider = getInjectedEthereumProvider() ?? getLocalFishingPondClaimProvider(player.walletAddress, catchSnapshot.chainId);
+    if (!provider) {
+      setStatus("wallet required");
+      return;
+    }
+
+    setBusy(true);
+    setStatus("confirm claim in wallet");
+    try {
+      const txHash = await executeFishingPondClaim(provider, player.walletAddress, catchSnapshot.voucher);
+      setStatus("verifying claim");
+      onSubmitFishingNftClaimTx({ catchId: catchSnapshot.catchId, txHash });
+      window.setTimeout(() => setBusy((current) => current ? false : current), 90_000);
+    } catch (error) {
+      setBusy(false);
+      setStatus(error instanceof Error ? error.message : "claim failed");
+    }
+  }
+
+  return (
+    <>
+      <button className="quest-offer-close" type="button" title="Close claim" aria-label="Close NFT claim" onClick={onClose}>
+        <X size={17} />
+      </button>
+      <strong>Onchain pond prize</strong>
+      <div className="fishing-nft-claim-card">
+        <div className="fishing-nft-prize-icon">
+          {catchSnapshot.metadata?.image ? (
+            <img src={catchSnapshot.metadata.image} alt="" />
+          ) : (
+            <Gift size={22} />
+          )}
+        </div>
+        <div>
+          <b>{displayName}</b>
+          <span>{shortAddress(catchSnapshot.collection)} / entry {catchSnapshot.pondEntryId}</span>
+          {description ? <span>{description}</span> : null}
+          <em>{formatFishingNftStatus(catchSnapshot, expired)}</em>
+        </div>
+      </div>
+      {status && <p className="fishing-nft-claim-status">{status}</p>}
+      <div className="fishing-nft-claim-actions">
+        {txUrl && (
+          <a href={txUrl} target="_blank" rel="noreferrer" className="quest-accept-btn">
+            <ExternalLink size={17} />
+            tx
+          </a>
+        )}
+        <button className="quest-accept-btn" type="button" disabled={!claimable || busy} onClick={() => void claim()}>
+          <Gift size={17} />
+          {busy ? "claiming" : catchSnapshot.status === "confirmed" ? "claimed" : "claim"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function MintClubRedemptionPanel({
+  npc,
+  player,
+  catches,
+  result,
+  onSubmitMintClubRedemptionTx,
+  onClose,
+}: {
+  npc: NpcSnapshot;
+  player: PlayerSnapshot | null;
+  catches: FishingNftCatchSnapshot[];
+  result: MintClubRedemptionResult | null;
+  onSubmitMintClubRedemptionTx: (message: ClientSubmitMintClubRedemptionTx) => void;
+  onClose: () => void;
+}) {
+  const [selectedCatchId, setSelectedCatchId] = useState(catches[0]?.catchId ?? "");
+  const [walletState, setWalletState] = useState<MintClubRedemptionWalletState | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState<"" | "refresh" | "redeem">("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    if (selectedCatchId && catches.some((catchSnapshot) => catchSnapshot.catchId === selectedCatchId)) return;
+    setSelectedCatchId(catches[0]?.catchId ?? "");
+  }, [catches, selectedCatchId]);
+
+  const selectedCatch = catches.find((catchSnapshot) => catchSnapshot.catchId === selectedCatchId) ?? catches[0] ?? null;
+  const redemption = selectedCatch?.mintClubRedemption ?? null;
+  const displayName = selectedCatch ? getFishingNftDisplayName(selectedCatch) : "onchain goodie";
+  const txUrl = redemption?.txHash ? getMintClubRedemptionTxUrl(redemption.chainId, redemption.txHash) : "";
+  const shortWallet = player?.walletAddress ? shortAddress(player.walletAddress) : "not connected";
+  const selectedTokenLabel = selectedCatch ? `${shortAddress(selectedCatch.collection)} / token ${selectedCatch.tokenId}` : "--";
+  const sellEstimateLabel = formatMintClubAmountLabel(walletState?.sellEstimateLabel);
+  const minRefundLabel = formatMintClubAmountLabel(walletState?.minRefundLabel);
+  const sellRoyaltyLabel = formatMintClubAmountLabel(walletState?.sellRoyaltyLabel);
+  const ownedAmount = parseDisplayBigInt(walletState?.ownedAmount ?? "0");
+  const canUseWallet = Boolean(player?.walletAddress && player.identityType === "wallet" && selectedCatch && redemption);
+  const isSold = redemption?.status === "confirmed";
+  const needsApproval = Boolean(walletState && !walletState.approvedForBond);
+  const ownsSelectedGoodie = Boolean(walletState && ownedAmount > 0n);
+  const canRedeem = Boolean(
+    canUseWallet
+    && walletState
+    && ownedAmount > 0n
+    && walletState.reserveTokenMatches
+    && !isSold
+    && !busy,
+  );
+  const canSell = Boolean(canRedeem && walletState?.approvedForBond);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      setWalletState(null);
+      if (!player?.walletAddress || player.identityType !== "wallet" || !redemption) return;
+      setBusy((current) => current || "refresh");
+      setStatus("checking wallet");
+      try {
+        const nextState = await readMintClubRedemptionWalletState(player.walletAddress, redemption);
+        if (cancelled) return;
+        setWalletState(nextState);
+        setStatus(getMintClubRedemptionWalletStatus(redemption.status, nextState));
+      } catch (error) {
+        if (cancelled) return;
+        setStatus(error instanceof Error ? error.message : "wallet read failed");
+      } finally {
+        if (!cancelled) setBusy((current) => current === "refresh" ? "" : current);
+      }
+    }
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [player?.identityType, player?.walletAddress, redemption, refreshNonce]);
+
+  useEffect(() => {
+    if (!result?.catch || result.catch.catchId !== selectedCatch?.catchId) return;
+    if (result.ok) {
+      setStatus(result.catch.mintClubRedemption?.status === "confirmed" ? "sold through Mint Club" : "redemption submitted");
+      setRefreshNonce((nonce) => nonce + 1);
+    } else {
+      setStatus(result.error ?? "redemption failed");
+    }
+  }, [result, selectedCatch?.catchId]);
+
+  async function refreshWallet() {
+    setRefreshNonce((nonce) => nonce + 1);
+  }
+
+  async function redeem() {
+    if (!player?.walletAddress || !redemption || !selectedCatch) return;
+    const provider = getInjectedEthereumProvider() ?? getLocalDebugEthereumProvider(player.walletAddress, redemption.chainId);
+    if (!provider) {
+      setStatus("wallet required");
+      return;
+    }
+    setBusy("redeem");
+    let phase: "approval" | "sell" = needsApproval ? "approval" : "sell";
+    try {
+      if (needsApproval) {
+        setStatus("confirm approval in wallet");
+        await approveMintClubRedemption(provider, player.walletAddress, redemption);
+        phase = "sell";
+        setStatus("approval confirmed, confirm sell in wallet");
+      } else {
+        setStatus("confirm sell in wallet");
+      }
+      const txHash = await sellMintClubRedemption(provider, player.walletAddress, redemption);
+      setStatus("verifying Mint Club burn");
+      onSubmitMintClubRedemptionTx({ catchId: selectedCatch.catchId, txHash, status: "confirmed" });
+      window.setTimeout(() => setBusy((current) => current === "redeem" ? "" : current), 90_000);
+    } catch (error) {
+      setBusy("");
+      setStatus(error instanceof Error ? error.message : phase === "approval" ? "approval failed" : "sell failed");
+    }
+  }
+
+  return (
+    <div className="crypto-store-panel mint-club-redemption-panel">
+      <div className="world-map-header">
+        <div>
+          <strong>{npc.name}</strong>
+          <span>{npc.name} buys redeemable pond catches</span>
+        </div>
+        <button type="button" title="Close onchain goodies" aria-label="Close onchain goodies" onClick={onClose}>
+          <X size={22} />
+        </button>
+      </div>
+
+      <div className="crypto-store-overview mint-club-overview">
+        <div className="crypto-store-account mint-club-wallet-bar">
+          <span>wallet</span>
+          <code>{shortWallet}</code>
+          <strong>{catches.length} goodie{catches.length === 1 ? "" : "s"}</strong>
+        </div>
+      </div>
+
+      {catches.length > 0 ? (
+        <div className="mint-club-redemption-layout">
+          <div className="crypto-store-collection mint-club-redemption-list" role="listbox" aria-label="Mint Club goodies">
+            <div className="mint-club-list-head">
+              <strong>Pond catches</strong>
+              <span>{catches.length} eligible</span>
+            </div>
+            {catches.map((catchSnapshot) => {
+              const catchRedemption = catchSnapshot.mintClubRedemption;
+              const catchName = getFishingNftDisplayName(catchSnapshot);
+              const active = catchSnapshot.catchId === selectedCatch?.catchId;
+              return (
+                <button
+                  key={catchSnapshot.catchId}
+                  type="button"
+                  className={active ? "mint-club-goodie-row active" : "mint-club-goodie-row"}
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => setSelectedCatchId(catchSnapshot.catchId)}
+                >
+                  <span className="item-icon rare mint-club-goodie-icon" aria-hidden="true">
+                    {catchSnapshot.metadata?.image ? (
+                      <img src={catchSnapshot.metadata.image} alt="" loading="lazy" />
+                    ) : (
+                      <Gift size={16} />
+                    )}
+                  </span>
+                  <span className="mint-club-goodie-copy">
+                    <b>{catchName}</b>
+                    <span>token {catchSnapshot.tokenId} / x{catchSnapshot.amount} caught</span>
+                    <em>{catchRedemption ? formatMintClubRedemptionStatus(catchRedemption.status) : "not supported"}</em>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <section className="crypto-store-flow mint-club-redemption-detail" aria-label="selected onchain goodie">
+            <div className="mint-club-selected-goodie">
+              <div className="mint-club-selected-icon">
+                {selectedCatch?.metadata?.image ? (
+                  <img src={selectedCatch.metadata.image} alt="" />
+                ) : (
+                  <Package size={26} />
+                )}
+              </div>
+              <div>
+                <b>{displayName}</b>
+                <span>{selectedTokenLabel}</span>
+                {selectedCatch?.metadata?.description ? <p>{selectedCatch.metadata.description}</p> : null}
+                <em>{redemption ? formatMintClubRedemptionStatus(redemption.status) : "not supported"}</em>
+              </div>
+            </div>
+
+            <div className="mint-club-sell-card">
+              <div className="mint-club-payout-main">
+                <span>quoted reward</span>
+                <strong>{sellEstimateLabel}</strong>
+              </div>
+              <div className="mint-club-receipt-lines">
+                <span>
+                  <b>Min reward</b>
+                  <em>{minRefundLabel}</em>
+                </span>
+                <span>
+                  <b>Royalty</b>
+                  <em>{walletState ? `${formatBps(walletState.sellRoyaltyBps)} / ${sellRoyaltyLabel}` : redemption ? formatBps(redemption.sellRoyaltyBps) : "--"}</em>
+                </span>
+                <span>
+                  <b>Reserve</b>
+                  <em>{redemption?.reserveTokenSymbol ?? "WETH"}</em>
+                </span>
+              </div>
+            </div>
+
+            <div className="mint-club-step-rail" aria-label="Mint Club redemption steps">
+              <span className={getMintClubStepClass(walletState ? ownsSelectedGoodie : null)}>
+                <Check size={13} />
+                <b>Own</b>
+                <em>{walletState ? ownsSelectedGoodie ? `${walletState.ownedAmount} in wallet` : "not found" : "checking"}</em>
+              </span>
+              <span className={getMintClubStepClass(walletState ? walletState.approvedForBond : null, needsApproval)}>
+                <Check size={13} />
+                <b>Approve</b>
+                <em>{walletState ? walletState.approvedForBond ? "ready" : "needed once" : "checking"}</em>
+              </span>
+              <span className={getMintClubStepClass(isSold || canSell, canSell)}>
+                <Gift size={13} />
+                <b>Sell</b>
+                <em>{isSold ? "complete" : canSell ? "ready" : "locked"}</em>
+              </span>
+            </div>
+
+            {status && <p className="fishing-nft-claim-status">{status}</p>}
+            <div className="mint-club-redemption-actions">
+              {txUrl && (
+                <a href={txUrl} target="_blank" rel="noreferrer" className="quest-accept-btn">
+                  <ExternalLink size={17} />
+                  view tx
+                </a>
+              )}
+              <button className="quest-accept-btn secondary" type="button" disabled={Boolean(busy)} onClick={() => void refreshWallet()}>
+                <RefreshCw size={17} />
+                refresh
+              </button>
+              <button className="quest-accept-btn" type="button" disabled={!canRedeem} onClick={() => void redeem()}>
+                <Gift size={17} />
+                {busy === "redeem" ? "working" : isSold ? "sold" : needsApproval ? "approve + sell" : "sell 1"}
+              </button>
+            </div>
+
+          </section>
+        </div>
+      ) : (
+        <div className="mint-club-empty-state">
+          <Gift size={24} />
+          <strong>no onchain goodies ready</strong>
+          <span>Claim a redeemable pond catch first, then bring it back here.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getFishingNftDisplayName(catchSnapshot: FishingNftCatchSnapshot, fallback?: string) {
+  const name = catchSnapshot.metadata?.name?.trim();
+  return name || fallback || `${catchSnapshot.standard} #${catchSnapshot.tokenId}`;
+}
+
+function shouldConfirmFishingNftClaimClose(catchSnapshot: NonNullable<PlayerSnapshot["fishingNftCatch"]>) {
+  return catchSnapshot.status === "voucher_issued" || catchSnapshot.status === "pending";
+}
+
+function isFishingNftCatchExpiredForDisplay(catchSnapshot: FishingNftCatchSnapshot, now: number) {
+  return catchSnapshot.status === "expired" || (catchSnapshot.status === "voucher_issued" && catchSnapshot.expiresAt > 0 && catchSnapshot.expiresAt * 1000 <= now);
+}
+
+function formatFishingNftStatus(catchSnapshot: FishingNftCatchSnapshot, expired: boolean) {
+  if (expired) return "expired";
+  if (catchSnapshot.status === "voucher_issued") return "wallet claim required";
+  if (catchSnapshot.status === "tx_submitted") return "transaction submitted";
+  if (catchSnapshot.status === "confirmed") return "claimed";
+  if (catchSnapshot.status === "abandoned") return "forfeited";
+  if (catchSnapshot.status === "failed") return catchSnapshot.error || "failed";
+  return catchSnapshot.status;
+}
+
+function formatMintClubRedemptionStatus(status: NonNullable<FishingNftCatchSnapshot["mintClubRedemption"]>["status"]) {
+  if (status === "claim_required") return "claim first";
+  if (status === "eligible") return "ready to sell";
+  if (status === "tx_submitted") return "sell submitted";
+  if (status === "confirmed") return "sold";
+  if (status === "failed") return "sell failed";
+  return status;
+}
+
+function getMintClubRedemptionWalletStatus(
+  redemptionStatus: NonNullable<FishingNftCatchSnapshot["mintClubRedemption"]>["status"],
+  walletState: MintClubRedemptionWalletState,
+) {
+  if (redemptionStatus === "confirmed") return "sold through Mint Club";
+  if (!walletState.reserveTokenMatches) return "reserve token mismatch";
+  if (parseDisplayBigInt(walletState.ownedAmount) <= 0n) return "not in connected wallet";
+  if (!walletState.approvedForBond) return "approval needed";
+  return "ready to sell / burn";
+}
+
+function getMintClubStepClass(done: boolean | null, active = false) {
+  return [
+    "mint-club-step",
+    done === null ? "pending" : done ? "done" : "blocked",
+    active ? "active" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function formatMintClubAmountLabel(label?: string) {
+  const trimmed = label?.trim();
+  if (!trimmed) return "--";
+  const match = /^(-?\d+)(?:\.(\d+))?\s+(.+)$/.exec(trimmed);
+  if (!match) return trimmed;
+  const [, integerPart, decimalPart = "", symbol] = match;
+  if (!decimalPart) return `${integerPart} ${symbol}`;
+  const trimmedDecimals = decimalPart.replace(/0+$/, "");
+  if (!trimmedDecimals) return `${integerPart} ${symbol}`;
+  const firstSignificantIndex = trimmedDecimals.search(/[1-9]/);
+  if (firstSignificantIndex < 0) return `${integerPart} ${symbol}`;
+  const maxDecimalPlaces = integerPart === "0"
+    ? Math.min(trimmedDecimals.length, firstSignificantIndex + 4)
+    : Math.min(trimmedDecimals.length, 4);
+  return `${integerPart}.${trimmedDecimals.slice(0, maxDecimalPlaces)} ${symbol}`;
+}
+
+function parseDisplayBigInt(value: string) {
+  try {
+    return BigInt(value);
+  } catch {
+    return 0n;
+  }
+}
+
+function formatBps(value: number) {
+  if (!Number.isFinite(value)) return "--";
+  return `${(value / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+}
+
+function getFishingNftCapNoticeKey(notice: FishingNftCapNotice | null) {
+  return notice ? `${notice.kind}:${notice.sentAt}:${notice.dailyResetAt}` : "";
+}
+
+const FISHING_ROD_NOTICE_SEEN_STORAGE_PREFIX = "mferland:fishingRodNoticeSeen:v1";
+
+function dismissFishingNftCapNotice(
+  walletAddress: string,
+  notice: FishingNftCapNotice | null,
+  setHiddenNoticeKey: (key: string) => void,
+) {
+  setHiddenNoticeKey(getFishingNftCapNoticeKey(notice));
+  rememberFishingRodNoticeSeen(walletAddress, notice);
+}
+
+function hasSeenFishingRodNotice(walletAddress: string, notice: FishingNftCapNotice | null) {
+  const storageKey = getFishingRodNoticeStorageKey(walletAddress, notice);
+  if (!storageKey || typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(storageKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberFishingRodNoticeSeen(walletAddress: string, notice: FishingNftCapNotice | null) {
+  const storageKey = getFishingRodNoticeStorageKey(walletAddress, notice);
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, "1");
+  } catch {
+    // Dismissal persistence is best-effort only.
+  }
+}
+
+function getFishingRodNoticeStorageKey(walletAddress: string, notice: FishingNftCapNotice | null) {
+  if (notice?.kind !== "rod_required") return "";
+  const wallet = walletAddress.trim().toLowerCase();
+  if (!wallet || !Number.isFinite(notice.dailyResetAt) || notice.dailyResetAt <= 0) return "";
+  return `${FISHING_ROD_NOTICE_SEEN_STORAGE_PREFIX}:${wallet}:${Math.floor(notice.dailyResetAt)}`;
+}
+
+function formatFishingNftResetTime(dailyResetAt: number, now: number) {
+  const resetMs = dailyResetAt * 1000;
+  if (!Number.isFinite(resetMs) || resetMs <= 0) return "at the next daily reset";
+  const time = new Date(resetMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${time} (${formatFishingNftResetRemaining(resetMs - now)})`;
+}
+
+function formatFishingNftResetRemaining(remainingMs: number) {
+  const totalMinutes = Math.max(0, Math.ceil(remainingMs / 60000));
+  if (totalMinutes <= 0) return "now";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `in ${hours}h ${minutes}m`;
+  if (hours > 0) return `in ${hours}h`;
+  return `in ${minutes}m`;
+}
+
+function shortAddress(address: string) {
+  return address && address.length >= 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address || "--";
+}
+
+function getInjectedEthereumProvider(): EthereumProvider | null {
+  if (typeof window === "undefined") return null;
+  const provider = (window as Window & { ethereum?: EthereumProvider }).ethereum;
+  return provider && typeof provider.request === "function" ? provider : null;
 }
 
 async function readSeasonPassBalance(walletAddress: string) {

@@ -26,7 +26,7 @@ Summary:
 - Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`.
 - Use `behaviorScheme`, `profile`, `goals`, and `constraints` to translate the player's request.
 - Hosted autoplay does not auto-sign wallet transactions.
-- Recaps should use `summary`, `social`, `combat`, `equipmentChanges`, `finalState`, and `usage`.
+- Recaps should use `summary`, `social`, `combat`, `fishing`, `equipmentChanges`, `finalState`, and `usage`.
 
 If an agent needs to run its own Colyseus room client or direct observe/action loop, use the advanced skill:
 

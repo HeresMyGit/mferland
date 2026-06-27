@@ -6,6 +6,8 @@ import {
   type ElixirBuffId,
   type EmoteId,
   type EquipmentSlotId,
+  type FishingState,
+  type FishingZoneId,
   type IdentityType,
   type ItemId,
   type NpcModel,
@@ -113,6 +115,16 @@ export class PlayerState extends Schema {
   @type("number") lastCastAt = 0;
   @type("number") lastDamagedAt = 0;
   @type("number") frozenUntil = 0;
+  @type("string") fishingJson = "";
+  @type("string") fishingNftCatchJson = "";
+  fishingAttemptId = "";
+  fishingZoneId: FishingZoneId | "" = "";
+  fishingState: FishingState = "";
+  fishingCastAt = 0;
+  fishingBiteAt = 0;
+  fishingExpiresAt = 0;
+  fishingBobberX = 0;
+  fishingBobberZ = 0;
   @type("string") castTargetKind = "";
   @type("string") castTargetId = "";
   @type({ map: QuestState }) quests = new MapSchema<QuestState>();
