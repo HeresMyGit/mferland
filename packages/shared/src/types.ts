@@ -542,11 +542,13 @@ export type TrashVendorSoldItem = {
 
 export type TrashVendorSellResult = {
   ok: boolean;
+  status?: "sold" | "mfergpt_gate" | "error";
   sold: TrashVendorSoldItem[];
   quantity: number;
   points: number;
   season0Points: number;
   season0DailyPoints: number;
+  mferGptGate?: Season0MferGptGateSnapshot;
   error?: string;
 };
 
@@ -637,11 +639,23 @@ export type FishingVendorSoldItem = {
 
 export type FishingVendorSellResult = {
   ok: boolean;
+  status?: "sold" | "mfergpt_gate" | "error";
   sold: FishingVendorSoldItem[];
   quantity: number;
   points: number;
   season0Points: number;
   season0DailyPoints: number;
+  mferGptGate?: Season0MferGptGateSnapshot;
+  error?: string;
+};
+
+export type Season0MferGptGateSnapshot = {
+  requiredWei: string;
+  requiredLabel: string;
+  balanceWei: string;
+  balanceLabel: string;
+  eligible: boolean;
+  reason: "eligible" | "insufficient" | "disabled" | "invalid_wallet" | "unavailable";
   error?: string;
 };
 

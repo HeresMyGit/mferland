@@ -10,13 +10,16 @@ import {
   isFishingSellableItemId,
   type ClientSellFishingItems,
   type FishingSellableItemId,
+  type FishingVendorSoldItem,
   type FishingVendorSellResult,
   type InventoryItemSnapshot,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type Season0MferGptGateSnapshot,
 } from "@mferland/shared";
 import { trackEvent, type AnalyticsProperties } from "../analytics";
 import { ItemIcon } from "./hud/ItemIcon";
+import { Season0MferGptGateDialog } from "./Season0MferGptGateDialog";
 
 type FishingVendorPanelProps = {
   npc: NpcSnapshot;
@@ -24,10 +27,15 @@ type FishingVendorPanelProps = {
   result: FishingVendorSellResult | null;
   onClose: () => void;
   onSellFishingItems: (message: ClientSellFishingItems) => void;
+  onOpenSwap?: () => void;
   onAnalyticsEvent?: (eventType: string, properties?: Record<string, string | number | boolean | null>) => void;
 };
 
 type SellableFishingStack = InventoryItemSnapshot & { id: FishingSellableItemId };
+type GateWarningState = {
+  gate: Season0MferGptGateSnapshot;
+  itemLabel: string;
+};
 
 export function FishingVendorPanel({
   npc,
@@ -35,12 +43,14 @@ export function FishingVendorPanel({
   result,
   onClose,
   onSellFishingItems,
+  onOpenSwap,
   onAnalyticsEvent,
 }: FishingVendorPanelProps) {
   const sellableItems = useMemo(() => getSellableFishingStacks(player), [player?.inventory]);
   const [selectedItemId, setSelectedItemId] = useState<FishingSellableItemId | "">("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [gateWarning, setGateWarning] = useState<GateWarningState | null>(null);
   const selectedStack = sellableItems.find((item) => item.id === selectedItemId) ?? sellableItems[0] ?? null;
   const canSell = player?.identityType === "wallet" && Boolean(player.walletAddress);
   const isAgent = Boolean(player?.isAgent);
@@ -59,6 +69,15 @@ export function FishingVendorPanel({
   useEffect(() => {
     if (!result) return;
     setBusy(false);
+    if (result.status === "mfergpt_gate" && result.mferGptGate) {
+      setGateWarning({
+        gate: result.mferGptGate,
+        itemLabel: formatFishingSoldLabel(result.sold),
+      });
+      setStatus("25M MFERGPT required");
+      return;
+    }
+    if (result.ok) setGateWarning(null);
     setStatus(result.ok
       ? `sold ${result.quantity} for ${formatSeasonPoints(result.points)}`
       : result.error ?? "sale failed");
@@ -93,6 +112,17 @@ export function FishingVendorPanel({
     });
     onSellFishingItems(message);
     window.setTimeout(() => setBusy((current) => current ? false : current), 20_000);
+  }
+
+  function openSwapForGate() {
+    if (!gateWarning) return;
+    reportAnalytics("fishing_vendor_mfergpt_gate_swap_opened", {
+      gateReason: gateWarning.gate.reason,
+      requiredWei: gateWarning.gate.requiredWei,
+      balanceWei: gateWarning.gate.balanceWei,
+    });
+    onOpenSwap?.();
+    onClose();
   }
 
   function reportAnalytics(eventType: string, properties: AnalyticsProperties = {}) {
@@ -213,6 +243,14 @@ export function FishingVendorPanel({
           </p>
         </section>
       </div>
+      {gateWarning && (
+        <Season0MferGptGateDialog
+          gate={gateWarning.gate}
+          itemLabel={gateWarning.itemLabel}
+          onDismiss={() => setGateWarning(null)}
+          onSwap={openSwapForGate}
+        />
+      )}
     </div>
   );
 }
@@ -225,6 +263,12 @@ function getSellableFishingStacks(player: PlayerSnapshot | null): SellableFishin
 
 function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
+}
+
+function formatFishingSoldLabel(sold: FishingVendorSoldItem[]) {
+  return sold.length > 0
+    ? sold.map((item) => `${item.itemName} x${item.quantity}`).join(", ")
+    : "pond haul";
 }
 
 function formatFishingStackValue(itemId: FishingSellableItemId, count: number, isAgent: boolean) {

@@ -1272,6 +1272,7 @@ function GameShell({
   const [mintClubRedemptionNpcId, setMintClubRedemptionNpcId] = useState<string | null>(null);
   const [respecNpcId, setRespecNpcId] = useState<string | null>(null);
   const [swapNpcId, setSwapNpcId] = useState<string | null>(null);
+  const [swapSurface, setSwapSurface] = useState("swap_mfer");
   const [traitsNpcId, setTraitsNpcId] = useState<string | null>(null);
   const [actionSlots, setActionSlots] = useState<ActionSlot[]>(() => readStoredActionSlots());
   const [actionError, setActionError] = useState<{ id: number; text: string } | null>(null);
@@ -1469,8 +1470,14 @@ function GameShell({
     room.sendAnalyticsEvent("talent_respec_panel_opened", { npcId: npc.id, npcRole: npc.role });
   }, [room]);
   const openSwapMfer = useCallback((npc: NpcSnapshot) => {
+    setSwapSurface("swap_mfer");
     setSwapNpcId(npc.id);
     trackEvent("mfergpt_swap_panel_opened", { surface: "swap_mfer", npcId: npc.id, npcRole: npc.role }, { local: true });
+  }, []);
+  const openSwapFromVendorGate = useCallback((surface: "fishing_vendor_gate" | "trash_vendor_gate") => {
+    setSwapSurface(surface);
+    setSwapNpcId(SWAP_MFER_NPC_ID);
+    trackEvent("mfergpt_swap_panel_opened", { surface, source: surface }, { local: true });
   }, []);
   const openTraitsPanel = useCallback((npc: NpcSnapshot) => {
     setTraitsNpcId(npc.id);
@@ -2105,6 +2112,7 @@ function GameShell({
                 result={room.trashVendorSellResult}
                 onClose={() => setTrashVendorNpcId(null)}
                 onSellTrashItems={sellTrashItems}
+                onOpenSwap={() => openSwapFromVendorGate("trash_vendor_gate")}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </MovableWindow>
@@ -2134,6 +2142,7 @@ function GameShell({
                 result={room.fishingVendorSellResult}
                 onClose={() => setFishingVendorNpcId(null)}
                 onSellFishingItems={sellFishingItems}
+                onOpenSwap={() => openSwapFromVendorGate("fishing_vendor_gate")}
                 onAnalyticsEvent={room.sendAnalyticsEvent}
               />
             </MovableWindow>
@@ -2150,12 +2159,15 @@ function GameShell({
               />
             </MovableWindow>
           )}
-          {swapNpc && (
+          {swapNpcId && (swapNpc || swapNpcId === SWAP_MFER_NPC_ID) && (
             <MovableWindow id="hud.swap" as="section" className="floating-menu-overlay swap-anchor" role="dialog" aria-label="swap">
               <MferGptSwapMenu
                 defaultExpanded
-                onClose={() => setSwapNpcId(null)}
-                surface="swap_mfer"
+                onClose={() => {
+                  setSwapNpcId(null);
+                  setSwapSurface("swap_mfer");
+                }}
+                surface={swapSurface}
                 variant="npc"
               />
             </MovableWindow>

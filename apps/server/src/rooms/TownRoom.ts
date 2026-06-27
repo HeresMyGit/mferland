@@ -405,6 +405,7 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "trash_vendor_sell_started",
   "trash_vendor_sell_confirmed",
   "trash_vendor_sell_failed",
+  "trash_vendor_mfergpt_gate_swap_opened",
   "fishing_started",
   "fishing_reel",
   "fishing_failed",
@@ -413,6 +414,7 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "fishing_vendor_sell_started",
   "fishing_vendor_sell_confirmed",
   "fishing_vendor_sell_failed",
+  "fishing_vendor_mfergpt_gate_swap_opened",
   "fishing_supply_opened",
   "fishing_supply_purchase_started",
   "fishing_supply_purchase_failed",
@@ -3643,11 +3645,13 @@ export class TownRoom extends Room<TownState> {
     const sendResult = (result: Partial<FishingVendorSellResult> & Pick<FishingVendorSellResult, "ok">) => {
       client.send("fishingVendorSellResult", {
         ok: result.ok,
+        status: result.status ?? (result.ok ? "sold" : "error"),
         sold: result.sold ?? [],
         quantity: result.quantity ?? 0,
         points: result.points ?? 0,
         season0Points: result.season0Points ?? player?.season0Points ?? 0,
         season0DailyPoints: result.season0DailyPoints ?? player?.season0DailyPoints ?? 0,
+        mferGptGate: result.mferGptGate,
         error: result.error,
       } satisfies FishingVendorSellResult);
     };
@@ -3716,26 +3720,42 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
-    let agentTokenGate: AgentSeason0MferGptGateStatus | undefined;
-    if (sale.points > 0 && player.isAgent) {
-      agentTokenGate = await this.notifyAgentSeason0GateStatus(client, player, "fishing_vendor");
-      if (agentTokenGate && !agentTokenGate.eligible) {
+    let season0MferGptGate: AgentSeason0MferGptGateStatus | undefined;
+    if (sale.points > 0 && !useLocalDebugWallet) {
+      season0MferGptGate = player.isAgent
+        ? await this.notifyAgentSeason0GateStatus(client, player, "fishing_vendor")
+        : await getAgentSeason0MferGptGateStatus(player.walletAddress);
+      if (season0MferGptGate && !season0MferGptGate.eligible) {
         this.recordPlayerAnalyticsEvent("fishing_vendor_sell_failed", client.sessionId, player, {
           supportKind: "fishing_vendor_sell",
           ...npcAnalytics,
           itemId: selectedItemId ?? "",
-          stage: "agent_token_gate",
-          error: "agent rewards inactive",
-          agentTokenGateEligible: agentTokenGate.eligible,
-          agentTokenGateReason: agentTokenGate.reason,
-          agentTokenGateRequiredWei: agentTokenGate.requiredWei,
-          agentTokenGateBalanceWei: agentTokenGate.balanceWei,
+          stage: player.isAgent ? "agent_token_gate" : "season0_mfergpt_gate",
+          error: "mfergpt gate required",
+          mferGptGateEligible: season0MferGptGate.eligible,
+          mferGptGateReason: season0MferGptGate.reason,
+          mferGptGateRequiredWei: season0MferGptGate.requiredWei,
+          mferGptGateBalanceWei: season0MferGptGate.balanceWei,
         });
-        client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(agentTokenGate)));
-        sendResult({ ok: false, error: "agent rewards inactive" });
+        client.send("chat", makeSystemChat(
+          player.isAgent ? "Agent Rewards" : "Season 0",
+          player.isAgent
+            ? makeAgentSeason0MferGptGateMessage(season0MferGptGate)
+            : makeSeason0MferGptGateMessage(season0MferGptGate),
+        ));
+        sendResult({
+          ok: false,
+          status: "mfergpt_gate",
+          sold: sale.sold,
+          quantity: sale.quantity,
+          points: sale.points,
+          error: "25M MFERGPT required for Season 0 points",
+          mferGptGate: season0MferGptGate,
+        });
         return;
       }
     }
+    const agentTokenGate = player.isAgent ? season0MferGptGate : undefined;
 
     this.recordPlayerAnalyticsEvent("fishing_vendor_sell_started", client.sessionId, player, {
       supportKind: "fishing_vendor_sell",
@@ -3746,8 +3766,8 @@ export class TownRoom extends Room<TownState> {
       points: sale.points,
       isAgent: player.isAgent,
       agentBundleMultiplier: player.isAgent ? FISHING_AGENT_BUNDLE_MULTIPLIER : 1,
-      agentTokenGateEligible: agentTokenGate?.eligible,
-      agentTokenGateReason: agentTokenGate?.reason,
+      mferGptGateEligible: season0MferGptGate?.eligible,
+      mferGptGateReason: season0MferGptGate?.reason,
     });
 
     const previousInventory = snapshotInventoryState(player);
@@ -3968,11 +3988,13 @@ export class TownRoom extends Room<TownState> {
     const sendResult = (result: Partial<TrashVendorSellResult> & Pick<TrashVendorSellResult, "ok">) => {
       client.send("trashVendorSellResult", {
         ok: result.ok,
+        status: result.status ?? (result.ok ? "sold" : "error"),
         sold: result.sold ?? [],
         quantity: result.quantity ?? 0,
         points: result.points ?? 0,
         season0Points: result.season0Points ?? player?.season0Points ?? 0,
         season0DailyPoints: result.season0DailyPoints ?? player?.season0DailyPoints ?? 0,
+        mferGptGate: result.mferGptGate,
         error: result.error,
       } satisfies TrashVendorSellResult);
     };
@@ -4020,26 +4042,6 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
-    const agentTokenGate = player.isAgent
-      ? await this.notifyAgentSeason0GateStatus(client, player, "trash_vendor")
-      : undefined;
-    if (agentTokenGate && !agentTokenGate.eligible) {
-      this.recordPlayerAnalyticsEvent("trash_vendor_sell_failed", client.sessionId, player, {
-        supportKind: "trash_vendor_sell",
-        ...npcAnalytics,
-        itemId: selectedItemId ?? "",
-        stage: "agent_token_gate",
-        error: "agent rewards inactive",
-        agentTokenGateEligible: agentTokenGate.eligible,
-        agentTokenGateReason: agentTokenGate.reason,
-        agentTokenGateRequiredWei: agentTokenGate.requiredWei,
-        agentTokenGateBalanceWei: agentTokenGate.balanceWei,
-      });
-      client.send("chat", makeSystemChat("Agent Rewards", makeAgentSeason0MferGptGateMessage(agentTokenGate)));
-      sendResult({ ok: false, error: "agent rewards inactive" });
-      return;
-    }
-
     const requestedQuantity = sellAll
       ? Number.MAX_SAFE_INTEGER
       : normalizeTrashSellQuantity(message?.quantity);
@@ -4065,6 +4067,43 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
+    let season0MferGptGate: AgentSeason0MferGptGateStatus | undefined;
+    if (awardedPoints > 0 && !useLocalDebugWallet) {
+      season0MferGptGate = player.isAgent
+        ? await this.notifyAgentSeason0GateStatus(client, player, "trash_vendor")
+        : await getAgentSeason0MferGptGateStatus(player.walletAddress);
+      if (season0MferGptGate && !season0MferGptGate.eligible) {
+        this.recordPlayerAnalyticsEvent("trash_vendor_sell_failed", client.sessionId, player, {
+          supportKind: "trash_vendor_sell",
+          ...npcAnalytics,
+          itemId: selectedItemId ?? "",
+          stage: player.isAgent ? "agent_token_gate" : "season0_mfergpt_gate",
+          error: "mfergpt gate required",
+          mferGptGateEligible: season0MferGptGate.eligible,
+          mferGptGateReason: season0MferGptGate.reason,
+          mferGptGateRequiredWei: season0MferGptGate.requiredWei,
+          mferGptGateBalanceWei: season0MferGptGate.balanceWei,
+        });
+        client.send("chat", makeSystemChat(
+          player.isAgent ? "Agent Rewards" : "Season 0",
+          player.isAgent
+            ? makeAgentSeason0MferGptGateMessage(season0MferGptGate)
+            : makeSeason0MferGptGateMessage(season0MferGptGate),
+        ));
+        sendResult({
+          ok: false,
+          status: "mfergpt_gate",
+          sold: sale.sold,
+          quantity: sale.quantity,
+          points: awardedPoints,
+          error: "25M MFERGPT required for Season 0 points",
+          mferGptGate: season0MferGptGate,
+        });
+        return;
+      }
+    }
+    const agentTokenGate = player.isAgent ? season0MferGptGate : undefined;
+
     this.recordPlayerAnalyticsEvent("trash_vendor_sell_started", client.sessionId, player, {
       supportKind: "trash_vendor_sell",
       ...npcAnalytics,
@@ -4075,8 +4114,8 @@ export class TownRoom extends Room<TownState> {
       basePoints: sale.points,
       agentTrashItemsPerPoint: player.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1,
       isAgent: player.isAgent,
-      agentTokenGateEligible: agentTokenGate?.eligible,
-      agentTokenGateReason: agentTokenGate?.reason,
+      mferGptGateEligible: season0MferGptGate?.eligible,
+      mferGptGateReason: season0MferGptGate?.reason,
     });
 
     const previousInventory = snapshotInventoryState(player);
@@ -6218,6 +6257,20 @@ function formatFishingSoldSummary(sold: FishingVendorSoldItem[]) {
 
 function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
+}
+
+function makeSeason0MferGptGateMessage(status: AgentSeason0MferGptGateStatus) {
+  if (status.reason === "disabled" || status.eligible) {
+    return `Season 0 rewards active: wallet holds ${status.balanceLabel} / ${status.requiredLabel}.`;
+  }
+  if (status.reason === "insufficient") {
+    return `Season 0 points need ${status.requiredLabel} on Base. This wallet holds ${status.balanceLabel}; your stash was not sold.`;
+  }
+  if (status.reason === "invalid_wallet") {
+    return `Season 0 points need a valid wallet with ${status.requiredLabel} on Base. Your stash was not sold.`;
+  }
+  const detail = status.error ? ` ${status.error}` : "";
+  return `Season 0 MFERGPT balance check is unavailable.${detail} Your stash was not sold.`;
 }
 
 function shortWalletForChat(walletAddress: string) {

@@ -11,11 +11,14 @@ import {
   type InventoryItemSnapshot,
   type NpcSnapshot,
   type PlayerSnapshot,
+  type Season0MferGptGateSnapshot,
   type TrashVendorItemId,
   type TrashVendorSellResult,
+  type TrashVendorSoldItem,
 } from "@mferland/shared";
 import { trackEvent, type AnalyticsProperties } from "../analytics";
 import { ItemIcon } from "./hud/ItemIcon";
+import { Season0MferGptGateDialog } from "./Season0MferGptGateDialog";
 
 type TrashVendorPanelProps = {
   npc: NpcSnapshot;
@@ -23,10 +26,15 @@ type TrashVendorPanelProps = {
   result: TrashVendorSellResult | null;
   onClose: () => void;
   onSellTrashItems: (message: ClientSellTrashItems) => void;
+  onOpenSwap?: () => void;
   onAnalyticsEvent?: (eventType: string, properties?: Record<string, string | number | boolean | null>) => void;
 };
 
 type SellableTrashStack = InventoryItemSnapshot & { id: TrashVendorItemId };
+type GateWarningState = {
+  gate: Season0MferGptGateSnapshot;
+  itemLabel: string;
+};
 
 export function TrashVendorPanel({
   npc,
@@ -34,12 +42,14 @@ export function TrashVendorPanel({
   result,
   onClose,
   onSellTrashItems,
+  onOpenSwap,
   onAnalyticsEvent,
 }: TrashVendorPanelProps) {
   const sellableItems = useMemo(() => getSellableTrashStacks(player), [player?.inventory]);
   const [selectedItemId, setSelectedItemId] = useState<TrashVendorItemId | "">("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [gateWarning, setGateWarning] = useState<GateWarningState | null>(null);
   const selectedStack = sellableItems.find((item) => item.id === selectedItemId) ?? sellableItems[0] ?? null;
   const totalTrashCount = sellableItems.reduce((total, item) => total + item.count, 0);
   const canSell = player?.identityType === "wallet" && Boolean(player.walletAddress);
@@ -57,6 +67,15 @@ export function TrashVendorPanel({
   useEffect(() => {
     if (!result) return;
     setBusy(false);
+    if (result.status === "mfergpt_gate" && result.mferGptGate) {
+      setGateWarning({
+        gate: result.mferGptGate,
+        itemLabel: formatTrashSoldLabel(result.sold),
+      });
+      setStatus("25M MFERGPT required");
+      return;
+    }
+    if (result.ok) setGateWarning(null);
     setStatus(result.ok
       ? `sold ${result.quantity} for ${formatSeasonPoints(result.points)}`
       : result.error ?? "sale failed");
@@ -91,6 +110,17 @@ export function TrashVendorPanel({
     });
     onSellTrashItems(message);
     window.setTimeout(() => setBusy((current) => current ? false : current), 20_000);
+  }
+
+  function openSwapForGate() {
+    if (!gateWarning) return;
+    reportAnalytics("trash_vendor_mfergpt_gate_swap_opened", {
+      gateReason: gateWarning.gate.reason,
+      requiredWei: gateWarning.gate.requiredWei,
+      balanceWei: gateWarning.gate.balanceWei,
+    });
+    onOpenSwap?.();
+    onClose();
   }
 
   function reportAnalytics(eventType: string, properties: AnalyticsProperties = {}) {
@@ -201,6 +231,14 @@ export function TrashVendorPanel({
           <p className="crypto-store-status">{status || (canSell ? isAgent ? `agents need ${AGENT_TRASH_VENDOR_ITEMS_PER_POINT} trash for 1 point` : "junk only" : "wallet character required")}</p>
         </section>
       </div>
+      {gateWarning && (
+        <Season0MferGptGateDialog
+          gate={gateWarning.gate}
+          itemLabel={gateWarning.itemLabel}
+          onDismiss={() => setGateWarning(null)}
+          onSwap={openSwapForGate}
+        />
+      )}
     </div>
   );
 }
@@ -213,6 +251,12 @@ function getSellableTrashStacks(player: PlayerSnapshot | null): SellableTrashSta
 
 function formatSeasonPoints(points: number) {
   return `${points} season point${points === 1 ? "" : "s"}`;
+}
+
+function formatTrashSoldLabel(sold: TrashVendorSoldItem[]) {
+  return sold.length > 0
+    ? sold.map((item) => `${item.itemName} x${item.quantity}`).join(", ")
+    : "junk";
 }
 
 function getPayableTrashQuantity(count: number, isAgent: boolean) {
