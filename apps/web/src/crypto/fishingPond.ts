@@ -12,6 +12,9 @@ const ONCHAIN_FISHING_ROD_MINT_ABI = parseAbi(["function mint() returns (uint256
 const ONCHAIN_FISHING_ROD_MINT_TO_ABI = parseAbi(["function mint(address to) returns (uint256)"]);
 const ONCHAIN_FISHING_ROD_MINT_QUANTITY_ABI = parseAbi(["function mint(uint256 quantity) returns (uint256)"]);
 const ONCHAIN_FISHING_ROD_MINT_TO_QUANTITY_ABI = parseAbi(["function mint(address to,uint256 quantity) returns (uint256)"]);
+const MANIFOLD_ERC721_CLAIM_MINT_ABI = parseAbi([
+  "function mint(address creatorContractAddress,uint256 instanceId,uint32 mintIndex,bytes32[] merkleProof,address mintFor) payable",
+]);
 const ERC20_APPROVAL_ABI = parseAbi([
   "function allowance(address owner,address spender) view returns (uint256)",
   "function approve(address spender,uint256 amount) returns (bool)",
@@ -240,6 +243,29 @@ function makeOnchainFishingRodMintTransaction(
   requirement: OnchainFishingRodRequirementSnapshot,
 ) {
   const mintFunction = requirement.mintFunction || "mint";
+  const value = getRodMintNativeValue(requirement);
+  if (mintFunction === "manifoldClaim") {
+    if (!isAddress(requirement.contractAddress)) throw new Error("Manifold creator contract missing");
+    const instanceId = parsePositiveBigInt(requirement.mintInstanceId, "Manifold claim instance missing");
+    const mintIndex = normalizeManifoldMintIndex(requirement.mintIndex);
+    const merkleProof = normalizeManifoldMerkleProof(requirement.mintMerkleProof);
+    return {
+      from: account,
+      to: mintContractAddress,
+      data: encodeFunctionData({
+        abi: MANIFOLD_ERC721_CLAIM_MINT_ABI,
+        functionName: "mint",
+        args: [
+          requirement.contractAddress as `0x${string}`,
+          instanceId,
+          mintIndex,
+          merkleProof,
+          account as `0x${string}`,
+        ],
+      }),
+      value,
+    };
+  }
   return {
     from: account,
     to: mintContractAddress,
@@ -266,7 +292,7 @@ function makeOnchainFishingRodMintTransaction(
         functionName: "mint",
         args: [],
       }),
-    value: "0x0",
+    value,
   };
 }
 
@@ -287,6 +313,29 @@ function toChainIdHex(chainId: number) {
 
 function isAddress(value: string) {
   return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+function parsePositiveBigInt(value: string | undefined, errorMessage: string) {
+  if (!value || !/^\d+$/.test(value)) throw new Error(errorMessage);
+  const parsed = BigInt(value);
+  if (parsed <= 0n) throw new Error(errorMessage);
+  return parsed;
+}
+
+function normalizeManifoldMintIndex(value: number | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 0xffffffff ? parsed : 0;
+}
+
+function normalizeManifoldMerkleProof(value: string[] | undefined): `0x${string}`[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((part): part is `0x${string}` => /^0x[a-fA-F0-9]{64}$/.test(part));
+}
+
+function getRodMintNativeValue(requirement: OnchainFishingRodRequirementSnapshot) {
+  const value = requirement.mintNativeValueWei;
+  if (!value || !/^\d+$/.test(value)) return "0x0";
+  return `0x${BigInt(value).toString(16)}`;
 }
 
 function getChainName(chainId: number) {

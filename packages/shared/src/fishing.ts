@@ -114,7 +114,7 @@ export type FishingNftCapNoticeKind = "wallet_daily_cap" | "global_daily_cap" | 
 export type MintClubRedemptionStatus = "claim_required" | "eligible" | "tx_submitted" | "confirmed" | "failed";
 export type OnchainFishingRodStandard = "ERC721" | "ERC1155";
 export type OnchainFishingRodMintMode = "wallet" | "server" | "url";
-export type OnchainFishingRodMintFunction = "mint" | "mintTo" | "mintQuantity" | "mintToQuantity";
+export type OnchainFishingRodMintFunction = "mint" | "mintTo" | "mintQuantity" | "mintToQuantity" | "manifoldClaim";
 
 export type OnchainFishingRodRequirementSnapshot = {
   enabled: boolean;
@@ -132,6 +132,10 @@ export type OnchainFishingRodRequirementSnapshot = {
   mintMode?: OnchainFishingRodMintMode;
   mintContractAddress?: string;
   mintFunction?: OnchainFishingRodMintFunction;
+  mintInstanceId?: string;
+  mintIndex?: number;
+  mintMerkleProof?: string[];
+  mintNativeValueWei?: string;
   mintPaymentTokenAddress?: string;
   mintPaymentSpenderAddress?: string;
   adminMintEnabled?: boolean;

@@ -416,6 +416,10 @@ const CLIENT_ANALYTICS_EVENTS = new Set([
   "fishing_supply_opened",
   "fishing_supply_purchase_started",
   "fishing_supply_purchase_failed",
+  "fishing_supply_purchase_confirmed",
+  "onchain_fishing_rod_mint_started",
+  "onchain_fishing_rod_mint_confirmed",
+  "onchain_fishing_rod_mint_failed",
 ]);
 
 export function areDebugMessagesEnabled() {
@@ -3298,6 +3302,22 @@ export class TownRoom extends Room<TownState> {
     this.fishingNftCapNoticeAt.set(mapKey, now);
     client.send("chat", makeSystemChat("Fishing", notice.text));
     client.send("fishingNftCapNotice", notice);
+    const player = this.state.players.get(client.sessionId);
+    this.recordPlayerAnalyticsEvent("fishing_nft_notice_sent", client.sessionId, player, {
+      supportKind: "fishing_nft_notice",
+      noticeKind: notice.kind,
+      resetAt: notice.dailyResetAt,
+      perPlayerDailyCap: notice.perWalletDailyCap,
+      playerDailyRemaining: notice.walletDailyRemaining,
+      globalDailyCap: notice.globalDailyCap,
+      globalDailyRemaining: notice.globalDailyRemaining,
+      rodRequired: notice.rodRequirement?.required,
+      rodOwned: notice.rodRequirement?.walletOwnsRod,
+      rodChainId: notice.rodRequirement?.chainId,
+      rodStandard: notice.rodRequirement?.standard,
+      rodContractAddress: notice.rodRequirement?.contractAddress,
+      rodMintMode: notice.rodRequirement?.mintMode,
+    });
   }
 
   private async syncLatestFishingNftCatch(client: Client, player: PlayerState) {

@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=../../.env scripts/migrate.mjs",
     "daily:generate": "tsx --env-file-if-exists=../../.env scripts/generate-mfergpt-daily-quest.ts",
+    "fishing:analytics:report": "node --env-file-if-exists=../../.env scripts/fishing-analytics-report.mjs",
     "market:refresh": "tsx --env-file-if-exists=../../.env scripts/refresh-market-quotes.ts",
     "support:admin": "node --env-file-if-exists=../../.env scripts/support-admin.mjs",
     "start": "node --env-file-if-exists=../../.env dist/index.js",

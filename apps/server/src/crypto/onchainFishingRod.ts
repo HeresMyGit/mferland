@@ -39,6 +39,10 @@ export type OnchainFishingRodRuntimeConfig = {
   mintMode: OnchainFishingRodMintMode;
   mintContractAddress: string;
   mintFunction: OnchainFishingRodMintFunction;
+  mintInstanceId: string;
+  mintIndex: number;
+  mintMerkleProof: Hex[];
+  mintNativeValueWei: string;
   mintPaymentTokenAddress: string;
   mintPaymentSpenderAddress: string;
   mintPriceAmountWei: string;
@@ -218,6 +222,14 @@ export async function resolveOnchainFishingRodConfig(
     mintMode: normalizeMintMode(readRodEnv(env, "MINT_MODE") || readRodEnv(env, "MINT_PATH")),
     mintContractAddress: normalizeAddress(readRodEnv(env, "MINT_CONTRACT_ADDRESS")) || contractAddress,
     mintFunction: normalizeMintFunction(readRodEnv(env, "MINT_FUNCTION")),
+    mintInstanceId: sanitizeTokenAmountWei(readRodEnv(env, "MINT_INSTANCE_ID")),
+    mintIndex: sanitizeMintIndex(readRodEnv(env, "MINT_INDEX")),
+    mintMerkleProof: sanitizeMerkleProof(readRodEnv(env, "MINT_MERKLE_PROOF")),
+    mintNativeValueWei: sanitizeTokenAmountWei(
+      readRodEnv(env, "MINT_NATIVE_VALUE_WEI")
+        || readRodEnv(env, "MINT_FEE_WEI")
+        || readRodEnv(env, "MINT_VALUE_WEI"),
+    ),
     mintPaymentTokenAddress: normalizeAddress(readRodEnv(env, "MINT_PAYMENT_TOKEN_ADDRESS") || env.MFERLAND_MFERGPT_TOKEN_ADDRESS),
     mintPaymentSpenderAddress: normalizeAddress(readRodEnv(env, "MINT_PAYMENT_SPENDER_ADDRESS") || readRodEnv(env, "MINT_CONTRACT_ADDRESS")) || contractAddress,
     mintPriceAmountWei: sanitizeTokenAmountWei(readRodEnv(env, "MINT_PRICE_AMOUNT_WEI")) || ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI,
@@ -251,6 +263,10 @@ function makeOnchainFishingRodSnapshot(
     mintMode: config.mintMode,
     mintContractAddress: config.mintContractAddress || undefined,
     mintFunction: config.mintFunction,
+    mintInstanceId: config.mintInstanceId || undefined,
+    mintIndex: config.mintIndex || undefined,
+    mintMerkleProof: config.mintMerkleProof.length > 0 ? config.mintMerkleProof : undefined,
+    mintNativeValueWei: config.mintNativeValueWei || undefined,
     mintPaymentTokenAddress: config.mintPaymentTokenAddress || undefined,
     mintPaymentSpenderAddress: config.mintPaymentSpenderAddress || undefined,
     adminMintEnabled: config.adminMintEnabled || undefined,
@@ -273,6 +289,10 @@ function makeDisabledConfig(): OnchainFishingRodRuntimeConfig {
     mintMode: "url",
     mintContractAddress: "",
     mintFunction: "mint",
+    mintInstanceId: "",
+    mintIndex: 0,
+    mintMerkleProof: [],
+    mintNativeValueWei: "",
     mintPaymentTokenAddress: "",
     mintPaymentSpenderAddress: "",
     mintPriceAmountWei: ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI,
@@ -338,6 +358,7 @@ function normalizeMintMode(value: unknown): OnchainFishingRodMintMode {
 
 function normalizeMintFunction(value: unknown): OnchainFishingRodMintFunction {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (["manifold", "manifoldclaim", "manifold_claim", "claim", "claimpage", "claim_page"].includes(normalized)) return "manifoldClaim";
   if (["mintto", "mint_to", "mint(address)"].includes(normalized)) return "mintTo";
   if (["mintquantity", "mint_quantity", "mint(uint256)"].includes(normalized)) return "mintQuantity";
   if (["minttoquantity", "mint_to_quantity", "mint(address,uint256)"].includes(normalized)) return "mintToQuantity";
@@ -377,6 +398,20 @@ function sanitizeUrl(value: unknown) {
 function sanitizeTokenAmountWei(value: unknown) {
   const text = typeof value === "string" ? value.trim() : "";
   return /^\d+$/.test(text) ? text : "";
+}
+
+function sanitizeMintIndex(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const parsed = text ? Number(text) : 0;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 0xffffffff ? parsed : 0;
+}
+
+function sanitizeMerkleProof(value: unknown): Hex[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(/[,\s]+/)
+    .map((part) => part.trim().toLowerCase())
+    .filter((part): part is Hex => /^0x[a-f0-9]{64}$/.test(part));
 }
 
 function normalizePrivateKey(value: unknown): Hex | "" {

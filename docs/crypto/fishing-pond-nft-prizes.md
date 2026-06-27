@@ -84,6 +84,12 @@ The server stores NFT catches durably in `fishing_pond_catches` so pending catch
 
 The server issues unique catch ids, signs vouchers, sends the private voucher only to the owning client, and exposes a sanitized public catch snapshot in player state. An issued voucher immediately counts against the wallet/global daily NFT catch limits, even if the player closes the panel, forfeits the claim, or lets the voucher expire. Confirmation requires a transaction receipt containing the `CatchClaimed` event for the catch id.
 
+Fishing analytics are persisted in two places. `analytics_events` records authoritative server gameplay events for cast starts, reel outcomes, loot pickups, rod/cap notices, fish sales, rod mint funnel events, and Mint Club redemption outcomes. `fishing_pond_catches` is the durable NFT catch ledger and should be the source of truth for onchain-goodie offer, claim, prize collection, claim-latency, and redemption charts. Generate chart-ready JSON plus CSVs with:
+
+```sh
+npm run fishing:analytics:report -- --days 7 --out-dir ./tmp/fishing-analytics
+```
+
 Local/test env:
 
 ```sh
@@ -119,15 +125,18 @@ MFERLAND_ONCHAIN_FISHING_ROD_ENABLED="true"
 MFERLAND_ONCHAIN_FISHING_ROD_REQUIRED="true"
 MFERLAND_ONCHAIN_FISHING_ROD_CHAIN_ID="8453"
 MFERLAND_ONCHAIN_FISHING_ROD_RPC_URL="https://mainnet.base.org"
-MFERLAND_ONCHAIN_FISHING_ROD_CONTRACT_ADDRESS="0x..."
-MFERLAND_ONCHAIN_FISHING_ROD_STANDARD="ERC721" # or ERC1155
-MFERLAND_ONCHAIN_FISHING_ROD_TOKEN_ID="" # required only for ERC1155
+MFERLAND_ONCHAIN_FISHING_ROD_CONTRACT_ADDRESS="0x7ad5e32fd403fd6fc696deca42d09b126502669a"
+MFERLAND_ONCHAIN_FISHING_ROD_STANDARD="ERC721"
+MFERLAND_ONCHAIN_FISHING_ROD_TOKEN_ID=""
 MFERLAND_ONCHAIN_FISHING_ROD_LABEL="onchain fishing rod"
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_URL="https://manifold.xyz/@mfergpt/id/4029487344"
 MFERLAND_ONCHAIN_FISHING_ROD_MINT_MODE="wallet" # wallet, url, or local/test server fallback
-MFERLAND_ONCHAIN_FISHING_ROD_MINT_CONTRACT_ADDRESS="0x..."
-MFERLAND_ONCHAIN_FISHING_ROD_MINT_FUNCTION="mint" # mint, mint(address), mint(uint256), or mint(address,uint256)
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_CONTRACT_ADDRESS="0x23aa05a271debffaa3d75739af5581f744b326e4" # Manifold claim extension
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_FUNCTION="manifoldClaim" # or mint, mint(address), mint(uint256), mint(address,uint256)
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_INSTANCE_ID="4029487344"
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_NATIVE_VALUE_WEI="500000000000000"
 MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_TOKEN_ADDRESS="0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07"
-MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_SPENDER_ADDRESS="0x..."
+MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_SPENDER_ADDRESS="0x23aa05a271debffaa3d75739af5581f744b326e4"
 MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_AMOUNT_WEI="25000000000000000000000000"
 MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_LABEL="25M $MFERGPT"
 ```
@@ -160,7 +169,7 @@ The rod config auto-enables when a contract address, RPC URL, and chain id are p
 
 The server will also read the local exported chain suite address when `MFERLAND_FISHING_POND_CONTRACT_ADDRESS` is unset.
 
-The optional onchain fishing rod requirement is read separately from the pond. When enabled and required, the server checks the fisher wallet before issuing an NFT catch voucher. ERC-721 rods use `balanceOf(wallet) > 0`; ERC-1155 rods use `balanceOf(wallet, MFERLAND_ONCHAIN_FISHING_ROD_TOKEN_ID) > 0`. If the first daily cast check fails, the player sees a rod-required onchain-goodies popup and regular fish/junk still work. If a completed reel would have produced an NFT but the wallet lacks the rod, the server sends `fishingNftCapNotice.kind=rod_required_nft_hit` so the UI can say the player would have hooked an onchain goodie with the rod. That missed-rod notice does not issue a voucher or spend an NFT daily count. The Motherfisher UI can start a wallet-signed mint against the configured rod/Manifold mint contract; the NFT mint contract is responsible for taking/burning the 25M MFERGPT, not the game server. The configured rod contract also acts as the v1 rod stash allowlist: an owning wallet sees an `onchain fishing rod` row in the stash pond/NFT tab.
+The optional onchain fishing rod requirement is read separately from the pond. When enabled and required, the server checks the fisher wallet before issuing an NFT catch voucher. ERC-721 rods use `balanceOf(wallet) > 0`; ERC-1155 rods use `balanceOf(wallet, MFERLAND_ONCHAIN_FISHING_ROD_TOKEN_ID) > 0`. If the first daily cast check fails, the player sees a rod-required onchain-goodies popup and regular fish/junk still work. If a completed reel would have produced an NFT but the wallet lacks the rod, the server sends `fishingNftCapNotice.kind=rod_required_nft_hit` so the UI can say the player would have hooked an onchain goodie with the rod. That missed-rod notice does not issue a voucher or spend an NFT daily count. The Motherfisher UI can start a wallet-signed mint against the configured rod/Manifold mint contract; for Manifold claim pages, `MFERLAND_ONCHAIN_FISHING_ROD_MINT_FUNCTION="manifoldClaim"` calls the configured Manifold extension with the rod NFT contract as creator contract, the configured `MFERLAND_ONCHAIN_FISHING_ROD_MINT_INSTANCE_ID`, mint index `0` by default, and `MFERLAND_ONCHAIN_FISHING_ROD_MINT_NATIVE_VALUE_WEI` as transaction value. The NFT mint contract is responsible for taking/burning the 25M MFERGPT, not the game server. The configured rod contract also acts as the v1 rod stash allowlist: an owning wallet sees an `onchain fishing rod` row in the stash pond/NFT tab.
 
 For local wallet testing, the server's development-only `MFERLAND_LOCAL_DEBUG_WALLET_ADDRESSES` can include extra unsigned local test wallets, and the web can point its local test wallet button at the same address with `VITE_MFERLAND_DEBUG_WALLET_ADDRESS`.
 

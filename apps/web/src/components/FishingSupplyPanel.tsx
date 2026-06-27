@@ -167,7 +167,10 @@ export function FishingSupplyPanel({
 
     setBusy(true);
     setStatus(rodMintMode === "wallet" ? "confirm rod mint" : "minting test rod");
-    reportAnalytics("onchain_fishing_rod_mint_started", getRodMintAnalyticsProperties());
+    reportAnalytics("onchain_fishing_rod_mint_started", {
+      ...getRodMintAnalyticsProperties(),
+      stage: rodMintMode === "wallet" ? "wallet" : "server_request",
+    });
     try {
       if (rodMintMode === "wallet") {
         if (!rodRequirement) throw new Error("rod minting unavailable");
@@ -177,6 +180,10 @@ export function FishingSupplyPanel({
         const txHash = await executeOnchainFishingRodMint(provider, player.walletAddress, rodRequirement);
         setWalletMintTxHash(txHash);
         setStatus("rod minted; refreshing wallet");
+        reportAnalytics("onchain_fishing_rod_mint_confirmed", {
+          ...getRodMintAnalyticsProperties(),
+          stage: "wallet",
+        });
         onRefreshFishingNftHistory();
         setBusy(false);
         return;
