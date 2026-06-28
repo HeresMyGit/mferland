@@ -3085,9 +3085,9 @@ function FishingNftCapPanel({
     ? Math.max(0, notice.globalDailyCap - notice.globalDailyRemaining)
     : null;
   const capLabel = isRodHitNotice
-    ? "Rod blocked NFT"
+    ? "NFT catch skipped"
     : isRodNotice
-    ? "Rod needed"
+    ? "NFT catches locked"
     : notice.kind === "global_daily_cap"
     ? "Pond restock"
     : "Daily NFT casts";
@@ -3095,7 +3095,7 @@ function FishingNftCapPanel({
   const capDetail = isRodNotice
     ? rodRequirement
       ? `${rodRequirement.standard}${rodRequirement.standard === "ERC1155" && rodRequirement.tokenId ? ` #${rodRequirement.tokenId}` : ""}`
-      : "onchain rod needed"
+      : "rod not in wallet"
     : notice.kind === "global_daily_cap" && globalCapUsed !== null && notice.globalDailyCap
     ? `${globalCapUsed}/${notice.globalDailyCap} claimed today`
     : walletCapUsed !== null && notice.perWalletDailyCap
@@ -3104,10 +3104,10 @@ function FishingNftCapPanel({
   const nextCastLabel = isRodNotice ? "after rod is in wallet" : resetLabel;
   const rodMintPriceLabel = rodRequirement?.mintPriceLabel || "25M $MFERGPT";
   const rodMintUrl = rodRequirement?.mintUrl || "";
-  const rodNoticeTitle = isRodHitNotice ? "You almost hooked one" : "Onchain rod needed";
+  const rodNoticeTitle = isRodHitNotice ? "You almost hooked one" : "Onchain goodies locked";
   const rodNoticeDetail = isRodHitNotice
-    ? `That roll would have been an onchain goodie. Contract mint: ${rodMintPriceLabel}. Hold the rod in this wallet before the next lucky reel.`
-    : `Contract mint: ${rodMintPriceLabel}. Hold the rod in this wallet before fishing for onchain goodies.`;
+    ? `That roll would have been an onchain goodie. Regular fish still bite; hold the rod in this wallet before the next lucky reel to catch NFTs.`
+    : `Regular fish still bite. Hold the rod in this wallet to unlock onchain goodie catches. Contract mint: ${rodMintPriceLabel}.`;
 
   return (
     <>
@@ -3127,7 +3127,7 @@ function FishingNftCapPanel({
       </div>
       <div className="fishing-nft-cap-details">
         <span>
-          <b>{isRodNotice ? "Requirement" : "Today"}</b>
+          <b>{isRodNotice ? "NFT unlock" : "Today"}</b>
           <em>{capDetail}</em>
         </span>
         <span>

@@ -3175,7 +3175,7 @@ export class TownRoom extends Room<TownState> {
           now,
           {
             kind: "rod_required_nft_hit",
-            text: `You would have hooked an onchain goodie if this wallet held the ${rodRequirement.label}. Regular fish are still biting.`,
+            text: `That cast rolled an onchain goodie, but this wallet does not hold the ${rodRequirement.label}. Regular fish are still biting.`,
             sentAt: now,
             dailyResetAt: getFishingNftDailyResetAt(now),
             perWalletDailyCap: publicConfig.perWalletDailyCap,
@@ -3261,7 +3261,7 @@ export class TownRoom extends Room<TownState> {
       const publicConfig = await readFishingPondPublicConfig(walletAddress).catch(() => null);
       this.sendFishingRodRequiredNotice(client, walletAddress, now, {
         kind: "rod_required",
-        text: `Mint an ${rodRequirement.label} through the rod contract to unlock onchain goodie catches. Regular fish still bite without it.`,
+        text: `Regular fish are still biting. Hold an ${rodRequirement.label} in this wallet to unlock onchain goodie catches.`,
         sentAt: now,
         dailyResetAt: getFishingNftDailyResetAt(now),
         perWalletDailyCap: publicConfig?.perWalletDailyCap ?? FISHING_NFT_POND_DEFAULT_WALLET_DAILY_CAP,
