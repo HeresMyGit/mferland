@@ -70,9 +70,10 @@ test("resolves Manifold claim mint config", async () => {
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_CONTRACT_ADDRESS: "0x23aa05a271debffaa3d75739af5581f744b326e4",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_FUNCTION: "manifoldClaim",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_INSTANCE_ID: "4029487344",
+    MFERLAND_ONCHAIN_FISHING_ROD_MINT_NATIVE_VALUE_WEI: "500000000000000",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_TOKEN_ADDRESS: "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_AMOUNT_WEI: "25000000000000000000000000",
-    MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_LABEL: "25M $MFERGPT",
+    MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_LABEL: "25M $MFERGPT + 0.0005 ETH",
   });
 
   assert.equal(config.enabled, true);
@@ -83,7 +84,7 @@ test("resolves Manifold claim mint config", async () => {
   assert.equal(config.mintInstanceId, "4029487344");
   assert.equal(config.mintIndex, 0);
   assert.deepEqual(config.mintMerkleProof, []);
-  assert.equal(config.mintNativeValueWei, "");
+  assert.equal(config.mintNativeValueWei, "500000000000000");
   assert.equal(config.mintPaymentSpenderAddress, "0x23aa05a271debffaa3d75739af5581f744b326e4");
 });
 
@@ -109,8 +110,10 @@ test("resolves live rod display config from production contracts document", asyn
       mintContractAddress: "0x23aa05a271debffaa3d75739af5581f744b326e4",
       mintFunction: "manifoldClaim",
       mintInstanceId: "4029487344",
+      mintNativeValueWei: "500000000000000",
       mintPaymentTokenAddress: "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07",
       mintPaymentSpenderAddress: "0x23aa05a271debffaa3d75739af5581f744b326e4",
+      mintPriceLabel: "25M $MFERGPT + 0.0005 ETH",
     },
   }));
 
@@ -134,9 +137,10 @@ test("resolves live rod display config from production contracts document", asyn
     assert.equal(config.mintInstanceId, "4029487344");
     assert.equal(config.mintIndex, 0);
     assert.deepEqual(config.mintMerkleProof, []);
-    assert.equal(config.mintNativeValueWei, "");
+    assert.equal(config.mintNativeValueWei, "500000000000000");
     assert.equal(config.mintPaymentTokenAddress, "0x4160efdd66521483c22cb98b57b87d1fdafeab07");
     assert.equal(config.mintPaymentSpenderAddress, "0x23aa05a271debffaa3d75739af5581f744b326e4");
+    assert.equal(config.mintPriceLabel, "25M $MFERGPT + 0.0005 ETH");
   } finally {
     if (previousContractsFile === undefined) {
       delete process.env.MFERLAND_CRYPTO_CONTRACTS_FILE;

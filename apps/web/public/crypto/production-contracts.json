@@ -21,9 +21,10 @@
     "mintContractAddress": "0x23aa05a271debffaa3d75739af5581f744b326e4",
     "mintFunction": "manifoldClaim",
     "mintInstanceId": "4029487344",
+    "mintNativeValueWei": "500000000000000",
     "mintPaymentTokenAddress": "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07",
     "mintPaymentSpenderAddress": "0x23aa05a271debffaa3d75739af5581f744b326e4",
     "mintPriceAmountWei": "25000000000000000000000000",
-    "mintPriceLabel": "25M $MFERGPT"
+    "mintPriceLabel": "25M $MFERGPT + 0.0005 ETH"
   }
 }

@@ -111,7 +111,7 @@ test("mints onchain fishing rod through Manifold claim extension", async () => {
   assert.deepEqual(preflightTx, sentTx);
   assert.equal(preflightTx.from, ACCOUNT);
   assert.equal(preflightTx.to, MANIFOLD_EXTENSION);
-  assert.equal(preflightTx.value, "0x0");
+  assert.equal(preflightTx.value, `0x${BigInt("500000000000000").toString(16)}`);
   assert.match(String(preflightTx.data), /^0xfa2b068f/i);
   assert.match(String(preflightTx.data), new RegExp(POND.slice(2).toLowerCase(), "i"));
 });
@@ -148,10 +148,11 @@ function makeManifoldRodRequirement(): OnchainFishingRodRequirementSnapshot {
     mintContractAddress: MANIFOLD_EXTENSION,
     mintFunction: "manifoldClaim",
     mintInstanceId: "4029487344",
+    mintNativeValueWei: "500000000000000",
     mintPaymentTokenAddress: MFERGPT_TOKEN,
     mintPaymentSpenderAddress: MANIFOLD_EXTENSION,
     mintPriceAmountWei: "25000000000000000000000000",
-    mintPriceLabel: "25M $MFERGPT",
+    mintPriceLabel: "25M $MFERGPT + 0.0005 ETH",
   };
 }
 
