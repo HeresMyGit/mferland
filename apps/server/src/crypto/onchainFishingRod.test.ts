@@ -70,7 +70,6 @@ test("resolves Manifold claim mint config", async () => {
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_CONTRACT_ADDRESS: "0x23aa05a271debffaa3d75739af5581f744b326e4",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_FUNCTION: "manifoldClaim",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_INSTANCE_ID: "4029487344",
-    MFERLAND_ONCHAIN_FISHING_ROD_MINT_NATIVE_VALUE_WEI: "500000000000000",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_PAYMENT_TOKEN_ADDRESS: "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_AMOUNT_WEI: "25000000000000000000000000",
     MFERLAND_ONCHAIN_FISHING_ROD_MINT_PRICE_LABEL: "25M $MFERGPT",
@@ -84,7 +83,7 @@ test("resolves Manifold claim mint config", async () => {
   assert.equal(config.mintInstanceId, "4029487344");
   assert.equal(config.mintIndex, 0);
   assert.deepEqual(config.mintMerkleProof, []);
-  assert.equal(config.mintNativeValueWei, "500000000000000");
+  assert.equal(config.mintNativeValueWei, "");
   assert.equal(config.mintPaymentSpenderAddress, "0x23aa05a271debffaa3d75739af5581f744b326e4");
 });
 
@@ -106,7 +105,12 @@ test("resolves live rod display config from production contracts document", asyn
       description: "wallet-held NFT required for onchain goodies at the pond",
       image: "https://assets.manifold.xyz/optimized/1c6fb1784b33e5b493964a76bab237c5938d3607345942eb2d44edfb439fa518/w_800.jpg",
       mintUrl: "https://manifold.xyz/@mfergpt/id/4029487344",
-      mintMode: "url",
+      mintMode: "wallet",
+      mintContractAddress: "0x23aa05a271debffaa3d75739af5581f744b326e4",
+      mintFunction: "manifoldClaim",
+      mintInstanceId: "4029487344",
+      mintPaymentTokenAddress: "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07",
+      mintPaymentSpenderAddress: "0x23aa05a271debffaa3d75739af5581f744b326e4",
     },
   }));
 
@@ -124,7 +128,15 @@ test("resolves live rod display config from production contracts document", asyn
     assert.equal(config.description, "wallet-held NFT required for onchain goodies at the pond");
     assert.equal(config.image, "https://assets.manifold.xyz/optimized/1c6fb1784b33e5b493964a76bab237c5938d3607345942eb2d44edfb439fa518/w_800.jpg");
     assert.equal(config.mintUrl, "https://manifold.xyz/@mfergpt/id/4029487344");
-    assert.equal(config.mintMode, "url");
+    assert.equal(config.mintMode, "wallet");
+    assert.equal(config.mintContractAddress, "0x23aa05a271debffaa3d75739af5581f744b326e4");
+    assert.equal(config.mintFunction, "manifoldClaim");
+    assert.equal(config.mintInstanceId, "4029487344");
+    assert.equal(config.mintIndex, 0);
+    assert.deepEqual(config.mintMerkleProof, []);
+    assert.equal(config.mintNativeValueWei, "");
+    assert.equal(config.mintPaymentTokenAddress, "0x4160efdd66521483c22cb98b57b87d1fdafeab07");
+    assert.equal(config.mintPaymentSpenderAddress, "0x23aa05a271debffaa3d75739af5581f744b326e4");
   } finally {
     if (previousContractsFile === undefined) {
       delete process.env.MFERLAND_CRYPTO_CONTRACTS_FILE;

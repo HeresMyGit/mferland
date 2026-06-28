@@ -30,6 +30,14 @@
     "image": "",
     "mintUrl": "",
     "mintMode": "url",
+    "mintContractAddress": "",
+    "mintFunction": "mint",
+    "mintInstanceId": "",
+    "mintIndex": 0,
+    "mintMerkleProof": [],
+    "mintNativeValueWei": "",
+    "mintPaymentTokenAddress": "",
+    "mintPaymentSpenderAddress": "",
     "mintPriceAmountWei": "25000000000000000000000000",
     "mintPriceLabel": "25M $MFERGPT"
   }

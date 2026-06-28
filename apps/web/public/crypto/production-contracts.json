@@ -17,7 +17,12 @@
     "description": "wallet-held NFT required for onchain goodies at the pond",
     "image": "https://assets.manifold.xyz/optimized/1c6fb1784b33e5b493964a76bab237c5938d3607345942eb2d44edfb439fa518/w_800.jpg",
     "mintUrl": "https://manifold.xyz/@mfergpt/id/4029487344",
-    "mintMode": "url",
+    "mintMode": "wallet",
+    "mintContractAddress": "0x23aa05a271debffaa3d75739af5581f744b326e4",
+    "mintFunction": "manifoldClaim",
+    "mintInstanceId": "4029487344",
+    "mintPaymentTokenAddress": "0x4160efDd66521483c22Cb98b57b87d1fDAfeaB07",
+    "mintPaymentSpenderAddress": "0x23aa05a271debffaa3d75739af5581f744b326e4",
     "mintPriceAmountWei": "25000000000000000000000000",
     "mintPriceLabel": "25M $MFERGPT"
   }

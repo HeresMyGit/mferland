@@ -10,6 +10,7 @@ import {
   FISHING_POLE_ITEM_ID,
   ITEMS,
   LOANER_FISHING_POLE_ITEM_ID,
+  ONCHAIN_FISHING_ROD_ITEM_ID,
   QUESTS,
   SOCIAL,
   SEASON_0_DAILY_POINT_CAP,
@@ -58,6 +59,7 @@ import {
   type LootWindow,
   type MintClubRedemptionResult,
   type NpcSnapshot,
+  type OnchainFishingRodRequirementSnapshot,
   type PlayerSnapshot,
   type QuestOffer,
   type QuestId,
@@ -103,7 +105,14 @@ import {
 } from "./hud/mapUtils";
 import { getActiveQuestGuidance, getPrimaryQuestGuidanceTarget, type ActiveQuestGuidance, type QuestGuidanceTarget } from "./hud/questGuidance";
 import { formatTooltipLabel, getSlotIndexFromPoint, isTypingTarget, percent } from "./hud/utils";
-import { executeFishingPondClaim, getFishingPondClaimTxUrl, getLocalDebugEthereumProvider, getLocalFishingPondClaimProvider } from "../crypto/fishingPond";
+import {
+  executeFishingPondClaim,
+  executeOnchainFishingRodMint,
+  getFishingPondClaimTxUrl,
+  getLocalDebugEthereumProvider,
+  getLocalFishingPondClaimProvider,
+  getOnchainFishingRodMintTxUrl,
+} from "../crypto/fishingPond";
 import {
   approveMintClubRedemption,
   getMintClubRedemptionTxUrl,
@@ -1256,7 +1265,10 @@ export function Hud({
         <MovableWindow id="hud.fishing-nft-cap" as="section" className="loot-panel fishing-nft-cap-panel" disablePositionPersistence>
           <FishingNftCapPanel
             notice={visibleFishingNftCapNotice}
+            player={localPlayer}
             now={now}
+            onRefreshFishingNftHistory={onRefreshFishingNftHistory}
+            onAnalyticsEvent={onCryptoStoreAnalytics}
             onClose={() => dismissFishingNftCapNotice(characterWalletAddress, visibleFishingNftCapNotice, setHiddenFishingNftCapNoticeKey)}
           />
         </MovableWindow>
@@ -3068,13 +3080,22 @@ function QuestRewardList({ rewards }: { rewards: string[] }) {
 
 function FishingNftCapPanel({
   notice,
+  player,
   now,
+  onRefreshFishingNftHistory,
+  onAnalyticsEvent,
   onClose,
 }: {
   notice: FishingNftCapNotice;
+  player: PlayerSnapshot | null;
   now: number;
+  onRefreshFishingNftHistory: () => void;
+  onAnalyticsEvent?: (eventType: string, properties?: CryptoStoreAnalyticsProperties) => void;
   onClose: () => void;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [walletMintTxHash, setWalletMintTxHash] = useState("");
   const isRodHitNotice = notice.kind === "rod_required_nft_hit";
   const isRodNotice = notice.kind === "rod_required" || isRodHitNotice;
   const resetLabel = formatFishingNftResetTime(notice.dailyResetAt, now);
@@ -3092,6 +3113,7 @@ function FishingNftCapPanel({
     ? "Pond restock"
     : "Daily NFT casts";
   const rodRequirement = notice.rodRequirement;
+  const rodMintMode = rodRequirement?.mintMode || (rodRequirement?.mintContractAddress ? "wallet" : "url");
   const capDetail = isRodNotice
     ? rodRequirement
       ? `${rodRequirement.standard}${rodRequirement.standard === "ERC1155" && rodRequirement.tokenId ? ` #${rodRequirement.tokenId}` : ""}`
@@ -3104,10 +3126,55 @@ function FishingNftCapPanel({
   const nextCastLabel = isRodNotice ? "after rod is in wallet" : resetLabel;
   const rodMintPriceLabel = rodRequirement?.mintPriceLabel || "25M $MFERGPT";
   const rodMintUrl = rodRequirement?.mintUrl || "";
+  const canWalletMintRod = Boolean(
+    isRodNotice
+    && rodRequirement?.enabled
+    && rodMintMode === "wallet"
+    && rodRequirement.mintContractAddress,
+  );
   const rodNoticeTitle = isRodHitNotice ? "You almost hooked one" : "Onchain goodies locked";
   const rodNoticeDetail = isRodHitNotice
     ? `That roll would have been an onchain goodie. Regular fish still bite; hold the rod in this wallet before the next lucky reel to catch NFTs.`
     : `Regular fish still bite. Hold the rod in this wallet to unlock onchain goodie catches. Contract mint: ${rodMintPriceLabel}.`;
+  const walletMintTxUrl = walletMintTxHash && rodRequirement
+    ? getOnchainFishingRodMintTxUrl(rodRequirement.chainId, walletMintTxHash)
+    : "";
+
+  async function mintRodFromNotice() {
+    if (!rodRequirement || !canWalletMintRod) {
+      setStatus("rod minting unavailable");
+      return;
+    }
+    if (!player?.walletAddress || player.identityType !== "wallet") {
+      setStatus("wallet character required");
+      return;
+    }
+    const provider = getInjectedEthereumProvider();
+    if (!provider) {
+      setStatus("wallet required");
+      return;
+    }
+
+    setBusy(true);
+    setStatus(rodRequirement.mintPaymentTokenAddress ? "approve tokens if prompted, then mint" : "confirm rod mint");
+    onAnalyticsEvent?.("onchain_fishing_rod_mint_started", getFishingRodNoticeAnalyticsProperties(rodRequirement, "popup_wallet"));
+    try {
+      const txHash = await executeOnchainFishingRodMint(provider, player.walletAddress, rodRequirement);
+      setWalletMintTxHash(txHash);
+      setStatus("rod minted; refreshing wallet");
+      onAnalyticsEvent?.("onchain_fishing_rod_mint_confirmed", getFishingRodNoticeAnalyticsProperties(rodRequirement, "popup_wallet"));
+      onRefreshFishingNftHistory();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "rod mint failed";
+      setStatus(message);
+      onAnalyticsEvent?.("onchain_fishing_rod_mint_failed", {
+        ...getFishingRodNoticeAnalyticsProperties(rodRequirement, "popup_wallet"),
+        error: message.slice(0, 160),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <>
@@ -3137,7 +3204,7 @@ function FishingNftCapPanel({
         {isRodNotice && (
           <span>
             <b>Mint</b>
-            <em>{rodMintUrl ? "open mint page" : "talk to Motherfisher"}</em>
+            <em>{canWalletMintRod ? "wallet mint" : rodMintUrl ? "open mint page" : "talk to Motherfisher"}</em>
           </span>
         )}
         {isRodNotice && (
@@ -3147,8 +3214,25 @@ function FishingNftCapPanel({
           </span>
         )}
       </div>
+      {status && <p className="fishing-nft-claim-status">{status}</p>}
       <div className="fishing-nft-claim-actions">
-        {isRodNotice && (rodMintUrl ? (
+        {walletMintTxUrl && (
+          <a className="quest-accept-btn fishing-nft-mint-btn" href={walletMintTxUrl} target="_blank" rel="noreferrer">
+            <ExternalLink size={17} />
+            tx
+          </a>
+        )}
+        {isRodNotice && (canWalletMintRod ? (
+          <button
+            className="quest-accept-btn fishing-nft-mint-btn"
+            type="button"
+            disabled={busy || Boolean(walletMintTxHash)}
+            onClick={() => void mintRodFromNotice()}
+          >
+            <Check size={17} />
+            {busy ? "minting" : walletMintTxHash ? "minted" : `mint rod (${rodMintPriceLabel})`}
+          </button>
+        ) : rodMintUrl ? (
           <a className="quest-accept-btn fishing-nft-mint-btn" href={rodMintUrl} target="_blank" rel="noreferrer">
             <ExternalLink size={17} />
             mint rod ({rodMintPriceLabel})
@@ -3166,6 +3250,23 @@ function FishingNftCapPanel({
       </div>
     </>
   );
+}
+
+function getFishingRodNoticeAnalyticsProperties(
+  requirement: OnchainFishingRodRequirementSnapshot,
+  stage: string,
+): CryptoStoreAnalyticsProperties {
+  return {
+    itemId: ONCHAIN_FISHING_ROD_ITEM_ID,
+    itemName: "onchain fishing rod",
+    priceLabel: requirement.mintPriceLabel ?? "25M $MFERGPT",
+    expectedPaymentAmountWei: requirement.mintPriceAmountWei ?? "0",
+    chainId: requirement.chainId,
+    contractAddress: requirement.contractAddress,
+    mintContractAddress: requirement.mintContractAddress ?? requirement.contractAddress,
+    mintMode: requirement.mintMode ?? "wallet",
+    stage,
+  };
 }
 
 function FishingNftClaimPanel({
