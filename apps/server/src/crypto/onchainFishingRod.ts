@@ -24,6 +24,30 @@ type CryptoContractsDocument = {
   addresses?: {
     onchainFishingRod?: string;
   };
+  onchainFishingRod?: {
+    enabled?: boolean | string;
+    required?: boolean | string;
+    chainId?: number | string;
+    rpcUrl?: string;
+    contractAddress?: string;
+    standard?: string;
+    tokenId?: string;
+    label?: string;
+    description?: string;
+    image?: string;
+    mintUrl?: string;
+    mintMode?: string;
+    mintContractAddress?: string;
+    mintFunction?: string;
+    mintInstanceId?: string;
+    mintIndex?: number | string;
+    mintMerkleProof?: string | string[];
+    mintNativeValueWei?: string;
+    mintPaymentTokenAddress?: string;
+    mintPaymentSpenderAddress?: string;
+    mintPriceAmountWei?: string;
+    mintPriceLabel?: string;
+  };
 };
 
 export type OnchainFishingRodRuntimeConfig = {
@@ -47,6 +71,8 @@ export type OnchainFishingRodRuntimeConfig = {
   mintPaymentSpenderAddress: string;
   mintPriceAmountWei: string;
   mintPriceLabel: string;
+  image: string;
+  description: string;
   adminMintEnabled: boolean;
   adminMintPaymentRequired: boolean;
   adminMintPrivateKey: Hex | "";
@@ -136,7 +162,8 @@ export async function readOnchainFishingRodWalletNft(
     chainId: config.chainId,
     itemId: ONCHAIN_FISHING_ROD_ITEM_ID,
     label: config.label,
-    description: "wallet-held NFT required for onchain goodies at the pond",
+    description: config.description || "wallet-held NFT required for onchain goodies at the pond",
+    image: config.image || undefined,
     action: "hold",
   };
 }
@@ -202,38 +229,46 @@ export async function resolveOnchainFishingRodConfig(
   const document = explicitAddress && explicitRpcUrl && explicitChainId
     ? null
     : await readContractConfigDocument().catch(() => null);
-  const contractAddress = explicitAddress || normalizeAddress(document?.addresses?.onchainFishingRod);
-  const chainId = explicitChainId || normalizeChainId(document?.chainId);
-  const rpcUrl = explicitRpcUrl || String(document?.rpcUrl ?? "").trim() || getDefaultRpcUrl(chainId);
+  const rodDocument = document?.onchainFishingRod;
+  const contractAddress = explicitAddress
+    || normalizeAddress(rodDocument?.contractAddress)
+    || normalizeAddress(document?.addresses?.onchainFishingRod);
+  const chainId = explicitChainId || normalizeChainId(rodDocument?.chainId ?? document?.chainId);
+  const rpcUrl = explicitRpcUrl || String(rodDocument?.rpcUrl ?? document?.rpcUrl ?? "").trim() || getDefaultRpcUrl(chainId);
   const enabled = explicitEnabled
     ? readBoolean(explicitEnabled, false) && Boolean(contractAddress && chainId && rpcUrl)
+    : rodDocument?.enabled !== undefined
+      ? readBoolean(rodDocument.enabled, false) && Boolean(contractAddress && chainId && rpcUrl)
     : Boolean(contractAddress && chainId && rpcUrl);
 
   return {
     enabled,
-    required: readBoolean(readRodEnv(env, "REQUIRED"), true),
+    required: readBoolean(readRodEnv(env, "REQUIRED") || rodDocument?.required, true),
     chainId: chainId || LOCAL_CHAIN_ID,
     rpcUrl: rpcUrl || DEFAULT_LOCAL_RPC_URL,
     contractAddress,
-    standard: normalizeRodStandard(readRodEnv(env, "STANDARD")),
-    tokenId: sanitizeTokenId(readRodEnv(env, "TOKEN_ID")),
-    label: sanitizeLabel(readRodEnv(env, "LABEL")) || ONCHAIN_FISHING_ROD_DEFAULT_LABEL,
-    mintUrl: sanitizeUrl(readRodEnv(env, "MINT_URL")),
-    mintMode: normalizeMintMode(readRodEnv(env, "MINT_MODE") || readRodEnv(env, "MINT_PATH")),
-    mintContractAddress: normalizeAddress(readRodEnv(env, "MINT_CONTRACT_ADDRESS")) || contractAddress,
-    mintFunction: normalizeMintFunction(readRodEnv(env, "MINT_FUNCTION")),
-    mintInstanceId: sanitizeTokenAmountWei(readRodEnv(env, "MINT_INSTANCE_ID")),
-    mintIndex: sanitizeMintIndex(readRodEnv(env, "MINT_INDEX")),
-    mintMerkleProof: sanitizeMerkleProof(readRodEnv(env, "MINT_MERKLE_PROOF")),
+    standard: normalizeRodStandard(readRodEnv(env, "STANDARD") || rodDocument?.standard),
+    tokenId: sanitizeTokenId(readRodEnv(env, "TOKEN_ID") || rodDocument?.tokenId),
+    label: sanitizeLabel(readRodEnv(env, "LABEL") || rodDocument?.label) || ONCHAIN_FISHING_ROD_DEFAULT_LABEL,
+    mintUrl: sanitizeUrl(readRodEnv(env, "MINT_URL") || rodDocument?.mintUrl),
+    mintMode: normalizeMintMode(readRodEnv(env, "MINT_MODE") || readRodEnv(env, "MINT_PATH") || rodDocument?.mintMode),
+    mintContractAddress: normalizeAddress(readRodEnv(env, "MINT_CONTRACT_ADDRESS") || rodDocument?.mintContractAddress) || contractAddress,
+    mintFunction: normalizeMintFunction(readRodEnv(env, "MINT_FUNCTION") || rodDocument?.mintFunction),
+    mintInstanceId: sanitizeTokenAmountWei(readRodEnv(env, "MINT_INSTANCE_ID") || rodDocument?.mintInstanceId),
+    mintIndex: sanitizeMintIndex(readRodEnv(env, "MINT_INDEX") || rodDocument?.mintIndex),
+    mintMerkleProof: sanitizeMerkleProof(readRodEnv(env, "MINT_MERKLE_PROOF") || rodDocument?.mintMerkleProof),
     mintNativeValueWei: sanitizeTokenAmountWei(
       readRodEnv(env, "MINT_NATIVE_VALUE_WEI")
+        || rodDocument?.mintNativeValueWei
         || readRodEnv(env, "MINT_FEE_WEI")
         || readRodEnv(env, "MINT_VALUE_WEI"),
     ),
-    mintPaymentTokenAddress: normalizeAddress(readRodEnv(env, "MINT_PAYMENT_TOKEN_ADDRESS") || env.MFERLAND_MFERGPT_TOKEN_ADDRESS),
-    mintPaymentSpenderAddress: normalizeAddress(readRodEnv(env, "MINT_PAYMENT_SPENDER_ADDRESS") || readRodEnv(env, "MINT_CONTRACT_ADDRESS")) || contractAddress,
-    mintPriceAmountWei: sanitizeTokenAmountWei(readRodEnv(env, "MINT_PRICE_AMOUNT_WEI")) || ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI,
-    mintPriceLabel: sanitizeLabel(readRodEnv(env, "MINT_PRICE_LABEL")) || ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_LABEL,
+    mintPaymentTokenAddress: normalizeAddress(readRodEnv(env, "MINT_PAYMENT_TOKEN_ADDRESS") || rodDocument?.mintPaymentTokenAddress || env.MFERLAND_MFERGPT_TOKEN_ADDRESS),
+    mintPaymentSpenderAddress: normalizeAddress(readRodEnv(env, "MINT_PAYMENT_SPENDER_ADDRESS") || rodDocument?.mintPaymentSpenderAddress || readRodEnv(env, "MINT_CONTRACT_ADDRESS")) || contractAddress,
+    mintPriceAmountWei: sanitizeTokenAmountWei(readRodEnv(env, "MINT_PRICE_AMOUNT_WEI") || rodDocument?.mintPriceAmountWei) || ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI,
+    mintPriceLabel: sanitizeLabel(readRodEnv(env, "MINT_PRICE_LABEL") || rodDocument?.mintPriceLabel) || ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_LABEL,
+    image: sanitizeUrl(readRodEnv(env, "IMAGE") || rodDocument?.image),
+    description: sanitizeLabel(readRodEnv(env, "DESCRIPTION") || rodDocument?.description),
     adminMintEnabled: readBoolean(readRodEnv(env, "ADMIN_MINT_ENABLED"), false),
     adminMintPaymentRequired: readBoolean(readRodEnv(env, "ADMIN_MINT_PAYMENT_REQUIRED"), true),
     adminMintPrivateKey: normalizePrivateKey(
@@ -297,6 +332,8 @@ function makeDisabledConfig(): OnchainFishingRodRuntimeConfig {
     mintPaymentSpenderAddress: "",
     mintPriceAmountWei: ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_WEI,
     mintPriceLabel: ONCHAIN_FISHING_ROD_MFERGPT_AMOUNT_LABEL,
+    image: "",
+    description: "",
     adminMintEnabled: false,
     adminMintPaymentRequired: true,
     adminMintPrivateKey: "",
@@ -366,8 +403,10 @@ function normalizeMintFunction(value: unknown): OnchainFishingRodMintFunction {
 }
 
 function readBoolean(value: unknown, fallback: boolean) {
-  if (typeof value !== "string" || !value.trim()) return fallback;
-  const normalized = value.trim().toLowerCase();
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string" && typeof value !== "number") return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return fallback;
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return fallback;
@@ -407,9 +446,12 @@ function sanitizeMintIndex(value: unknown) {
 }
 
 function sanitizeMerkleProof(value: unknown): Hex[] {
-  if (typeof value !== "string") return [];
-  return value
-    .split(/[,\s]+/)
+  const parts = Array.isArray(value)
+    ? value.map((part) => String(part))
+    : typeof value === "string"
+      ? value.split(/[,\s]+/)
+      : [];
+  return parts
     .map((part) => part.trim().toLowerCase())
     .filter((part): part is Hex => /^0x[a-f0-9]{64}$/.test(part));
 }

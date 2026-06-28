@@ -16,5 +16,21 @@
     "onchainFishingRod": "0x0000000000000000000000000000000000000000",
     "gear": "",
     "store": ""
+  },
+  "onchainFishingRod": {
+    "enabled": false,
+    "required": true,
+    "chainId": 8453,
+    "rpcUrl": "https://mainnet.base.org",
+    "contractAddress": "0x0000000000000000000000000000000000000000",
+    "standard": "ERC721",
+    "tokenId": "",
+    "label": "onchain fishing rod",
+    "description": "wallet-held NFT required for onchain goodies at the pond",
+    "image": "",
+    "mintUrl": "",
+    "mintMode": "url",
+    "mintPriceAmountWei": "25000000000000000000000000",
+    "mintPriceLabel": "25M $MFERGPT"
   }
 }

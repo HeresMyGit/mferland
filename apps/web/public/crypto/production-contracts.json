@@ -1,0 +1,24 @@
+{
+  "chainId": 8453,
+  "chainName": "Base",
+  "rpcUrl": "https://mainnet.base.org",
+  "generatedAt": "2026-06-28T00:00:00.000Z",
+  "addresses": {
+    "onchainFishingRod": "0x7ad5e32fd403fd6fc696deca42d09b126502669a"
+  },
+  "onchainFishingRod": {
+    "enabled": true,
+    "required": true,
+    "chainId": 8453,
+    "rpcUrl": "https://mainnet.base.org",
+    "contractAddress": "0x7ad5e32fd403fd6fc696deca42d09b126502669a",
+    "standard": "ERC721",
+    "label": "onchain fishing rod",
+    "description": "wallet-held NFT required for onchain goodies at the pond",
+    "image": "https://assets.manifold.xyz/optimized/1c6fb1784b33e5b493964a76bab237c5938d3607345942eb2d44edfb439fa518/w_800.jpg",
+    "mintUrl": "https://manifold.xyz/@mfergpt/id/4029487344",
+    "mintMode": "url",
+    "mintPriceAmountWei": "25000000000000000000000000",
+    "mintPriceLabel": "25M $MFERGPT"
+  }
+}

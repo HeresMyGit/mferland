@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   isOnchainFishingRodRequirementSatisfied,
@@ -83,6 +86,53 @@ test("resolves Manifold claim mint config", async () => {
   assert.deepEqual(config.mintMerkleProof, []);
   assert.equal(config.mintNativeValueWei, "500000000000000");
   assert.equal(config.mintPaymentSpenderAddress, "0x23aa05a271debffaa3d75739af5581f744b326e4");
+});
+
+test("resolves live rod display config from production contracts document", async () => {
+  const previousContractsFile = process.env.MFERLAND_CRYPTO_CONTRACTS_FILE;
+  const dir = await mkdtemp(join(tmpdir(), "mferland-rod-config-"));
+  const configPath = join(dir, "production-contracts.json");
+  await writeFile(configPath, JSON.stringify({
+    chainId: 8453,
+    rpcUrl: "https://mainnet.base.org",
+    addresses: {
+      onchainFishingRod: "0x7ad5e32fd403fd6fc696deca42d09b126502669a",
+    },
+    onchainFishingRod: {
+      enabled: true,
+      required: true,
+      standard: "ERC721",
+      label: "onchain fishing rod",
+      description: "wallet-held NFT required for onchain goodies at the pond",
+      image: "https://assets.manifold.xyz/optimized/1c6fb1784b33e5b493964a76bab237c5938d3607345942eb2d44edfb439fa518/w_800.jpg",
+      mintUrl: "https://manifold.xyz/@mfergpt/id/4029487344",
+      mintMode: "url",
+    },
+  }));
+
+  try {
+    process.env.MFERLAND_CRYPTO_CONTRACTS_FILE = configPath;
+    const config = await resolveOnchainFishingRodConfig({});
+
+    assert.equal(config.enabled, true);
+    assert.equal(config.required, true);
+    assert.equal(config.chainId, 8453);
+    assert.equal(config.rpcUrl, "https://mainnet.base.org");
+    assert.equal(config.contractAddress, "0x7ad5e32fd403fd6fc696deca42d09b126502669a");
+    assert.equal(config.standard, "ERC721");
+    assert.equal(config.label, "onchain fishing rod");
+    assert.equal(config.description, "wallet-held NFT required for onchain goodies at the pond");
+    assert.equal(config.image, "https://assets.manifold.xyz/optimized/1c6fb1784b33e5b493964a76bab237c5938d3607345942eb2d44edfb439fa518/w_800.jpg");
+    assert.equal(config.mintUrl, "https://manifold.xyz/@mfergpt/id/4029487344");
+    assert.equal(config.mintMode, "url");
+  } finally {
+    if (previousContractsFile === undefined) {
+      delete process.env.MFERLAND_CRYPTO_CONTRACTS_FILE;
+    } else {
+      process.env.MFERLAND_CRYPTO_CONTRACTS_FILE = previousContractsFile;
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("resolves ERC1155 onchain fishing rod config and optional requirement", async () => {

@@ -1815,10 +1815,10 @@ export function Hud({
                           data-tooltip={title}
                           aria-label={formatTooltipLabel(title)}
                         >
-                          {walletNft.itemId ? (
-                            <ItemIcon itemId={walletNft.itemId} />
-                          ) : walletNft.image ? (
+                          {walletNft.image ? (
                             <span className="wallet-nft-thumb" aria-hidden="true"><img src={walletNft.image} alt="" loading="lazy" /></span>
+                          ) : walletNft.itemId ? (
+                            <ItemIcon itemId={walletNft.itemId} />
                           ) : (
                             <Gift size={18} />
                           )}
@@ -1903,10 +1903,10 @@ export function Hud({
                       {fishingWalletNfts.map((walletNft) => (
                         <div key={walletNft.id} className="pond-log-row mapped wallet-nft">
                           <span className="pond-log-icon" aria-hidden="true">
-                            {walletNft.itemId ? (
-                              <ItemIcon itemId={walletNft.itemId} />
-                            ) : walletNft.image ? (
+                            {walletNft.image ? (
                               <img src={walletNft.image} alt="" loading="lazy" />
+                            ) : walletNft.itemId ? (
+                              <ItemIcon itemId={walletNft.itemId} />
                             ) : (
                               <Gift size={16} />
                             )}
