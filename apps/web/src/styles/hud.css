@@ -1131,6 +1131,10 @@ button.quest-row {
   text-transform: uppercase;
 }
 
+.fishing-loot-panel {
+  width: min(360px, calc(100vw - 36px));
+}
+
 .fishing-nft-claim-panel {
   right: 118px;
   bottom: 264px;
@@ -1725,6 +1729,19 @@ button.quest-row {
   color: #fff8e0;
   background: rgba(0, 0, 0, 0.32);
   text-align: left;
+}
+
+.fishing-loot-row {
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  min-height: 112px;
+  gap: 12px;
+  padding: 8px 10px;
+}
+
+.fishing-loot-row > .item-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 8px;
 }
 
 .item-row > span:not(.item-icon) {

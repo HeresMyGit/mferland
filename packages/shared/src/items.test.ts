@@ -29,6 +29,7 @@ import {
   FISHING_CATCH_ITEM_IDS,
   FISHING_CHUM_ITEM_ID,
   FISHING_POLE_ITEM_ID,
+  FISHING_RARE_FISH_ITEM_IDS,
   FISHING_SELLABLE_ITEM_IDS,
   FISHING_ZONE,
   LOANER_FISHING_POLE_ITEM_ID,
@@ -109,6 +110,11 @@ test("defines fishing pole and smoking headphone fish items", () => {
   assert.match(ITEMS["old-mfer-shoe"].description, /fish monger/);
   assert.match(ITEMS["reply-gill-minnow"].description, /headphones/);
   assert.match(ITEMS["huge-sartoshi-koi"].description, /smoke/);
+  assert.equal(ITEMS.sartofish.name, "sartofish");
+  assert.equal(ITEMS.sartofish.quality, "rare");
+  assert.match(ITEMS["zombie-angler"].description, /zombie-type/);
+  assert.match(ITEMS["top-hat-ape-crab"].description, /ape-type/);
+  assert.equal(FISHING_RARE_FISH_ITEM_IDS.includes("sartofish"), true);
 });
 
 test("fishing sale bundles use larger requirements for declared agents", () => {
@@ -124,20 +130,36 @@ test("fishing sale bundles use larger requirements for declared agents", () => {
   assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 1, false), 8);
   assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 1, true), 0);
   assert.equal(getFishingSellAwardPoints("huge-sartoshi-koi", 2, true), 8);
+  assert.equal(getFishingRequiredBundleSize("sartofish", false), 1);
+  assert.equal(getFishingSellAwardPoints("sartofish", 1, false), 16);
+  assert.equal(getFishingSellAwardPoints("sartofish", 1, true), 0);
+  assert.equal(getFishingSellAwardPoints("sartofish", 2, true), 16);
+  assert.equal(getFishingRequiredBundleSize("gold-drip-goldfish", false), 3);
+  assert.equal(getFishingRequiredBundleSize("gold-drip-goldfish", true), 6);
   assert.deepEqual(FISHING_SELLABLE_ITEM_IDS, [
     "reply-gill-minnow",
     "blue-smoke-bluegill",
+    "green-fin-mferfish",
     "based-bass",
+    "pipe-whisker-catfish",
+    "spikeball-puffer",
+    "top-hat-ape-crab",
     "huge-sartoshi-koi",
+    "gold-drip-goldfish",
+    "orange-pipe-seahorse",
+    "messy-red-lobster",
+    "zombie-angler",
+    "sartofish",
   ]);
 });
 
 test("fishing loot roll can return fish or no catch and chum boosts rare fish", () => {
   assert.equal(rollFishingCatch(() => 0), "reply-gill-minnow");
   assert.equal(rollFishingCatch(() => 0.99), null);
-  assert.equal(rollFishingCatch(() => 0.805), "based-bass");
-  assert.equal(rollFishingCatch(() => 0.805, 1.25), "huge-sartoshi-koi");
-  assert.equal(rollFishingCatch(() => 0.805, 1.25, FISHING_AGENT_RARE_CHANCE_MULTIPLIER), "based-bass");
+  assert.equal(rollFishingCatch(() => 0.7), "spikeball-puffer");
+  assert.equal(rollFishingCatch(() => 0.7, 1.25), "top-hat-ape-crab");
+  assert.equal(rollFishingCatch(() => 0.7, 1.25, FISHING_AGENT_RARE_CHANCE_MULTIPLIER), "pipe-whisker-catfish");
+  assert.equal(rollFishingCatch(() => 0.872), "sartofish");
   assert.equal(FISHING_AGENT_CATCH_CHANCE_MULTIPLIER, 0.5);
   assert.equal(FISHING_AGENT_RARE_CHANCE_MULTIPLIER, 0.5);
   assert.equal(FISHING_AGENT_NFT_CHANCE_MULTIPLIER, 0.5);
