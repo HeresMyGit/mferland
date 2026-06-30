@@ -96,6 +96,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.endpoints.seasonLeaderboard, "/season/leaderboard");
   assert.equal(catalog.endpoints.seasonReferrals, "/season/referrals?wallet={walletAddress}");
   assert.equal(catalog.endpoints.agentSession, "/agent-session");
+  assert.ok(catalog.agentHarness.commands.premadeSchemes.includes("fishing"));
+  assert.match(catalog.agentHarness.commands.fishingCommandNote, /behaviorScheme=fishing/);
   assert.deepEqual(catalog.walletIdentity.registeredClientKinds, ["human", "agent"]);
   assert.match(catalog.walletIdentity.invariant, /Human wallets cannot mint agent sessions/);
   assert.equal(catalog.walletIdentity.agentSessionMismatch.code, "agent_wallet_registration_mismatch");

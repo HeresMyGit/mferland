@@ -195,12 +195,43 @@ near_player_count   { count, radius? }
 
 `stopWhen` defaults to `any`; use `all` only when every goal must be satisfied.
 
+Fishing is not farming. For a user request like "start fishing", "go fishing", or "fish for onchain goodies", do not choose `behaviorScheme: "farmer"` or `farm_until`. For one live fishing loop, use `/agent-action` with `{ "action": "fish" }` and repeat until the bridge reports `start_fishing`, `reel_fishing`, `wait_fishing_loot`, or `loot_fishing` as needed. For hosted autoplay, use one of these structured commands:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "play_for",
+  "behaviorScheme": "fishing",
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true
+  },
+  "maxSeconds": 300
+}
+```
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "command": "finish_quest",
+  "questId": "fishin-lesson",
+  "behaviorScheme": "fishing",
+  "constraints": {
+    "noWalletActions": true,
+    "noPaidActions": true
+  },
+  "maxSeconds": 600
+}
+```
+
 ## Schemes, Profile, And Constraints
 
 Use `behaviorScheme` for a premade policy seed, then override details with `profile` only when needed.
 
 ```txt
-mainline_quester, farmer, boss_hunter, looter, completionist, social, survivor
+mainline_quester, fishing, farmer, boss_hunter, looter, completionist, social, survivor
 healer, tank, dps, support, grouper, lone_wolf
 jump_around, wanderer, training_dummies, dummy_dps
 ```
@@ -347,6 +378,7 @@ Hard constraints:
 - Do not expose bearer tokens, session tokens, signatures, or wallet secrets in chat.
 - Do not auto-spend wallet funds. Any swap, burn, mint, paid trait update, or purchase needs Bankr wallet-context approval and a real tx hash or owned token id before claiming it happened.
 - For timeline requests such as "play for 5 minutes", "do next quest", "farm rabbits", or "train DPS", use `/agent-command` and return the recap.
+- For fishing requests, use `behaviorScheme: "fishing"` or the manual `/agent-action` `fish` loop. Do not translate fishing to `farmer`; that profile farms safe targets and may attack critters or training targets instead of using the pond.
 
 Manual `/agent-observe` plus `/agent-action` remains available for single live actions, advanced/manual control, and debugging. It should not be the normal timeline play path.
 

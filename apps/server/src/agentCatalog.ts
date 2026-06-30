@@ -205,6 +205,7 @@ export function buildAgentCatalog() {
         },
         premadeSchemes: [...AGENT_PREMADE_BEHAVIOR_SCHEMES],
         premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
+        fishingCommandNote: "Fishing is not farming. For hosted fishing autoplay, use command=play_for with behaviorScheme=fishing, command=fish, or finish_quest with questId=fishin-lesson/lost-fishing-shoes. Use /agent-action action=fish for a single manual fish loop.",
         goals: {
           types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
           note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",

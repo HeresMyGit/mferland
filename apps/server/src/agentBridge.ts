@@ -2266,6 +2266,14 @@ class AgentBridgeSession {
 
   private utilityDecisionForActiveQuest(self: RuntimePlayer, questId: QuestId): AgentBridgeDecision | null {
     const definition = QUESTS[questId] as AnyRecord;
+    if (isFishingQuestId(questId)) {
+      return normalizeDecision({
+        action: "fish",
+        reason: `${questId} requires fishing at the south center pond`,
+        questId,
+      });
+    }
+
     if (questId === FREE_TRAIT_QUEST_ID) {
       const npc = this.resolveNpc("traits-mfer") ?? this.resolveQuestTurnInNpc(questId);
       if (npc && distance2d(self, npc) > QUEST_SEND_RANGE) {
@@ -2308,6 +2316,13 @@ class AgentBridgeSession {
 
   private chooseProfileDecision(command: AgentCommandState, self: RuntimePlayer): AgentBridgeDecision | null {
     const healthRatio = self.maxHealth > 0 ? self.health / self.maxHealth : 1;
+
+    if (this.isFishingScheme(command.behaviorScheme) && healthRatio >= RECOVER_HEALTH_RATIO) {
+      return normalizeDecision({
+        action: "fish",
+        reason: `${command.kind}/fishing: fishing at south center pond`,
+      });
+    }
 
     if (this.isJumpAroundScheme(command.behaviorScheme) && healthRatio >= RECOVER_HEALTH_RATIO) {
       return this.chooseJumpAroundDecision(command, self);
@@ -2361,6 +2376,10 @@ class AgentBridgeSession {
 
   private isJumpAroundScheme(scheme: string) {
     return scheme === "jump_around" || scheme === "wanderer";
+  }
+
+  private isFishingScheme(scheme: string) {
+    return scheme === "fishing";
   }
 
   private isTrainingDummyScheme(scheme: string) {
@@ -7459,7 +7478,8 @@ function normalizeDecision(value: unknown): AgentBridgeDecision {
 
 function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCommandPayload {
   const record = asRecord(value);
-  const kind = normalizeCommandKind(record.command ?? record.kind);
+  const requestedCommand = record.command ?? record.kind;
+  const kind = normalizeCommandKind(requestedCommand);
   if (cleanText(record.objective, 260)) {
     throw new BridgeHttpError(400, "freeform objective is not accepted by /agent-command; translate player intent into structured command, goals, profile, and constraints in the agent runner");
   }
@@ -7467,7 +7487,7 @@ function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCom
   if (codeChunk) {
     throw new BridgeHttpError(400, "hosted /agent-command does not execute codeChunk; run agent-authored code in the external policy runner and call /agent-action or send structured goals/profile");
   }
-  const behaviorScheme = normalizeBehaviorScheme(record.behaviorScheme ?? record.behavior);
+  const behaviorScheme = normalizeCommandBehaviorScheme(record, requestedCommand);
   const controller = normalizeCommandController(record.controller, record.behaviorMode, record.policyRef ?? record.policySource, record.policyHash ?? record.codeChunkHash);
   const profile = normalizeCommandProfile(record.profile, behaviorScheme, kind);
   const goals = normalizeCommandGoals(record.goals, kind, record);
@@ -7521,20 +7541,48 @@ function normalizeCommandKind(value: unknown): AgentCommandKind {
   const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (text === "finish_next_quest" || text === "quest" || text === "next_quest") return "finish_next_quest";
   if (text === "finish_quest" || text === "quest_id") return "finish_quest";
+  if (isFishingCommandAlias(value)) return "play_for";
   if (text === "play_for" || text === "play" || text === "timebox") return "play_for";
   if (text === "farm_until" || text === "farm") return "farm_until";
   if (text === "run_goals" || text === "goal_set" || text === "custom_goal_set" || text === "custom_objective" || text === "custom") return "run_goals";
   return "play_for";
 }
 
+function normalizeCommandBehaviorScheme(record: AnyRecord, requestedCommand: unknown) {
+  const explicit = normalizeBehaviorScheme(record.behaviorScheme ?? record.behavior);
+  if (explicit) return explicit;
+  if (isFishingCommandAlias(requestedCommand) || isFishingQuestId(record.questId)) return "fishing";
+  return "";
+}
+
 function normalizeBehaviorScheme(value: unknown) {
   const text = cleanText(value, 40).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (!text) return "";
+  if (isFishingCommandAlias(text)) return "fishing";
   if (text === "jump" || text === "jumper" || text === "jumping" || text === "jumping_around") return "jump_around";
   if (text === "wander" || text === "wanderer" || text === "aimless" || text === "aimless_wander") return "wanderer";
   if (text === "dummy" || text === "training_dummy" || text === "training_dummies") return "training_dummies";
   if (text === "dummy_dps" || text === "dps_dummy" || text === "training_dummy_dps" || text === "dps_meter") return "dummy_dps";
   return AGENT_PREMADE_BEHAVIOR_SCHEMES.includes(text as typeof AGENT_PREMADE_BEHAVIOR_SCHEMES[number]) ? text : "";
+}
+
+export function isFishingCommandAlias(value: unknown) {
+  const text = cleanText(value, 80).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return [
+    "fish",
+    "fishing",
+    "start_fishing",
+    "go_fishing",
+    "fish_for_onchain_goodies",
+    "onchain_fishing",
+    "onchain_goodies",
+    "pond_fishing",
+  ].includes(text);
+}
+
+export function isFishingQuestId(value: unknown) {
+  const questId = cleanText(value, 96);
+  return questId === "fishin-lesson" || questId === "lost-fishing-shoes";
 }
 
 function normalizeCommandProfile(value: unknown, legacyBehavior: unknown, kind: AgentCommandKind): AgentCommandProfile {
@@ -7562,6 +7610,8 @@ function premadeProfileForScheme(value: unknown, kind: AgentCommandKind): AgentC
     case "quest":
     case "quester":
       return { ...base, priority: "quester", risk: "normal" };
+    case "fishing":
+      return { ...base, priority: "looter", risk: "safe" };
     case "farmer":
     case "farm":
       return { ...base, priority: "farmer", risk: "normal" };

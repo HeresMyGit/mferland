@@ -9,6 +9,8 @@ import {
   generatedQuestTargetAreaPatrolPoints,
   getFishingLootExpectedUntil,
   getQuestAgentHints,
+  isFishingCommandAlias,
+  isFishingQuestId,
   isCommandFailureCapReached,
   isGroupGatedEncounterType,
   isGenericQuestTargetSuppressed,
@@ -218,6 +220,18 @@ test("agent fishing waits for post-reel loot before recasting", () => {
   }, now) > now, true);
   assert.equal(getFishingLootExpectedUntil({ ok: true, outcome: "missed", quantity: 0 }, now), 0);
   assert.equal(getFishingLootExpectedUntil({ ok: false, outcome: "caught", itemId: "reply-gill-minnow", quantity: 1 }, now), 0);
+});
+
+test("hosted command fishing aliases are distinct from farming", () => {
+  assert.equal(isFishingCommandAlias("fish"), true);
+  assert.equal(isFishingCommandAlias("start fishing"), true);
+  assert.equal(isFishingCommandAlias("fish for onchain goodies"), true);
+  assert.equal(isFishingCommandAlias("onchain_goodies"), true);
+  assert.equal(isFishingCommandAlias("farm"), false);
+  assert.equal(isFishingCommandAlias("farmer"), false);
+  assert.equal(isFishingQuestId("fishin-lesson"), true);
+  assert.equal(isFishingQuestId("lost-fishing-shoes"), true);
+  assert.equal(isFishingQuestId("ridge-dispatch"), false);
 });
 
 test("agent command equipment changes summarize loadout updates", () => {

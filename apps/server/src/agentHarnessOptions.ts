@@ -1,5 +1,6 @@
 export const AGENT_PREMADE_BEHAVIOR_SCHEMES = [
   "mainline_quester",
+  "fishing",
   "farmer",
   "boss_hunter",
   "looter",
