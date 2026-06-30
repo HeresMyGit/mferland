@@ -7,6 +7,7 @@ import {
   countHealthyQuestParticipantsNear,
   describeEquipmentChanges,
   generatedQuestTargetAreaPatrolPoints,
+  getFishingLootExpectedUntil,
   getQuestAgentHints,
   isCommandFailureCapReached,
   isGroupGatedEncounterType,
@@ -16,6 +17,7 @@ import {
   normalizeCommandFailureCap,
   routeQueueFromPosition,
   resolveIncompleteRequiredQuestIdForQuests,
+  shouldWaitForPendingFishingLootWindow,
   shouldSkipOptionalBossDailyCommand,
   shouldInterruptMovementForDamage,
 } from "./agentBridge.js";
@@ -191,6 +193,31 @@ test("agent command fishing recap summarizes catches, sales, and NFT names", () 
   assert.equal(recap.soldItems[0]?.points, 4);
   assert.deepEqual(recap.nftCatchNames, ["Artifishial Intelligence"]);
   assert.equal(recap.fishSalePointTotal, 4);
+});
+
+test("agent fishing waits for post-reel loot before recasting", () => {
+  const now = 1_000_000;
+  const expectedUntil = getFishingLootExpectedUntil({
+    ok: true,
+    outcome: "caught",
+    itemId: "reply-gill-minnow",
+    itemName: "reply-gill minnow",
+    quantity: 1,
+  }, now);
+
+  assert.equal(expectedUntil > now, true);
+  assert.equal(shouldWaitForPendingFishingLootWindow(false, expectedUntil, now + 1_000), true);
+  assert.equal(shouldWaitForPendingFishingLootWindow(true, expectedUntil, now + 1_000), false);
+  assert.equal(shouldWaitForPendingFishingLootWindow(false, expectedUntil, expectedUntil + 1), false);
+
+  assert.equal(getFishingLootExpectedUntil({
+    ok: true,
+    outcome: "junk",
+    itemId: "old-mfer-shoe",
+    quantity: 1,
+  }, now) > now, true);
+  assert.equal(getFishingLootExpectedUntil({ ok: true, outcome: "missed", quantity: 0 }, now), 0);
+  assert.equal(getFishingLootExpectedUntil({ ok: false, outcome: "caught", itemId: "reply-gill-minnow", quantity: 1 }, now), 0);
 });
 
 test("agent command equipment changes summarize loadout updates", () => {

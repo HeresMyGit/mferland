@@ -619,6 +619,7 @@ type RecentNpcPlayerCombat = {
 
 const BRIDGE_BODY_LIMIT_BYTES = 64 * 1024;
 const INPUT_INTERVAL_MS = Math.round(1000 / INPUT_SEND_RATE);
+const FISHING_LOOT_WINDOW_EXPECTED_MS = 3_600;
 const INTERACT_SEND_RANGE = 12.5;
 const QUEST_SEND_RANGE = 3.75;
 const INTERACT_APPROACH_DISTANCE = 1.6;
@@ -942,6 +943,7 @@ class AgentBridgeSession {
   private lastPlayerRefs = new Map<string, string>();
   private recentMessages: string[] = [];
   private openLootWindow: OpenLootWindow | null = null;
+  private fishingLootExpectedUntil = 0;
   private pendingSocialMessages: Array<{ sessionId: string; name: string; identityType: string; text: string; kind: string; observedAt: number }> = [];
   private questMemory = new Map<string, QuestMemory>();
   private focusedQuestId = "";
@@ -1050,18 +1052,24 @@ class AgentBridgeSession {
     room.onMessage("experienceEvent", (message: unknown) => this.remember(`xp:${messageSummary(message)}`, true));
     room.onMessage("lootWindow", (message: unknown) => {
       this.openLootWindow = readOpenLootWindow(message);
+      if (this.openLootWindow?.source === "fishing") this.fishingLootExpectedUntil = 0;
       this.remember(`lootWindow:${messageSummary(message)}`, true);
     });
     room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
     room.onMessage("closeLootWindow", (message: unknown) => {
       const npcId = cleanText(asRecord(message).npcId, 128);
-      if (!npcId || this.openLootWindow?.npcId === npcId) this.openLootWindow = null;
+      if (!npcId || this.openLootWindow?.npcId === npcId) {
+        if (this.openLootWindow?.source === "fishing") this.fishingLootExpectedUntil = 0;
+        this.openLootWindow = null;
+      }
       this.remember(`closeLoot:${messageSummary(message)}`);
     });
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
     room.onMessage("fishingResult", (message: unknown) => {
       const sanitized = sanitizeFishingResultMessage(message);
+      const lootExpectedUntil = getFishingLootExpectedUntil(sanitized);
+      if (lootExpectedUntil > 0) this.fishingLootExpectedUntil = lootExpectedUntil;
       this.recordFishingResult(sanitized);
       this.remember(`fishing:${messageSummary(sanitized)}`, true);
     });
@@ -3724,6 +3732,11 @@ class AgentBridgeSession {
           this.lastAction = `loot_fishing ${lootWindow.npcId}`;
           return;
         }
+        if (this.shouldWaitForFishingLootWindow()) {
+          this.stopMovementInput();
+          this.lastAction = "wait_fishing_loot";
+          return;
+        }
         const shore = { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.2, z: FISHING_ZONE.z - 1.2 };
         if (distance2d(self, shore) > 2.6) {
           this.moveTo(shore);
@@ -4377,8 +4390,14 @@ class AgentBridgeSession {
         const lootWindow = this.getOpenFishingLootWindow();
         if (lootWindow) {
           this.targetPoint = null;
+          this.stopMovementInput();
           this.send("lootCorpse", { npcId: lootWindow.npcId });
           this.lastAction = `loot_fishing ${lootWindow.npcId}`;
+          return null;
+        }
+        if (this.shouldWaitForFishingLootWindow()) {
+          this.stopMovementInput();
+          this.lastAction = "wait_fishing_loot";
           return null;
         }
         const shore = { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.2, z: FISHING_ZONE.z - 1.2 };
@@ -5746,6 +5765,10 @@ class AgentBridgeSession {
 
   private getOpenFishingLootWindow() {
     return this.openLootWindow?.source === "fishing" ? this.openLootWindow : null;
+  }
+
+  private shouldWaitForFishingLootWindow(now = Date.now()) {
+    return shouldWaitForPendingFishingLootWindow(Boolean(this.getOpenFishingLootWindow()), this.fishingLootExpectedUntil, now);
   }
 
   private resolveOpenLootWindow(ref: unknown) {
@@ -7275,6 +7298,24 @@ export function actionResultHttpStatus(result: { ok: boolean; status?: string })
   if (result.status === "payment_required" || result.status === "wallet_action_required") return 409;
   if (result.status === "chat_cooldown") return 429;
   return 400;
+}
+
+export function getFishingLootExpectedUntil(message: unknown, now = Date.now()) {
+  const record = asRecord(message);
+  if (record.ok !== true) return 0;
+  const outcome = cleanText(getString(record.outcome), 32);
+  if (outcome !== "caught" && outcome !== "junk") return 0;
+  const itemId = cleanText(getString(record.itemId), 96);
+  const quantity = Math.max(0, Math.floor(getNumber(record.quantity)));
+  return itemId && quantity > 0 ? now + FISHING_LOOT_WINDOW_EXPECTED_MS : 0;
+}
+
+export function shouldWaitForPendingFishingLootWindow(
+  hasOpenFishingLootWindow: boolean,
+  fishingLootExpectedUntil: number,
+  now = Date.now(),
+) {
+  return !hasOpenFishingLootWindow && fishingLootExpectedUntil > now;
 }
 
 export function writeBridgeError(res: ServerResponse, error: unknown, requestId = randomUUID()) {
