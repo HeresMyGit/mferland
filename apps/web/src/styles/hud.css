@@ -1132,7 +1132,7 @@ button.quest-row {
 }
 
 .fishing-loot-panel {
-  width: min(360px, calc(100vw - 36px));
+  width: min(560px, calc(100vw - 36px));
 }
 
 .fishing-nft-claim-panel {
@@ -1732,16 +1732,33 @@ button.quest-row {
 }
 
 .fishing-loot-row {
-  grid-template-columns: 96px minmax(0, 1fr) auto;
-  min-height: 112px;
+  grid-template-columns: 288px minmax(0, 1fr) auto;
+  min-height: 304px;
   gap: 12px;
   padding: 8px 10px;
 }
 
 .fishing-loot-row > .item-icon {
-  width: 96px;
-  height: 96px;
-  border-radius: 8px;
+  width: 288px;
+  height: 288px;
+  border-radius: 10px;
+}
+
+@media (max-width: 640px) {
+  .fishing-loot-panel {
+    width: min(360px, calc(100vw - 36px));
+  }
+
+  .fishing-loot-row {
+    grid-template-columns: 96px minmax(0, 1fr) auto;
+    min-height: 112px;
+  }
+
+  .fishing-loot-row > .item-icon {
+    width: 96px;
+    height: 96px;
+    border-radius: 8px;
+  }
 }
 
 .item-row > span:not(.item-icon) {
