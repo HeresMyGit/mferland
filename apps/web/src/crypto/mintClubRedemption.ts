@@ -7,6 +7,9 @@ export type MintClubRedemptionWalletState = {
   ownedAmount: string;
   approvedForBond: boolean;
   reserveTokenMatches: boolean;
+  reserveTokenAddress: string;
+  reserveTokenSymbol: string;
+  reserveTokenDecimals: number;
   sellEstimateWei: string;
   sellRoyaltyWei: string;
   sellEstimateLabel: string;
@@ -23,31 +26,38 @@ export async function readMintClubRedemptionWalletState(
   redemption: MintClubRedemptionSnapshot,
 ): Promise<MintClubRedemptionWalletState> {
   const nft = mintclub.network(getMintClubNetworkId(redemption.chainId)).nft(redemption.collection);
-  const [balance, bond, estimate, approvedForBond] = await Promise.all([
+  const [balance, bond, bondAddress, reserveToken, estimate] = await Promise.all([
     nft.getBalanceOf(walletAddress as `0x${string}`),
     nft.getTokenBond(),
+    nft.getBondAddress(),
+    nft.getReserveToken(),
     nft.getSellEstimation(1n),
-    nft.getIsApprovedForAll({
-      owner: walletAddress as `0x${string}`,
-      spender: redemption.bondAddress as `0x${string}`,
-    }),
   ]);
+  const approvedForBond = await nft.getIsApprovedForAll({
+    owner: walletAddress as `0x${string}`,
+    spender: bondAddress as `0x${string}`,
+  });
   const [refundAmount = 0n, royaltyAmount = 0n] = Array.isArray(estimate)
     ? estimate as unknown as readonly bigint[]
     : [BigInt(estimate as unknown as bigint), 0n] as const;
   const sellRoyaltyBps = Number(bond.burnRoyalty ?? 0) * 100;
   const mintRoyaltyBps = Number(bond.mintRoyalty ?? 0) * 100;
   const minRefund = applySlippage(refundAmount, redemption.slippageBps);
+  const reserveDecimals = Number(reserveToken.decimals ?? redemption.reserveTokenDecimals);
+  const reserveSymbol = String(reserveToken.symbol || redemption.reserveTokenSymbol || "reserve");
   return {
     ownedAmount: balance.toString(),
     approvedForBond: Boolean(approvedForBond),
-    reserveTokenMatches: bond.reserveToken.toLowerCase() === redemption.reserveTokenAddress.toLowerCase(),
+    reserveTokenMatches: redemption.reserveTokenStrict !== true || bond.reserveToken.toLowerCase() === redemption.reserveTokenAddress.toLowerCase(),
+    reserveTokenAddress: bond.reserveToken,
+    reserveTokenSymbol: reserveSymbol,
+    reserveTokenDecimals: reserveDecimals,
     sellEstimateWei: refundAmount.toString(),
     sellRoyaltyWei: royaltyAmount.toString(),
-    sellEstimateLabel: `${formatUnits(refundAmount, redemption.reserveTokenDecimals)} ${redemption.reserveTokenSymbol}`,
-    sellRoyaltyLabel: `${formatUnits(royaltyAmount, redemption.reserveTokenDecimals)} ${redemption.reserveTokenSymbol}`,
+    sellEstimateLabel: `${formatUnits(refundAmount, reserveDecimals)} ${reserveSymbol}`,
+    sellRoyaltyLabel: `${formatUnits(royaltyAmount, reserveDecimals)} ${reserveSymbol}`,
     minRefundWei: minRefund.toString(),
-    minRefundLabel: `${formatUnits(minRefund, redemption.reserveTokenDecimals)} ${redemption.reserveTokenSymbol}`,
+    minRefundLabel: `${formatUnits(minRefund, reserveDecimals)} ${reserveSymbol}`,
     mintRoyaltyBps,
     sellRoyaltyBps,
     reserveBalanceWei: bond.reserveBalance.toString(),
@@ -62,8 +72,9 @@ export async function approveMintClubRedemption(
   await assertConnectedWallet(provider, walletAddress);
   mintclub.wallet.withAccount(walletAddress as `0x${string}`, provider);
   const nft = mintclub.network(getMintClubNetworkId(redemption.chainId)).nft(redemption.collection);
+  const bondAddress = await nft.getBondAddress();
   const receipt = await nft.approve({
-    spender: redemption.bondAddress as `0x${string}`,
+    spender: bondAddress as `0x${string}`,
     approved: true,
   });
   const txHash = receipt?.transactionHash;

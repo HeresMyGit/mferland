@@ -3641,7 +3641,7 @@ function MintClubRedemptionPanel({
                 </span>
                 <span>
                   <b>Reserve</b>
-                  <em>{redemption?.reserveTokenSymbol ?? "WETH"}</em>
+                  <em>{walletState?.reserveTokenSymbol || redemption?.reserveTokenSymbol || "--"}</em>
                 </span>
               </div>
             </div>

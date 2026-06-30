@@ -1138,6 +1138,7 @@ button.quest-row {
 .fishing-nft-claim-panel {
   right: 118px;
   bottom: 264px;
+  width: min(560px, calc(100vw - 36px));
 }
 
 .fishing-nft-cap-panel {
@@ -1152,11 +1153,11 @@ button.quest-row {
 
 .fishing-nft-claim-card {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 288px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
-  min-height: 52px;
-  padding: 8px;
+  min-height: 304px;
+  padding: 8px 10px;
   border: 1px solid rgba(86, 207, 255, 0.34);
   border-radius: 6px;
   background: rgba(4, 20, 25, 0.5);
@@ -1166,11 +1167,11 @@ button.quest-row {
   display: grid;
   position: relative;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 288px;
+  height: 288px;
   overflow: hidden;
   border: 2px solid #f4c64f;
-  border-radius: 6px;
+  border-radius: 10px;
   color: #ffe79a;
   background:
     radial-gradient(circle at 30% 22%, rgba(255, 255, 221, 0.42), transparent 34%),
@@ -1187,13 +1188,13 @@ button.quest-row {
   pointer-events: none;
   content: "";
   border: 1px solid rgba(255, 244, 185, 0.58);
-  border-radius: 4px;
+  border-radius: 8px;
 }
 
 .fishing-nft-prize-icon img {
   width: 100%;
   height: 100%;
-  border-radius: 5px;
+  border-radius: 8px;
   object-fit: cover;
 }
 
@@ -1785,6 +1786,10 @@ button.quest-row {
     width: min(360px, calc(100vw - 36px));
   }
 
+  .fishing-nft-claim-panel {
+    width: min(360px, calc(100vw - 36px));
+  }
+
   .fishing-loot-row {
     grid-template-columns: 96px minmax(0, 1fr) auto;
     min-height: 112px;
@@ -1795,6 +1800,23 @@ button.quest-row {
     width: 96px;
     height: 96px;
     border-radius: 8px;
+  }
+
+  .fishing-nft-claim-card {
+    grid-template-columns: 96px minmax(0, 1fr);
+    min-height: 112px;
+    gap: 9px;
+  }
+
+  .fishing-nft-prize-icon {
+    width: 96px;
+    height: 96px;
+    border-radius: 8px;
+  }
+
+  .fishing-nft-prize-icon::after,
+  .fishing-nft-prize-icon img {
+    border-radius: 6px;
   }
 
   .fishing-loot-actions {

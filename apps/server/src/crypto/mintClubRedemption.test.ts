@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  MINT_CLUB_BASE_BOND_ADDRESS,
+  MINT_CLUB_BASE_CHAIN_ID,
+  MINT_CLUB_BASE_ERC1155_ADDRESS,
   MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS,
   MINT_CLUB_BASE_SEPOLIA_CHAIN_ID,
   MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS,
@@ -26,18 +29,38 @@ test("Mint Club redemption config only enables with an explicit allowlist", () =
   assert.equal(disabled.bondAddress, MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS);
   assert.equal(disabled.erc1155Address, MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS);
   assert.equal(disabled.reserveTokenAddress, MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS);
+  assert.equal(disabled.reserveTokenStrict, false);
 
   const enabled = resolveMintClubRedemptionConfig({
-    MFERLAND_MINT_CLUB_REDEMPTION_ENABLED: "1",
     MFERLAND_MINT_CLUB_REDEMPTION_ALLOWED_COLLECTIONS: `${ALLOWED_COLLECTION}, not-an-address`,
+    MFERLAND_FISHING_POND_CHAIN_ID: String(MINT_CLUB_BASE_CHAIN_ID),
     MFERLAND_MINT_CLUB_REDEMPTION_SELL_ROYALTY_BPS: "250",
     MFERLAND_MINT_CLUB_REDEMPTION_SLIPPAGE_BPS: "75",
   });
   assert.equal(enabled.enabled, true);
+  assert.equal(enabled.chainId, MINT_CLUB_BASE_CHAIN_ID);
+  assert.equal(enabled.bondAddress, MINT_CLUB_BASE_BOND_ADDRESS);
+  assert.equal(enabled.erc1155Address, MINT_CLUB_BASE_ERC1155_ADDRESS);
+  assert.equal(enabled.reserveTokenAddress, "");
+  assert.equal(enabled.reserveTokenStrict, false);
   assert.equal(enabled.allowedCollections.size, 1);
   assert.equal(enabled.allowedCollections.has(ALLOWED_COLLECTION.toLowerCase()), true);
   assert.equal(enabled.sellRoyaltyBps, 250);
   assert.equal(enabled.slippageBps, 75);
+
+  const explicitlyDisabled = resolveMintClubRedemptionConfig({
+    MFERLAND_MINT_CLUB_REDEMPTION_ENABLED: "0",
+    MFERLAND_MINT_CLUB_REDEMPTION_ALLOWED_COLLECTIONS: ALLOWED_COLLECTION,
+  });
+  assert.equal(explicitlyDisabled.enabled, false);
+
+  const strictReserve = resolveMintClubRedemptionConfig({
+    MFERLAND_MINT_CLUB_REDEMPTION_ENABLED: "true",
+    MFERLAND_MINT_CLUB_REDEMPTION_ALLOWED_COLLECTIONS: ALLOWED_COLLECTION,
+    MFERLAND_MINT_CLUB_REDEMPTION_RESERVE_TOKEN_ADDRESS: MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS,
+  });
+  assert.equal(strictReserve.reserveTokenAddress, MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS);
+  assert.equal(strictReserve.reserveTokenStrict, true);
 });
 
 test("Mint Club redemption eligibility is separate from pond catch allowlist and requires ERC-1155", () => {

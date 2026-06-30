@@ -32,6 +32,9 @@ export const FISHING_NFT_POND_VOUCHER_TTL_MS = FISHING_NFT_POND_MAX_VOUCHER_TTL_
 export const FISHING_NFT_POND_ERC1155_CATCH_AMOUNT = "1";
 export const FISHING_NFT_POND_RANDOMNESS_NOTE =
   "v1 NFT pond randomness is mferland-server-authoritative RNG.";
+export const MINT_CLUB_BASE_CHAIN_ID = 8453;
+export const MINT_CLUB_BASE_BOND_ADDRESS = "0xc5a076cad94176c2996B32d8466Be1cE757FAa27";
+export const MINT_CLUB_BASE_ERC1155_ADDRESS = "0x6c61918eECcC306D35247338FDcf025af0f6120A";
 export const MINT_CLUB_BASE_SEPOLIA_CHAIN_ID = 84532;
 export const MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS = "0x5dfA75b0185efBaEF286E80B847ce84ff8a62C2d";
 export const MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS = "0x4bF67e5C9baD43DD89dbe8fCAD3c213C868fe881";
@@ -239,6 +242,7 @@ export type MintClubRedemptionSnapshot = {
   reserveTokenAddress: string;
   reserveTokenSymbol: string;
   reserveTokenDecimals: number;
+  reserveTokenStrict?: boolean;
   sellRoyaltyBps: number;
   slippageBps: number;
   txHash?: string;

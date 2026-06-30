@@ -1,4 +1,7 @@
 import {
+  MINT_CLUB_BASE_BOND_ADDRESS,
+  MINT_CLUB_BASE_CHAIN_ID,
+  MINT_CLUB_BASE_ERC1155_ADDRESS,
   MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS,
   MINT_CLUB_BASE_SEPOLIA_CHAIN_ID,
   MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS,
@@ -27,6 +30,7 @@ export type MintClubRedemptionRuntimeConfig = {
   reserveTokenAddress: string;
   reserveTokenSymbol: string;
   reserveTokenDecimals: number;
+  reserveTokenStrict: boolean;
   sellRoyaltyBps: number;
   slippageBps: number;
   allowedCollections: Set<string>;
@@ -46,20 +50,28 @@ export type MintClubRedemptionConfirmation = {
 export function resolveMintClubRedemptionConfig(env: NodeJS.ProcessEnv = process.env): MintClubRedemptionRuntimeConfig {
   const enabledValue = readMintClubEnv(env, "ENABLED");
   const allowedCollections = readAllowedCollections(readMintClubEnv(env, "ALLOWED_COLLECTIONS"));
-  const enabled = enabledValue === "1" || enabledValue.toLowerCase() === "true";
-  const chainId = readPositiveInt(readMintClubEnv(env, "CHAIN_ID"), MINT_CLUB_BASE_SEPOLIA_CHAIN_ID);
+  const enabled = enabledValue
+    ? enabledValue === "1" || enabledValue.toLowerCase() === "true"
+    : allowedCollections.size > 0;
+  const chainId = readPositiveInt(
+    readMintClubEnv(env, "CHAIN_ID"),
+    readPositiveInt(env.MFERLAND_FISHING_POND_CHAIN_ID || env.MFERLAND_FISHING_NFT_POND_CHAIN_ID || "", MINT_CLUB_BASE_SEPOLIA_CHAIN_ID),
+  );
+  const configuredReserveTokenAddress = normalizeAddress(readMintClubEnv(env, "RESERVE_TOKEN_ADDRESS"));
+  const reserveTokenAddress = configuredReserveTokenAddress || defaultReserveTokenAddressForChain(chainId);
   return {
     enabled: enabled && allowedCollections.size > 0,
     chainId,
-    rpcUrl: readMintClubEnv(env, "RPC_URL") || env.MFERLAND_CHAIN_RPC_URL || defaultRpcUrlForChain(chainId),
-    bondAddress: normalizeAddress(readMintClubEnv(env, "BOND_ADDRESS")) || MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS,
-    erc1155Address: normalizeAddress(readMintClubEnv(env, "ERC1155_ADDRESS")) || MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS,
-    reserveTokenAddress: normalizeAddress(readMintClubEnv(env, "RESERVE_TOKEN_ADDRESS")) || MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS,
-    reserveTokenSymbol: readMintClubEnv(env, "RESERVE_TOKEN_SYMBOL") || MINT_CLUB_REDEMPTION_RESERVE_TOKEN_SYMBOL,
+    rpcUrl: readMintClubEnv(env, "RPC_URL") || env.MFERLAND_FISHING_POND_RPC_URL || env.MFERLAND_CHAIN_RPC_URL || defaultRpcUrlForChain(chainId),
+    bondAddress: normalizeAddress(readMintClubEnv(env, "BOND_ADDRESS")) || defaultBondAddressForChain(chainId),
+    erc1155Address: normalizeAddress(readMintClubEnv(env, "ERC1155_ADDRESS")) || defaultErc1155AddressForChain(chainId),
+    reserveTokenAddress,
+    reserveTokenSymbol: reserveTokenAddress ? readMintClubEnv(env, "RESERVE_TOKEN_SYMBOL") || MINT_CLUB_REDEMPTION_RESERVE_TOKEN_SYMBOL : "",
     reserveTokenDecimals: readPositiveInt(
       readMintClubEnv(env, "RESERVE_TOKEN_DECIMALS"),
       MINT_CLUB_REDEMPTION_RESERVE_TOKEN_DECIMALS,
     ),
+    reserveTokenStrict: Boolean(configuredReserveTokenAddress),
     sellRoyaltyBps: readPositiveInt(readMintClubEnv(env, "SELL_ROYALTY_BPS"), MINT_CLUB_DEFAULT_SELL_ROYALTY_BPS),
     slippageBps: readPositiveInt(readMintClubEnv(env, "SLIPPAGE_BPS"), MINT_CLUB_REDEMPTION_DEFAULT_SLIPPAGE_BPS),
     allowedCollections,
@@ -98,6 +110,7 @@ export function makeMintClubRedemptionSnapshot(
     reserveTokenAddress: config.reserveTokenAddress,
     reserveTokenSymbol: config.reserveTokenSymbol,
     reserveTokenDecimals: config.reserveTokenDecimals,
+    reserveTokenStrict: config.reserveTokenStrict,
     sellRoyaltyBps: config.sellRoyaltyBps,
     slippageBps: config.slippageBps,
     txHash: record.mintClubRedemptionTxHash || undefined,
@@ -141,7 +154,7 @@ export async function verifyMintClubRedemptionReceipt({
       const args = decoded.args;
       if (args.token.toLowerCase() !== expectedToken) continue;
       if (normalizeWalletAddress(args.user) !== expectedUser) continue;
-      if (args.reserveToken.toLowerCase() !== expectedReserve) continue;
+      if (config.reserveTokenStrict && args.reserveToken.toLowerCase() !== expectedReserve) continue;
       if (args.amountBurned < expectedAmount) continue;
       return {
         txHash,
@@ -185,7 +198,23 @@ function readPositiveInt(value: string, fallback: number) {
 }
 
 function defaultRpcUrlForChain(chainId: number) {
+  if (chainId === MINT_CLUB_BASE_CHAIN_ID) return "https://base-rpc.publicnode.com";
   if (chainId === MINT_CLUB_BASE_SEPOLIA_CHAIN_ID) return "https://sepolia.base.org";
+  return "";
+}
+
+function defaultBondAddressForChain(chainId: number) {
+  if (chainId === MINT_CLUB_BASE_CHAIN_ID) return MINT_CLUB_BASE_BOND_ADDRESS;
+  return MINT_CLUB_BASE_SEPOLIA_BOND_ADDRESS;
+}
+
+function defaultErc1155AddressForChain(chainId: number) {
+  if (chainId === MINT_CLUB_BASE_CHAIN_ID) return MINT_CLUB_BASE_ERC1155_ADDRESS;
+  return MINT_CLUB_BASE_SEPOLIA_ERC1155_ADDRESS;
+}
+
+function defaultReserveTokenAddressForChain(chainId: number) {
+  if (chainId === MINT_CLUB_BASE_SEPOLIA_CHAIN_ID) return MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS;
   return "";
 }
 
