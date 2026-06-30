@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   actionResultHttpStatus,
+  buildAgentCommandFishingRecap,
   buildAgentCommandSocialRecap,
   countHealthyQuestParticipantsNear,
   describeEquipmentChanges,
@@ -107,6 +108,89 @@ test("agent command social recap summarizes nearby players and chat", () => {
   assert.match(recap.summary, /playerone/);
   assert.match(recap.summary, /questbot \(agent\)/);
   assert.match(recap.summary, /daily boss later/);
+});
+
+test("agent command fishing recap summarizes catches, sales, and NFT names", () => {
+  const recap = buildAgentCommandFishingRecap({
+    resultCount: 3,
+    outcomeCounts: { caught: 2, junk: 1 },
+    catchTotals: new Map([
+      ["sartofish", {
+        itemId: "sartofish",
+        itemName: "Sartofish",
+        quantity: 2,
+        outcome: "caught",
+      }],
+      ["old-mfer-shoe", {
+        itemId: "old-mfer-shoe",
+        itemName: "Old Mfer Shoe",
+        quantity: 1,
+        outcome: "junk",
+      }],
+    ]),
+    catchEvents: [{
+      attemptId: "attempt-1",
+      outcome: "caught",
+      itemId: "sartofish",
+      itemName: "Sartofish",
+      quantity: 2,
+    }],
+    saleTotals: new Map([
+      ["sartofish", {
+        itemId: "sartofish",
+        itemName: "Sartofish",
+        quantity: 2,
+        points: 4,
+        bundleSize: 2,
+      }],
+    ]),
+    saleEvents: [{
+      ok: true,
+      status: "sold",
+      sold: [{
+        itemId: "sartofish",
+        itemName: "Sartofish",
+        quantity: 2,
+        points: 4,
+        bundleSize: 2,
+      }],
+      quantity: 2,
+      points: 4,
+      season0Points: 44,
+      season0DailyPoints: 4,
+      gateReason: "",
+      gateEligible: true,
+      error: "",
+    }],
+    nftCatches: new Map([
+      ["catch-1", {
+        catchId: "catch-1",
+        status: "confirmed",
+        walletActionRequired: false,
+        collection: "0x1111111111111111111111111111111111111111",
+        metadata: { name: "Artifishial Intelligence" },
+        mintClubRedemption: { status: "eligible" },
+      }],
+    ]),
+    capNotices: [],
+  }, {
+    enabled: true,
+    stocked: true,
+    perWalletDailyCap: 3,
+    walletDailyRemaining: 2,
+    globalDailyCap: 50,
+    globalDailyRemaining: 49,
+  }, null);
+
+  assert.match(recap.summary, /3 fishing reels/);
+  assert.match(recap.summary, /caught 2 Sartofish and 1 Old Mfer Shoe/);
+  assert.match(recap.summary, /sold 2 Sartofish for 4 Season 0 points/);
+  assert.match(recap.summary, /NFT catch: Artifishial Intelligence/);
+  assert.match(recap.summary, /1 Mint Club goodie ready/);
+  assert.equal(recap.caughtItems.length, 2);
+  assert.equal(recap.soldItems[0]?.points, 4);
+  assert.deepEqual(recap.nftCatchNames, ["Artifishial Intelligence"]);
+  assert.equal(recap.fishSalePointTotal, 4);
 });
 
 test("agent command equipment changes summarize loadout updates", () => {

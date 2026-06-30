@@ -1373,8 +1373,8 @@ class MferlandRunner {
         "If self.inventory contains sellableTrash items and you are safe, use sell_trash_items at trash-mfer to sell them for Season 0 points. This is a free room message, not a wallet burn.",
         "Trash sells for a base value from catalog.trashVendor. Declared agents need catalog.trashVendor.agentItemsPerPoint trash for 1 point; remainders stay in inventory and agents must pass the Agent Season 0 reward gate.",
         "Use fish near catalog.fishing.zone when self has a fishing pole, is safe, and fishing progress or fish inventory would help. The harness casts, waits for bite, reels, and loots the fishing lootWindow through normal room messages. NFT claim offers immediately spend one daily NFT catch; rod_required_nft_hit means the reel would have produced an onchain goodie if the wallet held the rod. Use refresh_fishing_nft_history after reconnects or wallet actions to refresh pond catches, onchain rod rows, daily remaining count, and Mint Club redemption state.",
-        "Onchain goodie catches may require an onchain fishing rod wallet holding. Production wallet tooling should mint through the configured NFT/Manifold mint contract or mint URL; that contract handles any MFERGPT burn/payment. NFT claims and Mint Club redemptions are wallet actions: external wallet tooling signs the transaction, then reports the tx hash through the normal submit message.",
-        "Use sell_fish_items at catalog.fishing.npcId to sell fish bundles and clear zero-point pond junk. Declared agents need catalog.fishing.agentBundleMultiplier times each fish bundle size for the same Season 0 points.",
+        "Onchain goodie catches may require an onchain fishing rod wallet holding. Production wallet tooling should mint through the configured NFT/Manifold mint contract or mint URL; that contract handles any MFERGPT burn/payment. NFT claims and Mint Club redemptions are wallet actions: wallet players can use the in-game onchain-goodies UI, while headless runners need wallet tooling to sign the FishingPond claim or Mint Club Bond burn/sell transaction, then report the tx hash through the normal submit message.",
+        "Use sell_fish_items at catalog.fishing.vendorNpcId to sell fish bundles and clear zero-point pond junk. Declared agents need catalog.fishing.agentBundleMultiplier times each fish bundle size for the same Season 0 points.",
         "If Agent Rewards or Season 0 chat says this agent is inactive/insufficient, you may briefly tell nearby humans that declared agents need 25M MFERGPT on Base to earn Season 0 points, and humans can use swap-mfer or the swap menu to swap Base ETH to MFERGPT. Do not spam this.",
         "Season point caps, referral rules, and public season endpoints are in catalog.season0 and catalog.endpoints. Agents do not bind, count, or earn human referral bonuses.",
         "If a human asks about referrals, explain the human-only wallet link format, immediate referral earning from eligible human base Season 0 quest/event points, cumulative 20% bonus, 500 bonus cap per side, 10-referral limit, no cascade, that human referrers can remove a referral from the Referrals tab to reclaim the slot and remove referral bonus points, and the /season/leaderboard and /season/referrals?wallet=... endpoints.",
@@ -2888,9 +2888,9 @@ class MferlandRunner {
       }
       case "sell_fish_items": {
         const fishing = asRecord(this.catalog?.fishing);
-        const fishingNpcId = cleanText(fishing.npcId, 96) || "motherfisher";
+        const fishingNpcId = cleanText(fishing.vendorNpcId, 96) || cleanText(fishing.npcId, 96) || "fish-monger";
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(fishingNpcId);
-        if (!npc) throw new Error("sell_fish_items requires Motherfisher to be visible in room state");
+        if (!npc) throw new Error("sell_fish_items requires fish monger to be visible in room state");
         this.clearEngagement();
         if (distance2d(self, npc) > QUEST_SEND_RANGE) {
           this.moveNearNpc(self, npc);

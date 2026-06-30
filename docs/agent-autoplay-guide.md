@@ -97,6 +97,7 @@ Every command returns a recap the calling agent can tell the player:
 - nearby players or agents seen during the run
 - public chat that happened during the run
 - damage, healing, DPS, target breakdowns, and training-dummy DPS when combat happened
+- fishing reel totals, named catches, fish sales/points, NFT catch names/status, wallet-action needs, and daily NFT remaining values when fishing happened
 
 Example:
 

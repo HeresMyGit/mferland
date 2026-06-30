@@ -475,9 +475,49 @@ type AgentCommandCombatStats = {
   targets: Map<string, AgentCommandCombatTargetStats>;
 };
 
-type AgentCommandFishingStats = {
+type AgentCommandFishingItemTotal = {
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  outcome: string;
+};
+
+type AgentCommandFishingCatchEvent = {
+  attemptId: string;
+  outcome: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+};
+
+type AgentCommandFishingSaleItem = {
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  points: number;
+  bundleSize: number;
+};
+
+type AgentCommandFishingSaleEvent = {
+  ok: boolean;
+  status: string;
+  sold: AgentCommandFishingSaleItem[];
+  quantity: number;
+  points: number;
+  season0Points: number;
+  season0DailyPoints: number;
+  gateReason: string;
+  gateEligible: boolean | null;
+  error: string;
+};
+
+export type AgentCommandFishingStats = {
   resultCount: number;
   outcomeCounts: Record<string, number>;
+  catchTotals: Map<string, AgentCommandFishingItemTotal>;
+  catchEvents: AgentCommandFishingCatchEvent[];
+  saleTotals: Map<string, AgentCommandFishingSaleItem>;
+  saleEvents: AgentCommandFishingSaleEvent[];
   nftCatches: Map<string, AnyRecord>;
   capNotices: AnyRecord[];
 };
@@ -1039,7 +1079,10 @@ class AgentBridgeSession {
       this.remember(`fishingNftHistory:${messageSummary(message)}`, true);
     });
     room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => this.remember(`fishingSupply:${messageSummary(message)}`, true));
-    room.onMessage("fishingVendorSellResult", (message: unknown) => this.remember(`fishingVendor:${messageSummary(message)}`, true));
+    room.onMessage("fishingVendorSellResult", (message: unknown) => {
+      this.recordFishingVendorSellResult(message);
+      this.remember(`fishingVendor:${messageSummary(message)}`, true);
+    });
     room.onMessage("mintClubRedemptionResult", (message: unknown) => this.remember(`mintClubRedemption:${messageSummary(message)}`, true));
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
@@ -3674,13 +3717,20 @@ class AgentBridgeSession {
       }
       case "fish": {
         this.clearRoute();
+        const lootWindow = this.getOpenFishingLootWindow();
+        if (lootWindow) {
+          this.stopMovementInput();
+          this.send("lootCorpse", { npcId: lootWindow.npcId });
+          this.lastAction = `loot_fishing ${lootWindow.npcId}`;
+          return;
+        }
         const shore = { x: FISHING_ZONE.x + FISHING_ZONE.waterRadius + 3.2, z: FISHING_ZONE.z - 1.2 };
         if (distance2d(self, shore) > 2.6) {
           this.moveTo(shore);
           this.lastAction = "move_to_fishing_pond";
           return;
         }
-        this.targetPoint = null;
+        this.stopMovementInput();
         const fishingState = cleanText(self.fishingState, 24);
         const attemptId = cleanText(self.fishingAttemptId, 128);
         if (fishingState === "bite") {
@@ -3692,6 +3742,7 @@ class AgentBridgeSession {
           this.lastAction = `wait_fishing_${fishingState}`;
           return;
         }
+        this.stopMovementInput();
         this.send("startFishing", {});
         this.lastAction = "start_fishing";
         return;
@@ -4338,7 +4389,7 @@ class AgentBridgeSession {
         }
         const fishingState = cleanText(self.fishingState, 24);
         const attemptId = cleanText(self.fishingAttemptId, 128);
-        this.targetPoint = null;
+        this.stopMovementInput();
         if (fishingState === "bite") {
           this.send("reelFishing", attemptId ? { attemptId } : {});
           this.lastAction = "reel_fishing";
@@ -4348,6 +4399,7 @@ class AgentBridgeSession {
           this.lastAction = `wait_fishing_${fishingState}`;
           return null;
         }
+        this.stopMovementInput();
         this.send("startFishing", {});
         this.lastAction = "start_fishing";
         return null;
@@ -4465,6 +4517,12 @@ class AgentBridgeSession {
     );
     this.send("input", { x, z, yaw: this.yaw, sprint: Boolean(this.targetPoint), jump, seq: ++this.seq });
     this.publishAgentStatus(self);
+  }
+
+  private stopMovementInput() {
+    this.targetPoint = null;
+    if (!this.room) return;
+    this.send("input", { x: 0, z: 0, yaw: this.yaw, sprint: false, jump: false, seq: ++this.seq });
   }
 
   private fight(self: RuntimePlayer, npc: RuntimeNpc) {
@@ -6818,7 +6876,77 @@ class AgentBridgeSession {
     const outcome = cleanText(getString(record.outcome), 32) || "unknown";
     command.fishing.resultCount += 1;
     command.fishing.outcomeCounts[outcome] = (command.fishing.outcomeCounts[outcome] ?? 0) + 1;
+    const itemId = cleanText(getString(record.itemId), 96);
+    const quantity = Math.max(0, Math.floor(getNumber(record.quantity)));
+    if (itemId && quantity > 0) {
+      const itemName = cleanText(getString(record.itemName), 96) || itemId;
+      const total = command.fishing.catchTotals.get(itemId) ?? {
+        itemId,
+        itemName,
+        quantity: 0,
+        outcome,
+      };
+      total.itemName = itemName;
+      total.quantity += quantity;
+      total.outcome = outcome;
+      command.fishing.catchTotals.set(itemId, total);
+      command.fishing.catchEvents = [...command.fishing.catchEvents.slice(-11), {
+        attemptId: cleanText(getString(record.attemptId), 128),
+        outcome,
+        itemId,
+        itemName,
+        quantity,
+      }];
+    }
     if (record.nftCatch) this.recordFishingNftCatch(record.nftCatch);
+  }
+
+  private recordFishingVendorSellResult(message: unknown) {
+    const command = this.runningCommand();
+    if (!command) return;
+    const record = asRecord(message);
+    const sold = Array.isArray(record.sold)
+      ? record.sold.map((entry) => {
+        const soldRecord = asRecord(entry);
+        return {
+          itemId: cleanText(getString(soldRecord.itemId), 96),
+          itemName: cleanText(getString(soldRecord.itemName), 96),
+          quantity: Math.max(0, Math.floor(getNumber(soldRecord.quantity))),
+          points: Math.max(0, Math.floor(getNumber(soldRecord.points))),
+          bundleSize: Math.max(0, Math.floor(getNumber(soldRecord.bundleSize))),
+        };
+      }).filter((entry) => entry.itemId && entry.quantity > 0)
+      : [];
+    const gate = asRecord(record.mferGptGate);
+    const status = cleanText(getString(record.status), 32) || (record.ok ? "sold" : "error");
+    const event: AgentCommandFishingSaleEvent = {
+      ok: Boolean(record.ok),
+      status,
+      sold,
+      quantity: Math.max(0, Math.floor(getNumber(record.quantity))),
+      points: Math.max(0, Math.floor(getNumber(record.points))),
+      season0Points: Math.max(0, Math.floor(getNumber(record.season0Points))),
+      season0DailyPoints: Math.max(0, Math.floor(getNumber(record.season0DailyPoints))),
+      gateReason: cleanText(getString(gate.reason), 48),
+      gateEligible: gate.eligible === undefined ? null : Boolean(gate.eligible),
+      error: cleanText(getString(record.error), 160),
+    };
+    command.fishing.saleEvents = [...command.fishing.saleEvents.slice(-5), event];
+    if (!event.ok || status !== "sold") return;
+    for (const soldItem of sold) {
+      const total = command.fishing.saleTotals.get(soldItem.itemId) ?? {
+        itemId: soldItem.itemId,
+        itemName: soldItem.itemName || soldItem.itemId,
+        quantity: 0,
+        points: 0,
+        bundleSize: soldItem.bundleSize,
+      };
+      total.itemName = soldItem.itemName || total.itemName;
+      total.quantity += soldItem.quantity;
+      total.points += soldItem.points;
+      total.bundleSize = soldItem.bundleSize || total.bundleSize;
+      command.fishing.saleTotals.set(soldItem.itemId, total);
+    }
   }
 
   private recordFishingNftCatchResult(message: unknown) {
@@ -8591,12 +8719,16 @@ function createCommandFishingStats(): AgentCommandFishingStats {
   return {
     resultCount: 0,
     outcomeCounts: {},
+    catchTotals: new Map(),
+    catchEvents: [],
+    saleTotals: new Map(),
+    saleEvents: [],
     nftCatches: new Map(),
     capNotices: [],
   };
 }
 
-function buildAgentCommandFishingRecap(
+export function buildAgentCommandFishingRecap(
   stats: AgentCommandFishingStats,
   fishingPondConfig: AnyRecord | null,
   activeFishingNftCatch: AnyRecord | null,
@@ -8636,11 +8768,21 @@ function buildAgentCommandFishingRecap(
   const mintClubReadyCount = catches.filter((entry) => getString(asRecord(entry.mintClubRedemption)?.status) === "eligible").length;
   const mintClubSoldCount = catches.filter((entry) => getString(asRecord(entry.mintClubRedemption)?.status) === "confirmed").length;
   const nftCatchCount = catches.length;
+  const nftCatchNames = uniqueRecapStrings(catches.map((entry) => fishingNftCatchDisplayName(entry))).slice(0, 6);
+  const caughtItems = sortFishingItemTotals([...stats.catchTotals.values()]);
+  const soldItems = sortFishingSaleTotals([...stats.saleTotals.values()]);
+  const successfulSales = stats.saleEvents.filter((event) => event.ok && event.status === "sold");
+  const salePointTotal = successfulSales.reduce((sum, event) => sum + event.points, 0);
+  const blockedSale = [...stats.saleEvents].reverse().find((event) => !event.ok && (event.status === "mfergpt_gate" || event.error));
   const outcomeCounts = { ...stats.outcomeCounts };
   const parts = [
     stats.resultCount > 0 ? `${stats.resultCount} fishing reel${stats.resultCount === 1 ? "" : "s"}` : "",
-    nftCatchCount > 0 ? `${nftCatchCount} NFT catch${nftCatchCount === 1 ? "" : "es"} (${confirmedCount} confirmed${pendingWalletActionCount > 0 ? `, ${pendingWalletActionCount} need wallet` : ""})` : "",
+    caughtItems.length ? `caught ${formatFishingItemTotals(caughtItems)}` : "",
+    soldItems.length ? `sold ${formatFishingSaleTotals(soldItems)}${salePointTotal > 0 ? ` for ${formatSeasonPointCount(salePointTotal)}` : " for 0 Season 0 points"}` : "",
+    blockedSale ? `fish sale blocked (${blockedSale.error || blockedSale.gateReason || blockedSale.status})` : "",
+    nftCatchCount > 0 ? `${nftCatchCount} NFT catch${nftCatchCount === 1 ? "" : "es"}${nftCatchNames.length ? `: ${formatHumanList(nftCatchNames)}` : ""} (${confirmedCount} confirmed${pendingWalletActionCount > 0 ? `, ${pendingWalletActionCount} need wallet` : ""})` : "",
     mintClubReadyCount > 0 ? `${mintClubReadyCount} Mint Club goodie${mintClubReadyCount === 1 ? "" : "s"} ready` : "",
+    mintClubSoldCount > 0 ? `${mintClubSoldCount} Mint Club goodie${mintClubSoldCount === 1 ? "" : "s"} sold` : "",
     pondEnabled && perWalletDailyCap > 0 ? `${walletDailyRemaining}/${perWalletDailyCap} NFT catches remaining today` : "",
     rodWalletActionRequired ? `${getString(rodRequirement?.label) || "onchain fishing rod"} required for NFT catches; mint through the rod contract${getString(rodRequirement?.mintPriceLabel) ? ` (${getString(rodRequirement?.mintPriceLabel)})` : ""}` : "",
   ].filter(Boolean);
@@ -8648,9 +8790,15 @@ function buildAgentCommandFishingRecap(
     summary: parts.length ? `fishing ${parts.join(", ")}` : "",
     resultCount: stats.resultCount,
     outcomeCounts,
+    caughtItems,
+    recentCatches: stats.catchEvents.slice(-8),
+    soldItems,
+    fishSales: stats.saleEvents.slice(-6),
+    fishSalePointTotal: salePointTotal,
     nftCatchCount,
     nftConfirmedCount: confirmedCount,
     nftWalletActionRequiredCount: pendingWalletActionCount,
+    nftCatchNames,
     mintClubRedemptionReadyCount: mintClubReadyCount,
     mintClubRedemptionSoldCount: mintClubSoldCount,
     nftCatches: catches.slice(-8),
@@ -8774,6 +8922,41 @@ function formatCountedTargets(values: Array<{ target: string; count: number }>) 
 function pluralizeLabel(value: string) {
   if (/\d/.test(value) || value.endsWith("s")) return value;
   return `${value}s`;
+}
+
+function sortFishingItemTotals<T extends { itemName: string; quantity: number; itemId: string }>(values: T[]) {
+  return values.sort((left, right) => right.quantity - left.quantity || left.itemName.localeCompare(right.itemName) || left.itemId.localeCompare(right.itemId));
+}
+
+function sortFishingSaleTotals(values: AgentCommandFishingSaleItem[]) {
+  return values.sort((left, right) => right.points - left.points || right.quantity - left.quantity || left.itemName.localeCompare(right.itemName));
+}
+
+function formatFishingItemTotals(values: Array<{ itemName: string; quantity: number }>) {
+  return formatHumanList(values.slice(0, 5).map((entry) => formatItemQuantity(entry.itemName, entry.quantity)));
+}
+
+function formatFishingSaleTotals(values: AgentCommandFishingSaleItem[]) {
+  return formatHumanList(values.slice(0, 5).map((entry) => formatItemQuantity(entry.itemName, entry.quantity)));
+}
+
+function formatItemQuantity(name: string, quantity: number) {
+  const label = cleanText(name, 96) || "item";
+  return `${quantity} ${label}`;
+}
+
+function formatSeasonPointCount(points: number) {
+  return `${points} Season 0 point${points === 1 ? "" : "s"}`;
+}
+
+function fishingNftCatchDisplayName(entry: AnyRecord) {
+  const metadata = asRecord(entry.metadata);
+  const redemption = asRecord(entry.mintClubRedemption);
+  return cleanText(getString(metadata.name), 96)
+    || cleanText(getString(entry.pondEntryId), 96)
+    || cleanText(getString(redemption.collection), 96)
+    || cleanText(getString(entry.collection), 96)
+    || cleanText(getString(entry.contractAddress), 42);
 }
 
 function formatHumanList(values: string[]) {

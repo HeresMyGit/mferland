@@ -235,13 +235,13 @@ Agent playbook:
 - Collect normal fish/junk loot windows with `lootCorpse`.
 - Interact with `pond-ledger-mfer` when you need today's onchain-goodie offer count, remaining NFT catch slots, global cap state, and reset time. The response is a private NPC chat message to that player.
 - If an NFT catch appears, read the `fishingNftCatch` observation and wallet-action metadata. The offer immediately spends one of today's NFT catches. Sign the `FishingPond.claim` transaction with the agent-controlled wallet, then send `submitFishingNftClaimTx` with `{ catchId, txHash }`, or send `abandonFishingNftCatch` before tx submission to forfeit the offer without refunding the daily count.
-- If a confirmed catch includes `mintClubRedemption`, external wallet tooling may approve the Mint Club Bond, sell/burn one ERC-1155 unit, then send `submitMintClubRedemptionTx` with `{ catchId, txHash, status: "confirmed" }`. The server only records confirmation after the Mint Club `Burn` event matches the catch.
+- If a confirmed catch includes `mintClubRedemption`, wallet players can use the in-game `onchain-goodies-mfer` UI to approve the Mint Club Bond, sell/burn one ERC-1155 unit, then send `submitMintClubRedemptionTx` with `{ catchId, txHash, status: "confirmed" }`. Headless agents need wallet tooling for the same transaction. The server only records confirmation after the Mint Club `Burn` event matches the catch.
 - Send `refreshFishingNftHistory` after reconnects or wallet actions to refresh pond catches, rod stash rows, daily remaining values, and redemption status.
 - If the wallet hits the daily NFT cap, continue regular fishing; the cap only stops pond NFT awards.
 
 Declared agents have reduced fishing odds: normal non-quest reels get an extra 50% miss roll, rare fish chance is multiplied by `0.5`, and NFT pond chance is multiplied by `0.5`.
 
-Agent command recaps include fishing totals, NFT catch counts, pending wallet-action count, current wallet/global daily remaining values, and the daily reset timestamp when the pond is configured. Agents should include those fields when reporting a fishing run.
+Agent command recaps include fishing reel totals, named regular catches, fish vendor sales and points, NFT catch names/status, pending wallet-action count, current wallet/global daily remaining values, and the daily reset timestamp when the pond is configured. Agents should include those fields when reporting a fishing run.
 
 Live admin list:
 
@@ -266,7 +266,7 @@ curl -fsS https://game.mfergpt.lol/agent-catalog | jq '.fishing.pond'
 curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x0000000000000000000000000000000000000000"
 ```
 
-For the first real pond session, keep a small allowlist and cap, deposit low-value mint.club NFTs, run one human claim and one declared-agent fishing pass, then check the `FishingPond.CatchClaimed` event and server catch history before raising caps or adding more collections. For Mint Club-enabled ERC-1155 catches, also open `onchain-goodies-mfer`, confirm the UI shows image/name/description, owned amount, approval state, WETH reward estimate, 3% sell royalty, min return, and contract links, then sell/burn one item and verify the server recorded the matching Mint Club `Burn` event.
+For the first real pond session, keep a small allowlist and cap, deposit low-value mint.club NFTs, run one human claim and one declared-agent fishing pass, then check the `FishingPond.CatchClaimed` event and server catch history before raising caps or adding more collections. For Mint Club-enabled ERC-1155 catches, also open `onchain-goodies-mfer`, confirm the UI shows image/name/description, owned amount, approval state, live reserve-token reward estimate, live sell royalty, min return, and contract links, then sell/burn one item and verify the server recorded the matching Mint Club `Burn` event.
 
 The default `500` bps catch chance can make the first human smoke noisy. For a monitored smoke only, temporarily set `MFERLAND_FISHING_POND_CATCH_CHANCE_BPS="2500"` in the live root `.env`, restart, complete one low-value human test claim, then restore the launch value and restart again. This uses the normal production config path and does not require `MFERLAND_DEBUG_FISHING_NFT_GATE`. A 25% smoke rate can still take a few reels; avoid `10000` unless an explicitly deterministic single-cast proof is worth the product distortion. Declared agents still apply the intended 50% NFT catch multiplier, so an agent NFT claim may need multiple completed reels; a declared-agent fishing pass is enough to prove the agent playbook if a claim is not required.
 
