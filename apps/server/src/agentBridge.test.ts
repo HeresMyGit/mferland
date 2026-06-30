@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   actionResultHttpStatus,
   buildAgentCommandFishingRecap,
+  buildFishingNftClaimWalletAction,
   buildAgentCommandSocialRecap,
   countHealthyQuestParticipantsNear,
   describeEquipmentChanges,
@@ -177,6 +178,7 @@ test("agent command fishing recap summarizes catches, sales, and NFT names", () 
         mintClubRedemption: { status: "eligible" },
       }],
     ]),
+    nftClaimWalletActions: new Map(),
     capNotices: [],
   }, {
     enabled: true,
@@ -221,6 +223,44 @@ test("agent fishing waits for post-reel loot before recasting", () => {
   }, now) > now, true);
   assert.equal(getFishingLootExpectedUntil({ ok: true, outcome: "missed", quantity: 0 }, now), 0);
   assert.equal(getFishingLootExpectedUntil({ ok: false, outcome: "caught", itemId: "reply-gill-minnow", quantity: 1 }, now), 0);
+});
+
+test("agent NFT fishing catches produce a claim wallet action", () => {
+  const action = buildFishingNftClaimWalletAction({
+    catchId: "0x86bb58d201e723d63e20e25294881da5bd60b5b47d84109005f789cef7c15421",
+    status: "voucher_issued",
+    walletActionRequired: true,
+    walletAddress: "0x39225d40c7a7157a838eccdb05d09208d47fd523",
+    standard: "ERC1155",
+    collection: "0xf2461ba88fd5efdb88b0172d430e6ad277c91091",
+    tokenId: "0",
+    amount: "1",
+    pondEntryId: "8",
+    chainId: 8453,
+    contractAddress: "0xa08939464d3dc6d2ece0a4ba51449a068073329a",
+    expiresAt: 1782845905,
+    metadata: { name: "inference eel" },
+    voucher: {
+      catchId: "0x86bb58d201e723d63e20e25294881da5bd60b5b47d84109005f789cef7c15421",
+      fisher: "0x39225d40c7a7157a838eccdb05d09208d47fd523",
+      tokenStandard: 1,
+      standard: "ERC1155",
+      collection: "0xf2461ba88fd5efdb88b0172d430e6ad277c91091",
+      tokenId: "0",
+      amount: "1",
+      pondEntryId: "8",
+      expiresAt: 1782845905,
+      chainId: 8453,
+      verifyingContract: "0xa08939464d3dc6d2ece0a4ba51449a068073329a",
+      signature: "0x1234",
+    },
+  });
+
+  assert.equal(action?.action, "claim_fishing_nft");
+  assert.equal(action?.catchId, "0x86bb58d201e723d63e20e25294881da5bd60b5b47d84109005f789cef7c15421");
+  assert.equal(action?.transaction.to, "0xa08939464d3dc6d2ece0a4ba51449a068073329a");
+  assert.match(String(action?.transaction.data), /^0x/);
+  assert.equal(action?.submitAction.action, "submit_fishing_nft_claim_tx");
 });
 
 test("hosted command fishing aliases are distinct from farming", () => {

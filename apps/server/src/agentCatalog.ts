@@ -505,7 +505,7 @@ export function buildAgentCatalog() {
         "Move to the south-center pond shore until self.fishing.nearZone is true, then send startFishing.",
         "Wait while self.fishing.state is casting or waiting; when it becomes bite, send reelFishing before biteWindowMs expires.",
         "If reelFishing returns caught or junk, collect the fishing lootWindow with lootCorpse before expecting inventory or quest progress.",
-        "If reelFishing returns nft, that offer immediately uses one of today's NFT catches. Wallet players can use the in-game pond/onchain UI; headless wallet tooling must sign FishingPond.claim and then send submitFishingNftClaimTx with the tx hash, or send abandonFishingNftCatch before tx submission to forfeit the claim while keeping the daily offer spent.",
+        "If reelFishing returns nft, that offer immediately uses one of today's NFT catches. Wallet players can use the in-game pond/onchain UI; hosted /agent-command stops with walletActionRequired.action=claim_fishing_nft. Headless wallet tooling must sign FishingPond.claim and then send submitFishingNftClaimTx, or /agent-action action=submit_fishing_nft_claim_tx, with the tx hash. It may send abandonFishingNftCatch before tx submission to forfeit the claim while keeping the daily offer spent.",
         "If onchain rod ownership is required, production wallet tooling should mint through the configured rod NFT mint contract or mint URL; the NFT contract is responsible for any 25M MFERGPT burn/payment. purchaseOnchainFishingRod is only the local/test server-mint fallback.",
         "Interact with pond ledger mfer for today's onchain-goodie offer count, remaining NFT catch slots, global cap state, and reset time.",
         "Send refreshFishingNftHistory after wallet actions or on reconnect to refresh pond NFT catches, rod stash rows, daily remaining count, and redemption state.",
@@ -571,7 +571,7 @@ export function buildAgentCatalog() {
           "server confirms only after a successful receipt with CatchClaimed",
         ],
         walletActionRequired: true,
-        agentNote: "Hosted bridge agents cannot sign wallet claims. Wallet players can use the in-game pond/onchain UI; headless policy/wallet tooling must execute the claim transaction, then send submitFishingNftClaimTx through the normal room.",
+        agentNote: "Hosted bridge agents cannot sign wallet claims internally. When /agent-command returns walletActionRequired.action=claim_fishing_nft, wallet-capable callers such as Bankr should submit the provided transaction from the player wallet, then call /agent-action with action=submit_fishing_nft_claim_tx, catchId, and txHash before continuing to fish.",
       },
       mintClubRedemption: {
         npcId: MINT_CLUB_REDEMPTION_NPC_ID,

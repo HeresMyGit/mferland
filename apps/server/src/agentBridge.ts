@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Client, type Room } from "colyseus.js";
+import { encodeFunctionData, parseAbi } from "viem";
 import {
   AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   COMBAT,
@@ -123,6 +124,8 @@ export type AgentBridgeDecision = {
   paymentAmountWei?: string | null;
   paymentChainId?: number | null;
   paymentContractAddress?: string | null;
+  catchId?: string | null;
+  txHash?: string | null;
   sprint?: boolean | null;
   jump?: boolean | null;
   traits?: AnyRecord | null;
@@ -519,6 +522,7 @@ export type AgentCommandFishingStats = {
   saleTotals: Map<string, AgentCommandFishingSaleItem>;
   saleEvents: AgentCommandFishingSaleEvent[];
   nftCatches: Map<string, AnyRecord>;
+  nftClaimWalletActions: Map<string, AnyRecord>;
   capNotices: AnyRecord[];
 };
 
@@ -590,6 +594,7 @@ type AgentCommandState = {
   social: AgentCommandSocialMemory;
   combat: AgentCommandCombatStats;
   fishing: AgentCommandFishingStats;
+  walletActionRequired: AnyRecord | null;
 };
 
 type CombatMemoryEntry = {
@@ -826,6 +831,8 @@ const DECISION_ACTIONS = [
   "purchase_fishing_supply",
   "sell_trash_items",
   "fish",
+  "claim_fishing_nft",
+  "submit_fishing_nft_claim_tx",
   "refresh_fishing_nft_history",
   "sell_fish_items",
   "update_traits",
@@ -839,6 +846,7 @@ const WALLET_DECISION_ACTIONS = new Set<string>([
   "register_chain_gear",
   "purchase_potion_shop_item",
   "purchase_fishing_supply",
+  "claim_fishing_nft",
   "update_traits",
 ]);
 const PAID_DECISION_ACTIONS = new Set<string>([
@@ -848,6 +856,9 @@ const PAID_DECISION_ACTIONS = new Set<string>([
   "update_traits",
 ]);
 const FREE_TRAIT_QUEST_ID = "set-your-traits";
+const FISHING_POND_CLAIM_ABI = parseAbi([
+  "function claim((bytes32 catchId,address fisher,uint8 standard,address collection,uint256 tokenId,uint256 amount,uint256 pondEntryId,uint256 expiresAt,uint256 chainId,address verifyingContract) voucher, bytes signature)",
+]);
 const DEFAULT_COMMAND_PROFILE: AgentCommandProfile = {
   priority: "auto",
   role: "auto",
@@ -895,6 +906,8 @@ const DECISION_SCHEMA = {
     paymentAmountWei: { type: ["string", "null"] },
     paymentChainId: { type: ["number", "null"] },
     paymentContractAddress: { type: ["string", "null"] },
+    catchId: { type: ["string", "null"] },
+    txHash: { type: ["string", "null"] },
     sprint: { type: ["boolean", "null"] },
     jump: { type: ["boolean", "null"] },
     traits: { type: ["object", "null"], additionalProperties: { type: "string" } },
@@ -920,6 +933,8 @@ const DECISION_SCHEMA = {
     "paymentAmountWei",
     "paymentChainId",
     "paymentContractAddress",
+    "catchId",
+    "txHash",
     "sprint",
     "jump",
     "traits",
@@ -944,6 +959,7 @@ class AgentBridgeSession {
   private recentMessages: string[] = [];
   private openLootWindow: OpenLootWindow | null = null;
   private fishingLootExpectedUntil = 0;
+  private fishingNftClaimWalletActions = new Map<string, AnyRecord>();
   private pendingSocialMessages: Array<{ sessionId: string; name: string; identityType: string; text: string; kind: string; observedAt: number }> = [];
   private questMemory = new Map<string, QuestMemory>();
   private focusedQuestId = "";
@@ -1067,6 +1083,7 @@ class AgentBridgeSession {
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
     room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
     room.onMessage("fishingResult", (message: unknown) => {
+      this.recordFishingNftClaimWalletAction(asRecord(message).nftCatch);
       const sanitized = sanitizeFishingResultMessage(message);
       const lootExpectedUntil = getFishingLootExpectedUntil(sanitized);
       if (lootExpectedUntil > 0) this.fishingLootExpectedUntil = lootExpectedUntil;
@@ -1074,6 +1091,7 @@ class AgentBridgeSession {
       this.remember(`fishing:${messageSummary(sanitized)}`, true);
     });
     room.onMessage("fishingNftCatchResult", (message: unknown) => {
+      this.recordFishingNftClaimWalletAction(asRecord(message).catch);
       const sanitized = sanitizeFishingNftCatchMessage(message);
       this.recordFishingNftCatchResult(sanitized);
       this.remember(`fishingNft:${messageSummary(sanitized)}`, true);
@@ -1263,6 +1281,8 @@ class AgentBridgeSession {
         abilityId: "actionId",
         routeId: "text",
         tokenId: "text for register_chain_gear",
+        catchId: "catchId for submit_fishing_nft_claim_tx",
+        txHash: "txHash or paymentTxHash for submit_fishing_nft_claim_tx",
       },
       walletActions: this.buildWalletActionGuide(),
       objective: this.objective,
@@ -1487,6 +1507,7 @@ class AgentBridgeSession {
       social: { players: new Map(), chat: [] },
       combat: createCommandCombatStats(),
       fishing: createCommandFishingStats(),
+      walletActionRequired: null,
     };
     this.commands.set(command.commandId, command);
     this.activeCommandId = command.commandId;
@@ -1552,11 +1573,24 @@ class AgentBridgeSession {
         await this.finishCommand(command, "completed", stop);
         break;
       }
+      const pendingFishingClaim = this.getPendingFishingNftClaimWalletAction(command);
+      if (pendingFishingClaim) {
+        command.walletActionRequired = pendingFishingClaim;
+        await this.finishCommand(command, "wallet_action_required", "fishing_nft_claim_required");
+        break;
+      }
 
       const decision = this.chooseCommandDecision(command, self);
       try {
         const result = await this.execute(decision);
         if (result.report) command.reports = [...command.reports.slice(-19), result.report];
+        if (result.walletActionRequired) command.walletActionRequired = result.walletActionRequired;
+        const pendingFishingClaimAfterAction = this.getPendingFishingNftClaimWalletAction(command);
+        if (pendingFishingClaimAfterAction) {
+          command.walletActionRequired = pendingFishingClaimAfterAction;
+          await this.finishCommand(command, "wallet_action_required", "fishing_nft_claim_required");
+          break;
+        }
         const status = result.status || "";
         if (!result.ok && status === "chat_cooldown") {
           await delay(Math.min(DEFAULT_CHAT_COOLDOWN_MS, Math.max(350, result.retryAfterMs ?? 1000)));
@@ -3201,10 +3235,12 @@ class AgentBridgeSession {
         equipmentChanges,
         status: command.status,
         stoppedBecause: command.stoppedBecause,
+        walletActionRequired: command.walletActionRequired || undefined,
         summary,
       result: {
         status: command.status,
         stoppedBecause: command.stoppedBecause,
+        walletActionRequired: command.walletActionRequired || undefined,
         durationMs,
           questChangeCount: questChanges.length,
           inventoryChangeCount: inventoryChanges.length,
@@ -3473,6 +3509,7 @@ class AgentBridgeSession {
       case "sell_trash_items":
       case "sell_fish_items":
       case "fish":
+      case "submit_fishing_nft_claim_tx":
       case "refresh_fishing_nft_history":
         return 10_000;
       case "loot":
@@ -3642,6 +3679,11 @@ class AgentBridgeSession {
           return { status: "completed", stoppedBecause: this.lastAction.startsWith("loot_fishing") ? "fishing_loot_collected" : "fishing_result", durationMs };
         }
         return null;
+      case "submit_fishing_nft_claim_tx":
+        if (this.recentMessages.some((message) => message.startsWith("fishingNft:"))) {
+          return { status: "completed", stoppedBecause: "fishing_nft_claim_tx_submitted", durationMs };
+        }
+        return null;
       case "refresh_fishing_nft_history":
         if (this.recentMessages.some((message) => message.startsWith("fishingNftHistory:"))) {
           return { status: "completed", stoppedBecause: "fishing_nft_history_refreshed", durationMs };
@@ -3756,6 +3798,18 @@ class AgentBridgeSession {
       }
       case "fish": {
         this.clearRoute();
+        const walletAction = this.getPendingSessionFishingNftClaimWalletAction()
+          ?? buildFishingNftClaimWalletAction(self.fishingNftCatch);
+        if (walletAction) {
+          this.lastAction = `claim_fishing_nft external ${getString(walletAction.catchId)}`;
+          return {
+            ok: false,
+            status: "wallet_action_required",
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            walletActionRequired: walletAction,
+          };
+        }
         const lootWindow = this.getOpenFishingLootWindow();
         if (lootWindow) {
           this.stopMovementInput();
@@ -3796,6 +3850,15 @@ class AgentBridgeSession {
         this.send("refreshFishingNftHistory", {});
         this.lastAction = "refresh_fishing_nft_history";
         return;
+      case "submit_fishing_nft_claim_tx": {
+        const catchId = cleanText(decision.catchId, 96) || cleanText(decision.text, 96);
+        const txHash = cleanText(decision.txHash, 96) || cleanText(decision.paymentTxHash, 96);
+        if (!catchId || !txHash) throw new Error("submit_fishing_nft_claim_tx requires catchId and txHash");
+        this.clearRoute();
+        this.send("submitFishingNftClaimTx", { catchId, txHash });
+        this.lastAction = `submit_fishing_nft_claim_tx ${catchId}`;
+        return;
+      }
       case "sell_fish_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) return;
@@ -4418,6 +4481,18 @@ class AgentBridgeSession {
       }
       case "fish": {
         this.clearEngagement();
+        const walletAction = this.getPendingSessionFishingNftClaimWalletAction()
+          ?? buildFishingNftClaimWalletAction(self.fishingNftCatch);
+        if (walletAction) {
+          this.lastAction = `claim_fishing_nft external ${getString(walletAction.catchId)}`;
+          return {
+            ok: false,
+            status: "wallet_action_required",
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            walletActionRequired: walletAction,
+          };
+        }
         const lootWindow = this.getOpenFishingLootWindow();
         if (lootWindow) {
           this.targetPoint = null;
@@ -4459,6 +4534,28 @@ class AgentBridgeSession {
         this.send("refreshFishingNftHistory", {});
         this.lastAction = "refresh_fishing_nft_history";
         return null;
+      case "claim_fishing_nft": {
+        const walletAction = this.getPendingSessionFishingNftClaimWalletAction()
+          ?? buildFishingNftClaimWalletAction(self.fishingNftCatch);
+        if (!walletAction) throw new Error("claim_fishing_nft requires an active claim-ready pond NFT catch");
+        this.lastAction = `claim_fishing_nft external ${getString(walletAction.catchId)}`;
+        return {
+          ok: false,
+          status: "wallet_action_required",
+          bridgeSessionId: this.id,
+          lastAction: this.lastAction,
+          walletActionRequired: walletAction,
+        };
+      }
+      case "submit_fishing_nft_claim_tx": {
+        const catchId = cleanText(decision.catchId, 96) || cleanText(decision.text, 96);
+        const txHash = cleanText(decision.txHash, 96) || cleanText(decision.paymentTxHash, 96);
+        if (!catchId || !txHash) throw new Error("submit_fishing_nft_claim_tx requires catchId and txHash");
+        this.clearEngagement();
+        this.send("submitFishingNftClaimTx", { catchId, txHash });
+        this.lastAction = `submit_fishing_nft_claim_tx ${catchId}`;
+        return null;
+      }
       case "sell_fish_items": {
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) throw new Error("sell_fish_items requires fish monger to be visible in room state");
@@ -6923,6 +7020,35 @@ class AgentBridgeSession {
     return command?.status === "running" ? command : null;
   }
 
+  private getPendingFishingNftClaimWalletAction(command: AgentCommandState) {
+    return this.getPendingFishingNftClaimWalletActionFrom([
+      ...this.fishingNftClaimWalletActions.values(),
+      ...command.fishing.nftClaimWalletActions.values(),
+    ]);
+  }
+
+  private getPendingSessionFishingNftClaimWalletAction() {
+    return this.getPendingFishingNftClaimWalletActionFrom([...this.fishingNftClaimWalletActions.values()]);
+  }
+
+  private getPendingFishingNftClaimWalletActionFrom(actions: AnyRecord[]) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return actions
+      .filter((action) => getNumber(action.expiresAt) > nowSeconds + 5)
+      .sort((a, b) => getNumber(a.expiresAt) - getNumber(b.expiresAt))[0] ?? null;
+  }
+
+  private recordFishingNftClaimWalletAction(catchRecord: unknown) {
+    const walletAction = buildFishingNftClaimWalletAction(catchRecord);
+    if (!walletAction) return;
+    const catchId = getString(walletAction.catchId);
+    if (!catchId) return;
+    this.fishingNftClaimWalletActions.set(catchId, walletAction);
+    const command = this.runningCommand();
+    if (!command) return;
+    command.fishing.nftClaimWalletActions.set(catchId, walletAction);
+  }
+
   private recordFishingResult(message: unknown) {
     const command = this.runningCommand();
     if (!command) return;
@@ -7482,6 +7608,8 @@ function normalizeDecision(value: unknown): AgentBridgeDecision {
     paymentAmountWei: nullableText(record.paymentAmountWei),
     paymentChainId: readFiniteNumber(record.paymentChainId) ?? null,
     paymentContractAddress: nullableText(record.paymentContractAddress),
+    catchId: nullableText(record.catchId),
+    txHash: nullableText(record.txHash),
     sprint: typeof record.sprint === "boolean" ? record.sprint : null,
     jump: typeof record.jump === "boolean" ? record.jump : null,
     traits: record.traits && typeof record.traits === "object" && !Array.isArray(record.traits) ? asRecord(record.traits) : null,
@@ -8325,6 +8453,106 @@ function describeFishingNftCatchForAgent(catchRecord: AnyRecord | null) {
   };
 }
 
+export function buildFishingNftClaimWalletAction(catchRecord: unknown) {
+  const record = asRecord(catchRecord);
+  const voucher = asRecord(record.voucher);
+  const catchId = getString(record.catchId) || getString(voucher.catchId);
+  const status = getString(record.status);
+  const expiresAt = getNumber(record.expiresAt) || getNumber(voucher.expiresAt);
+  const walletActionRequired = Boolean(record.walletActionRequired);
+  if (!catchId || status !== "voucher_issued" || !walletActionRequired || !voucher.signature) return null;
+
+  const fisher = getString(voucher.fisher) || getString(record.walletAddress);
+  const verifyingContract = getString(voucher.verifyingContract) || getString(record.contractAddress);
+  const chainId = getNumber(voucher.chainId) || getNumber(record.chainId);
+  const standard = getString(record.standard) || getString(voucher.standard);
+  const collection = getString(voucher.collection) || getString(record.collection);
+  const tokenId = getString(voucher.tokenId) || getString(record.tokenId);
+  const amount = getString(voucher.amount) || getString(record.amount);
+  const pondEntryId = getString(voucher.pondEntryId) || getString(record.pondEntryId);
+  const tokenStandard = Math.floor(getNumber(voucher.tokenStandard));
+  const signature = getString(voucher.signature);
+  if (!fisher || !verifyingContract || !chainId || !collection || !signature) return null;
+
+  try {
+    const claimVoucher = {
+      catchId,
+      fisher,
+      standard,
+      tokenStandard,
+      collection,
+      tokenId,
+      amount,
+      pondEntryId,
+      expiresAt,
+      chainId,
+      verifyingContract,
+      signature,
+    };
+    const data = encodeFunctionData({
+      abi: FISHING_POND_CLAIM_ABI,
+      functionName: "claim",
+      args: [{
+        catchId: catchId as `0x${string}`,
+        fisher: fisher as `0x${string}`,
+        standard: tokenStandard,
+        collection: collection as `0x${string}`,
+        tokenId: BigInt(tokenId),
+        amount: BigInt(amount),
+        pondEntryId: BigInt(pondEntryId),
+        expiresAt: BigInt(expiresAt),
+        chainId: BigInt(chainId),
+        verifyingContract: verifyingContract as `0x${string}`,
+      }, signature as `0x${string}`],
+    });
+    const metadata = describeFishingNftMetadataForAgent(asRecord(record.metadata));
+    return {
+      action: "claim_fishing_nft",
+      reason: "A pond NFT catch is claim-ready. Sign and send this FishingPond.claim transaction from the player wallet, then submit the tx hash with submit_fishing_nft_claim_tx.",
+      catchId,
+      chainId,
+      contractAddress: verifyingContract,
+      walletAddress: fisher,
+      expiresAt,
+      prize: {
+        name: metadata?.name || "onchain pond prize",
+        standard,
+        collection,
+        tokenId,
+        amount,
+        pondEntryId,
+        metadata,
+      },
+      voucher: claimVoucher,
+      transaction: {
+        chainId,
+        from: fisher,
+        to: verifyingContract,
+        data,
+        value: "0x0",
+      },
+      submitAction: {
+        endpoint: "/agent-action",
+        action: "submit_fishing_nft_claim_tx",
+        shape: {
+          action: "submit_fishing_nft_claim_tx",
+          catchId,
+          txHash: "0x...",
+        },
+      },
+      roomMessage: {
+        message: "submitFishingNftClaimTx",
+        shape: {
+          catchId,
+          txHash: "0x...",
+        },
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 function describeMintClubRedemptionForAgent(redemption: AnyRecord | null) {
   if (!redemption) return null;
   const record = {
@@ -8844,6 +9072,7 @@ function createCommandFishingStats(): AgentCommandFishingStats {
     saleTotals: new Map(),
     saleEvents: [],
     nftCatches: new Map(),
+    nftClaimWalletActions: new Map(),
     capNotices: [],
   };
 }
