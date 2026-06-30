@@ -72,7 +72,7 @@ const NFT_METADATA_TIMEOUT_MS = 3500;
 const FISHING_POND_ABI = parseAbi([
   "function nextEntryId() view returns (uint256)",
   "function activeEntryCount() view returns (uint256)",
-  "function activeEntryIdAt(uint256) view returns (uint256)",
+  "function activeEntryIdAt(uint256 index) view returns (uint256)",
   "function entries(uint256) view returns (uint8 standard,address collection,uint256 tokenId,uint256 remainingAmount,address depositor,uint8 status)",
   "function paused() view returns (bool)",
   "function drainStarted() view returns (bool)",
@@ -221,12 +221,13 @@ export async function readFishingPondAvailableEntries(config?: FishingPondRuntim
   return indexedEntries.flatMap((result): FishingPondEntrySnapshot[] => {
     if (!result) return [];
     const [standardValue, collection, tokenId, remainingAmount, depositor, status] = result.entry;
-    if (status !== 1 || remainingAmount <= 0n) return [];
+    if (Number(status) !== 1 || remainingAmount <= 0n) return [];
     const normalizedCollection = normalizeAddress(collection);
     if (!isFishingPondCollectionAllowed(config, normalizedCollection)) return [];
-    const standard = standardValue === FISHING_NFT_POND_CHAIN_STANDARD.ERC721
+    const numericStandard = Number(standardValue);
+    const standard = numericStandard === FISHING_NFT_POND_CHAIN_STANDARD.ERC721
       ? "ERC721"
-      : standardValue === FISHING_NFT_POND_CHAIN_STANDARD.ERC1155
+      : numericStandard === FISHING_NFT_POND_CHAIN_STANDARD.ERC1155
         ? "ERC1155"
         : "";
     if (!standard || !normalizedCollection || !normalizeAddress(depositor)) return [];
