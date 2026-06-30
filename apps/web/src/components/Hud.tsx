@@ -1,5 +1,5 @@
 import { type CSSProperties, type FocusEvent as ReactFocusEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, RefreshCw, Settings, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, Copy, Dumbbell, ExternalLink, Gift, Hand, Info, Laugh, ListChecks, LogOut, Map as MapIcon, Meh, Menu, Music, Package, PartyPopper, RefreshCw, Settings, Share2, Sparkles, UserRound, X, type LucideIcon } from "lucide-react";
 import {
   CHAT,
   COMBAT,
@@ -20,6 +20,7 @@ import {
   TRAIT_CHANGE_BASE_RPC_URL,
   doesItemRevealAllNpcsOnMinimap,
   getFishingNftGameItemMapping,
+  getFishingSellAwardPoints,
   getLevelProgress,
   getInventoryItemKey,
   getItemConsumable,
@@ -27,6 +28,7 @@ import {
   getItemHeirloomStatsPerLevel,
   getNpcDisposition,
   getNpcQuestMarker,
+  isFishingSellableItemId,
   isMerchantNpcId,
   normalizeChainGearTier,
   normalizeItemLevel,
@@ -846,6 +848,12 @@ export function Hud({
     return false;
   }
 
+  function shareFishingLootItem(item: { id: ItemId; count: number }) {
+    const intent = buildFishingLootShareIntent(item);
+    onCryptoStoreAnalytics("fishing_loot_share_opened", getFishingLootShareAnalyticsProperties(item));
+    openShareIntent(intent);
+  }
+
   useEffect(() => {
     if (!carriedSlot) return;
 
@@ -1232,20 +1240,58 @@ export function Hud({
           </button>
           <strong>{lootWindow.npcName}</strong>
           <div className="loot-list">
-            {lootWindow.items.map((item) => (
-              <button
-                key={getInventoryItemKey(item.id, item.chainTokenId)}
-                type="button"
-                className={`item-row${lootWindow.source === "fishing" ? " fishing-loot-row" : ""}`}
-                data-tooltip={getLootItemTitle(item)}
-                aria-label={formatTooltipLabel(getLootItemTitle(item))}
-                onClick={() => onLootCorpse({ npcId: lootWindow.npcId, itemId: item.id, chainTokenId: item.chainTokenId })}
-              >
-                <ItemIcon itemId={item.id} />
-                <span>{ITEMS[item.id].name}</span>
-                <em>x{item.count}</em>
-              </button>
-            ))}
+            {lootWindow.items.map((item) => {
+              const itemKey = getInventoryItemKey(item.id, item.chainTokenId);
+              const itemTitle = getLootItemTitle(item);
+              if (lootWindow.source === "fishing") {
+                return (
+                  <div
+                    key={itemKey}
+                    className="item-row fishing-loot-row"
+                    data-tooltip={itemTitle}
+                    aria-label={formatTooltipLabel(itemTitle)}
+                  >
+                    <ItemIcon itemId={item.id} />
+                    <span>{ITEMS[item.id].name}</span>
+                    <div className="fishing-loot-actions">
+                      <em>x{item.count}</em>
+                      <button
+                        type="button"
+                        title="Grab catch"
+                        aria-label={`Grab ${ITEMS[item.id].name}`}
+                        onClick={() => onLootCorpse({ npcId: lootWindow.npcId, itemId: item.id, chainTokenId: item.chainTokenId })}
+                      >
+                        <Package size={16} />
+                        grab
+                      </button>
+                      <button
+                        type="button"
+                        title="Share catch on X"
+                        aria-label={`Share ${ITEMS[item.id].name} on X`}
+                        onClick={() => shareFishingLootItem(item)}
+                      >
+                        <Share2 size={16} />
+                        share
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={itemKey}
+                  type="button"
+                  className="item-row"
+                  data-tooltip={itemTitle}
+                  aria-label={formatTooltipLabel(itemTitle)}
+                  onClick={() => onLootCorpse({ npcId: lootWindow.npcId, itemId: item.id, chainTokenId: item.chainTokenId })}
+                >
+                  <ItemIcon itemId={item.id} />
+                  <span>{ITEMS[item.id].name}</span>
+                  <em>x{item.count}</em>
+                </button>
+              );
+            })}
           </div>
           <button className="quest-accept-btn" type="button" onClick={() => onLootCorpse({ npcId: lootWindow.npcId })}>
             <Package size={17} />
@@ -1260,6 +1306,7 @@ export function Hud({
             catchSnapshot={visibleFishingNftCatch}
             player={localPlayer}
             onSubmitFishingNftClaimTx={onSubmitFishingNftClaimTx}
+            onAnalyticsEvent={onCryptoStoreAnalytics}
             onClose={() => requestCloseFishingNftClaim(visibleFishingNftCatch)}
           />
         </MovableWindow>
@@ -3277,11 +3324,13 @@ function FishingNftClaimPanel({
   catchSnapshot,
   player,
   onSubmitFishingNftClaimTx,
+  onAnalyticsEvent,
   onClose,
 }: {
   catchSnapshot: NonNullable<PlayerSnapshot["fishingNftCatch"]>;
   player: PlayerSnapshot | null;
   onSubmitFishingNftClaimTx: (message: ClientSubmitFishingNftClaimTx) => void;
+  onAnalyticsEvent?: (eventType: string, properties?: CryptoStoreAnalyticsProperties) => void;
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -3337,6 +3386,12 @@ function FishingNftClaimPanel({
     }
   }
 
+  function shareNftCatch() {
+    const intent = buildFishingNftShareIntent(catchSnapshot);
+    onAnalyticsEvent?.("fishing_nft_catch_share_opened", getFishingNftShareAnalyticsProperties(catchSnapshot));
+    openShareIntent(intent);
+  }
+
   return (
     <>
       <button className="quest-offer-close" type="button" title="Close claim" aria-label="Close NFT claim" onClick={onClose}>
@@ -3366,6 +3421,10 @@ function FishingNftClaimPanel({
             tx
           </a>
         )}
+        <button className="quest-accept-btn" type="button" onClick={shareNftCatch}>
+          <Share2 size={17} />
+          share
+        </button>
         <button className="quest-accept-btn" type="button" disabled={!claimable || busy} onClick={() => void claim()}>
           <Gift size={17} />
           {busy ? "claiming" : catchSnapshot.status === "confirmed" ? "claimed" : "claim"}
@@ -4130,6 +4189,109 @@ function getLootItemTitle(item: { id: ItemId; count: number }) {
     formatItemUtility(item.id),
     "Click to loot",
   ].filter(Boolean).join("\n");
+}
+
+type FishingShareIntent = {
+  text: string;
+  url: string;
+};
+
+function openShareIntent(intent: FishingShareIntent) {
+  if (typeof window === "undefined") return;
+  const url = new URL("https://twitter.com/intent/tweet");
+  url.searchParams.set("text", intent.text);
+  url.searchParams.set("url", intent.url);
+  window.open(url.toString(), "_blank", "noopener,noreferrer");
+}
+
+function buildFishingLootShareIntent(item: { id: ItemId; count: number }): FishingShareIntent {
+  const definition = ITEMS[item.id];
+  const countLabel = item.count > 1 ? `${definition.name} x${item.count}` : definition.name;
+  const valueLabel = getFishingLootShareValueLabel(item);
+  const text = `I caught ${countLabel} from mfertown${valueLabel ? `, worth ${valueLabel}` : ""}. Play mferland:`;
+  return {
+    text,
+    url: buildSharePageUrl("/share/fishing-catch", {
+      item: item.id,
+      count: String(Math.max(1, Math.floor(item.count))),
+    }),
+  };
+}
+
+function buildFishingNftShareIntent(catchSnapshot: FishingNftCatchSnapshot): FishingShareIntent {
+  const displayName = getFishingNftDisplayName(catchSnapshot);
+  const reserveSymbol = catchSnapshot.mintClubRedemption?.reserveTokenSymbol?.trim();
+  const valueText = reserveSymbol ? ` Worth ${reserveSymbol} at the onchain-goodies stand.` : "";
+  return {
+    text: `I hooked ${displayName} from the mfertown onchain pond.${valueText} Play mferland:`,
+    url: buildSharePageUrl("/share/fishing-nft", {
+      name: displayName,
+      image: catchSnapshot.metadata?.image ?? "",
+      collection: catchSnapshot.collection,
+      tokenId: catchSnapshot.tokenId,
+      reserve: reserveSymbol ?? "",
+    }),
+  };
+}
+
+function getFishingLootShareAnalyticsProperties(item: { id: ItemId; count: number }): CryptoStoreAnalyticsProperties {
+  return {
+    source: "fishing_loot_window",
+    itemId: item.id,
+    itemName: ITEMS[item.id].name,
+    count: Math.max(1, Math.floor(item.count)),
+    valueLabel: getFishingLootShareValueLabel(item),
+  };
+}
+
+function getFishingNftShareAnalyticsProperties(catchSnapshot: FishingNftCatchSnapshot): CryptoStoreAnalyticsProperties {
+  return {
+    source: "fishing_nft_claim_panel",
+    catchId: catchSnapshot.catchId,
+    status: catchSnapshot.status,
+    collection: catchSnapshot.collection,
+    tokenId: catchSnapshot.tokenId,
+    chainId: catchSnapshot.chainId,
+    displayName: getFishingNftDisplayName(catchSnapshot),
+    reserveTokenSymbol: catchSnapshot.mintClubRedemption?.reserveTokenSymbol?.trim() ?? "",
+  };
+}
+
+function getFishingLootShareValueLabel(item: { id: ItemId; count: number }) {
+  const itemValue = getShareItemValue(item.id);
+  const totalValue = itemValue * Math.max(1, Math.floor(item.count));
+  if (totalValue > 0) return `${totalValue} $MFERGPT`;
+  if (!isFishingSellableItemId(item.id)) return "";
+  const points = getFishingSellAwardPoints(item.id, item.count, false);
+  return points > 0 ? `${points} season point${points === 1 ? "" : "s"}` : "";
+}
+
+function getShareItemValue(itemId: ItemId) {
+  const value = (ITEMS[itemId] as { value?: unknown }).value;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function buildSharePageUrl(path: string, params: Record<string, string>) {
+  const url = new URL(path, getPublicGameOrigin());
+  for (const [key, value] of Object.entries(params)) {
+    const cleanValue = sanitizeShareParam(value);
+    if (cleanValue) url.searchParams.set(key, cleanValue);
+  }
+  return url.toString();
+}
+
+function getPublicGameOrigin() {
+  if (typeof window === "undefined") return "https://game.mfergpt.lol";
+  if (isLocalShareHost(window.location.hostname)) return "https://game.mfergpt.lol";
+  return window.location.origin;
+}
+
+function isLocalShareHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function sanitizeShareParam(value: string) {
+  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
 function formatItemUtility(itemId: ItemId) {

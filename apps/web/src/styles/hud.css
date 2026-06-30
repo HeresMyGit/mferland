@@ -1744,6 +1744,42 @@ button.quest-row {
   border-radius: 10px;
 }
 
+.fishing-loot-actions {
+  display: grid;
+  gap: 8px;
+  justify-items: stretch;
+  min-width: 78px;
+}
+
+.fishing-loot-actions em {
+  justify-self: end;
+  color: rgba(255, 248, 224, 0.72);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 1000;
+}
+
+.fishing-loot-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 226, 96, 0.32);
+  border-radius: 6px;
+  color: #16110a;
+  background: var(--mfer-yellow);
+  font-size: 11px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.fishing-loot-actions button:last-child {
+  color: #fff8e0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 @media (max-width: 640px) {
   .fishing-loot-panel {
     width: min(360px, calc(100vw - 36px));
@@ -1752,12 +1788,23 @@ button.quest-row {
   .fishing-loot-row {
     grid-template-columns: 96px minmax(0, 1fr) auto;
     min-height: 112px;
+    gap: 9px;
   }
 
   .fishing-loot-row > .item-icon {
     width: 96px;
     height: 96px;
     border-radius: 8px;
+  }
+
+  .fishing-loot-actions {
+    min-width: 70px;
+  }
+
+  .fishing-loot-actions button {
+    min-height: 30px;
+    padding: 0 8px;
+    font-size: 10px;
   }
 }
 

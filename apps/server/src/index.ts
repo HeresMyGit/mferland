@@ -6,7 +6,7 @@ import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
-import { MAX_PLAYERS, ROOM_NAME, type AgentSessionResponse } from "@mferland/shared";
+import { ITEMS, MAX_PLAYERS, ROOM_NAME, isFishingCatchItemId, type AgentSessionResponse } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
 import { areAgentsEnabled } from "./agentAccess.js";
 import { AgentBridgeManager } from "./agentBridge.js";
@@ -186,6 +186,11 @@ const server = createServer((req, res) => {
 
   if (url === "/analytics/event") {
     void handlePublicAnalyticsEvent(req, res);
+    return;
+  }
+
+  if (url === "/share/fishing-catch" || url === "/share/fishing-nft") {
+    serveFishingSharePage(req, res, requestUrl);
     return;
   }
 
@@ -514,6 +519,162 @@ async function handlePublicAnalyticsEvent(req: IncomingMessage, res: ServerRespo
   });
   res.writeHead(202, { "content-type": "application/json" });
   res.end(JSON.stringify({ ok: true, recorded: true }));
+}
+
+function serveFishingSharePage(req: IncomingMessage, res: ServerResponse, requestUrl: URL) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405, {
+      "allow": "GET, HEAD",
+      "content-type": "text/plain; charset=utf-8",
+    });
+    res.end("method not allowed\n");
+    return;
+  }
+
+  const origin = getRequestOrigin(req);
+  const card = requestUrl.pathname === "/share/fishing-catch"
+    ? buildFishingCatchShareCard(requestUrl, origin)
+    : buildFishingNftShareCard(requestUrl, origin);
+
+  if (!card) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("share card not found\n");
+    return;
+  }
+
+  const body = renderFishingShareHtml(card);
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "public, max-age=300",
+  });
+  res.end(req.method === "HEAD" ? undefined : body);
+}
+
+function buildFishingCatchShareCard(requestUrl: URL, origin: string): FishingShareCard | null {
+  const itemId = requestUrl.searchParams.get("item") ?? "";
+  if (!isFishingCatchItemId(itemId)) return null;
+  const count = normalizeShareCount(requestUrl.searchParams.get("count"));
+  const item = ITEMS[itemId];
+  const countLabel = count > 1 ? `${item.name} x${count}` : item.name;
+  const value = getShareItemValue(itemId) * count;
+  const valueText = value > 0 ? ` Worth ${value} $MFERGPT in mfertown.` : "";
+  return {
+    title: `I caught ${countLabel} from mfertown`,
+    description: `A fresh South Center Pond catch.${valueText} Play mferland and cast your own line.`,
+    imageUrl: new URL(`/icons/items/${itemId}.png`, origin).toString(),
+    pageUrl: makeRequestShareUrl(requestUrl, origin),
+    gameUrl: new URL("/", origin).toString(),
+  };
+}
+
+function getShareItemValue(itemId: keyof typeof ITEMS) {
+  const value = (ITEMS[itemId] as { value?: unknown }).value;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function buildFishingNftShareCard(requestUrl: URL, origin: string): FishingShareCard {
+  const name = sanitizeShareText(requestUrl.searchParams.get("name") ?? "onchain pond prize", 96) || "onchain pond prize";
+  const collection = sanitizeShareText(requestUrl.searchParams.get("collection") ?? "", 42);
+  const tokenId = sanitizeShareText(requestUrl.searchParams.get("tokenId") ?? "", 64);
+  const reserve = sanitizeShareText(requestUrl.searchParams.get("reserve") ?? "", 24);
+  const imageUrl = sanitizeShareImageUrl(requestUrl.searchParams.get("image") ?? "") || new URL("/icons/placeholders/loot-pouch.png", origin).toString();
+  const tokenText = collection && tokenId ? ` ${shortShareAddress(collection)} #${tokenId}.` : "";
+  const valueText = reserve ? ` Worth ${reserve} through the onchain-goodies stand.` : "";
+  return {
+    title: `I hooked ${name} from mfertown`,
+    description: `An onchain pond NFT catch.${tokenText}${valueText} Play mferland and fish the onchain pond.`,
+    imageUrl,
+    pageUrl: makeRequestShareUrl(requestUrl, origin),
+    gameUrl: new URL("/", origin).toString(),
+  };
+}
+
+type FishingShareCard = {
+  title: string;
+  description: string;
+  imageUrl: string;
+  pageUrl: string;
+  gameUrl: string;
+};
+
+function renderFishingShareHtml(card: FishingShareCard) {
+  const title = escapeHtml(card.title);
+  const description = escapeHtml(card.description);
+  const imageUrl = escapeHtml(card.imageUrl);
+  const pageUrl = escapeHtml(card.pageUrl);
+  const gameUrl = escapeHtml(card.gameUrl);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <meta name="description" content="${description}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="mferland">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:url" content="${pageUrl}">
+  <meta property="og:image" content="${imageUrl}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${description}">
+  <meta name="twitter:image" content="${imageUrl}">
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #15110b; color: #fff8e0; font: 900 16px system-ui, sans-serif; }
+    main { display: grid; gap: 14px; width: min(480px, calc(100vw - 32px)); }
+    img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 1px solid rgba(255,226,96,.34); border-radius: 8px; background: #000; }
+    a { display: inline-grid; place-items: center; min-height: 40px; padding: 0 16px; border-radius: 6px; color: #16110a; background: #f6cc45; text-decoration: none; text-transform: uppercase; }
+    p { margin: 0; color: rgba(255,248,224,.76); line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="${imageUrl}" alt="">
+    <h1>${title}</h1>
+    <p>${description}</p>
+    <a href="${gameUrl}">play mferland</a>
+  </main>
+</body>
+</html>`;
+}
+
+function makeRequestShareUrl(requestUrl: URL, origin: string) {
+  return new URL(`${requestUrl.pathname}${requestUrl.search}`, origin).toString();
+}
+
+function normalizeShareCount(value: string | null) {
+  const count = Number(value ?? 1);
+  return Number.isFinite(count) ? Math.max(1, Math.min(999, Math.floor(count))) : 1;
+}
+
+function sanitizeShareText(value: string, maxLength: number) {
+  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function sanitizeShareImageUrl(value: string) {
+  const sanitized = sanitizeShareText(value, 1000);
+  if (!sanitized) return "";
+  try {
+    const url = new URL(sanitized);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function shortShareAddress(value: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value) ? `${value.slice(0, 6)}...${value.slice(-4)}` : value;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function handleWalletAuthChallenge(req: IncomingMessage, res: ServerResponse) {
