@@ -171,6 +171,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.fishing.items.find((item) => item.itemId === "huge-sartoshi-koi")?.agentBundleSize, 2);
 
   assert.equal(catalog.agentHarness.bridgeEndpoints.command, "/agent-command");
+  assert.equal(catalog.agentHarness.bridgeEndpoints.fishingTool, "/agent-fishing");
   assert.equal(catalog.agentHarness.readOnlyEndpoints.profile, "/agent-profile?wallet=0x...");
   assert.equal(catalog.agentHarness.readOnlyEndpoints.world, "/agent-world");
   assert.ok(catalog.agentHarness.readOnlyEndpoints.livePlayerFields.includes("agentStatus"));
@@ -201,8 +202,11 @@ test("agent catalog documents normal player menu controls", () => {
   assert.ok(catalog.agentHarness.commands.responseFields.includes("finalState"));
   assert.ok(catalog.agentHarness.commands.responseFields.includes("equipmentChanges"));
   assert.match(catalog.agentHarness.commands.socialRecapNote, /nearby players\/agents/);
+  assert.match(catalog.agentHarness.commands.fishingCommandNote, /dedicated \/agent-fishing tool/);
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-agent-command.json"));
+  assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-fishing.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-mfergpt-swap.json"));
+  assert.equal(catalog.agentHarness.registeredTools.fishing, "/agent-fishing");
   assert.equal(catalog.agentHarness.registeredTools.swapQuote, "/agent-mfergpt-swap-quote");
   assert.match(catalog.agentHarness.registeredTools.xPaymentNote, /EIP-3009/);
 

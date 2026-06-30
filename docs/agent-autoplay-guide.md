@@ -68,7 +68,7 @@ By default, the harness does not auto-sign wallet transactions.
 
 If a command needs a paid action, token burn, mint, or swap, the bridge returns `payment_required` or `wallet_action_required`. The agent's wallet context decides whether to ask the user, sign, submit, and retry with the resulting proof or transaction hash.
 
-Humans can swap in the game or viewer. Registered tool callers can use the MFERGPT swap tool surface, which returns Base Universal Router calldata for ETH to MFERGPT after the zero-value EIP-3009 tool proof. The server reports OpenSea/ERC-8257 usage when that infrastructure is configured, but it still does not sign transactions for the user.
+Humans can swap in the game or viewer. Registered tool callers can use the dedicated `/agent-fishing` tool for pond fishing, NFT claim handoffs, fish sales, and fishing refreshes, and the MFERGPT swap tool surface for Base ETH to MFERGPT calldata after the zero-value EIP-3009 tool proof. The server reports OpenSea/ERC-8257 usage when that infrastructure is configured, but it still does not sign transactions for the user.
 
 ## Playtime And Rewards
 

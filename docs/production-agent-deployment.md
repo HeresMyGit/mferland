@@ -22,7 +22,7 @@ Deploy the server code that includes:
 - normal room messages for movement, quests, combat, loot, items, chat, emotes, fishing, and shops
 - public read-only `/agent-catalog` metadata for controls, menu parity, payment metadata, Season 0 caps/referral rules/endpoints, swap/router details, combat actions, item/equipment definitions, talent trees, potion-shop prices, fishing pond/fish/vendor rules, progression, quests, public world map data, and local-only HUD choices such as quest focus, hotbar layout, settings, trait drafts, potion quantity selection, store selection, and swap slippage
 - bounded bridge command endpoints: `/agent-command` and `/agent-command-stop`
-- ERC-8257/OpenSea-style tool manifests and swap tool endpoints: `/.well-known/ai-tool/mfertown-agent-command.json`, `/.well-known/ai-tool/mfertown-mfergpt-swap.json`, `/agent-mfergpt-swap-quote`, and `/agent-mfergpt-swap-result`
+- ERC-8257/OpenSea-style tool manifests and tool endpoints: `/.well-known/ai-tool/mfertown-agent-command.json`, `/.well-known/ai-tool/mfertown-fishing.json`, `/.well-known/ai-tool/mfertown-mfergpt-swap.json`, `/agent-fishing`, `/agent-mfergpt-swap-quote`, and `/agent-mfergpt-swap-result`
 - public read-only agent facts APIs for simple questions without joining the live room:
   - `/agent-profile?wallet=...` saved character facts: level, XP, equipment, inventory, quests, talents, stats, and active saved buffs
   - `/agent-world` public live town facts: online players, agents/humans, areas, notable NPCs, and totals
@@ -53,11 +53,12 @@ Set these after the registration transactions assign tool IDs:
 ```sh
 MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
 MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERTOWN_FISHING_ID="..."
 MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
 
-Existing deployments that still use `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID` and `MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID` continue to work; the `MFERTOWN` names are the preferred aliases after the tool metadata rename.
+Existing deployments that still use `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID`, `MFERLAND_TOOL_MFERLAND_FISHING_ID`, and `MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID` continue to work; the `MFERTOWN` names are the preferred aliases after the tool metadata rename.
 
 `MFERLAND_TOOL_CREATOR_ADDRESS` must match the wallet used for `register`; it is part of the manifest hash and should not change after registration without an `update-metadata` transaction. `MFERLAND_TOOL_OPERATOR_ADDRESS` must be the `payTo` address used in the zero-value EIP-3009 `X-Payment` challenge and the zero-price x402 pricing recipient in the manifest. Without it, the manifest can still be served with a zero-address fallback, but the tools should not be considered production-callable.
 
@@ -322,9 +323,10 @@ cast send "$FISHING_POND_ADDRESS" "migrateCollectionDeposits(address,uint256,uin
 
 ## OpenSea / ERC-8257 Tool Registration
 
-Register the public OpenSea tools after the `.well-known` manifests are deployed and smoke-tested. For now, register two tools:
+Register the public OpenSea tools after the `.well-known` manifests are deployed and smoke-tested. Register three tools:
 
-- `mfertown-agent-command`: the single gameplay command tool. It covers `start`, `status`, and `stop` operations for bounded autoplay.
+- `mfertown-agent-command`: the general gameplay command tool. It covers `start`, `status`, and `stop` operations for bounded autoplay.
+- `mfertown-fishing`: the dedicated pond fishing tool. It covers fishing `start`/`status`/`stop`, one-step fish loops, NFT claim wallet-action handoffs, claim tx submission, fish sales, and fishing NFT refreshes.
 - `mfertown-mfergpt-swap`: the wallet-action swap helper. It covers quote and result reporting for Base ETH to MFERGPT swaps.
 
 Do not register every read-only facts endpoint as a separate tool unless OpenSea or Bankr specifically asks for that later. The read-only APIs remain useful public context, but the durable agent tool surface should stay focused on actions that need attribution and usage reporting.
@@ -336,17 +338,25 @@ Fetch, validate, hash, and register the exact manifest JSON served by production
 # and MFERLAND_TOOL_OPERATOR_ADDRESS are present in the served manifests.
 
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json > /tmp/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json > /tmp/mfertown-fishing.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json > /tmp/mfertown-mfergpt-swap.json
 
 npx @opensea/tool-sdk validate /tmp/mfertown-agent-command.json
+npx @opensea/tool-sdk validate /tmp/mfertown-fishing.json
 npx @opensea/tool-sdk validate /tmp/mfertown-mfergpt-swap.json
 npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json
 npx @opensea/tool-sdk verify https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 npx @opensea/tool-sdk hash /tmp/mfertown-agent-command.json
+npx @opensea/tool-sdk hash /tmp/mfertown-fishing.json
 npx @opensea/tool-sdk hash /tmp/mfertown-mfergpt-swap.json
 
 PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
   --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json \
+  --network base
+
+PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json \
   --network base
 
 PRIVATE_KEY=0x... RPC_URL=https://mainnet.base.org npx @opensea/tool-sdk register \
@@ -367,6 +377,13 @@ npx @opensea/tool-sdk update-metadata \
   --rpc-url https://mainnet.base.org
 
 npx @opensea/tool-sdk update-metadata \
+  --tool-id <fishing-tool-id> \
+  --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json \
+  --network base \
+  --wallet-provider bankr \
+  --rpc-url https://mainnet.base.org
+
+npx @opensea/tool-sdk update-metadata \
   --tool-id 146 \
   --metadata https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json \
   --network base \
@@ -379,6 +396,7 @@ After registration, set these production variables and restart the server once:
 ```sh
 MFERLAND_TOOL_REGISTRY_ADDRESS="0x..."
 MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID="..."
+MFERLAND_TOOL_MFERTOWN_FISHING_ID="..."
 MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID="..."
 OPENSEA_API_KEY="..."
 ```
@@ -429,6 +447,7 @@ curl -fsS "https://game.mfergpt.lol/agent-milestones?type=centralizer"
 curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -i -X POST https://game.mfergpt.lol/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 curl -I "https://game.mfergpt.lol/agent-view?wallet=0x0000000000000000000000000000000000000000"
@@ -572,7 +591,9 @@ The bridge joins the live `town` room as `identityType: "wallet"` and `agentClie
 
 `/agent-action` uses durable action execution for Bankr-style chat agents: it may wait several seconds while the bridge performs short mechanical continuation for the chosen high-level action, then returns `summary`, `report`, `stoppedBecause`, `suggestedNextAction`, `continuePrompt`, and `durationMs`. The bridge may continue safe combat/movement for an already chosen target after the HTTP response, but it should not choose new quest/shop/social objectives without another Bankr action.
 
-`/agent-command` is the default autoplay surface for bounded tasks. It uses the same bridge session and normal room messages, and returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `equipmentChanges`, `finalState`, `actionReports`, `budget`, `usage`, `social`, and `combat`. `social` includes nearby players/agents seen during the command and recent public chat so calling agents can give alive-world recaps. `combat` includes damage, healing, hit count, DPS, per-target stats, and training-dummy DPS when relevant. `finalState` includes final level, XP, HP/MP, stats, inventory, equipped gear, talents, and active buffs. Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`. The command API does not accept a freeform `objective`; agents translate player requests into structured command/goals/profile/constraints before calling it. Profiles are composable through `priority`, `role`, `spec`, `partyMode`, `risk`, and `social`. The server rejects raw `codeChunk` bodies and does not execute arbitrary policy code; external agent code should run in the caller's policy runner and can pass `controller: { type: "external_policy", policyRef, policyHash }` metadata. Time caps are safety guards and budget controls, not the main success condition. By default deaths, respawns, and safety retreats are reported in command output but do not end the command; set `maxDeaths` or `maxSafetyStops` only when the caller wants a hard failure cap, with `0` meaning stop on the first matching event. When a command caller also provides a valid zero-value EIP-3009 `X-Payment`, the server reports OpenSea tool usage for the registered command tool, but normal wallet-authenticated bridge commands still work without `X-Payment`.
+`/agent-command` is the default autoplay surface for bounded non-fishing tasks. It uses the same bridge session and normal room messages, and returns `status`, `summary`, structured `result`, `goals`, `goalProgress`, `questChanges`, `inventoryChanges`, `equipmentChanges`, `finalState`, `actionReports`, `budget`, `usage`, `social`, `combat`, and `fishing` when relevant. `social` includes nearby players/agents seen during the command and recent public chat so calling agents can give alive-world recaps. `combat` includes damage, healing, hit count, DPS, per-target stats, and training-dummy DPS when relevant. `finalState` includes final level, XP, HP/MP, stats, inventory, equipped gear, talents, and active buffs. Command kinds are `finish_next_quest`, `finish_quest`, `play_for`, `farm_until`, and `run_goals`; fishing aliases still normalize to `play_for` plus `behaviorScheme=fishing`, but registered tool callers should prefer `/agent-fishing`. The command API does not accept a freeform `objective`; agents translate player requests into structured command/goals/profile/constraints before calling it. Profiles are composable through `priority`, `role`, `spec`, `partyMode`, `risk`, and `social`. The server rejects raw `codeChunk` bodies and does not execute arbitrary policy code; external agent code should run in the caller's policy runner and can pass `controller: { type: "external_policy", policyRef, policyHash }` metadata. Time caps are safety guards and budget controls, not the main success condition. By default deaths, respawns, and safety retreats are reported in command output but do not end the command; set `maxDeaths` or `maxSafetyStops` only when the caller wants a hard failure cap, with `0` meaning stop on the first matching event. When a command caller also provides a valid zero-value EIP-3009 `X-Payment`, the server reports OpenSea tool usage for the registered command tool, but normal wallet-authenticated bridge commands still work without `X-Payment`.
+
+`/agent-fishing` is the dedicated ERC-8257 pond fishing surface. It requires the same wallet-bound bridge session as `/agent-command`, accepts `operation=start/status/stop/fish_once/claim_nft/submit_claim_tx/sell_fish/refresh`, and reports usage against the separate `mfertown-fishing` tool id when a valid zero-value `X-Payment` is present. `start` always becomes a fishing command. If an NFT catch is claim-ready, the response returns `status=wallet_action_required` and `walletActionRequired.action=claim_fishing_nft`; wallet-capable callers sign the provided transaction and then call `operation=submit_claim_tx` with `catchId` and `txHash` before continuing to fish.
 
 Single-command caps are balance-tiered: base wallets get 5 minutes, 25M MFERGPT wallets get 15 minutes, and 100M+ MFERGPT wallets get 30 minutes. Rolling 24-hour command usage is stored in Postgres in `agent_command_usage`, and reserved seconds expire after the reserved command time plus a short grace period so crashed commands do not pin quota indefinitely.
 
@@ -586,7 +607,7 @@ Compact observe should expose short-term combat memory in `combat.memory`: recen
 
 Wallet actions stay outside the bridge because a session token cannot sign transactions. For `purchase_potion_shop_item` without proof, the bridge returns `payment_required` with the exact MFERGPT burn details; Bankr burns from the agent wallet and retries with `paymentTxHash`, `paymentAmountWei`, `paymentChainId`, and `paymentContractAddress`. Paid `update_traits` uses the same proof fields. `swap_eth_for_mfergpt` returns `wallet_action_required` with Base/token/router/fallback details so Bankr can perform the swap in its own wallet context. After Bankr buys or mints chain gear, it calls `register_chain_gear` with the owned token id.
 
-For tool-registry swap flows, `/agent-mfergpt-swap-quote` returns ready-to-sign Base Universal Router calldata for ETH to MFERGPT after the caller provides a valid zero-value EIP-3009 `X-Payment` identity proof. `/agent-mfergpt-swap-result` records a submitted tx hash for reports/recaps. The server reports command and swap tool usage to OpenSea when `OPENSEA_API_KEY`, registry address, onchain tool ids, and a valid `X-Payment` are present; failed reporting must not fail a successful tool call.
+For tool-registry swap flows, `/agent-mfergpt-swap-quote` returns ready-to-sign Base Universal Router calldata for ETH to MFERGPT after the caller provides a valid zero-value EIP-3009 `X-Payment` identity proof. `/agent-mfergpt-swap-result` records a submitted tx hash for reports/recaps. The server reports command, fishing, and swap tool usage to OpenSea when `OPENSEA_API_KEY`, registry address, onchain tool ids, and a valid `X-Payment` are present; failed reporting must not fail a successful tool call.
 
 To watch the actual in-game renderer while an agent plays, open the game-engine viewer:
 
@@ -679,9 +700,10 @@ Before public announcement:
 13. Complete one eligible quest turn-in and confirm either gated no-points behavior or reduced Season 0 payout.
 14. Confirm the agent can see nearby human players and agents.
 15. Confirm no local-only auth bypass or test-only env is enabled.
-16. Confirm both `.well-known/ai-tool` manifests validate with `npx @opensea/tool-sdk validate` and produce the expected SDK hashes.
+16. Confirm all three `.well-known/ai-tool` manifests validate with `npx @opensea/tool-sdk validate` and produce the expected SDK hashes.
 17. Confirm `/agent-mfergpt-swap-quote` returns `402` without `X-Payment` and succeeds with a controlled valid zero-value EIP-3009 header.
 18. Confirm `/agent-command` can start a short `play_for` command, return status, and stop cleanly.
-19. Confirm a command recap includes `social.nearbyPlayers`, `social.recentChat`, and a readable `summary` when another player or agent is nearby or chatting.
+19. Confirm `/agent-fishing` can start a short fishing command, return status, stop cleanly, and return `wallet_action_required` with `claim_fishing_nft` when a claim voucher is pending.
+20. Confirm a command recap includes `social.nearbyPlayers`, `social.recentChat`, and a readable `summary` when another player or agent is nearby or chatting.
 
 Do not publish private keys, mnemonics, API keys, or real wallet secrets in the skill package or docs.

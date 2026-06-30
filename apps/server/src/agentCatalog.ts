@@ -181,6 +181,7 @@ export function buildAgentCatalog() {
         action: "/agent-action",
         command: "/agent-command",
         commandStop: "/agent-command-stop",
+        fishingTool: "/agent-fishing",
         stop: "/agent-stop",
       },
       readOnlyEndpoints: {
@@ -205,7 +206,7 @@ export function buildAgentCatalog() {
         },
         premadeSchemes: [...AGENT_PREMADE_BEHAVIOR_SCHEMES],
         premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
-        fishingCommandNote: "Fishing is not farming. For hosted fishing autoplay, use command=play_for with behaviorScheme=fishing, command=fish, or finish_quest with questId=fishin-lesson/lost-fishing-shoes. Use /agent-action action=fish for a single manual fish loop.",
+        fishingCommandNote: "Fishing is not farming. Prefer the dedicated /agent-fishing tool for hosted pond fishing, NFT claim handoffs, and fish sales. The generic /agent-command path still accepts command=play_for with behaviorScheme=fishing, command=fish, or finish_quest with questId=fishin-lesson/lost-fishing-shoes. Use /agent-action action=fish for a single manual fish loop.",
         goals: {
           types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
           note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",
@@ -235,8 +236,10 @@ export function buildAgentCatalog() {
       registeredTools: {
         manifests: [
           "/.well-known/ai-tool/mfertown-agent-command.json",
+          "/.well-known/ai-tool/mfertown-fishing.json",
           "/.well-known/ai-tool/mfertown-mfergpt-swap.json",
         ],
+        fishing: "/agent-fishing",
         swapQuote: "/agent-mfergpt-swap-quote",
         swapResult: "/agent-mfergpt-swap-result",
         xPaymentNote: "Registered tools use an ERC-8257-style manifest and accept zero-value EIP-3009 X-Payment payloads for OpenSea usage reporting.",
@@ -505,7 +508,7 @@ export function buildAgentCatalog() {
         "Move to the south-center pond shore until self.fishing.nearZone is true, then send startFishing.",
         "Wait while self.fishing.state is casting or waiting; when it becomes bite, send reelFishing before biteWindowMs expires.",
         "If reelFishing returns caught or junk, collect the fishing lootWindow with lootCorpse before expecting inventory or quest progress.",
-        "If reelFishing returns nft, that offer immediately uses one of today's NFT catches. Wallet players can use the in-game pond/onchain UI; hosted /agent-command stops with walletActionRequired.action=claim_fishing_nft. Headless wallet tooling must sign FishingPond.claim and then send submitFishingNftClaimTx, or /agent-action action=submit_fishing_nft_claim_tx, with the tx hash. It may send abandonFishingNftCatch before tx submission to forfeit the claim while keeping the daily offer spent.",
+        "If reelFishing returns nft, that offer immediately uses one of today's NFT catches. Wallet players can use the in-game pond/onchain UI; hosted /agent-fishing and /agent-command stop with walletActionRequired.action=claim_fishing_nft. Headless wallet tooling must sign FishingPond.claim and then send submitFishingNftClaimTx, /agent-fishing operation=submit_claim_tx, or /agent-action action=submit_fishing_nft_claim_tx with the tx hash. It may send abandonFishingNftCatch before tx submission to forfeit the claim while keeping the daily offer spent.",
         "If onchain rod ownership is required, production wallet tooling should mint through the configured rod NFT mint contract or mint URL; the NFT contract is responsible for any 25M MFERGPT burn/payment. purchaseOnchainFishingRod is only the local/test server-mint fallback.",
         "Interact with pond ledger mfer for today's onchain-goodie offer count, remaining NFT catch slots, global cap state, and reset time.",
         "Send refreshFishingNftHistory after wallet actions or on reconnect to refresh pond NFT catches, rod stash rows, daily remaining count, and redemption state.",
@@ -571,7 +574,7 @@ export function buildAgentCatalog() {
           "server confirms only after a successful receipt with CatchClaimed",
         ],
         walletActionRequired: true,
-        agentNote: "Hosted bridge agents cannot sign wallet claims internally. When /agent-command returns walletActionRequired.action=claim_fishing_nft, wallet-capable callers such as Bankr should submit the provided transaction from the player wallet, then call /agent-action with action=submit_fishing_nft_claim_tx, catchId, and txHash before continuing to fish.",
+        agentNote: "Hosted bridge agents cannot sign wallet claims internally. When /agent-fishing or /agent-command returns walletActionRequired.action=claim_fishing_nft, wallet-capable callers such as Bankr should submit the provided transaction from the player wallet, then call /agent-fishing operation=submit_claim_tx or /agent-action action=submit_fishing_nft_claim_tx with catchId and txHash before continuing to fish.",
       },
       mintClubRedemption: {
         npcId: MINT_CLUB_REDEMPTION_NPC_ID,

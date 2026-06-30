@@ -172,11 +172,12 @@ Registered tool discovery to check:
 
 ```sh
 curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mfertown-fishing.json
 curl -fsS http://127.0.0.1:2567/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -i -X POST http://127.0.0.1:2567/agent-mfergpt-swap-quote -H 'content-type: application/json' -d '{"walletAddress":"0x0000000000000000000000000000000000000000"}'
 ```
 
-Without `X-Payment`, the swap quote endpoint should return `402` with a zero-value EIP-3009 challenge. With a valid local test `X-Payment` and `MFERLAND_TOOL_OPERATOR_ADDRESS`, it should return Base Universal Router calldata for ETH to MFERGPT. Do not submit this Base calldata on local Anvil; local Anvil swap/burn gameplay uses the local runner wallet tooling and `apps/web/public/crypto/local-contracts.json`.
+`/agent-fishing` is the dedicated registered-tool fishing surface; use it with a wallet-authenticated bridge session for fishing start/status/stop, NFT claim handoff, claim tx reporting, fish sales, and fishing NFT refreshes. Without `X-Payment`, the swap quote endpoint should return `402` with a zero-value EIP-3009 challenge. With a valid local test `X-Payment` and `MFERLAND_TOOL_OPERATOR_ADDRESS`, it should return Base Universal Router calldata for ETH to MFERGPT. Do not submit this Base calldata on local Anvil; local Anvil swap/burn gameplay uses the local runner wallet tooling and `apps/web/public/crypto/local-contracts.json`.
 
 The copied skill package can also expose a loopback telemetry panel:
 

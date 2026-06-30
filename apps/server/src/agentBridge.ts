@@ -62,6 +62,7 @@ import { readFishingPondPublicConfig } from "./crypto/fishingPond.js";
 import {
   parseToolPaymentHeader,
   reportAgentToolUsage,
+  type AgentToolSlug,
   verifyZeroPriceToolPayment,
 } from "./agentToolRegistry.js";
 import { verifyAgentSessionTokenDetailed } from "./walletAuth.js";
@@ -7190,7 +7191,7 @@ export class AgentBridgeManager {
 
   async handle(req: IncomingMessage, requestUrl: URL, res: ServerResponse): Promise<boolean> {
     const path = requestUrl.pathname;
-    if (!["/agent-start", "/agent-observe", "/agent-action", "/agent-command", "/agent-command-stop", "/agent-stop"].includes(path)) return false;
+    if (!["/agent-start", "/agent-observe", "/agent-action", "/agent-command", "/agent-command-stop", "/agent-fishing", "/agent-stop"].includes(path)) return false;
     const requestId = randomUUID();
 
     writeBridgeCorsHeaders(res);
@@ -7208,6 +7209,7 @@ export class AgentBridgeManager {
       else if (path === "/agent-action") await this.handleAction(req, res);
       else if (path === "/agent-command") await this.handleCommand(req, requestUrl, res);
       else if (path === "/agent-command-stop") await this.handleCommandStop(req, res);
+      else if (path === "/agent-fishing") await this.handleFishingTool(req, requestUrl, res);
       else if (path === "/agent-stop") await this.handleStop(req, res);
     } catch (error) {
       writeBridgeError(res, error, requestId);
@@ -7314,7 +7316,7 @@ export class AgentBridgeManager {
     if (req.method === "GET" || req.method === "HEAD") {
       const session = this.requireSession(req, requestUrl.searchParams.get("bridgeSessionId"));
       const body = await session.getCommand(requestUrl.searchParams.get("commandId") || "");
-      const toolUsageReport = req.method === "HEAD" ? null : await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+      const toolUsageReport = req.method === "HEAD" ? null : await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
       writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport), undefined, req.method === "HEAD");
       return;
     }
@@ -7327,12 +7329,12 @@ export class AgentBridgeManager {
     const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
     const operation = cleanText(payload.operation, 24).toLowerCase() || "start";
     if (operation === "status") {
-      const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
       writeBridgeJson(res, 200, withOptionalToolUsageReport(await session.getCommand(cleanText(payload.commandId, 80)), toolUsageReport));
       return;
     }
     if (operation === "stop") {
-      const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
       const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
       writeBridgeJson(res, 200, withOptionalToolUsageReport(stopped, toolUsageReport));
       return;
@@ -7342,7 +7344,108 @@ export class AgentBridgeManager {
       return;
     }
     const body = await session.startCommand(payload);
-    const toolUsageReport = await maybeReportCommandToolUsage(req, toolUsageStartedAt);
+    const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
+    writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
+  }
+
+  private async handleFishingTool(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
+    const toolUsageStartedAt = Date.now();
+    if (req.method === "GET" || req.method === "HEAD") {
+      const session = this.requireSession(req, requestUrl.searchParams.get("bridgeSessionId"));
+      const body = await session.getCommand(requestUrl.searchParams.get("commandId") || "");
+      const toolUsageReport = req.method === "HEAD" ? null : await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport), undefined, req.method === "HEAD");
+      return;
+    }
+    if (req.method !== "POST") {
+      writeBridgeJson(res, 405, { ok: false, error: "method not allowed" }, { allow: "GET, HEAD, POST" });
+      return;
+    }
+
+    const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
+    const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
+    const operation = cleanText(payload.operation, 40).toLowerCase() || "start";
+    const writeActionResult = async (result: BridgeActionResult) => {
+      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
+      writeBridgeJson(res, actionResultHttpStatus(result), withOptionalToolUsageReport(result, toolUsageReport));
+    };
+
+    if (operation === "status") {
+      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(await session.getCommand(cleanText(payload.commandId, 80)), toolUsageReport));
+      return;
+    }
+    if (operation === "stop") {
+      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
+      const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(stopped, toolUsageReport));
+      return;
+    }
+    if (operation === "fish_once" || operation === "fish") {
+      await writeActionResult(await session.execute({ action: "fish", reason: "dedicated fishing tool fish_once" }));
+      return;
+    }
+    if (operation === "claim_nft" || operation === "claim_fishing_nft") {
+      await writeActionResult(await session.execute({
+        action: "claim_fishing_nft",
+        reason: "dedicated fishing tool claim_nft",
+        catchId: cleanText(payload.catchId, 96),
+      }));
+      return;
+    }
+    if (operation === "submit_claim_tx" || operation === "submit_fishing_nft_claim_tx") {
+      await writeActionResult(await session.execute({
+        action: "submit_fishing_nft_claim_tx",
+        reason: "dedicated fishing tool submit_claim_tx",
+        catchId: cleanText(payload.catchId, 96),
+        txHash: cleanText(payload.txHash ?? payload.paymentTxHash, 96),
+      }));
+      return;
+    }
+    if (operation === "sell_fish" || operation === "sell_fish_items") {
+      await writeActionResult(await session.execute({
+        action: "sell_fish_items",
+        reason: "dedicated fishing tool sell_fish",
+        itemId: cleanText(payload.itemId, 96),
+        quantity: readFiniteNumber(payload.quantity) ?? null,
+      }));
+      return;
+    }
+    if (operation === "refresh" || operation === "refresh_nft_history") {
+      await writeActionResult(await session.execute({
+        action: "refresh_fishing_nft_history",
+        reason: "dedicated fishing tool refresh",
+      }));
+      return;
+    }
+    if (operation !== "start") {
+      writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, stop, fish_once, claim_nft, submit_claim_tx, sell_fish, or refresh" });
+      return;
+    }
+
+    const questId = cleanText(payload.questId, 96);
+    if (questId && !isFishingQuestId(questId)) {
+      writeBridgeJson(res, 400, { ok: false, error: "agent-fishing questId must be fishin-lesson or lost-fishing-shoes" });
+      return;
+    }
+    const body = await session.startCommand({
+      ...payload,
+      command: questId ? "finish_quest" : "play_for",
+      behaviorScheme: "fishing",
+      questId,
+      profile: {
+        priority: "looter",
+        risk: "safe",
+        social: "quiet",
+        ...asRecord(payload.profile),
+      },
+      constraints: {
+        noPaidActions: true,
+        ...asRecord(payload.constraints),
+      },
+      maxSeconds: payload.maxSeconds ?? 300,
+    });
+    const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
     writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
   }
 
@@ -7544,7 +7647,7 @@ function writeBridgeJson(res: ServerResponse, status: number, payload: unknown, 
   res.end(head ? undefined : body);
 }
 
-async function maybeReportCommandToolUsage(req: IncomingMessage, startedAt: number) {
+async function maybeReportBridgeToolUsage(req: IncomingMessage, startedAt: number, tool: AgentToolSlug) {
   const payment = parseToolPaymentHeader(req.headers["x-payment"]);
   if (!payment) return null;
   const verified = await verifyZeroPriceToolPayment(payment);
@@ -7555,7 +7658,7 @@ async function maybeReportCommandToolUsage(req: IncomingMessage, startedAt: numb
       reason: verified.error,
     };
   }
-  const report = await reportAgentToolUsage("mfertown-agent-command", payment, startedAt);
+  const report = await reportAgentToolUsage(tool, payment, startedAt);
   return {
     ...report,
     callerAddress: verified.callerAddress,

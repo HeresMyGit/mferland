@@ -17,9 +17,11 @@ Relevant surfaces:
 - `/agent-action`
 - `/agent-command`
 - `/agent-command-stop`
+- `/agent-fishing`
 - `/agent-stop`
 - `/agent-catalog`
 - `/.well-known/ai-tool/mfertown-agent-command.json`
+- `/.well-known/ai-tool/mfertown-fishing.json`
 - `/.well-known/ai-tool/mfertown-mfergpt-swap.json`
 - `/agent-mfergpt-swap-quote`
 - `/agent-mfergpt-swap-result`
@@ -41,10 +43,11 @@ MFERLAND_TOOL_OPERATOR_ADDRESS
 MFERLAND_TOOL_REGISTRY_ADDRESS
 OPENSEA_API_KEY
 MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID
+MFERLAND_TOOL_MFERTOWN_FISHING_ID
 MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID
 ```
 
-The server also accepts the legacy `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID` and `MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID` names so existing production env files do not need an emergency secret/config edit.
+The server also accepts the legacy `MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID`, `MFERLAND_TOOL_MFERLAND_FISHING_ID`, and `MFERLAND_TOOL_MFERLAND_MFERGPT_SWAP_ID` names so existing production env files do not need an emergency secret/config edit.
 
 Tool registry variables can be absent in local/dev mode, but production OpenSea/ERC-8257 usage reporting requires the OpenSea key, registry/tool ids, operator address, and valid zero-value EIP-3009 `X-Payment` headers. Sign those headers against the Base USDC EIP-712 domain `name: "USD Coin"`, `version: "2"`, chain id `8453`, and verifying contract `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
 
@@ -71,6 +74,7 @@ After starting the candidate server on the host, but before public announcement:
 curl -fsS https://game.mfergpt.lol/health
 curl -fsS https://game.mfergpt.lol/agent-catalog
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
+curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
@@ -80,7 +84,7 @@ curl -fsS https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-
 Expected:
 
 - `/agent-catalog` lists command kinds, profiles, schemes, goals, constraints, controller metadata, swap/router details, and Season 0 agent balance requirements.
-- both `.well-known/ai-tool` manifests return stable JSON without self-referential hash fields; validate and hash the exact served files with `npx @opensea/tool-sdk validate` and `npx @opensea/tool-sdk hash` before registering them onchain.
+- all `.well-known/ai-tool` manifests return stable JSON without self-referential hash fields; validate and hash the exact served files with `npx @opensea/tool-sdk validate` and `npx @opensea/tool-sdk hash` before registering them onchain.
 - hosted skills include the main default skill, compatibility skill URLs, plus the advanced runner `SKILL.md`, runner scripts, package file, and tsconfig.
 
 ## Gameplay Smoke Tests
@@ -110,6 +114,7 @@ Use an owned disposable/test wallet. Do not publish the private key.
 11. Confirm a base wallet stops at the configured base tier and returns upgrade copy.
 12. Confirm a wallet below 25M MFERGPT can save progress but does not earn Season 0 agent points.
 13. Confirm a wallet at or above 25M MFERGPT receives eligible Season 0 agent reward behavior with the reduced multiplier.
+14. Start a short `/agent-fishing` `operation=start`, confirm it returns fishing recap fields, then stop it cleanly.
 
 ## Wallet And Swap Boundary
 
@@ -117,6 +122,7 @@ Verify the harness does not auto-sign wallet transactions:
 
 - paid trait updates or potion burns without proof must return `payment_required`
 - swaps must return `wallet_action_required` or registered-tool calldata, not silently submit a tx
+- fishing NFT catches must return `wallet_action_required` with `claim_fishing_nft`; wallet tooling signs the provided transaction and reports it through `/agent-fishing operation=submit_claim_tx` or `/agent-action action=submit_fishing_nft_claim_tx`
 - `/agent-mfergpt-swap-quote` without `X-Payment` should return the expected zero-value EIP-3009 challenge
 - `/agent-mfergpt-swap-quote` with valid test `X-Payment` should return Base ETH to MFERGPT Universal Router calldata
 - `/agent-mfergpt-swap-result` should record submitted tx hashes for reporting/recap purposes

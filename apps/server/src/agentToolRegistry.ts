@@ -5,7 +5,7 @@ import {
 } from "viem";
 import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 
-export type AgentToolSlug = "mfertown-agent-command" | "mfertown-mfergpt-swap";
+export type AgentToolSlug = "mfertown-agent-command" | "mfertown-fishing" | "mfertown-mfergpt-swap";
 
 type ToolManifest = {
   type: "https://ercs.ethereum.org/ERCS/erc-8257#tool-manifest-v1";
@@ -42,10 +42,11 @@ const EIP3009_TYPES = {
   ],
 } as const;
 
-export const AGENT_TOOL_SLUGS: AgentToolSlug[] = ["mfertown-agent-command", "mfertown-mfergpt-swap"];
+export const AGENT_TOOL_SLUGS: AgentToolSlug[] = ["mfertown-agent-command", "mfertown-fishing", "mfertown-mfergpt-swap"];
 
 const AGENT_TOOL_ALIASES: Record<string, AgentToolSlug> = {
   "mferland-agent-command": "mfertown-agent-command",
+  "mferland-fishing": "mfertown-fishing",
   "mferland-mfergpt-swap": "mfertown-mfergpt-swap",
 };
 
@@ -54,6 +55,11 @@ const AGENT_TOOL_ID_ENV_KEYS: Record<AgentToolSlug, string[]> = {
     "MFERLAND_TOOL_MFERTOWN_AGENT_COMMAND_ID",
     "MFERTOWN_TOOL_MFERTOWN_AGENT_COMMAND_ID",
     "MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID",
+  ],
+  "mfertown-fishing": [
+    "MFERLAND_TOOL_MFERTOWN_FISHING_ID",
+    "MFERTOWN_TOOL_MFERTOWN_FISHING_ID",
+    "MFERLAND_TOOL_MFERLAND_FISHING_ID",
   ],
   "mfertown-mfergpt-swap": [
     "MFERLAND_TOOL_MFERTOWN_MFERGPT_SWAP_ID",
@@ -68,7 +74,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
     return {
       type: TOOL_MANIFEST_TYPE,
       name: "mfertown-agent-command",
-      description: "Start, poll, and stop bounded mfertown gameplay commands for wallet-authenticated agents.",
+      description: "Start, poll, and stop bounded mfertown gameplay commands for wallet-authenticated agents. Use mfertown-fishing for dedicated pond fishing, NFT claim, and fish-sale flows.",
       version: "0.1.0",
       endpoint: `${baseUrl}/agent-command`,
       image: `${baseUrl}/agent-tools/icon.png`,
@@ -80,7 +86,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
           operation: { type: "string", enum: ["start", "status", "stop"] },
           bridgeSessionId: { type: "string" },
           commandId: { type: "string" },
-          command: { type: "string", enum: ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"] },
+          command: { type: "string", enum: ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals", "fish", "fishing"] },
           behaviorScheme: { type: "string", enum: AGENT_PREMADE_BEHAVIOR_SCHEMES },
           questId: { type: "string" },
           goals: {
@@ -157,7 +163,67 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       outputs: commandOutputSchema(),
       creatorAddress: getManifestCreatorAddress(),
       pricing: freePricing(),
-      tags: ["mfertown", "game", "agent", "autoplay", "wallet"],
+      tags: ["mfertown", "game", "agent", "autoplay", "wallet", "fishing"],
+    };
+  }
+  if (slug === "mfertown-fishing") {
+    return {
+      type: TOOL_MANIFEST_TYPE,
+      name: "mfertown-fishing",
+      description: "Run mfertown pond fishing for wallet-authenticated agents, including normal catches, offchain fish sales, and claim-ready onchain NFT catches.",
+      version: "0.1.0",
+      endpoint: `${baseUrl}/agent-fishing`,
+      image: `${baseUrl}/agent-tools/icon.png`,
+      featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
+      inputs: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          operation: {
+            type: "string",
+            enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "sell_fish", "refresh"],
+            description: "start begins a bounded fishing autoplay command. claim_nft returns a ready-to-sign FishingPond.claim transaction. submit_claim_tx records the submitted onchain claim tx hash.",
+          },
+          bridgeSessionId: { type: "string" },
+          commandId: { type: "string" },
+          questId: {
+            type: "string",
+            enum: ["fishin-lesson", "lost-fishing-shoes"],
+            description: "Optional fishing quest to complete while fishing.",
+          },
+          maxSeconds: { type: "number", minimum: 15, maximum: 1800 },
+          constraints: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              noWalletActions: { type: "boolean" },
+              noPaidActions: { type: "boolean" },
+              maxDeaths: { type: ["number", "null"], minimum: 0, maximum: 99 },
+              maxSafetyStops: { type: ["number", "null"], minimum: 0, maximum: 99 },
+            },
+          },
+          profile: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              risk: { type: "string", enum: ["safe", "normal", "bold"] },
+              social: { type: "string", enum: ["quiet", "normal", "chatty"] },
+            },
+          },
+          catchId: { type: "string" },
+          txHash: { type: "string" },
+          itemId: {
+            type: "string",
+            description: "Optional sellable fish item id for sell_fish. Omit to sell all eligible fish.",
+          },
+          quantity: { type: "number", minimum: 1, maximum: 999 },
+        },
+        required: ["operation", "bridgeSessionId"],
+      },
+      outputs: fishingOutputSchema(),
+      creatorAddress: getManifestCreatorAddress(),
+      pricing: freePricing(),
+      tags: ["mfertown", "game", "agent", "fishing", "nft", "base", "wallet"],
     };
   }
   return {
@@ -391,6 +457,8 @@ function commandOutputSchema() {
       result: { type: "object" },
       social: { type: "object" },
       combat: { type: "object" },
+      fishing: { type: "object" },
+      walletActionRequired: { type: "object" },
       finalState: { type: ["object", "null"] },
       stoppedBecause: { type: "string" },
       durationMs: { type: "number" },
@@ -405,6 +473,34 @@ function commandOutputSchema() {
       errors: { type: "array", items: { type: "string" } },
       startedAt: { type: "string" },
       finishedAt: { type: "string" },
+    },
+    required: ["ok", "status"],
+  };
+}
+
+function fishingOutputSchema() {
+  const commandSchema = commandOutputSchema();
+  return {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      ...commandSchema.properties,
+      action: { type: "string" },
+      bridgeSessionId: { type: "string" },
+      commandId: { type: "string" },
+      status: { type: "string" },
+      summary: { type: "string" },
+      result: { type: "object" },
+      fishing: { type: "object" },
+      walletActionRequired: {
+        type: "object",
+        description: "When action is claim_fishing_nft, callers should submit the provided transaction from the player wallet and then call submit_claim_tx with catchId and txHash.",
+      },
+      transaction: { type: "object" },
+      catchId: { type: "string" },
+      txHash: { type: "string" },
+      toolUsageReport: { type: "object" },
+      callerAddress: { type: "string" },
     },
     required: ["ok", "status"],
   };

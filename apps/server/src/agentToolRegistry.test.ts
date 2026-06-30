@@ -40,7 +40,7 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
     protocol: "x402",
   }]);
   const input = manifest.inputs as { properties: Record<string, JsonSchema> };
-  assert.deepEqual(input.properties.command.enum, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals"]);
+  assert.deepEqual(input.properties.command.enum, ["finish_next_quest", "finish_quest", "play_for", "farm_until", "run_goals", "fish", "fishing"]);
   assert.match(input.properties.goals.description ?? "", /Freeform player objectives/);
   assert.ok(input.properties.behaviorScheme.enum?.includes("jump_around"));
   assert.ok(input.properties.behaviorScheme.enum?.includes("dummy_dps"));
@@ -60,11 +60,29 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
   assert.ok(output.properties.usage);
   assert.ok(output.properties.social);
   assert.ok(output.properties.combat);
+  assert.ok(output.properties.fishing);
+  assert.ok(output.properties.walletActionRequired);
   assert.ok(output.properties.finalState);
   assert.ok(output.properties.equipmentChanges);
   assert.ok(output.properties.sandbox);
   assert.ok(output.properties.goalProgress);
   assert.ok(output.properties.behaviorScheme);
+});
+
+test("agent tool manifest documents dedicated fishing endpoint", () => {
+  const manifest = buildAgentToolManifestDocument("mfertown-fishing", "https://game.mfergpt.lol/");
+  const input = manifest.inputs as { properties: Record<string, JsonSchema> };
+  const output = manifest.outputs as { properties: Record<string, unknown> };
+
+  assert.equal(manifest.name, "mfertown-fishing");
+  assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
+  assert.ok(manifest.tags.includes("fishing"));
+  assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "sell_fish", "refresh"]);
+  assert.deepEqual(input.properties.questId.enum, ["fishin-lesson", "lost-fishing-shoes"]);
+  assert.match(input.properties.operation.description ?? "", /FishingPond\.claim/);
+  assert.ok(output.properties.fishing);
+  assert.ok(output.properties.walletActionRequired);
+  assert.ok(output.properties.toolUsageReport);
 });
 
 test("agent tool manifest documents MFERGPT swap route outputs", () => {
@@ -129,6 +147,11 @@ test("agent tool payment parser accepts zero-value EIP-3009 payloads", async () 
   assert.equal(commandUsage.tool_onchain_id, "123");
   delete process.env.MFERLAND_TOOL_MFERLAND_AGENT_COMMAND_ID;
 
+  process.env.MFERLAND_TOOL_MFERTOWN_FISHING_ID = "456";
+  const fishingUsage = buildToolUsageReport("mfertown-fishing", payment, Date.now() - 25);
+  assert.equal(fishingUsage.tool_onchain_id, "456");
+  delete process.env.MFERLAND_TOOL_MFERTOWN_FISHING_ID;
+
   const verification = await verifyZeroPriceToolPayment(payment, "0x0000000000000000000000000000000000000001");
   assert.equal(verification.ok, false);
   if (verification.ok) assert.fail("expected payment verification to fail for the wrong operator");
@@ -137,7 +160,9 @@ test("agent tool payment parser accepts zero-value EIP-3009 payloads", async () 
 
 test("agent tool slugs keep legacy mferland manifest aliases", () => {
   assert.equal(getAgentToolSlug("mfertown-agent-command"), "mfertown-agent-command");
+  assert.equal(getAgentToolSlug("mfertown-fishing"), "mfertown-fishing");
   assert.equal(getAgentToolSlug("mfertown-mfergpt-swap"), "mfertown-mfergpt-swap");
   assert.equal(getAgentToolSlug("mferland-agent-command"), "mfertown-agent-command");
+  assert.equal(getAgentToolSlug("mferland-fishing"), "mfertown-fishing");
   assert.equal(getAgentToolSlug("mferland-mfergpt-swap"), "mfertown-mfergpt-swap");
 });

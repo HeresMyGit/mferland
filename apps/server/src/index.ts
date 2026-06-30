@@ -269,7 +269,7 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (url === "/agent-start" || url === "/agent-observe" || url === "/agent-action" || url === "/agent-command" || url === "/agent-command-stop" || url === "/agent-stop") {
+  if (url === "/agent-start" || url === "/agent-observe" || url === "/agent-action" || url === "/agent-command" || url === "/agent-command-stop" || url === "/agent-fishing" || url === "/agent-stop") {
     void agentBridge.handle(req, requestUrl, res);
     return;
   }
