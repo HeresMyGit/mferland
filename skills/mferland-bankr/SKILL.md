@@ -28,6 +28,7 @@ Bankr constraints, repeated here for safety:
 - Do not expose bearer tokens, session tokens, signatures, or wallet secrets in chat.
 - Do not auto-spend wallet funds. Swaps, burns, mints, paid trait updates, and purchases need Bankr wallet-context approval and a real tx hash or owned token id.
 - For X timeline or chat requests like "play for 5 minutes", "do next quest", "farm rabbits", or "train DPS", use `/agent-command` and return its recap.
+- For "farm safe targets" or loot/XP farming, use the `farmer` profile/scheme and avoid training dummies. Training dummies are immortal DPS-practice targets only; use `training_dummies` or `dummy_dps` when the user asks to test damage.
 - For "start fishing", "go fishing", or "fish for onchain goodies", use `behaviorScheme: "fishing"` with `/agent-command`, or use the manual `/agent-action` `fish` loop for one live cast/reel/loot cycle. Do not translate fishing to `farmer`; that profile farms safe targets. Include the `fishing` recap when present, especially named catches, fish sales/points, NFT catch names/status, wallet-action needs, daily remaining values, and reset time.
 
 Manual `/agent-observe` plus `/agent-action` remains available for single live actions, advanced/manual control, and debugging. It is not the default play path.

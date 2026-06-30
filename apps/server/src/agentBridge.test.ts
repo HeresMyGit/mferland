@@ -9,6 +9,7 @@ import {
   generatedQuestTargetAreaPatrolPoints,
   getFishingLootExpectedUntil,
   getQuestAgentHints,
+  isAgentFarmingTarget,
   isFishingCommandAlias,
   isFishingQuestId,
   isCommandFailureCapReached,
@@ -232,6 +233,26 @@ test("hosted command fishing aliases are distinct from farming", () => {
   assert.equal(isFishingQuestId("fishin-lesson"), true);
   assert.equal(isFishingQuestId("lost-fishing-shoes"), true);
   assert.equal(isFishingQuestId("ridge-dispatch"), false);
+});
+
+test("agent safe farming targets exclude training dummies", () => {
+  assert.equal(isAgentFarmingTarget({
+    id: "training-dummy-left",
+    role: "enemy",
+    model: "training-dummy",
+    isImmortal: true,
+  }), false);
+  assert.equal(isAgentFarmingTarget({
+    id: "training-dummy-right",
+    role: "enemy",
+    model: "training-dummy",
+    isImmortal: false,
+  }), false);
+  assert.equal(isAgentFarmingTarget({
+    id: "rabbit-fountain",
+    role: "critter",
+    model: "rabbit",
+  }), true);
 });
 
 test("agent command equipment changes summarize loadout updates", () => {

@@ -1159,6 +1159,7 @@ class AgentBridgeSession {
           model: npc.model,
           alive,
           attackable: isAttackable(npc),
+          farmable: isAgentFarmingTarget(npc),
           hostile: isHostile(npc),
           health: `${Math.ceil(npc.health)}/${Math.ceil(npc.maxHealth)}`,
           distance: round(distance),
@@ -1970,7 +1971,7 @@ class AgentBridgeSession {
             npcRef: getString(loot.npcId) || getString(loot.id),
           });
         }
-        const target = this.findGenericQuestTarget(self)?.npc ?? this.findSafeTrainingTarget(self);
+        const target = this.findGenericQuestTarget(self)?.npc ?? this.findSafeFarmingTarget(self);
         if (target) {
           return normalizeDecision({
             action: "fight_npc",
@@ -1983,7 +1984,7 @@ class AgentBridgeSession {
       case "level_at_least":
       case "xp_gained": {
         const questTarget = this.findNamedObjectiveTarget(self) ?? this.findGenericQuestTarget(self);
-        const target = questTarget?.npc ?? this.findSafeTrainingTarget(self);
+        const target = questTarget?.npc ?? this.findSafeFarmingTarget(self);
         return target ? normalizeDecision({
           action: "fight_npc",
           reason: `${command.kind}/goal: earning xp toward ${pending.type}`,
@@ -2348,7 +2349,7 @@ class AgentBridgeSession {
           npcRef: getString(loot.npcId) || getString(loot.id),
         });
       }
-      const target = this.findSafeTrainingTarget(self);
+      const target = this.findSafeFarmingTarget(self);
       if (target) {
         return normalizeDecision({
           action: "fight_npc",
@@ -3247,6 +3248,16 @@ class AgentBridgeSession {
     const hints = Array.isArray(body.hints) ? body.hints.map(asRecord) : [];
     const safeTargets = nearbyNpcs
       .filter((npc) => Boolean(npc.attackable) && Boolean(npc.alive))
+      .filter((npc) => (
+        "farmable" in npc
+          ? Boolean(npc.farmable)
+          : isAgentFarmingTarget({
+            id: getString(npc.id),
+            role: getString(npc.role),
+            model: getString(npc.model),
+            isImmortal: Boolean(npc.isImmortal),
+          })
+      ))
       .filter((npc) => !this.isNpcAvoided(getString(npc.id), Date.now()))
       .filter((npc) => getNumber(npc.pullRiskScore) <= 0.5 && getNumber(npc.approachRiskScore) <= 0.62)
       .sort((a, b) => (
@@ -3289,6 +3300,7 @@ class AgentBridgeSession {
         stepLimit: "Prefer suggestedNextAction or urgent hints; avoid loading full catalog unless needed.",
         questGating: "Ready quests and progress-complete quests beat farming. Turn in before killing more.",
         combatRetreat: "If aggroCount > 1 and healthRatio < 0.6, retreat unless the current target is within roughly 2-3 hits of death.",
+        safeTargets: "Safe farming targets exclude immortal training dummies. Use behaviorScheme=training_dummies or dummy_dps when the user wants DPS practice.",
         talents: "If unspentSkillPoints > 0, spend a recommended talent before entering a combat zone unless survival, loot, or quest turn-in is urgent.",
         potions: "If repeated low-health retreats or no health consumables, consider potion-mfer. Potion purchases burn MFERGPT on Base to reduce supply and require an actual payment tx proof.",
         traits: "For update_traits, only choose specific traits when they strongly fit the agent identity. If not, send traits as null or {} and the server will use deterministic wallet/name-seeded variety. Do not fill categories with blue, defaults, or first-listed options just to choose something. Declared agents keep the robot face, force regular eyes and flat mouth, and should leave clipping-prone accessories such as caps, long hair, shades, and glasses unset.",
@@ -6726,9 +6738,9 @@ class AgentBridgeSession {
     return isGenericQuestTargetSuppressed(questId, npc.id);
   }
 
-  private findSafeTrainingTarget(self: RuntimePlayer) {
+  private findSafeFarmingTarget(self: RuntimePlayer) {
     return [...this.npcs.values()]
-      .filter((candidate) => isAttackable(candidate) && candidate.health > 0 && candidate.defeatedAt <= 0)
+      .filter((candidate) => isAgentFarmingTarget(candidate) && candidate.health > 0 && candidate.defeatedAt <= 0)
       .filter((candidate) => !this.isNpcAvoided(candidate.id))
       .filter((candidate) => this.scorePullRisk(candidate) <= 0.5 && this.scoreApproachRisk(self, candidate) <= 0.62)
       .sort((a, b) => this.scoreCombatTargetCandidate(self, a) - this.scoreCombatTargetCandidate(self, b) || distance2d(self, a) - distance2d(self, b))[0] ?? null;
@@ -8436,9 +8448,26 @@ function stringList(value: unknown) {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
-function isAttackable(npc: RuntimeNpc) {
+type AgentCombatTargetLike = {
+  id?: string;
+  role?: string;
+  model?: string;
+  isImmortal?: boolean;
+};
+
+function hasAgentAttackableIdentity(npc: AgentCombatTargetLike) {
+  const id = npc.id ?? "";
   if (npc.role === "enemy" || npc.role === "farmer" || npc.role === "beast" || npc.role === "critter") return true;
-  return npc.model === "hog" || npc.id.startsWith("ridge-raider-") || npc.id.startsWith("static-");
+  return npc.model === "hog" || id.startsWith("ridge-raider-") || id.startsWith("static-");
+}
+
+function isAttackable(npc: RuntimeNpc) {
+  return hasAgentAttackableIdentity(npc);
+}
+
+export function isAgentFarmingTarget(npc: AgentCombatTargetLike) {
+  if (npc.isImmortal || npc.model === "training-dummy") return false;
+  return hasAgentAttackableIdentity(npc);
 }
 
 function isHostile(npc: RuntimeNpc) {

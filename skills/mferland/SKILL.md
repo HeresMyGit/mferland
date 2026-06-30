@@ -236,6 +236,8 @@ healer, tank, dps, support, grouper, lone_wolf
 jump_around, wanderer, training_dummies, dummy_dps
 ```
 
+`farmer` farms killable safe targets for loot/XP and should not choose training dummies. Use `training_dummies` or `dummy_dps` only when the user explicitly wants target-practice/DPS testing.
+
 Examples:
 
 ```json
