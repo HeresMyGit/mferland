@@ -81,8 +81,17 @@ export const FISHING_LOST_SHOE_ITEM_ID = "old-mfer-shoe";
 export const FISHING_FISH_ITEM_IDS = [
   "reply-gill-minnow",
   "blue-smoke-bluegill",
+  "green-fin-mferfish",
   "based-bass",
+  "pipe-whisker-catfish",
+  "spikeball-puffer",
+  "top-hat-ape-crab",
   "huge-sartoshi-koi",
+  "gold-drip-goldfish",
+  "orange-pipe-seahorse",
+  "messy-red-lobster",
+  "zombie-angler",
+  "sartofish",
 ] as const;
 
 export const FISHING_CATCH_ITEM_IDS = [
@@ -115,6 +124,16 @@ export type MintClubRedemptionStatus = "claim_required" | "eligible" | "tx_submi
 export type OnchainFishingRodStandard = "ERC721" | "ERC1155";
 export type OnchainFishingRodMintMode = "wallet" | "server" | "url";
 export type OnchainFishingRodMintFunction = "mint" | "mintTo" | "mintQuantity" | "mintToQuantity" | "manifoldClaim";
+
+export const FISHING_RARE_FISH_ITEM_IDS = [
+  "top-hat-ape-crab",
+  "huge-sartoshi-koi",
+  "gold-drip-goldfish",
+  "orange-pipe-seahorse",
+  "messy-red-lobster",
+  "zombie-angler",
+  "sartofish",
+] as const satisfies readonly FishingFishItemId[];
 
 export type OnchainFishingRodRequirementSnapshot = {
   enabled: boolean;
@@ -275,9 +294,18 @@ export type FishingLootEntry = {
 export const FISHING_LOOT_TABLE = [
   { itemId: "reply-gill-minnow", weight: 34 },
   { itemId: "blue-smoke-bluegill", weight: 26 },
+  { itemId: "green-fin-mferfish", weight: 16 },
   { itemId: "based-bass", weight: 13 },
+  { itemId: "pipe-whisker-catfish", weight: 8 },
+  { itemId: "spikeball-puffer", weight: 6 },
+  { itemId: "top-hat-ape-crab", weight: 5 },
   { itemId: "huge-sartoshi-koi", weight: 5 },
-  { itemId: null, weight: 12 },
+  { itemId: "gold-drip-goldfish", weight: 4 },
+  { itemId: "orange-pipe-seahorse", weight: 4 },
+  { itemId: "messy-red-lobster", weight: 3 },
+  { itemId: "zombie-angler", weight: 2 },
+  { itemId: "sartofish", weight: 1 },
+  { itemId: null, weight: 18 },
 ] as const satisfies readonly FishingLootEntry[];
 
 export type FishingSaleRule = {
@@ -288,12 +316,22 @@ export type FishingSaleRule = {
 export const FISHING_SALE_RULES = {
   "reply-gill-minnow": { bundleSize: 10, seasonPoints: 1 },
   "blue-smoke-bluegill": { bundleSize: 5, seasonPoints: 2 },
+  "green-fin-mferfish": { bundleSize: 10, seasonPoints: 1 },
   "based-bass": { bundleSize: 3, seasonPoints: 4 },
+  "pipe-whisker-catfish": { bundleSize: 4, seasonPoints: 2 },
+  "spikeball-puffer": { bundleSize: 4, seasonPoints: 3 },
+  "top-hat-ape-crab": { bundleSize: 3, seasonPoints: 4 },
   "huge-sartoshi-koi": { bundleSize: 1, seasonPoints: 8 },
+  "gold-drip-goldfish": { bundleSize: 3, seasonPoints: 4 },
+  "orange-pipe-seahorse": { bundleSize: 3, seasonPoints: 5 },
+  "messy-red-lobster": { bundleSize: 2, seasonPoints: 5 },
+  "zombie-angler": { bundleSize: 2, seasonPoints: 7 },
+  "sartofish": { bundleSize: 1, seasonPoints: 16 },
 } as const satisfies Record<FishingSellableItemId, FishingSaleRule>;
 
 const FISHING_CATCH_ITEM_ID_SET = new Set<string>(FISHING_CATCH_ITEM_IDS);
 const FISHING_FISH_ITEM_ID_SET = new Set<string>(FISHING_FISH_ITEM_IDS);
+const FISHING_RARE_FISH_ITEM_ID_SET = new Set<string>(FISHING_RARE_FISH_ITEM_IDS);
 const FISHING_SELLABLE_ITEM_ID_SET = new Set<string>(FISHING_SELLABLE_ITEM_IDS);
 const FISHING_ITEM_ID_SET = new Set<string>(FISHING_ITEM_IDS);
 
@@ -369,7 +407,9 @@ export function rollFishingCatch(
   const rareScale = Number.isFinite(rareChanceScale) ? Math.max(0, rareChanceScale) : 1;
   const entries = FISHING_LOOT_TABLE.map((entry) => ({
     itemId: entry.itemId,
-    weight: entry.itemId === "huge-sartoshi-koi" ? entry.weight * rareMultiplier * rareScale : entry.weight,
+    weight: entry.itemId && FISHING_RARE_FISH_ITEM_ID_SET.has(entry.itemId)
+      ? entry.weight * rareMultiplier * rareScale
+      : entry.weight,
   }));
   const totalWeight = entries.reduce((total, entry) => total + entry.weight, 0);
   let roll = Math.max(0, Math.min(0.999999, random())) * totalWeight;

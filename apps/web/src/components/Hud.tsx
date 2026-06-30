@@ -1222,7 +1222,11 @@ export function Hud({
       )}
 
       {lootWindow && (
-        <MovableWindow id="hud.loot" as="section" className="loot-panel">
+        <MovableWindow
+          id="hud.loot"
+          as="section"
+          className={`loot-panel${lootWindow.source === "fishing" ? " fishing-loot-panel" : ""}`}
+        >
           <button className="quest-offer-close" type="button" title="Close loot" aria-label="Close loot" onClick={onCloseLootWindow}>
             <X size={17} />
           </button>
@@ -1232,7 +1236,7 @@ export function Hud({
               <button
                 key={getInventoryItemKey(item.id, item.chainTokenId)}
                 type="button"
-                className="item-row"
+                className={`item-row${lootWindow.source === "fishing" ? " fishing-loot-row" : ""}`}
                 data-tooltip={getLootItemTitle(item)}
                 aria-label={formatTooltipLabel(getLootItemTitle(item))}
                 onClick={() => onLootCorpse({ npcId: lootWindow.npcId, itemId: item.id, chainTokenId: item.chainTokenId })}
