@@ -154,7 +154,7 @@ After the sell receipt succeeds, report its real hash to the game:
 }
 ```
 
-Success requires the endpoint to return the catch redemption status `confirmed`. A submitted approval, a pending sell, a wallet activity row, or invented hash is not proof of sale.
+This submission is mandatory and must happen before `/agent-stop` or the final recap. Success requires the endpoint to return the catch redemption status `confirmed`. A successful wallet activity row, successful Burn receipt, submitted approval, pending sell, or invented hash is not proof that mferland persisted the sale. If the Burn succeeded but persistence is not confirmed, reconnect through hosted HTTP, submit the same real sale hash, verify `confirmed`, and only then stop.
 
 ## No-catch and cleanup behavior
 
@@ -164,6 +164,8 @@ If the bounded session catches no NFT:
 - Report the named regular catches and that claim/sale hashes are `none`.
 - Obey `postCommand`; `time_limit` already disconnected the bridge.
 - For another terminal state, call `POST /agent-stop` unless a claim/redemption handoff is still active.
+
+For a caught NFT, the mandatory order is: claim receipt -> `submit_claim_tx` confirmed -> prepare/approve if needed -> sell receipt -> `submit_redemption_tx` confirmed -> `/agent-stop` -> recap. Never move cleanup or recap ahead of either persistence confirmation.
 
 If the user explicitly asked to continue until a catch, start another clean authenticated bridge and bounded fishing session after cleanup. Never reuse a disconnected bridge or a prior command result as evidence of a new attempt.
 
