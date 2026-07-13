@@ -5,12 +5,17 @@ import {
   buildAgentCommandPostCommand,
   buildAgentCommandFishingRecap,
   buildFishingNftClaimWalletAction,
+  buildFishingSalePrerequisiteRequired,
+  buildFishingToolCommandPayload,
   buildAgentCommandSocialRecap,
+  claimDurableMessageDispatch,
   countHealthyQuestParticipantsNear,
+  describeFishingVendorSaleRequest,
   describeEquipmentChanges,
   generatedQuestTargetAreaPatrolPoints,
   getFishingLootExpectedUntil,
   getQuestAgentHints,
+  hasNewDurableResult,
   hasCompletedFishingSaleUnlockQuest,
   isAgentFarmingTarget,
   isFishingCommandAlias,
@@ -21,6 +26,8 @@ import {
   isQuestTargetAreaCandidate,
   npcInteractionRouteStopDistance,
   normalizeCommandFailureCap,
+  normalizeFishingVendorSellResult,
+  normalizeFishingNftHistoryResult,
   routeQueueFromPosition,
   resolveIncompleteRequiredQuestIdForQuests,
   shouldWaitForPendingFishingLootWindow,
@@ -35,6 +42,11 @@ test("agent action HTTP status preserves retryable chat cooldowns", () => {
   assert.equal(actionResultHttpStatus({ ok: false, status: "payment_required" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "prerequisite_required" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "wallet_action_required" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "sale_in_progress" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "approach_incomplete" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "timed_out" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "not_found" }), 404);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "refresh_failed" }), 502);
   assert.equal(actionResultHttpStatus({ ok: false, status: "invalid_action" }), 400);
 });
 
@@ -64,6 +76,171 @@ test("regular fish sales require lost-fishing-shoes and never fall back to trash
   assert.equal(hasCompletedFishingSaleUnlockQuest([
     { id: "lost-fishing-shoes", status: "completed" },
   ]), true);
+});
+
+test("regular fish sale recovery is machine-readable and stays in the dedicated fishing tool", () => {
+  assert.deepEqual(buildFishingSalePrerequisiteRequired(), {
+    questId: "lost-fishing-shoes",
+    questName: "lost fishing shoes",
+    requiredStatus: "completed",
+    instruction: "Complete lost-fishing-shoes and any catalog-declared fishing quest prerequisite through the dedicated fishing tool, then retry sell_fish. Do not use unrelated quests, sell_trash_items, or generic autoplay as a fallback.",
+    nextRequest: {
+      method: "POST",
+      endpoint: "/agent-fishing",
+      reuseBridgeSessionId: true,
+      body: {
+        operation: "start",
+        questId: "lost-fishing-shoes",
+        maxSeconds: 300,
+        constraints: { noPaidActions: true },
+      },
+    },
+    forbiddenEndpoint: "/agent-command",
+    forbiddenCommands: ["play_for", "finish_next_quest"],
+  });
+});
+
+test("dedicated fishing start strips generic autoplay overrides", () => {
+  assert.deepEqual(buildFishingToolCommandPayload({
+    command: "play_for",
+    behaviorScheme: "farmer",
+    objective: "do every quest",
+    questId: "lost-fishing-shoes",
+    maxSeconds: 1800,
+    profile: { priority: "boss_hunter", risk: "bold", social: "chatty" },
+    constraints: {
+      noPaidActions: false,
+      allowedActions: ["fight_npc"],
+      maxDeaths: 2,
+    },
+  }), {
+    command: "finish_quest",
+    behaviorScheme: "fishing",
+    questId: "lost-fishing-shoes",
+    profile: { priority: "looter", risk: "bold", social: "chatty" },
+    constraints: { noPaidActions: true, maxDeaths: 2 },
+    maxSeconds: 1800,
+  });
+});
+
+test("durable results require fresh sequence evidence", () => {
+  assert.equal(hasNewDurableResult(4, 4), false);
+  assert.equal(hasNewDurableResult(3, 4), false);
+  assert.equal(hasNewDurableResult(5, 4), true);
+});
+
+test("durable vendor requests dispatch only once while awaiting a result", () => {
+  const sentMessages = new Set<string>();
+  assert.equal(claimDurableMessageDispatch(sentMessages, "sellFishingItems"), true);
+  assert.equal(claimDurableMessageDispatch(sentMessages, "sellFishingItems"), false);
+  assert.deepEqual([...sentMessages], ["sellFishingItems"]);
+});
+
+test("fish sale results preserve the request id and authoritative sold totals", () => {
+  assert.deepEqual(normalizeFishingVendorSellResult({
+    requestId: "sale-123",
+    ok: true,
+    status: "sold",
+    sold: [{
+      itemId: "reply-gill-minnow",
+      itemName: "reply-gill minnow",
+      quantity: 20,
+      points: 2,
+      bundleSize: 10,
+    }],
+    quantity: 20,
+    points: 2,
+    season0Points: 82,
+    season0DailyPoints: 30,
+  }), {
+    requestId: "sale-123",
+    ok: true,
+    status: "sold",
+    sold: [{
+      itemId: "reply-gill-minnow",
+      itemName: "reply-gill minnow",
+      quantity: 20,
+      points: 2,
+      bundleSize: 10,
+    }],
+    quantity: 20,
+    points: 2,
+    season0Points: 82,
+    season0DailyPoints: 30,
+    mferGptGate: undefined,
+    error: undefined,
+  });
+});
+
+test("fish sale status distinguishes unknown, pending, timed out, and terminal requests", () => {
+  assert.deepEqual(describeFishingVendorSaleRequest("bad request", null, 0, 10_000), {
+    ok: false,
+    status: "rejected",
+    error: "sell_fish_status requires a valid requestId",
+  });
+  assert.deepEqual(describeFishingVendorSaleRequest("sale-unknown", null, 0, 10_000), {
+    ok: false,
+    status: "not_found",
+    requestId: "sale-unknown",
+    error: "fish sale request not found on this bridge",
+  });
+  assert.deepEqual(describeFishingVendorSaleRequest("sale-pending", null, 5_000, 10_000), {
+    ok: true,
+    status: "in_progress",
+    requestId: "sale-pending",
+    durationMs: 5_000,
+  });
+  assert.deepEqual(describeFishingVendorSaleRequest("sale-timeout", null, 1_000, 62_000), {
+    ok: false,
+    status: "timed_out",
+    requestId: "sale-timeout",
+    durationMs: 61_000,
+    error: "fish sale result did not arrive within 60 seconds; do not submit another sale until this request is reconciled",
+  });
+  const terminal = describeFishingVendorSaleRequest("sale-done", {
+    requestId: "sale-done",
+    ok: true,
+    status: "sold",
+    sold: [{ itemId: "reply-gill-minnow", itemName: "reply-gill minnow", quantity: 10, points: 1, bundleSize: 10 }],
+    quantity: 10,
+    points: 1,
+  }, 0, 10_000);
+  assert.equal(terminal.ok, true);
+  assert.equal(terminal.status, "sold");
+  assert.equal(terminal.requestId, "sale-done");
+  assert.equal(terminal.fishSale?.quantity, 10);
+});
+
+test("NFT history baselines require a fresh successful response and stay sanitized", () => {
+  const failed = normalizeFishingNftHistoryResult({
+    ok: false,
+    catches: [{ catchId: "old-catch" }],
+    error: "database unavailable",
+  });
+  assert.equal(failed.ok, false);
+  assert.deepEqual(failed.catches, []);
+  assert.equal(failed.error, "database unavailable");
+
+  const refreshed = normalizeFishingNftHistoryResult({
+    ok: true,
+    catches: [{
+      catchId: "fresh-catch",
+      status: "confirmed",
+      collection: "0x1111111111111111111111111111111111111111",
+      voucher: { signature: "secret-signature" },
+      metadata: { name: "inference eel" },
+    }],
+  });
+  const refreshedCatches = refreshed.catches as Array<{
+    catchId?: string;
+    metadata?: { name?: string } | null;
+    voucher?: unknown;
+  }>;
+  assert.equal(refreshed.ok, true);
+  assert.equal(refreshedCatches.length, 1);
+  assert.equal(refreshedCatches[0]?.catchId, "fresh-catch");
+  assert.equal(refreshedCatches[0]?.metadata?.name, "inference eel");
+  assert.equal("voucher" in (refreshedCatches[0] ?? {}), false);
 });
 
 test("agent commands interrupt movement-like actions after dangerous travel damage", () => {

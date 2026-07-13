@@ -80,17 +80,23 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.equal(manifest.name, "mfertown-fishing");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
   assert.ok(manifest.tags.includes("fishing"));
-  assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "refresh"]);
+  assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"]);
   assert.deepEqual(input.properties.questId.enum, ["fishin-lesson", "lost-fishing-shoes"]);
   assert.match(input.properties.operation.description ?? "", /FishingPond\.claim/);
   assert.match(input.properties.operation.description ?? "", /Mint Club/);
   assert.match(input.properties.operation.description ?? "", /regular offchain fish only/);
   assert.match(input.properties.operation.description ?? "", /never sells NFTs or trash/);
+  assert.match(input.properties.operation.description ?? "", /exact scoped \/agent-fishing request/);
+  assert.match(input.properties.operation.description ?? "", /poll sell_fish_status/);
+  assert.match(input.properties.questId.description ?? "", /cannot become generic play_for/);
   assert.ok(output.properties.fishing);
   assert.ok(output.properties.bridge);
   assert.ok(output.properties.postCommand);
   assert.ok(output.properties.prerequisiteRequired);
   assert.ok(output.properties.walletActionRequired);
+  assert.ok(output.properties.fishSale);
+  assert.ok(output.properties.nftCatches);
+  assert.ok(output.properties.requestId);
   assert.ok(output.properties.toolUsageReport);
 });
 

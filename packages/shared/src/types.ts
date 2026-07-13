@@ -624,6 +624,7 @@ export type MintClubRedemptionResult = {
 };
 
 export type ClientSellFishingItems = {
+  requestId?: string;
   itemId?: FishingSellableItemId;
   quantity?: number;
   sellAll?: boolean;
@@ -638,8 +639,9 @@ export type FishingVendorSoldItem = {
 };
 
 export type FishingVendorSellResult = {
+  requestId?: string;
   ok: boolean;
-  status?: "sold" | "mfergpt_gate" | "error";
+  status?: "sold" | "mfergpt_gate" | "sale_in_progress" | "error";
   sold: FishingVendorSoldItem[];
   quantity: number;
   points: number;

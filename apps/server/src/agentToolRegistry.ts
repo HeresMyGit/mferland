@@ -171,7 +171,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       type: TOOL_MANIFEST_TYPE,
       name: "mfertown-fishing",
       description: "Run mfertown pond fishing for wallet-authenticated agents, including normal catches, offchain fish sales, and claim-ready onchain NFT catches.",
-      version: "0.1.2",
+      version: "0.1.4",
       endpoint: `${baseUrl}/agent-fishing`,
       image: `${baseUrl}/agent-tools/icon.png`,
       featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
@@ -181,15 +181,15 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
         properties: {
           operation: {
             type: "string",
-            enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "refresh"],
-            description: "start begins bounded pond fishing. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
+            enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"],
+            description: "start begins bounded pond fishing. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. If sell_fish returns in_progress, poll sell_fish_status with its requestId instead of submitting another sale. If fishSale.status is sale_in_progress, resume the older known request or stop incomplete rather than retrying blindly. A prerequisite response provides the exact scoped /agent-fishing request and must never fall back to generic autoplay. refresh returns only a fresh successful NFT history response for baselining. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
           },
           bridgeSessionId: { type: "string" },
           commandId: { type: "string" },
           questId: {
             type: "string",
             enum: ["fishin-lesson", "lost-fishing-shoes"],
-            description: "Optional fishing quest to complete while fishing.",
+            description: "Optional exact fishing quest to complete. The dedicated endpoint forces finish_quest with behaviorScheme=fishing and cannot become generic play_for autoplay.",
           },
           maxSeconds: { type: "number", minimum: 15, maximum: 1800 },
           constraints: {
@@ -211,6 +211,10 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
             },
           },
           catchId: { type: "string" },
+          requestId: {
+            type: "string",
+            description: "Correlated fish-sale request id returned by sell_fish. Required by sell_fish_status; keep private and never invent one.",
+          },
           txHash: { type: "string" },
           itemId: {
             type: "string",
@@ -499,13 +503,23 @@ function fishingOutputSchema() {
       postCommand: { type: "object" },
       prerequisiteRequired: {
         type: "object",
-        description: "Returned by sell_fish when lost-fishing-shoes is not completed. Do not retry or fall back to sell_trash_items.",
+        description: "Returned by sell_fish when lost-fishing-shoes is not completed. Follow nextRequest on /agent-fishing exactly; never use /agent-command, generic autoplay, or sell_trash_items.",
       },
       walletActionRequired: {
         type: "object",
         description: "For claim_fishing_nft, submit the provided transaction then call submit_claim_tx. For redeem_fishing_nft, submit only the returned approval or sell transaction, wait for its receipt, then follow nextOperation.",
       },
       transaction: { type: "object" },
+      requestId: { type: "string" },
+      fishSale: {
+        type: ["object", "null"],
+        description: "Authoritative result matched to the current sell_fish request, including sold item names, quantities, points, and any error.",
+      },
+      nftCatches: {
+        type: "array",
+        items: { type: "object" },
+        description: "Current sanitized fishing NFT catch snapshots returned by refresh for freshness baselining.",
+      },
       catchId: { type: "string" },
       txHash: { type: "string" },
       toolUsageReport: { type: "object" },

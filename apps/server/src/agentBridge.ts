@@ -221,6 +221,7 @@ type QuestMemory = {
 type BridgeActionResult = {
   ok: boolean;
   status?: string;
+  requestId?: string;
   bridgeSessionId?: string;
   lastAction?: string;
   error?: string;
@@ -235,6 +236,8 @@ type BridgeActionResult = {
   continuePrompt?: string;
   durationMs?: number;
   catch?: AnyRecord | null;
+  fishSale?: AnyRecord | null;
+  nftCatches?: AnyRecord[];
   transaction?: AnyRecord;
   redemption?: AnyRecord;
 };
@@ -325,6 +328,20 @@ type DurableOutcome = {
   status: string;
   stoppedBecause: string;
   durationMs: number;
+};
+
+type DurableResultKind =
+  | "trashVendor"
+  | "fishingVendor"
+  | "fishingSupply"
+  | "fishing"
+  | "fishingNft"
+  | "fishingNftHistory";
+
+type ActionExecutionContext = {
+  requestId: string;
+  resultBaselines: Map<DurableResultKind, number>;
+  sentMessages: Set<string>;
 };
 
 type OpenLootWindow = {
@@ -975,6 +992,10 @@ class AgentBridgeSession {
   private fishingLootExpectedUntil = 0;
   private fishingNftClaimWalletActions = new Map<string, AnyRecord>();
   private fishingNftCatches = new Map<string, AnyRecord>();
+  private durableResultSequences = new Map<DurableResultKind, number>();
+  private fishingVendorSellResults = new Map<string, AnyRecord>();
+  private fishingVendorSellRequestStartedAt = new Map<string, number>();
+  private latestFishingNftHistoryResult: AnyRecord | null = null;
   private latestMintClubRedemptionResult: AnyRecord | null = null;
   private pendingSocialMessages: Array<{ sessionId: string; name: string; identityType: string; text: string; kind: string; observedAt: number }> = [];
   private questMemory = new Map<string, QuestMemory>();
@@ -1097,19 +1118,24 @@ class AgentBridgeSession {
       this.remember(`closeLoot:${messageSummary(message)}`);
     });
     room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
-    room.onMessage("trashVendorSellResult", (message: unknown) => this.remember(`trashVendor:${messageSummary(message)}`, true));
+    room.onMessage("trashVendorSellResult", (message: unknown) => {
+      this.recordDurableResult("trashVendor");
+      this.remember(`trashVendor:${messageSummary(message)}`, true);
+    });
     room.onMessage("fishingResult", (message: unknown) => {
       this.recordFishingNftClaimWalletAction(asRecord(message).nftCatch);
       const sanitized = sanitizeFishingResultMessage(message);
       const lootExpectedUntil = getFishingLootExpectedUntil(sanitized);
       if (lootExpectedUntil > 0) this.fishingLootExpectedUntil = lootExpectedUntil;
       this.recordFishingResult(sanitized);
+      this.recordDurableResult("fishing");
       this.remember(`fishing:${messageSummary(sanitized)}`, true);
     });
     room.onMessage("fishingNftCatchResult", (message: unknown) => {
       this.recordFishingNftClaimWalletAction(asRecord(message).catch);
       const sanitized = sanitizeFishingNftCatchMessage(message);
       this.recordFishingNftCatchResult(sanitized);
+      this.recordDurableResult("fishingNft");
       this.remember(`fishingNft:${messageSummary(sanitized)}`, true);
     });
     room.onMessage("fishingNftCapNotice", (message: unknown) => {
@@ -1117,13 +1143,22 @@ class AgentBridgeSession {
       this.remember(`fishingNftCap:${messageSummary(message)}`, true);
     });
     room.onMessage("fishingNftHistoryResult", (message: unknown) => {
-      this.recordFishingNftHistoryResult(message);
-      this.remember(`fishingNftHistory:${messageSummary(message)}`, true);
+      const result = normalizeFishingNftHistoryResult(message);
+      this.latestFishingNftHistoryResult = result;
+      if (result.ok) this.recordFishingNftHistoryResult(message);
+      this.recordDurableResult("fishingNftHistory");
+      this.remember(`fishingNftHistory:${messageSummary(result)}`, true);
     });
-    room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => this.remember(`fishingSupply:${messageSummary(message)}`, true));
+    room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => {
+      this.recordDurableResult("fishingSupply");
+      this.remember(`fishingSupply:${messageSummary(message)}`, true);
+    });
     room.onMessage("fishingVendorSellResult", (message: unknown) => {
-      this.recordFishingVendorSellResult(message);
-      this.remember(`fishingVendor:${messageSummary(message)}`, true);
+      const result = normalizeFishingVendorSellResult(message);
+      this.recordDurableResult("fishingVendor");
+      this.rememberFishingVendorSellResult(result);
+      this.recordFishingVendorSellResult(result);
+      this.remember(`fishingVendor:${messageSummary(result)}`, true);
     });
     room.onMessage("mintClubRedemptionResult", (message: unknown) => {
       this.latestMintClubRedemptionResult = asRecord(message);
@@ -1422,11 +1457,16 @@ class AgentBridgeSession {
     if (!self) return { ok: false, status: "waiting_for_state", error: "bridge has not received player state yet" };
     const decision = normalizeDecision(rawDecision);
     const before = this.snapshotPlayer(self);
+    const context: ActionExecutionContext = {
+      requestId: randomUUID(),
+      resultBaselines: new Map(this.durableResultSequences),
+      sentMessages: new Set(),
+    };
     this.lastDecision = decision;
     this.lastActionAt = Date.now();
     this.lastError = "";
     try {
-      const immediateResult = await this.executeDecision(self, decision);
+      const immediateResult = await this.executeDecision(self, decision, context);
       this.maybeAnnounceNextAction(self, decision);
       this.publishAgentStatus(self, true);
       if (immediateResult && immediateResult.ok === false) {
@@ -1439,17 +1479,83 @@ class AgentBridgeSession {
         this.recordCombatMemoryFromReport(decision, before, report);
         return this.withActionReport(immediateResult, report);
       }
-      const outcome = await this.waitForDurableAction(decision, before);
-      const report = this.buildActionReport(decision, before, outcome);
+      const outcome = await this.waitForDurableAction(decision, before, context);
+      const fishingVendorResult = decision.action === "sell_fish_items"
+        ? this.fishingVendorSellResults.get(context.requestId) ?? null
+        : null;
+      const fishingVendorStartedAt = decision.action === "sell_fish_items"
+        ? this.fishingVendorSellRequestStartedAt.get(context.requestId) ?? 0
+        : 0;
+      const fishingVendorApproachIncomplete = decision.action === "sell_fish_items"
+        && !fishingVendorStartedAt
+        && outcome.status === "in_progress"
+        && outcome.stoppedBecause === "response_window_elapsed"
+        && this.lastAction.startsWith("move_to_sell_fish");
+      const fishingNftHistoryResult = decision.action === "refresh_fishing_nft_history"
+        && this.hasNewDurableResult("fishingNftHistory", context)
+        ? this.latestFishingNftHistoryResult
+        : null;
+      const reportOutcome = fishingVendorResult && !fishingVendorResult.ok
+        ? {
+            status: "failed",
+            stoppedBecause: getString(fishingVendorResult.error) || getString(fishingVendorResult.status) || "fishing_sale_failed",
+            durationMs: outcome.durationMs,
+          }
+        : fishingNftHistoryResult && !fishingNftHistoryResult.ok
+          ? {
+              status: "failed",
+              stoppedBecause: getString(fishingNftHistoryResult.error) || "fishing_nft_history_refresh_failed",
+              durationMs: outcome.durationMs,
+            }
+          : fishingVendorApproachIncomplete
+            ? {
+                status: "in_progress",
+                stoppedBecause: "fish_monger_approach_incomplete",
+                durationMs: outcome.durationMs,
+              }
+          : outcome;
+      const report = this.buildActionReport(decision, before, reportOutcome);
       this.lastActionReport = report;
       this.recordCombatMemoryFromReport(decision, before, report);
-      return this.withActionReport({
-        ok: true,
-        status: outcome.status,
-        bridgeSessionId: this.id,
-        lastAction: this.lastAction,
-        durationMs: outcome.durationMs,
-      }, report);
+      const actionResult: BridgeActionResult = fishingVendorResult
+        ? {
+            ok: Boolean(fishingVendorResult.ok),
+            status: getString(fishingVendorResult.status) || (fishingVendorResult.ok ? "sold" : "error"),
+            requestId: context.requestId,
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            durationMs: outcome.durationMs,
+            fishSale: fishingVendorResult,
+            error: getString(fishingVendorResult.error) || undefined,
+          }
+        : fishingNftHistoryResult
+          ? {
+              ok: Boolean(fishingNftHistoryResult.ok),
+              status: fishingNftHistoryResult.ok ? "refreshed" : "refresh_failed",
+              bridgeSessionId: this.id,
+              lastAction: this.lastAction,
+              durationMs: outcome.durationMs,
+              nftCatches: Array.isArray(fishingNftHistoryResult.catches) ? fishingNftHistoryResult.catches : [],
+              error: getString(fishingNftHistoryResult.error) || undefined,
+            }
+          : fishingVendorApproachIncomplete
+            ? {
+                ok: false,
+                status: "approach_incomplete",
+                bridgeSessionId: this.id,
+                lastAction: this.lastAction,
+                durationMs: outcome.durationMs,
+                error: "fish monger was not reached within the action window; retry sell_fish to continue the approach",
+              }
+        : {
+            ok: true,
+            status: outcome.status,
+            requestId: decision.action === "sell_fish_items" && fishingVendorStartedAt ? context.requestId : undefined,
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            durationMs: outcome.durationMs,
+          };
+      return this.withActionReport(actionResult, report);
     } catch (error) {
       this.lastError = errorMessage(error);
       const report = this.buildActionReport(decision, before, {
@@ -1543,6 +1649,16 @@ class AgentBridgeSession {
     const command = this.commands.get(cleanText(commandId, 80));
     if (!command) throw new BridgeHttpError(404, "agent command not found");
     return await this.serializeCommand(command);
+  }
+
+  getFishingVendorSaleStatus(requestIdValue: unknown): BridgeActionResult {
+    const requestId = cleanText(requestIdValue, 96);
+    const status = describeFishingVendorSaleRequest(
+      requestId,
+      this.fishingVendorSellResults.get(requestId) ?? null,
+      this.fishingVendorSellRequestStartedAt.get(requestId) ?? 0,
+    );
+    return { ...status, bridgeSessionId: this.id };
   }
 
   async stopCommand(commandId: string) {
@@ -3659,7 +3775,11 @@ class AgentBridgeSession {
     };
   }
 
-  private async waitForDurableAction(decision: AgentBridgeDecision, before: PlayerActionSnapshot): Promise<DurableOutcome> {
+  private async waitForDurableAction(
+    decision: AgentBridgeDecision,
+    before: PlayerActionSnapshot,
+    context: ActionExecutionContext,
+  ): Promise<DurableOutcome> {
     const waitMs = this.durableWaitMs(decision.action);
     const startedAt = Date.now();
     if (waitMs <= 0) {
@@ -3674,10 +3794,10 @@ class AgentBridgeSession {
       if (this.shouldInterruptForTravelDamage(decision, before, self)) {
         return { status: "needs_rethink", stoppedBecause: "movement_damage_rethink", durationMs };
       }
-      const finished = this.checkDurableOutcome(decision, before, self, durationMs);
+      const finished = this.checkDurableOutcome(decision, before, self, durationMs, context);
       if (finished) return finished;
       if (this.shouldContinueDurableAction(decision.action) && Date.now() >= nextContinuationAt) {
-        this.continueDurableAction(decision, self);
+        this.continueDurableAction(decision, self, context);
         nextContinuationAt = Date.now() + DURABLE_CONTINUATION_MS;
       }
     }
@@ -3767,6 +3887,7 @@ class AgentBridgeSession {
     before: PlayerActionSnapshot,
     self: RuntimePlayer,
     durationMs: number,
+    context: ActionExecutionContext,
   ): DurableOutcome | null {
     if (self.health <= 0) return { status: "stopped", stoppedBecause: "dead", durationMs };
     if (this.movementTrouble && Date.now() - getNumber(this.movementTrouble.lastAt) < 2200) {
@@ -3847,33 +3968,33 @@ class AgentBridgeSession {
         return null;
       }
       case "sell_trash_items":
-        if (this.recentMessages.some((message) => message.startsWith("trashVendor:"))) {
+        if (this.hasNewDurableResult("trashVendor", context)) {
           return { status: "completed", stoppedBecause: "trash_sale_result", durationMs };
         }
         return null;
       case "sell_fish_items":
-        if (this.recentMessages.some((message) => message.startsWith("fishingVendor:"))) {
+        if (this.fishingVendorSellResults.has(context.requestId)) {
           return { status: "completed", stoppedBecause: "fishing_sale_result", durationMs };
         }
         return null;
       case "purchase_fishing_supply":
-        if (this.recentMessages.some((message) => message.startsWith("fishingSupply:"))) {
+        if (this.hasNewDurableResult("fishingSupply", context)) {
           return { status: "completed", stoppedBecause: "fishing_supply_purchase_result", durationMs };
         }
         return null;
       case "fish":
-        if (this.recentMessages.some((message) => message.startsWith("fishing:"))) {
+        if (this.hasNewDurableResult("fishing", context)) {
           if (this.getOpenFishingLootWindow()) return null;
           return { status: "completed", stoppedBecause: this.lastAction.startsWith("loot_fishing") ? "fishing_loot_collected" : "fishing_result", durationMs };
         }
         return null;
       case "submit_fishing_nft_claim_tx":
-        if (this.recentMessages.some((message) => message.startsWith("fishingNft:"))) {
+        if (this.hasNewDurableResult("fishingNft", context)) {
           return { status: "completed", stoppedBecause: "fishing_nft_claim_tx_submitted", durationMs };
         }
         return null;
       case "refresh_fishing_nft_history":
-        if (this.recentMessages.some((message) => message.startsWith("fishingNftHistory:"))) {
+        if (this.hasNewDurableResult("fishingNftHistory", context)) {
           return { status: "completed", stoppedBecause: "fishing_nft_history_refreshed", durationMs };
         }
         return null;
@@ -3883,7 +4004,7 @@ class AgentBridgeSession {
     }
   }
 
-  private continueDurableAction(decision: AgentBridgeDecision, self: RuntimePlayer) {
+  private continueDurableAction(decision: AgentBridgeDecision, self: RuntimePlayer, context: ActionExecutionContext) {
     switch (decision.action) {
       case "fight_npc": {
         const npc = this.resolveNpc(decision.npcRef);
@@ -3976,6 +4097,7 @@ class AgentBridgeSession {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_sell_trash ${npc.id}`;
         } else {
+          if (!claimDurableMessageDispatch(context.sentMessages, "sellTrashItems")) return;
           const itemId = cleanText(decision.itemId, 96);
           const quantity = normalizeTrashSellQuantity(decision.quantity, self.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1);
           this.targetPoint = null;
@@ -4034,6 +4156,7 @@ class AgentBridgeSession {
         return;
       }
       case "refresh_fishing_nft_history":
+        if (!claimDurableMessageDispatch(context.sentMessages, "refreshFishingNftHistory")) return;
         this.clearRoute();
         this.send("refreshFishingNftHistory", {});
         this.lastAction = "refresh_fishing_nft_history";
@@ -4050,19 +4173,7 @@ class AgentBridgeSession {
       case "sell_fish_items": {
         if (!hasCompletedFishingSaleUnlockQuest(self.quests)) {
           this.lastAction = "sell_fish_items prerequisite_required lost-fishing-shoes";
-          return {
-            ok: false,
-            status: "prerequisite_required",
-            bridgeSessionId: this.id,
-            lastAction: this.lastAction,
-            error: "fish monger needs his fishing shoes first",
-            prerequisiteRequired: {
-              questId: "lost-fishing-shoes",
-              questName: "lost fishing shoes",
-              requiredStatus: "completed",
-              instruction: "Complete lost-fishing-shoes before retrying sell_fish. Do not use sell_trash_items as a fallback for fish or NFTs.",
-            },
-          };
+          return;
         }
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) return;
@@ -4071,11 +4182,15 @@ class AgentBridgeSession {
           this.moveNearNpc(self, npc);
           this.lastAction = `move_to_sell_fish ${npc.id}`;
         } else {
+          if (!claimDurableMessageDispatch(context.sentMessages, "sellFishingItems")) return;
           const requestedItemId = cleanText(decision.itemId, 96);
           const itemId = isFishingSellableItemId(requestedItemId) ? requestedItemId : "";
           const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
           this.targetPoint = null;
-          this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
+          this.rememberFishingVendorSellRequest(context.requestId);
+          this.send("sellFishingItems", itemId
+            ? { requestId: context.requestId, itemId, quantity }
+            : { requestId: context.requestId, sellAll: true });
           this.lastAction = itemId ? `sell_fish_items ${itemId} x${quantity}` : "sell_fish_items all";
         }
         return;
@@ -4417,7 +4532,11 @@ class AgentBridgeSession {
     return { action: "wait", reason: "no urgent quest, loot, or combat action is visible" };
   }
 
-  private async executeDecision(self: RuntimePlayer, decision: AgentBridgeDecision): Promise<BridgeActionResult | null> {
+  private async executeDecision(
+    self: RuntimePlayer,
+    decision: AgentBridgeDecision,
+    context: ActionExecutionContext,
+  ): Promise<BridgeActionResult | null> {
     switch (decision.action) {
       case "wait":
         this.targetPoint = null;
@@ -4679,6 +4798,7 @@ class AgentBridgeSession {
         const itemId = cleanText(decision.itemId, 96);
         const quantity = normalizeTrashSellQuantity(decision.quantity, self.isAgent ? AGENT_TRASH_VENDOR_ITEMS_PER_POINT : 1);
         this.targetPoint = null;
+        if (!claimDurableMessageDispatch(context.sentMessages, "sellTrashItems")) return null;
         this.send("sellTrashItems", itemId ? { itemId, quantity } : { sellAll: true });
         this.lastAction = itemId ? `sell_trash_items ${itemId} x${quantity}` : "sell_trash_items all";
         return null;
@@ -4734,6 +4854,7 @@ class AgentBridgeSession {
         return null;
       }
       case "refresh_fishing_nft_history":
+        if (!claimDurableMessageDispatch(context.sentMessages, "refreshFishingNftHistory")) return null;
         this.clearEngagement();
         this.send("refreshFishingNftHistory", {});
         this.lastAction = "refresh_fishing_nft_history";
@@ -4761,6 +4882,17 @@ class AgentBridgeSession {
         return null;
       }
       case "sell_fish_items": {
+        if (!hasCompletedFishingSaleUnlockQuest(self.quests)) {
+          this.lastAction = "sell_fish_items prerequisite_required lost-fishing-shoes";
+          return {
+            ok: false,
+            status: "prerequisite_required",
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            error: "fish monger needs his fishing shoes first",
+            prerequisiteRequired: buildFishingSalePrerequisiteRequired(),
+          };
+        }
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) throw new Error("sell_fish_items requires fish monger to be visible in room state");
         this.clearEngagement();
@@ -4773,7 +4905,11 @@ class AgentBridgeSession {
         const itemId = isFishingSellableItemId(requestedItemId) ? requestedItemId : "";
         const quantity = normalizeFishingSellQuantity(decision.quantity, 999);
         this.targetPoint = null;
-        this.send("sellFishingItems", itemId ? { itemId, quantity } : { sellAll: true });
+        if (!claimDurableMessageDispatch(context.sentMessages, "sellFishingItems")) return null;
+        this.rememberFishingVendorSellRequest(context.requestId);
+        this.send("sellFishingItems", itemId
+          ? { requestId: context.requestId, itemId, quantity }
+          : { requestId: context.requestId, sellAll: true });
         this.lastAction = itemId ? `sell_fish_items ${itemId} x${quantity}` : "sell_fish_items all";
         return null;
       }
@@ -7285,6 +7421,40 @@ class AgentBridgeSession {
     if (record.nftCatch) this.recordFishingNftCatch(record.nftCatch);
   }
 
+  private recordDurableResult(kind: DurableResultKind) {
+    this.durableResultSequences.set(kind, (this.durableResultSequences.get(kind) ?? 0) + 1);
+  }
+
+  private hasNewDurableResult(kind: DurableResultKind, context: ActionExecutionContext) {
+    return hasNewDurableResult(
+      this.durableResultSequences.get(kind) ?? 0,
+      context.resultBaselines.get(kind) ?? 0,
+    );
+  }
+
+  private rememberFishingVendorSellResult(result: AnyRecord) {
+    const requestId = cleanText(result.requestId, 96);
+    if (!requestId) return;
+    this.fishingVendorSellRequestStartedAt.delete(requestId);
+    this.fishingVendorSellResults.delete(requestId);
+    this.fishingVendorSellResults.set(requestId, result);
+    while (this.fishingVendorSellResults.size > 32) {
+      const oldestRequestId = this.fishingVendorSellResults.keys().next().value;
+      if (!oldestRequestId) break;
+      this.fishingVendorSellResults.delete(oldestRequestId);
+    }
+  }
+
+  private rememberFishingVendorSellRequest(requestId: string) {
+    this.fishingVendorSellRequestStartedAt.delete(requestId);
+    this.fishingVendorSellRequestStartedAt.set(requestId, Date.now());
+    while (this.fishingVendorSellRequestStartedAt.size > 32) {
+      const oldestRequestId = this.fishingVendorSellRequestStartedAt.keys().next().value;
+      if (!oldestRequestId) break;
+      this.fishingVendorSellRequestStartedAt.delete(oldestRequestId);
+    }
+  }
+
   private recordFishingVendorSellResult(message: unknown) {
     const command = this.runningCommand();
     if (!command) return;
@@ -7565,9 +7735,9 @@ export class AgentBridgeManager {
     const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
     const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
     const operation = cleanText(payload.operation, 40).toLowerCase() || "start";
-    const writeActionResult = async (result: BridgeActionResult) => {
+    const writeActionResult = async (result: BridgeActionResult, okStatus?: number) => {
       const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
-      writeBridgeJson(res, actionResultHttpStatus(result), withOptionalToolUsageReport(result, toolUsageReport));
+      writeBridgeJson(res, result.ok && okStatus ? okStatus : actionResultHttpStatus(result), withOptionalToolUsageReport(result, toolUsageReport));
     };
 
     if (operation === "status") {
@@ -7610,6 +7780,10 @@ export class AgentBridgeManager {
       await writeActionResult(await session.submitMintClubRedemptionTx(payload.catchId, payload.txHash ?? payload.paymentTxHash));
       return;
     }
+    if (operation === "sell_fish_status" || operation === "sale_status") {
+      await writeActionResult(session.getFishingVendorSaleStatus(payload.requestId), 200);
+      return;
+    }
     if (operation === "sell_fish" || operation === "sell_fish_items") {
       await writeActionResult(await session.execute({
         action: "sell_fish_items",
@@ -7627,7 +7801,7 @@ export class AgentBridgeManager {
       return;
     }
     if (operation !== "start") {
-      writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, stop, fish_once, claim_nft, submit_claim_tx, prepare_redemption, submit_redemption_tx, sell_fish, or refresh" });
+      writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, stop, fish_once, claim_nft, submit_claim_tx, prepare_redemption, submit_redemption_tx, sell_fish, sell_fish_status, or refresh" });
       return;
     }
 
@@ -7636,23 +7810,7 @@ export class AgentBridgeManager {
       writeBridgeJson(res, 400, { ok: false, error: "agent-fishing questId must be fishin-lesson or lost-fishing-shoes" });
       return;
     }
-    const body = await session.startCommand({
-      ...payload,
-      command: questId ? "finish_quest" : "play_for",
-      behaviorScheme: "fishing",
-      questId,
-      profile: {
-        priority: "looter",
-        risk: "safe",
-        social: "quiet",
-        ...asRecord(payload.profile),
-      },
-      constraints: {
-        noPaidActions: true,
-        ...asRecord(payload.constraints),
-      },
-      maxSeconds: payload.maxSeconds ?? 300,
-    });
+    const body = await session.startCommand(buildFishingToolCommandPayload(payload));
     const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
     writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
   }
@@ -7761,9 +7919,154 @@ class BridgeHttpError extends Error {
   }
 }
 
+export function hasNewDurableResult(currentSequence: number, baselineSequence: number) {
+  return currentSequence > baselineSequence;
+}
+
+export function claimDurableMessageDispatch(sentMessages: Set<string>, messageType: string) {
+  if (sentMessages.has(messageType)) return false;
+  sentMessages.add(messageType);
+  return true;
+}
+
+export function normalizeFishingVendorSellResult(value: unknown): AnyRecord {
+  const record = asRecord(value);
+  const sold = Array.isArray(record.sold)
+    ? record.sold.map((entry) => {
+        const soldRecord = asRecord(entry);
+        return {
+          itemId: cleanText(getString(soldRecord.itemId), 96),
+          itemName: cleanText(getString(soldRecord.itemName), 96),
+          quantity: Math.max(0, Math.floor(getNumber(soldRecord.quantity))),
+          points: Math.max(0, Math.floor(getNumber(soldRecord.points))),
+          bundleSize: Math.max(0, Math.floor(getNumber(soldRecord.bundleSize))),
+        };
+      }).filter((entry) => entry.itemId && entry.quantity > 0)
+    : [];
+  const gate = asRecord(record.mferGptGate);
+  const status = cleanText(getString(record.status), 32) || (record.ok ? "sold" : "error");
+  return {
+    requestId: cleanText(getString(record.requestId), 96) || undefined,
+    ok: Boolean(record.ok),
+    status,
+    sold,
+    quantity: Math.max(0, Math.floor(getNumber(record.quantity))),
+    points: Math.max(0, Math.floor(getNumber(record.points))),
+    season0Points: Math.max(0, Math.floor(getNumber(record.season0Points))),
+    season0DailyPoints: Math.max(0, Math.floor(getNumber(record.season0DailyPoints))),
+    mferGptGate: Object.keys(gate).length ? gate : undefined,
+    error: cleanText(getString(record.error), 160) || undefined,
+  };
+}
+
+export function describeFishingVendorSaleRequest(
+  requestIdValue: unknown,
+  resultValue: unknown,
+  startedAt: number,
+  now = Date.now(),
+) {
+  const requestId = cleanText(requestIdValue, 96);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(requestId)) {
+    return { ok: false, status: "rejected", error: "sell_fish_status requires a valid requestId" };
+  }
+  if (resultValue) {
+    const fishSale = normalizeFishingVendorSellResult(resultValue);
+    return {
+      ok: Boolean(fishSale.ok),
+      status: getString(fishSale.status) || (fishSale.ok ? "sold" : "error"),
+      requestId,
+      fishSale,
+      error: getString(fishSale.error) || undefined,
+    };
+  }
+  if (Number.isFinite(startedAt) && startedAt > 0) {
+    const durationMs = Math.max(0, now - startedAt);
+    if (durationMs > 60_000) {
+      return {
+        ok: false,
+        status: "timed_out",
+        requestId,
+        durationMs,
+        error: "fish sale result did not arrive within 60 seconds; do not submit another sale until this request is reconciled",
+      };
+    }
+    return {
+      ok: true,
+      status: "in_progress",
+      requestId,
+      durationMs,
+    };
+  }
+  return { ok: false, status: "not_found", requestId, error: "fish sale request not found on this bridge" };
+}
+
+export function normalizeFishingNftHistoryResult(value: unknown): AnyRecord {
+  const record = asRecord(value);
+  const ok = record.ok === true;
+  const catches = ok && Array.isArray(record.catches)
+    ? record.catches
+        .map((entry) => describeFishingNftCatchForAgent(asRecord(entry)))
+        .filter((entry) => getString(entry.catchId))
+        .slice(-32)
+    : [];
+  return {
+    ok,
+    catches,
+    error: cleanText(getString(record.error), 160) || undefined,
+  };
+}
+
+export function buildFishingSalePrerequisiteRequired() {
+  return {
+    questId: "lost-fishing-shoes",
+    questName: "lost fishing shoes",
+    requiredStatus: "completed",
+    instruction: "Complete lost-fishing-shoes and any catalog-declared fishing quest prerequisite through the dedicated fishing tool, then retry sell_fish. Do not use unrelated quests, sell_trash_items, or generic autoplay as a fallback.",
+    nextRequest: {
+      method: "POST",
+      endpoint: "/agent-fishing",
+      reuseBridgeSessionId: true,
+      body: {
+        operation: "start",
+        questId: "lost-fishing-shoes",
+        maxSeconds: 300,
+        constraints: { noPaidActions: true },
+      },
+    },
+    forbiddenEndpoint: "/agent-command",
+    forbiddenCommands: ["play_for", "finish_next_quest"],
+  };
+}
+
+export function buildFishingToolCommandPayload(payload: AnyRecord): AgentCommandPayload {
+  const questId = cleanText(payload.questId, 96);
+  const profile = asRecord(payload.profile);
+  const constraints = asRecord(payload.constraints);
+  return {
+    command: questId ? "finish_quest" : "play_for",
+    behaviorScheme: "fishing",
+    questId,
+    profile: {
+      priority: "looter",
+      risk: cleanText(profile.risk, 24) || "safe",
+      social: cleanText(profile.social, 24) || "quiet",
+    },
+    constraints: {
+      noPaidActions: true,
+      ...(typeof constraints.noWalletActions === "boolean" ? { noWalletActions: constraints.noWalletActions } : {}),
+      ...(constraints.maxDeaths !== undefined ? { maxDeaths: constraints.maxDeaths } : {}),
+      ...(constraints.maxSafetyStops !== undefined ? { maxSafetyStops: constraints.maxSafetyStops } : {}),
+    },
+    maxSeconds: payload.maxSeconds ?? 300,
+  };
+}
+
 export function actionResultHttpStatus(result: { ok: boolean; status?: string }) {
   if (result.ok) return 202;
   if (result.status === "payment_required" || result.status === "prerequisite_required" || result.status === "wallet_action_required") return 409;
+  if (result.status === "sale_in_progress" || result.status === "approach_incomplete" || result.status === "timed_out") return 409;
+  if (result.status === "not_found") return 404;
+  if (result.status === "refresh_failed") return 502;
   if (result.status === "chat_cooldown") return 429;
   return 400;
 }

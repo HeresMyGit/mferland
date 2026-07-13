@@ -816,6 +816,8 @@ export class TownRoom extends Room<TownState> {
   private readonly fishingNftCapNoticeAt = new Map<string, number>();
   private readonly fishingNftRodDailyNoticeKeys = new Set<string>();
   private readonly playerAnimationHolds = new Map<string, PlayerAnimationHold>();
+  private readonly fishingVendorRequestIds = new Map<string, string[]>();
+  private readonly fishingVendorSalesInFlight = new Set<string>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private lastAgentIdleSweepAt = 0;
@@ -1540,6 +1542,7 @@ export class TownRoom extends Room<TownState> {
     this.pendingDebugPlacementSaves.delete(sessionId);
     this.fishingAttempts.delete(sessionId);
     this.pendingFishingLoot.delete(sessionId);
+    this.fishingVendorRequestIds.delete(`session:${sessionId}`);
     for (const key of this.fishingNftCapNoticeAt.keys()) {
       if (key.startsWith(`${sessionId}:`)) this.fishingNftCapNoticeAt.delete(key);
     }
@@ -3639,11 +3642,16 @@ export class TownRoom extends Room<TownState> {
   }
 
   private async handleSellFishingItems(client: Client, message: Partial<ClientSellFishingItems>) {
+    const requestId = normalizeFishingVendorRequestId(message?.requestId);
     const player = this.state.players.get(client.sessionId);
+    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
+    const saleOwnerKey = fishingVendorSaleOwnerKey(characterId, player?.walletAddress, client.sessionId);
+    if (isDuplicateFishingVendorRequest(this.fishingVendorRequestIds.get(saleOwnerKey), requestId)) return;
     const selectedItemId = isFishingSellableItemId(message?.itemId) ? message.itemId : null;
     const sellAll = message?.sellAll === true;
     const sendResult = (result: Partial<FishingVendorSellResult> & Pick<FishingVendorSellResult, "ok">) => {
       client.send("fishingVendorSellResult", {
+        requestId: requestId || undefined,
         ok: result.ok,
         status: result.status ?? (result.ok ? "sold" : "error"),
         sold: result.sold ?? [],
@@ -3656,6 +3664,15 @@ export class TownRoom extends Room<TownState> {
       } satisfies FishingVendorSellResult);
     };
 
+    if (!claimFishingVendorSaleSession(this.fishingVendorSalesInFlight, saleOwnerKey)) {
+      sendResult({ ok: false, status: "sale_in_progress", error: "another fish sale is still in progress" });
+      return;
+    }
+    if (requestId) {
+      this.rememberFishingVendorRequest(saleOwnerKey, requestId);
+    }
+
+    try {
     if (!player || player.health <= 0) {
       sendResult({ ok: false, error: "player unavailable" });
       return;
@@ -3665,7 +3682,6 @@ export class TownRoom extends Room<TownState> {
       return;
     }
 
-    const characterId = this.persistentCharacterIds.get(client.sessionId) ?? "";
     const useLocalDebugWallet = isLocalDebugWalletAllowed(player.walletAddress);
     if (player.identityType !== "wallet" || !player.walletAddress || (!characterId && !useLocalDebugWallet)) {
       sendResult({ ok: false, error: "wallet character required" });
@@ -3886,6 +3902,28 @@ export class TownRoom extends Room<TownState> {
       season0Points: player.season0Points,
       season0DailyPoints: player.season0DailyPoints,
     });
+    } finally {
+      this.fishingVendorSalesInFlight.delete(saleOwnerKey);
+    }
+  }
+
+  private rememberFishingVendorRequest(saleOwnerKey: string, requestId: string) {
+    const requestIds = rememberFishingVendorRequestId(this.fishingVendorRequestIds.get(saleOwnerKey), requestId);
+    this.fishingVendorRequestIds.delete(saleOwnerKey);
+    this.fishingVendorRequestIds.set(saleOwnerKey, requestIds);
+    let pruneAttempts = 0;
+    while (this.fishingVendorRequestIds.size > 512 && pruneAttempts < this.fishingVendorRequestIds.size) {
+      pruneAttempts += 1;
+      const oldestOwnerKey = this.fishingVendorRequestIds.keys().next().value;
+      if (!oldestOwnerKey) break;
+      if (this.fishingVendorSalesInFlight.has(oldestOwnerKey)) {
+        const activeRequestIds = this.fishingVendorRequestIds.get(oldestOwnerKey) ?? [];
+        this.fishingVendorRequestIds.delete(oldestOwnerKey);
+        this.fishingVendorRequestIds.set(oldestOwnerKey, activeRequestIds);
+        continue;
+      }
+      this.fishingVendorRequestIds.delete(oldestOwnerKey);
+    }
   }
 
   private playerHasFishingPole(player: PlayerState) {
@@ -5985,6 +6023,38 @@ function normalizeDebugPlacementRecord(value: unknown): DebugPlacementRecord | n
     ...(typeof record.label === "string" ? { label: record.label.slice(0, 160) } : {}),
     ...(typeof record.source === "string" ? { source: record.source.slice(0, 160) } : {}),
   };
+}
+
+export function normalizeFishingVendorRequestId(value: unknown) {
+  if (typeof value !== "string") return "";
+  const requestId = value.trim();
+  return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(requestId) ? requestId : "";
+}
+
+export function isDuplicateFishingVendorRequest(previousRequestIds: readonly string[] | undefined, value: unknown) {
+  const requestId = normalizeFishingVendorRequestId(value);
+  return Boolean(requestId && previousRequestIds?.includes(requestId));
+}
+
+export function rememberFishingVendorRequestId(previousRequestIds: readonly string[] | undefined, value: unknown) {
+  const requestId = normalizeFishingVendorRequestId(value);
+  if (!requestId) return [...(previousRequestIds ?? [])].slice(-16);
+  return [...(previousRequestIds ?? []).filter((entry) => entry !== requestId), requestId].slice(-16);
+}
+
+export function claimFishingVendorSaleSession(inFlightSessionIds: Set<string>, sessionId: string) {
+  if (inFlightSessionIds.has(sessionId)) return false;
+  inFlightSessionIds.add(sessionId);
+  return true;
+}
+
+export function fishingVendorSaleOwnerKey(characterIdValue: unknown, walletAddressValue: unknown, sessionIdValue: unknown) {
+  const characterId = typeof characterIdValue === "string" ? characterIdValue.trim() : "";
+  if (characterId) return `character:${characterId}`;
+  const walletAddress = typeof walletAddressValue === "string" ? walletAddressValue.trim().toLowerCase() : "";
+  if (/^0x[0-9a-f]{40}$/.test(walletAddress)) return `wallet:${walletAddress}`;
+  const sessionId = typeof sessionIdValue === "string" ? sessionIdValue.trim() : "";
+  return `session:${sessionId}`;
 }
 
 function normalizeDebugPlacementSaveId(value: unknown) {
