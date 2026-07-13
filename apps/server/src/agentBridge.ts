@@ -17,6 +17,8 @@ import {
   getNpcQuestIds,
   getQuestObjectives,
   getFishingSupplyPrice,
+  getFishingRequiredBundleSize,
+  getFishingSellAwardPoints,
   getPotionShopPrice,
   getQuestRequirement,
   getQuestTurnInNpcId,
@@ -537,6 +539,16 @@ type AgentCommandFishingSaleEvent = {
   error: string;
 };
 
+export type AgentCommandFishingBundleReady = {
+  itemId: string;
+  itemName: string;
+  freshQuantity: number;
+  availableQuantity: number;
+  bundleSize: number;
+  sellableQuantity: number;
+  points: number;
+};
+
 export type AgentCommandFishingStats = {
   resultCount: number;
   outcomeCounts: Record<string, number>;
@@ -547,6 +559,7 @@ export type AgentCommandFishingStats = {
   nftCatches: Map<string, AnyRecord>;
   nftClaimWalletActions: Map<string, AnyRecord>;
   capNotices: AnyRecord[];
+  currentRunBundleReady: AgentCommandFishingBundleReady | null;
 };
 
 type AgentCommandPayload = {
@@ -569,6 +582,7 @@ type AgentCommandPayload = {
   targetCount?: unknown;
   goals?: unknown;
   stopWhen?: unknown;
+  stopWhenRegularFishBundleReady?: unknown;
   constraints?: unknown;
 };
 
@@ -579,6 +593,7 @@ type NormalizedAgentCommandPayload = {
   profile: AgentCommandProfile;
   goals: AgentCommandGoal[];
   stopWhen: AgentCommandStopWhen;
+  stopWhenRegularFishBundleReady: boolean;
   constraints: AgentCommandConstraints;
   maxSeconds: number;
   questId: string;
@@ -594,6 +609,7 @@ type AgentCommandState = {
   profile: AgentCommandProfile;
   goals: AgentCommandGoal[];
   stopWhen: AgentCommandStopWhen;
+  stopWhenRegularFishBundleReady: boolean;
   constraints: AgentCommandConstraints;
   status: AgentCommandStatus;
   stoppedBecause: string;
@@ -1581,13 +1597,13 @@ class AgentBridgeSession {
     }
   }
 
-  async startCommand(rawPayload: AgentCommandPayload) {
+  async startCommand(rawPayload: AgentCommandPayload, options: { allowFishingBundleReadyStop?: boolean } = {}) {
     const self = this.self();
     if (!self) throw new BridgeHttpError(409, "bridge has not received player state yet");
     const active = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
     if (active?.status === "running") throw new BridgeHttpError(409, "agent command already running for this wallet");
 
-    const payload = normalizeCommandPayload(rawPayload);
+    const payload = normalizeCommandPayload(rawPayload, options);
     const budget = await this.resolveCommandBudget();
     const reservation = await reserveAgentCommandSeconds(this.walletAddress, budget, payload.maxSeconds);
     if (!reservation.ok) {
@@ -1612,6 +1628,7 @@ class AgentBridgeSession {
       profile: payload.profile,
       goals: payload.goals,
       stopWhen: payload.stopWhen,
+      stopWhenRegularFishBundleReady: payload.stopWhenRegularFishBundleReady,
       constraints: payload.constraints,
       status: "running",
       stoppedBecause: "",
@@ -1875,6 +1892,19 @@ class AgentBridgeSession {
         command.walletActionRequired = pendingFishingClaim;
         await this.finishCommand(command, "wallet_action_required", "fishing_nft_claim_required");
         break;
+      }
+      if (command.stopWhenRegularFishBundleReady && command.kind === "play_for" && command.behaviorScheme === "fishing") {
+        const readyBundle = findFreshRegularFishingBundle(
+          command.fishing.catchTotals.values(),
+          command.startSnapshot?.inventoryCounts ?? {},
+          describeInventoryCounts(self.inventory),
+          true,
+        );
+        if (readyBundle) {
+          command.fishing.currentRunBundleReady = readyBundle;
+          await this.finishCommand(command, "completed", `fishing_regular_bundle_ready:${readyBundle.itemId}`);
+          break;
+        }
       }
 
       const decision = this.chooseCommandDecision(command, self);
@@ -3519,6 +3549,7 @@ class AgentBridgeSession {
         goals: command.goals,
         goalProgress,
         stopWhen: command.stopWhen,
+        stopWhenRegularFishBundleReady: command.stopWhenRegularFishBundleReady,
         constraints: command.constraints,
         sandbox: {
           hostedCodeExecution: false,
@@ -7810,7 +7841,7 @@ export class AgentBridgeManager {
       writeBridgeJson(res, 400, { ok: false, error: "agent-fishing questId must be fishin-lesson or lost-fishing-shoes" });
       return;
     }
-    const body = await session.startCommand(buildFishingToolCommandPayload(payload));
+    const body = await session.startCommand(buildFishingToolCommandPayload(payload), { allowFishingBundleReadyStop: true });
     const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
     writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
   }
@@ -7943,6 +7974,19 @@ export function normalizeFishingVendorSellResult(value: unknown): AnyRecord {
         };
       }).filter((entry) => entry.itemId && entry.quantity > 0)
     : [];
+  const bundleRequirements = Array.isArray(record.bundleRequirements)
+    ? record.bundleRequirements.map((entry) => {
+        const requirement = asRecord(entry);
+        return {
+          itemId: cleanText(getString(requirement.itemId), 96),
+          itemName: cleanText(getString(requirement.itemName), 96),
+          availableQuantity: Math.max(0, Math.floor(getNumber(requirement.availableQuantity))),
+          bundleSize: Math.max(0, Math.floor(getNumber(requirement.bundleSize))),
+          neededQuantity: Math.max(0, Math.floor(getNumber(requirement.neededQuantity))),
+          pointsPerBundle: Math.max(0, Math.floor(getNumber(requirement.pointsPerBundle))),
+        };
+      }).filter((entry) => entry.itemId && entry.bundleSize > 0)
+    : [];
   const gate = asRecord(record.mferGptGate);
   const status = cleanText(getString(record.status), 32) || (record.ok ? "sold" : "error");
   return {
@@ -7950,6 +7994,16 @@ export function normalizeFishingVendorSellResult(value: unknown): AnyRecord {
     ok: Boolean(record.ok),
     status,
     sold,
+    ...(bundleRequirements.length ? { bundleRequirements } : {}),
+    ...(typeof record.requestedQuantity === "number" && Number.isFinite(record.requestedQuantity)
+      ? { requestedQuantity: Math.max(0, Math.floor(record.requestedQuantity)) }
+      : {}),
+    ...(typeof record.seasonPointCapacity === "number" && Number.isFinite(record.seasonPointCapacity)
+      ? { seasonPointCapacity: Math.max(0, Math.floor(record.seasonPointCapacity)) }
+      : {}),
+    ...(typeof record.minimumBundlePoints === "number" && Number.isFinite(record.minimumBundlePoints)
+      ? { minimumBundlePoints: Math.max(0, Math.floor(record.minimumBundlePoints)) }
+      : {}),
     quantity: Math.max(0, Math.floor(getNumber(record.quantity))),
     points: Math.max(0, Math.floor(getNumber(record.points))),
     season0Points: Math.max(0, Math.floor(getNumber(record.season0Points))),
@@ -8057,6 +8111,7 @@ export function buildFishingToolCommandPayload(payload: AnyRecord): AgentCommand
       ...(constraints.maxDeaths !== undefined ? { maxDeaths: constraints.maxDeaths } : {}),
       ...(constraints.maxSafetyStops !== undefined ? { maxSafetyStops: constraints.maxSafetyStops } : {}),
     },
+    ...(payload.stopWhenRegularFishBundleReady === true ? { stopWhenRegularFishBundleReady: true } : {}),
     maxSeconds: payload.maxSeconds ?? 300,
   };
 }
@@ -8064,7 +8119,14 @@ export function buildFishingToolCommandPayload(payload: AnyRecord): AgentCommand
 export function actionResultHttpStatus(result: { ok: boolean; status?: string }) {
   if (result.ok) return 202;
   if (result.status === "payment_required" || result.status === "prerequisite_required" || result.status === "wallet_action_required") return 409;
-  if (result.status === "sale_in_progress" || result.status === "approach_incomplete" || result.status === "timed_out") return 409;
+  if (
+    result.status === "sale_in_progress"
+    || result.status === "insufficient_bundle"
+    || result.status === "request_limit"
+    || result.status === "season_point_capacity"
+    || result.status === "approach_incomplete"
+    || result.status === "timed_out"
+  ) return 409;
   if (result.status === "not_found") return 404;
   if (result.status === "refresh_failed") return 502;
   if (result.status === "chat_cooldown") return 429;
@@ -8270,7 +8332,10 @@ function normalizeDecision(value: unknown): AgentBridgeDecision {
   };
 }
 
-function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCommandPayload {
+function normalizeCommandPayload(
+  value: AgentCommandPayload,
+  options: { allowFishingBundleReadyStop?: boolean } = {},
+): NormalizedAgentCommandPayload {
   const record = asRecord(value);
   const requestedCommand = record.command ?? record.kind;
   const kind = normalizeCommandKind(requestedCommand);
@@ -8286,6 +8351,10 @@ function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCom
   const profile = normalizeCommandProfile(record.profile, behaviorScheme, kind);
   const goals = normalizeCommandGoals(record.goals, kind, record);
   const stopWhen = normalizeCommandStopWhen(record.stopWhen);
+  const stopWhenRegularFishBundleReady = normalizeFishingBundleReadyStop(
+    record.stopWhenRegularFishBundleReady,
+    options.allowFishingBundleReadyStop,
+  );
   const constraints = normalizeCommandConstraints(record.constraints);
   const maxSeconds = normalizeCommandSeconds(record.maxSeconds, kind);
   const questId = cleanText(record.questId, 96);
@@ -8307,12 +8376,17 @@ function normalizeCommandPayload(value: AgentCommandPayload): NormalizedAgentCom
     profile,
     goals,
     stopWhen,
+    stopWhenRegularFishBundleReady,
     constraints,
     maxSeconds,
     questId,
     itemId,
     targetCount,
   };
+}
+
+export function normalizeFishingBundleReadyStop(value: unknown, allowFishingBundleReadyStop = false) {
+  return allowFishingBundleReadyStop && value === true;
 }
 
 function normalizeCommandController(value: unknown, legacyMode: unknown, policyRef: unknown, policyHash: unknown): AgentCommandController {
@@ -9718,6 +9792,38 @@ function createCommandCombatStats(): AgentCommandCombatStats {
   };
 }
 
+export function findFreshRegularFishingBundle(
+  caughtItems: Iterable<{ itemId: string; itemName?: string; quantity: number; outcome?: string }>,
+  startInventoryCounts: Record<string, number>,
+  currentInventoryCounts: Record<string, number>,
+  isAgent: boolean,
+): AgentCommandFishingBundleReady | null {
+  const candidates: AgentCommandFishingBundleReady[] = [];
+  for (const entry of caughtItems) {
+    if (entry.outcome && entry.outcome !== "caught") continue;
+    if (!isFishingSellableItemId(entry.itemId) || !Number.isFinite(entry.quantity) || entry.quantity <= 0) continue;
+    const itemId = entry.itemId;
+    const caughtQuantity = Math.max(0, Math.floor(entry.quantity));
+    const startQuantity = Math.max(0, Math.floor(startInventoryCounts[itemId] ?? 0));
+    const availableQuantity = Math.max(0, Math.floor(currentInventoryCounts[itemId] ?? 0));
+    const freshQuantity = Math.min(caughtQuantity, Math.max(0, availableQuantity - startQuantity));
+    const bundleSize = getFishingRequiredBundleSize(itemId, isAgent);
+    if (freshQuantity <= 0 || availableQuantity < bundleSize) continue;
+    const sellableQuantity = Math.floor(availableQuantity / bundleSize) * bundleSize;
+    candidates.push({
+      itemId,
+      itemName: cleanText(entry.itemName, 96) || ITEMS[itemId].name,
+      freshQuantity,
+      availableQuantity,
+      bundleSize,
+      sellableQuantity,
+      points: getFishingSellAwardPoints(itemId, sellableQuantity, isAgent),
+    });
+  }
+  candidates.sort((a, b) => b.points - a.points || b.freshQuantity - a.freshQuantity || a.itemId.localeCompare(b.itemId));
+  return candidates[0] ?? null;
+}
+
 function createCommandFishingStats(): AgentCommandFishingStats {
   return {
     resultCount: 0,
@@ -9729,6 +9835,7 @@ function createCommandFishingStats(): AgentCommandFishingStats {
     nftCatches: new Map(),
     nftClaimWalletActions: new Map(),
     capNotices: [],
+    currentRunBundleReady: null,
   };
 }
 
@@ -9784,6 +9891,9 @@ export function buildAgentCommandFishingRecap(
     caughtItems.length ? `caught ${formatFishingItemTotals(caughtItems)}` : "",
     soldItems.length ? `sold ${formatFishingSaleTotals(soldItems)}${salePointTotal > 0 ? ` for ${formatSeasonPointCount(salePointTotal)}` : " for 0 Season 0 points"}` : "",
     blockedSale ? `fish sale blocked (${blockedSale.error || blockedSale.gateReason || blockedSale.status})` : "",
+    stats.currentRunBundleReady
+      ? `${stats.currentRunBundleReady.itemName} sale bundle ready (${stats.currentRunBundleReady.availableQuantity}/${stats.currentRunBundleReady.bundleSize})`
+      : "",
     nftCatchCount > 0 ? `${nftCatchCount} NFT catch${nftCatchCount === 1 ? "" : "es"}${nftCatchNames.length ? `: ${formatHumanList(nftCatchNames)}` : ""} (${confirmedCount} confirmed${pendingWalletActionCount > 0 ? `, ${pendingWalletActionCount} need wallet` : ""})` : "",
     mintClubReadyCount > 0 ? `${mintClubReadyCount} Mint Club goodie${mintClubReadyCount === 1 ? "" : "s"} ready` : "",
     mintClubSoldCount > 0 ? `${mintClubSoldCount} Mint Club goodie${mintClubSoldCount === 1 ? "" : "s"} sold` : "",
@@ -9799,6 +9909,7 @@ export function buildAgentCommandFishingRecap(
     soldItems,
     fishSales: stats.saleEvents.slice(-6),
     fishSalePointTotal: salePointTotal,
+    currentRunBundleReady: stats.currentRunBundleReady,
     nftCatchCount,
     nftConfirmedCount: confirmedCount,
     nftWalletActionRequiredCount: pendingWalletActionCount,

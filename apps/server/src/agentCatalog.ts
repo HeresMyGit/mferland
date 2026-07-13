@@ -206,7 +206,7 @@ export function buildAgentCatalog() {
         },
         premadeSchemes: [...AGENT_PREMADE_BEHAVIOR_SCHEMES],
         premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
-        fishingCommandNote: "Fishing is not farming. Use the dedicated /agent-fishing tool for hosted pond fishing, NFT claim handoffs, fish sales, and fishing-sale prerequisite recovery. operation=sell_fish sells regular offchain fish only after lost-fishing-shoes; poll operation=sell_fish_status with the returned requestId when a sale is still in progress. On prerequisite_required, follow nextRequest with questId=lost-fishing-shoes on /agent-fishing, allow its catalog-declared fishing prerequisites, and never launch /agent-command or generic play_for. The generic /agent-command path with command=play_for and behaviorScheme=fishing remains available only for callers that explicitly chose general autoplay. Use /agent-action action=fish only for an explicitly requested single manual fish loop.",
+        fishingCommandNote: "Fishing is not farming. Use the dedicated /agent-fishing tool for hosted pond fishing, NFT claim handoffs, fish sales, and fishing-sale prerequisite recovery. For a requested regular-fish sale, start with stopWhenRegularFishBundleReady=true so a fresh landed catch completes a declared-agent bundle before the command stops. Bundle readiness does not promise Season reward eligibility; sell_fish reports point-cap and MFERGPT-gate blockers. operation=sell_fish sells regular offchain fish only after lost-fishing-shoes; insufficient_bundle returns exact bundleRequirements and means continue dedicated fishing, not retry the unchanged sale. Poll operation=sell_fish_status with the returned requestId when a sale is still in progress. On prerequisite_required, follow nextRequest with questId=lost-fishing-shoes on /agent-fishing, allow its catalog-declared fishing prerequisites, and never launch /agent-command or generic play_for. The generic /agent-command path with command=play_for and behaviorScheme=fishing remains available only for callers that explicitly chose general autoplay. Use /agent-action action=fish only for an explicitly requested single manual fish loop.",
         goals: {
           types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
           note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",
@@ -504,7 +504,7 @@ export function buildAgentCatalog() {
       catchLootNote: "A successful reel sends a normal lootWindow with source=fishing and an npcId/source id such as fishing:<hash>. Inventory and fishin-lesson progress update only after lootCorpse collects that window.",
       lostShoesQuestNote: "After fishin-lesson, fish monger's lost-fishing-shoes quest gives each valid reel a 10% chance to produce old mfer shoe as the quest catch. Regular fish sales remain locked until this quest is completed; /agent-fishing sell_fish returns prerequisite_required with an exact nextRequest for /agent-fishing start plus questId=lost-fishing-shoes, whose scoped runner may complete catalog-declared fishing prerequisites first. Never use /agent-command, generic play_for, unrelated quests, or sellTrashItems as a fallback for fish or NFTs.",
       saleSemantics: {
-        regularFish: "sellFishingItems and /agent-fishing operation=sell_fish sell regular offchain fish for Season points after lost-fishing-shoes.",
+        regularFish: "sellFishingItems and /agent-fishing operation=sell_fish sell complete regular offchain fish bundles for Season points after lost-fishing-shoes. A named catch alone may be below the declared-agent bundle size; insufficient_bundle includes held counts and exact shortfalls. The NFT daily cap does not block regular fishing casts.",
         nftCatches: "NFT catches use claim_fishing_nft plus a wallet transaction and optional Mint Club redemption. They are never sold by sellFishingItems or sellTrashItems.",
         trash: "sellTrashItems is only for trash explicitly requested by the player.",
       },
@@ -518,7 +518,7 @@ export function buildAgentCatalog() {
         "Interact with pond ledger mfer for today's onchain-goodie offer count, remaining NFT catch slots, global cap state, and reset time.",
         "Send refreshFishingNftHistory after wallet actions or on reconnect to refresh pond NFT catches, rod stash rows, daily remaining count, and redemption state.",
         "If a confirmed pond NFT has mintClubRedemption, wallet players can use the in-game onchain-goodies UI to approve the Mint Club Bond if needed, sell/burn 1 ERC-1155 unit, then send submitMintClubRedemptionTx. Headless agents need wallet tooling for the same transaction.",
-        "After lost-fishing-shoes is completed, sell eligible fish at fish monger with sellFishingItems.",
+        "After lost-fishing-shoes is completed, sell eligible complete fish bundles at fish monger with sellFishingItems. If the result is insufficient_bundle, keep fishing until a listed shortfall is filled before retrying the sale.",
       ],
       timing: {
         castMs: FISHING_CAST_MS,

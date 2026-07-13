@@ -136,6 +136,7 @@ import {
   type FishingSellableItemId,
   type FishingResult,
   type FishingSupplyPurchaseResult,
+  type FishingVendorBundleRequirement,
   type FishingVendorSellResult,
   type FishingVendorSoldItem,
   type IdentityType,
@@ -3655,6 +3656,10 @@ export class TownRoom extends Room<TownState> {
         ok: result.ok,
         status: result.status ?? (result.ok ? "sold" : "error"),
         sold: result.sold ?? [],
+        bundleRequirements: result.bundleRequirements,
+        requestedQuantity: result.requestedQuantity,
+        seasonPointCapacity: result.seasonPointCapacity,
+        minimumBundlePoints: result.minimumBundlePoints,
         quantity: result.quantity ?? 0,
         points: result.points ?? 0,
         season0Points: result.season0Points ?? player?.season0Points ?? 0,
@@ -3726,12 +3731,21 @@ export class TownRoom extends Room<TownState> {
       isAgent: player.isAgent,
     });
     if (sale.quantity <= 0) {
-      const availableQuantity = getSellableFishingItemCount(player, selectedItemId);
+      const blockedSale = describeFishingVendorZeroSale(
+        (selectedItemId ? [selectedItemId] : FISHING_SELLABLE_ITEM_IDS).map((itemId) => ({
+          itemId,
+          availableQuantity: getSellableFishingItemCount(player, itemId),
+        })),
+        {
+          isAgent: player.isAgent,
+          selectedItemId,
+          requestedQuantity,
+          pointCapacity,
+        },
+      );
       sendResult({
         ok: false,
-        error: selectedItemId && availableQuantity > 0
-          ? getFishingSaleBlockedMessage(selectedItemId, player.isAgent)
-          : "no fish in stash",
+        ...blockedSale,
       });
       return;
     }
@@ -6424,6 +6438,105 @@ function getFishingSaleBlockedMessage(itemId: FishingSellableItemId, isAgent: bo
   return isAgent
     ? `agents need ${required} ${ITEMS[itemId].name} for ${formatSeasonPoints(points)}`
     : `need ${required} ${ITEMS[itemId].name} for ${formatSeasonPoints(points)}`;
+}
+
+export function describeFishingVendorBundleRequirements(
+  items: readonly { itemId: FishingSellableItemId; availableQuantity: number }[],
+  isAgent: boolean,
+): FishingVendorBundleRequirement[] {
+  return items
+    .map(({ itemId, availableQuantity }) => describeFishingVendorBundleRequirement(itemId, availableQuantity, isAgent))
+    .filter((requirement) => requirement.availableQuantity > 0);
+}
+
+function describeFishingVendorBundleRequirement(
+  itemId: FishingSellableItemId,
+  availableQuantity: number,
+  isAgent: boolean,
+): FishingVendorBundleRequirement {
+  const available = Number.isFinite(availableQuantity) ? Math.max(0, Math.floor(availableQuantity)) : 0;
+  const bundleSize = getFishingRequiredBundleSize(itemId, isAgent);
+  return {
+    itemId,
+    itemName: ITEMS[itemId].name,
+    availableQuantity: available,
+    bundleSize,
+    neededQuantity: available >= bundleSize ? 0 : bundleSize - available,
+    pointsPerBundle: getFishingSaleRule(itemId).seasonPoints,
+  };
+}
+
+export function describeFishingVendorZeroSale(
+  items: readonly { itemId: FishingSellableItemId; availableQuantity: number }[],
+  options: {
+    isAgent: boolean;
+    selectedItemId?: FishingSellableItemId | null;
+    requestedQuantity?: number;
+    pointCapacity?: number;
+  },
+): {
+  status: "insufficient_bundle" | "request_limit" | "season_point_capacity" | "error";
+  bundleRequirements?: FishingVendorBundleRequirement[];
+  requestedQuantity?: number;
+  seasonPointCapacity?: number;
+  minimumBundlePoints?: number;
+  error: string;
+} {
+  const selectedItemId = options.selectedItemId ?? null;
+  const requestedQuantity = Number.isFinite(options.requestedQuantity)
+    ? Math.max(0, Math.floor(options.requestedQuantity ?? 0))
+    : Number.MAX_SAFE_INTEGER;
+  const selectedItem = selectedItemId ? items.find((item) => item.itemId === selectedItemId) : null;
+  const selectedRequirement = selectedItemId
+    ? describeFishingVendorBundleRequirement(selectedItemId, selectedItem?.availableQuantity ?? 0, options.isAgent)
+    : null;
+  if (selectedRequirement && requestedQuantity < selectedRequirement.bundleSize) {
+    return {
+      status: "request_limit",
+      bundleRequirements: [selectedRequirement],
+      requestedQuantity,
+      error: `requested quantity ${requestedQuantity} is below the ${selectedRequirement.bundleSize}-fish ${options.isAgent ? "agent " : ""}bundle`,
+    };
+  }
+
+  const bundleRequirements = describeFishingVendorBundleRequirements(items, options.isAgent);
+  if (bundleRequirements.length > 0 && bundleRequirements.every((requirement) => requirement.neededQuantity > 0)) {
+    return {
+      status: "insufficient_bundle",
+      bundleRequirements,
+      error: `fish in stash but no complete ${options.isAgent ? "agent " : ""}bundle; use bundleRequirements for exact shortfalls`,
+    };
+  }
+  if (bundleRequirements.length === 0) {
+    return { status: "error", error: "no fish in stash" };
+  }
+
+  const completeBundleRequirements = bundleRequirements.filter((requirement) => requirement.neededQuantity === 0);
+  const seasonPointCapacity = Number.isFinite(options.pointCapacity)
+    ? Math.max(0, Math.floor(options.pointCapacity ?? 0))
+    : Number.MAX_SAFE_INTEGER;
+  const minimumBundlePoints = completeBundleRequirements.reduce(
+    (minimum, requirement) => Math.min(minimum, requirement.pointsPerBundle),
+    Number.MAX_SAFE_INTEGER,
+  );
+  if (minimumBundlePoints < Number.MAX_SAFE_INTEGER && seasonPointCapacity < minimumBundlePoints) {
+    return {
+      status: "season_point_capacity",
+      bundleRequirements: completeBundleRequirements,
+      seasonPointCapacity,
+      minimumBundlePoints,
+      error: seasonPointCapacity <= 0
+        ? "season point cap reached; remaining capacity is 0"
+        : `remaining Season point capacity ${seasonPointCapacity} is below the next fish bundle award of ${minimumBundlePoints}`,
+    };
+  }
+
+  return {
+    status: "error",
+    error: selectedItemId
+      ? getFishingSaleBlockedMessage(selectedItemId, options.isAgent)
+      : "complete fish bundles could not be sold",
+  };
 }
 
 function syncPlayerFishingJson(player: PlayerState) {

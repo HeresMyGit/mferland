@@ -78,6 +78,7 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   const output = manifest.outputs as { properties: Record<string, unknown> };
 
   assert.equal(manifest.name, "mfertown-fishing");
+  assert.equal(manifest.version, "0.1.5");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
   assert.ok(manifest.tags.includes("fishing"));
   assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"]);
@@ -88,6 +89,10 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.match(input.properties.operation.description ?? "", /never sells NFTs or trash/);
   assert.match(input.properties.operation.description ?? "", /exact scoped \/agent-fishing request/);
   assert.match(input.properties.operation.description ?? "", /poll sell_fish_status/);
+  assert.match(input.properties.operation.description ?? "", /insufficient_bundle/);
+  assert.equal(input.properties.stopWhenRegularFishBundleReady.type, "boolean");
+  assert.match(input.properties.stopWhenRegularFishBundleReady.description ?? "", /declared-agent bundle/);
+  assert.match(input.properties.stopWhenRegularFishBundleReady.description ?? "", /not reward eligibility/);
   assert.match(input.properties.questId.description ?? "", /cannot become generic play_for/);
   assert.ok(output.properties.fishing);
   assert.ok(output.properties.bridge);

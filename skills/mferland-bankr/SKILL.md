@@ -7,6 +7,8 @@ description: Play mferland/mfertown from Bankr Terminal or @bankrbot on X throug
 
 Use Bankr's wallet and native HTTP/message-signing capabilities with the hosted game API at `https://game.mfergpt.lol`.
 
+The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.5` or newer.
+
 This skill is self-contained. Do not install, load, or follow another mferland skill or runner.
 
 ## Hard boundaries
@@ -56,9 +58,9 @@ Immediately create a private `runId` bound to the current user request and check
 
 ## Establish the run contract and freshness baseline
 
-A request that combines fishing with claiming or selling NFTs is a terminal-outcome request. Continue until a newly caught NFT is confirmed claimed and, when requested, confirmed redeemed, or until the game reports an actual command-budget block or an unrecoverable transport/wallet error. One no-catch time limit is not completion.
+A request that asks to claim/sell an NFT or to catch/sell regular fish is a terminal-outcome request. Continue until every requested outcome is confirmed, or until the game reports an actual command-budget block or an unrecoverable transport/wallet error. One no-catch or below-bundle time limit is not completion.
 
-If the user explicitly requests both regular-fish and NFT sales, track both as required terminal outcomes. A regular catch is fresh only when the current run's command `fishing.caughtItems`/catch events name it; old inventory does not satisfy "catch regular fish." Require the matched `fishSale.sold` result to include at least one item caught during this run. If an NFT wallet handoff arrives before any regular catch, finish the authorized NFT chain first, then start another clean dedicated fishing session until a named regular catch is recorded. If that session produces another NFT handoff, process it under the same authorization only when the request covered plural or uncapped caught NFTs. If the user explicitly capped the NFT quantity and it is already satisfied, do not claim, sell, or abandon the extra catch; checkpoint it and report the regular-catch outcome `incomplete` because casting is blocked by an unrequested extra NFT. Otherwise, "sell the NFTs" never implies a regular-fish sale.
+If the user explicitly requests both regular-fish and NFT sales, track both as required terminal outcomes. A regular catch is fresh only when the current run's command `fishing.caughtItems`/catch events name it; old inventory does not satisfy "catch regular fish." One named catch may be below the declared-agent sale bundle and is not sale completion. Require the matched `fishSale.sold` result to include at least one item id caught during this run. If an NFT wallet handoff arrives before a current-run catch completes a regular-fish bundle, finish the authorized NFT chain first, then resume clean dedicated fishing with `stopWhenRegularFishBundleReady: true`. If that session produces another NFT handoff, process it under the same authorization only when the request covered plural or uncapped caught NFTs. If the user explicitly capped the NFT quantity and it is already satisfied, do not claim, sell, or abandon the extra catch; checkpoint it and report the regular-catch outcome `incomplete` because casting is blocked by an unrequested extra NFT. Otherwise, "sell the NFTs" never implies a regular-fish sale.
 
 Before the first cast, call `/agent-fishing` with `operation: "refresh"`. Trust the baseline only when that call returns `ok: true`, `status: "refreshed"`, and `nftCatches`; retry a failed or in-progress refresh instead of treating cached or missing history as empty. Privately record every returned `nftCatches[].catchId`. A catch is new for this run only if its catch id was absent from that baseline and appears in this run's command result or wallet handoff. Preserve the baseline across reconnects. Never use an older eligible, confirmed, or redeemable history entry to satisfy a fresh fishing request.
 
@@ -93,13 +95,16 @@ Use only `POST /agent-fishing`:
   "operation": "start",
   "bridgeSessionId": "...",
   "maxSeconds": 120,
+  "stopWhenRegularFishBundleReady": true,
   "constraints": {
     "noPaidActions": true
   }
 }
 ```
 
-If the user gives a duration, use it within the endpoint limit. For a fishing-only request with no requested catch/claim/sale outcome, use 120 seconds. For a requested new NFT claim/sale or an explicit "until" request, use `maxSeconds: 1800`; the server enforces the wallet's actual command cap and stops early when an NFT wallet handoff appears. Do not split a terminal request into repeated 120-second commands unless the server capped the prior command. Do not translate fishing into `farmer`, `farm_until`, `/agent-command`, a generic manual action loop, or a CLI command.
+Include `stopWhenRegularFishBundleReady: true` only when selling regular fish is a requested terminal outcome; otherwise omit it. This dedicated mode stops after a fish caught in this command has landed in authoritative inventory and the total held count reaches its declared-agent bundle size. This proves only bundle readiness; `sell_fish` remains authoritative for Season-point capacity and MFERGPT eligibility. A pending NFT wallet handoff takes priority.
+
+If the user gives a duration, use it within the endpoint limit. For a fishing-only request with no requested catch/claim/sale outcome, use 120 seconds. For a requested new NFT claim/sale, regular-fish sale, or an explicit "until" request, use `maxSeconds: 1800`; the server enforces the wallet's actual command cap and stops early on the requested bundle-ready condition or an NFT wallet handoff. Do not split a terminal request into repeated 120-second commands unless the server capped the prior command. Do not translate fishing into `farmer`, `farm_until`, `/agent-command`, a generic manual action loop, or a CLI command.
 
 For a short bounded request, poll about every 15-20 seconds. For a terminal-outcome request, poll about every 45-60 seconds so the server-side command keeps working without exhausting Bankr's per-turn tool calls:
 
@@ -109,11 +114,15 @@ GET /agent-fishing?bridgeSessionId=...&commandId=...
 
 Continue until `status` is not `running`. `time_limit` is a completed bounded session and auto-disconnects the bridge. Do not issue manual follow-up gameplay actions on that disconnected bridge.
 
+The pond's daily NFT count limits only new NFT offers. `walletDailyRemaining: 0` never prevents regular fishing casts and is not a blocker for a requested regular-fish bundle or sale.
+
 If the result contains `walletActionRequired.action: "claim_fishing_nft"`, stop fishing and complete the wallet handoff below. Do not keep casting while a voucher is pending.
 
 ## Sell regular fish when explicitly requested
 
-Call `operation: "sell_fish"` only when regular-fish sale is a requested outcome. Its response is authoritative only when `fishSale` for the current request shows `ok: true`, `status: "sold"`, sold item names and quantities, and awarded points. If it returns `approach_incomplete`, retry `sell_fish` to continue toward fish monger; no sale request was sent. If it returns `in_progress`, privately checkpoint its `requestId` and poll `/agent-fishing` with `operation: "sell_fish_status"` plus that id. If `fishSale.status` is `sale_in_progress`, do not retry blindly: resume the earlier checkpointed sale request if known, otherwise report `incomplete` with an unknown in-flight sale. Never submit another sale while a matched request is pending or timed out; keep reconciling that same id, and report `incomplete` if it cannot be reconciled.
+Call `operation: "sell_fish"` only when regular-fish sale is a requested outcome. Its response is authoritative only when `fishSale` for the current request shows `ok: true`, `status: "sold"`, sold item names and quantities, and awarded points. If it returns `insufficient_bundle`, the fish are held, not empty or consumed: checkpoint `fishSale.bundleRequirements`, do not resubmit against unchanged inventory, and resume `/agent-fishing start` with `maxSeconds: 1800` plus `stopWhenRegularFishBundleReady: true`. Retry `sell_fish` only after that command reports a new caught item/inventory increase and stops with `fishing_regular_bundle_ready:<itemId>`. A `time_limit` before a bundle is ready is nonterminal; obey cleanup, reconnect, and repeat without asking. If it returns `season_point_capacity`, `mfergpt_gate`, or `request_limit`, do not keep fishing or resubmit: report the authoritative blocker and its structured capacity, gate, or requested-quantity details. If it returns `approach_incomplete`, retry `sell_fish` to continue toward fish monger; no sale was sent. If it returns `in_progress`, privately checkpoint its `requestId` and poll `/agent-fishing` with `operation: "sell_fish_status"` plus that id. If `fishSale.status` is `sale_in_progress`, do not retry blindly: resume the earlier checkpointed sale request if known, otherwise report `incomplete` with an unknown in-flight sale. Never submit another sale while a matched request is pending or timed out; keep reconciling that same id, and report `incomplete` if it cannot be reconciled.
+
+Do not invent a cause for a blocked sale. Only explicit `questChanges` prove a quest changed during this command, and regular fishing inventory must be described from `fishing.caughtItems`, `inventoryChanges`, `finalState.inventoryCounts`, and `fishSale.bundleRequirements`. An NFT daily cap cannot explain missing regular fish.
 
 If it returns `prerequisite_required` for `lost-fishing-shoes`, follow `prerequisiteRequired.nextRequest` exactly. It resolves to only this dedicated request:
 

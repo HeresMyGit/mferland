@@ -638,11 +638,24 @@ export type FishingVendorSoldItem = {
   bundleSize: number;
 };
 
+export type FishingVendorBundleRequirement = {
+  itemId: FishingSellableItemId;
+  itemName: string;
+  availableQuantity: number;
+  bundleSize: number;
+  neededQuantity: number;
+  pointsPerBundle: number;
+};
+
 export type FishingVendorSellResult = {
   requestId?: string;
   ok: boolean;
-  status?: "sold" | "mfergpt_gate" | "sale_in_progress" | "error";
+  status?: "sold" | "mfergpt_gate" | "sale_in_progress" | "insufficient_bundle" | "request_limit" | "season_point_capacity" | "error";
   sold: FishingVendorSoldItem[];
+  bundleRequirements?: FishingVendorBundleRequirement[];
+  requestedQuantity?: number;
+  seasonPointCapacity?: number;
+  minimumBundlePoints?: number;
   quantity: number;
   points: number;
   season0Points: number;

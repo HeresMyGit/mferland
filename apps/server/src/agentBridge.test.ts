@@ -12,6 +12,7 @@ import {
   countHealthyQuestParticipantsNear,
   describeFishingVendorSaleRequest,
   describeEquipmentChanges,
+  findFreshRegularFishingBundle,
   generatedQuestTargetAreaPatrolPoints,
   getFishingLootExpectedUntil,
   getQuestAgentHints,
@@ -28,6 +29,7 @@ import {
   normalizeCommandFailureCap,
   normalizeFishingVendorSellResult,
   normalizeFishingNftHistoryResult,
+  normalizeFishingBundleReadyStop,
   routeQueueFromPosition,
   resolveIncompleteRequiredQuestIdForQuests,
   shouldWaitForPendingFishingLootWindow,
@@ -43,6 +45,9 @@ test("agent action HTTP status preserves retryable chat cooldowns", () => {
   assert.equal(actionResultHttpStatus({ ok: false, status: "prerequisite_required" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "wallet_action_required" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "sale_in_progress" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "insufficient_bundle" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "request_limit" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "season_point_capacity" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "approach_incomplete" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "timed_out" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "not_found" }), 404);
@@ -123,6 +128,21 @@ test("dedicated fishing start strips generic autoplay overrides", () => {
   });
 });
 
+test("dedicated fishing start preserves only its regular-fish bundle-ready stop", () => {
+  const payload = buildFishingToolCommandPayload({
+    command: "finish_next_quest",
+    behaviorScheme: "completionist",
+    stopWhenRegularFishBundleReady: true,
+    maxSeconds: 1800,
+  });
+  assert.equal(payload.command, "play_for");
+  assert.equal(payload.behaviorScheme, "fishing");
+  assert.equal(payload.stopWhenRegularFishBundleReady, true);
+  assert.equal(payload.maxSeconds, 1800);
+  assert.equal(normalizeFishingBundleReadyStop(true), false);
+  assert.equal(normalizeFishingBundleReadyStop(true, true), true);
+});
+
 test("durable results require fresh sequence evidence", () => {
   assert.equal(hasNewDurableResult(4, 4), false);
   assert.equal(hasNewDurableResult(3, 4), false);
@@ -170,6 +190,40 @@ test("fish sale results preserve the request id and authoritative sold totals", 
     mferGptGate: undefined,
     error: undefined,
   });
+});
+
+test("fish sale results preserve sanitized bundle shortfalls", () => {
+  const result = normalizeFishingVendorSellResult({
+    requestId: "sale-short",
+    ok: false,
+    status: "insufficient_bundle",
+    sold: [],
+    bundleRequirements: [{
+      itemId: "based-bass",
+      itemName: "based bass",
+      availableQuantity: 5.9,
+      bundleSize: 6,
+      neededQuantity: 1,
+      pointsPerBundle: 4,
+      privateNote: "drop me",
+    }],
+    requestedQuantity: 5.9,
+    seasonPointCapacity: 0,
+    minimumBundlePoints: 4.9,
+    error: "fish held but below a bundle",
+  });
+  assert.equal(result.status, "insufficient_bundle");
+  assert.deepEqual(result.bundleRequirements, [{
+    itemId: "based-bass",
+    itemName: "based bass",
+    availableQuantity: 5,
+    bundleSize: 6,
+    neededQuantity: 1,
+    pointsPerBundle: 4,
+  }]);
+  assert.equal(result.requestedQuantity, 5);
+  assert.equal(result.seasonPointCapacity, 0);
+  assert.equal(result.minimumBundlePoints, 4);
 });
 
 test("fish sale status distinguishes unknown, pending, timed out, and terminal requests", () => {
@@ -389,6 +443,7 @@ test("agent command fishing recap summarizes catches, sales, and NFT names", () 
     ]),
     nftClaimWalletActions: new Map(),
     capNotices: [],
+    currentRunBundleReady: null,
   }, {
     enabled: true,
     stocked: true,
@@ -432,6 +487,33 @@ test("agent fishing waits for post-reel loot before recasting", () => {
   }, now) > now, true);
   assert.equal(getFishingLootExpectedUntil({ ok: true, outcome: "missed", quantity: 0 }, now), 0);
   assert.equal(getFishingLootExpectedUntil({ ok: false, outcome: "caught", itemId: "reply-gill-minnow", quantity: 1 }, now), 0);
+});
+
+test("dedicated fishing stops only after a current-run catch lands into an agent sale bundle", () => {
+  const caughtMinnow = [{
+    itemId: "reply-gill-minnow",
+    itemName: "reply-gill minnow",
+    quantity: 1,
+    outcome: "caught",
+  }];
+  assert.equal(findFreshRegularFishingBundle(caughtMinnow, { "reply-gill-minnow": 20 }, { "reply-gill-minnow": 20 }, true), null);
+  assert.equal(findFreshRegularFishingBundle([
+    { itemId: "messy-red-lobster", itemName: "messy red lobster", quantity: 1, outcome: "caught" },
+  ], {}, { "messy-red-lobster": 1 }, true), null);
+  assert.deepEqual(findFreshRegularFishingBundle(caughtMinnow, { "reply-gill-minnow": 19 }, { "reply-gill-minnow": 20 }, true), {
+    itemId: "reply-gill-minnow",
+    itemName: "reply-gill minnow",
+    freshQuantity: 1,
+    availableQuantity: 20,
+    bundleSize: 20,
+    sellableQuantity: 20,
+    points: 1,
+  });
+  assert.equal(findFreshRegularFishingBundle([
+    { itemId: "reply-gill-minnow", itemName: "reply-gill minnow", quantity: 1, outcome: "missed" },
+    { itemId: "old-mfer-shoe", itemName: "old mfer shoe", quantity: 1, outcome: "junk" },
+  ], { "reply-gill-minnow": 19 }, { "reply-gill-minnow": 20, "old-mfer-shoe": 1 }, true), null);
+  assert.equal(findFreshRegularFishingBundle(caughtMinnow, { "reply-gill-minnow": 9 }, { "reply-gill-minnow": 10 }, true), null);
 });
 
 test("agent NFT fishing catches produce a claim wallet action", () => {
