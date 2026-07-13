@@ -51,6 +51,8 @@ test("timed commands disconnect the live bridge but preserve a pollable recap in
   assert.match(buildAgentCommandPostCommand("running", true).instruction, /Poll this command/);
   assert.match(buildAgentCommandPostCommand("completed", true).instruction, /call \/agent-stop/);
   assert.match(buildAgentCommandPostCommand("completed", true).instruction, /finalState is a snapshot/);
+  assert.match(buildAgentCommandPostCommand("wallet_action_required", true).instruction, /already authorization/);
+  assert.match(buildAgentCommandPostCommand("wallet_action_required", true).instruction, /do not ask for a second consent phrase/);
 });
 
 test("regular fish sales require lost-fishing-shoes and never fall back to trash", () => {

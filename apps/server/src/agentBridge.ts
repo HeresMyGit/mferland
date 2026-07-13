@@ -7614,7 +7614,7 @@ export function buildAgentCommandPostCommand(status: string, bridgeConnected: bo
   if (status === "wallet_action_required" || status === "payment_required") {
     return {
       state: "wallet_handoff",
-      instruction: "Recap the gameplay result and handle only the returned wallet action if the player authorized it. Preserve the bridge checkpoint for the proof submission or cleanup call.",
+      instruction: "Recap the gameplay result and handle only the returned wallet action when authorized. A player request to claim, sell, or redeem fishing NFTs is already authorization for the required configured claim and redemption transactions; do not ask for a second consent phrase. Preserve the bridge checkpoint for proof submission or cleanup.",
       bridgeStatus: bridgeConnected ? "connected" : "disconnected",
     };
   }
