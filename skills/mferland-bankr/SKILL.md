@@ -7,7 +7,7 @@ description: Play mferland/mfertown from Bankr Terminal or @bankrbot on X throug
 
 Use Bankr's wallet and native HTTP/message-signing capabilities with the hosted game API at `https://game.mfergpt.lol`.
 
-The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.5` or newer.
+The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.6` or newer.
 
 This skill is self-contained. Do not install, load, or follow another mferland skill or runner.
 
@@ -106,11 +106,20 @@ Include `stopWhenRegularFishBundleReady: true` only when selling regular fish is
 
 If the user gives a duration, use it within the endpoint limit. For a fishing-only request with no requested catch/claim/sale outcome, use 120 seconds. For a requested new NFT claim/sale, regular-fish sale, or an explicit "until" request, use `maxSeconds: 1800`; the server enforces the wallet's actual command cap and stops early on the requested bundle-ready condition or an NFT wallet handoff. Do not split a terminal request into repeated 120-second commands unless the server capped the prior command. Do not translate fishing into `farmer`, `farm_until`, `/agent-command`, a generic manual action loop, or a CLI command.
 
-For a short bounded request, poll about every 15-20 seconds. For a terminal-outcome request, poll about every 45-60 seconds so the server-side command keeps working without exhausting Bankr's per-turn tool calls:
+For a short bounded request, poll about every 15-20 seconds. For a terminal-outcome request, poll about every 45-60 seconds so the server-side command keeps working without exhausting Bankr's per-turn tool calls. Use `POST`, and create a new private `pollNonce` for every call (for example, a timestamp plus random suffix):
 
-```txt
-GET /agent-fishing?bridgeSessionId=...&commandId=...
+```json
+{
+  "operation": "status",
+  "bridgeSessionId": "...",
+  "commandId": "...",
+  "pollNonce": "status-1720900000000-a1b2c3"
+}
 ```
+
+Trust a successful HTTP 200 command snapshot only when it echoes the exact current `pollNonce` and `bridgeSessionId`. When `commandId` was supplied, also require its exact echo. When it was omitted for recovery, require `commandRecovery.recovered: true`, require `commandRecovery.selected` to be `active_fishing_command` or `latest_fishing_command`, and require `commandRecovery.commandId` to match both the top-level and nested command ids before checkpointing it. Never reuse a nonce or repeatedly issue an identical GET: Bankr's HTTP action may replay a cached tool result even though the server sends no-store headers and the hosted command continues. A successful snapshot with an absent or mismatched echo is stale evidence; poll again with a new nonce rather than calling the game stalled or asking the user to continue. Explicit auth, missing-session, and not-found HTTP errors remain authoritative recovery signals even though they do not echo a nonce. GET remains compatibility-only and must include a unique `pollNonce` query parameter whose echo is verified.
+
+If Bankr loses the private `commandId`, do not guess, truncate, ask the user, or immediately replace the bridge. Send `POST operation=status` on the authenticated bridge with a new `pollNonce` and omit `commandId`; the endpoint recovers the active fishing command or latest retained fishing recap and returns its real id. Verify the recovery fields above, checkpoint that returned id, and continue. Re-authenticate and call `/agent-start` automatically and without new consent only when an authoritative response reports a missing bridge session or an expired/not-found agent-session token; for a missing or mismatched bearer, follow the endpoint's returned recovery rather than guessing.
 
 Continue until `status` is not `running`. `time_limit` is a completed bounded session and auto-disconnects the bridge. Do not issue manual follow-up gameplay actions on that disconnected bridge.
 
@@ -120,7 +129,7 @@ If the result contains `walletActionRequired.action: "claim_fishing_nft"`, stop 
 
 ## Sell regular fish when explicitly requested
 
-Call `operation: "sell_fish"` only when regular-fish sale is a requested outcome. Its response is authoritative only when `fishSale` for the current request shows `ok: true`, `status: "sold"`, sold item names and quantities, and awarded points. If it returns `insufficient_bundle`, the fish are held, not empty or consumed: checkpoint `fishSale.bundleRequirements`, do not resubmit against unchanged inventory, and resume `/agent-fishing start` with `maxSeconds: 1800` plus `stopWhenRegularFishBundleReady: true`. Retry `sell_fish` only after that command reports a new caught item/inventory increase and stops with `fishing_regular_bundle_ready:<itemId>`. A `time_limit` before a bundle is ready is nonterminal; obey cleanup, reconnect, and repeat without asking. If it returns `season_point_capacity`, `mfergpt_gate`, or `request_limit`, do not keep fishing or resubmit: report the authoritative blocker and its structured capacity, gate, or requested-quantity details. If it returns `approach_incomplete`, retry `sell_fish` to continue toward fish monger; no sale was sent. If it returns `in_progress`, privately checkpoint its `requestId` and poll `/agent-fishing` with `operation: "sell_fish_status"` plus that id. If `fishSale.status` is `sale_in_progress`, do not retry blindly: resume the earlier checkpointed sale request if known, otherwise report `incomplete` with an unknown in-flight sale. Never submit another sale while a matched request is pending or timed out; keep reconciling that same id, and report `incomplete` if it cannot be reconciled.
+Call `operation: "sell_fish"` only when regular-fish sale is a requested outcome. Its response is authoritative only when `fishSale` for the current request shows `ok: true`, `status: "sold"`, sold item names and quantities, and awarded points. If it returns `insufficient_bundle`, the fish are held, not empty or consumed: checkpoint `fishSale.bundleRequirements`, do not resubmit against unchanged inventory, and resume `/agent-fishing start` with `maxSeconds: 1800` plus `stopWhenRegularFishBundleReady: true`. Retry `sell_fish` only after that command reports a new caught item/inventory increase and stops with `fishing_regular_bundle_ready:<itemId>`. A `time_limit` before a bundle is ready is nonterminal; obey cleanup, reconnect, and repeat without asking. If it returns `season_point_capacity`, `mfergpt_gate`, or `request_limit`, do not keep fishing or resubmit: report the authoritative blocker and its structured capacity, gate, or requested-quantity details. If it returns `approach_incomplete`, retry `sell_fish` to continue toward fish monger; no sale was sent. If it returns `in_progress`, privately checkpoint its `requestId` and poll `/agent-fishing` with `operation: "sell_fish_status"` plus that id and a new `pollNonce` on every call; trust only a response echoing that exact nonce. If `fishSale.status` is `sale_in_progress`, do not retry blindly: resume the earlier checkpointed sale request if known, otherwise report `incomplete` with an unknown in-flight sale. Never submit another sale while a matched request is pending or timed out; keep reconciling that same id, and report `incomplete` if it cannot be reconciled.
 
 Do not invent a cause for a blocked sale. Only explicit `questChanges` prove a quest changed during this command, and regular fishing inventory must be described from `fishing.caughtItems`, `inventoryChanges`, `finalState.inventoryCounts`, and `fishSale.bundleRequirements`. An NFT daily cap cannot explain missing regular fish.
 

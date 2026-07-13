@@ -31,11 +31,15 @@ import {
   normalizeFishingNftHistoryResult,
   normalizeFishingBundleReadyStop,
   routeQueueFromPosition,
+  selectFishingCommandStatusTarget,
   resolveIncompleteRequiredQuestIdForQuests,
   shouldWaitForPendingFishingLootWindow,
   shouldAutoDisconnectAgentCommand,
   shouldSkipOptionalBossDailyCommand,
   shouldInterruptMovementForDamage,
+  validateFishingPollNonce,
+  withFishingCommandRecovery,
+  withFishingPollNonce,
 } from "./agentBridge.js";
 
 test("agent action HTTP status preserves retryable chat cooldowns", () => {
@@ -154,6 +158,84 @@ test("durable vendor requests dispatch only once while awaiting a result", () =>
   assert.equal(claimDurableMessageDispatch(sentMessages, "sellFishingItems"), true);
   assert.equal(claimDurableMessageDispatch(sentMessages, "sellFishingItems"), false);
   assert.deepEqual([...sentMessages], ["sellFishingItems"]);
+});
+
+test("dedicated fishing status echoes the exact validated caller poll nonce", () => {
+  const status = { ok: true, status: "running", commandId: "command-123" };
+  const nonce = "status-1720900000000-a1b2c3";
+
+  assert.deepEqual(withFishingPollNonce(status, nonce), {
+    ...status,
+    pollNonce: nonce,
+  });
+  assert.strictEqual(withFishingPollNonce(status, undefined), status);
+  assert.strictEqual(withFishingPollNonce(status, ""), status);
+  assert.equal(validateFishingPollNonce("poll.123_ABC:-xyz"), "poll.123_ABC:-xyz");
+  assert.equal(validateFishingPollNonce("x".repeat(96)), "x".repeat(96));
+  assert.deepEqual(withFishingPollNonce({
+    ok: true,
+    status: "in_progress",
+    requestId: "sale-123",
+  }, "sale-1720900000001-d4e5f6"), {
+    ok: true,
+    status: "in_progress",
+    requestId: "sale-123",
+    pollNonce: "sale-1720900000001-d4e5f6",
+  });
+  assert.throws(() => withFishingPollNonce(status, `  ${nonce}  `), /pollNonce must be an unchanged/);
+  assert.throws(() => withFishingPollNonce(status, "x".repeat(97)), /pollNonce must be an unchanged/);
+  assert.throws(() => withFishingPollNonce(status, 12345), /pollNonce must be an unchanged/);
+});
+
+test("dedicated fishing status recovery never selects a generic command", () => {
+  const commands = [
+    { commandId: "fish-old", dedicatedFishingTool: true, status: "completed", startedAt: 100 },
+    { commandId: "generic-active", dedicatedFishingTool: false, status: "running", startedAt: 300 },
+    { commandId: "fish-latest", dedicatedFishingTool: true, status: "time_limit", startedAt: 200 },
+  ];
+
+  assert.deepEqual(selectFishingCommandStatusTarget(commands, "generic-active", ""), {
+    command: commands[2],
+    recovery: "latest_fishing_command",
+  });
+  assert.equal(selectFishingCommandStatusTarget(commands, "generic-active", "generic-active"), null);
+  assert.deepEqual(selectFishingCommandStatusTarget(commands, "generic-active", "fish-old"), {
+    command: commands[0],
+    recovery: null,
+  });
+});
+
+test("dedicated fishing status recovery prefers the active fishing command", () => {
+  const commands = [
+    { commandId: "fish-active", dedicatedFishingTool: true, status: "running", startedAt: 100 },
+    { commandId: "fish-newer-finished", dedicatedFishingTool: true, status: "completed", startedAt: 200 },
+  ];
+
+  assert.deepEqual(selectFishingCommandStatusTarget(commands, "fish-active", undefined), {
+    command: commands[0],
+    recovery: "active_fishing_command",
+  });
+  assert.equal(selectFishingCommandStatusTarget([], "", undefined), null);
+
+  assert.deepEqual(withFishingCommandRecovery({
+    ok: true,
+    status: "running",
+    bridgeSessionId: "bridge-real",
+    commandId: "fish-active",
+  }, "fish-active", "active_fishing_command"), {
+    ok: true,
+    status: "running",
+    bridgeSessionId: "bridge-real",
+    commandId: "fish-active",
+    commandRecovery: {
+      recovered: true,
+      reason: "command_id_omitted",
+      selected: "active_fishing_command",
+      commandId: "fish-active",
+    },
+  });
+  const explicit = { ok: true, bridgeSessionId: "bridge-real", commandId: "fish-active" };
+  assert.strictEqual(withFishingCommandRecovery(explicit, "fish-active", null), explicit);
 });
 
 test("fish sale results preserve the request id and authoritative sold totals", () => {

@@ -171,7 +171,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       type: TOOL_MANIFEST_TYPE,
       name: "mfertown-fishing",
       description: "Run mfertown pond fishing for wallet-authenticated agents, including normal catches, offchain fish sales, and claim-ready onchain NFT catches.",
-      version: "0.1.5",
+      version: "0.1.6",
       endpoint: `${baseUrl}/agent-fishing`,
       image: `${baseUrl}/agent-tools/icon.png`,
       featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
@@ -185,7 +185,17 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
             description: "start begins bounded pond fishing. For a requested regular-fish sale, set stopWhenRegularFishBundleReady so the dedicated command stops only after a current-run catch lands and completes an agent bundle. Bundle readiness does not promise Season reward eligibility; sell_fish reports point-cap or MFERGPT-gate blockers explicitly. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. If sell_fish returns insufficient_bundle, use bundleRequirements and resume dedicated fishing instead of resubmitting unchanged inventory. If it returns in_progress, poll sell_fish_status with its requestId instead of submitting another sale. If fishSale.status is sale_in_progress, resume the older known request or stop incomplete rather than retrying blindly. A prerequisite response provides the exact scoped /agent-fishing request and must never fall back to generic autoplay. refresh returns only a fresh successful NFT history response for baselining. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
           },
           bridgeSessionId: { type: "string" },
-          commandId: { type: "string" },
+          commandId: {
+            type: "string",
+            description: "Dedicated fishing command id returned by start. For operation=status, omit this only to recover the active dedicated fishing command, or otherwise the latest dedicated fishing command retained in this authenticated bridge session. Recovery never selects a generic /agent-command command.",
+          },
+          pollNonce: {
+            type: "string",
+            minLength: 1,
+            maxLength: 96,
+            pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$",
+            description: "Caller-generated freshness token for operation=status or sell_fish_status. Prefer POST and send a new unique 1-96 character safe token for every poll; the dedicated fishing response echoes the validated value unchanged. Missing remains backward-compatible, but cannot prove freshness. GET status is compatibility-only and accepts the same value as a pollNonce query parameter.",
+          },
           questId: {
             type: "string",
             enum: ["fishin-lesson", "lost-fishing-shoes"],
@@ -515,6 +525,17 @@ function fishingOutputSchema() {
       },
       transaction: { type: "object" },
       requestId: { type: "string" },
+      pollNonce: {
+        type: "string",
+        minLength: 1,
+        maxLength: 96,
+        pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$",
+        description: "Exact unchanged echo of the validated caller-supplied pollNonce on dedicated fishing status and sell_fish_status responses. Trust a poll only when this matches the unique nonce sent with that request.",
+      },
+      commandRecovery: {
+        type: "object",
+        description: "Present when operation=status omitted commandId. Reports whether the active or latest retained dedicated fishing command was recovered, with its real commandId. Generic /agent-command commands are never selected.",
+      },
       fishSale: {
         type: ["object", "null"],
         description: "Authoritative result matched to the current sell_fish request, including sold item names, quantities, points, bundleRequirements with exact held counts and shortfalls for insufficient_bundle, and structured request/Season-cap/MFERGPT-gate blockers.",

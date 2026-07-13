@@ -17,6 +17,9 @@ type JsonSchema = {
   type?: string | string[];
   enum?: string[];
   description?: string;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
   minimum?: number;
   maximum?: number;
   properties?: Record<string, JsonSchema>;
@@ -49,6 +52,7 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
   assert.match(input.properties.controller.description ?? "", /Metadata only/);
   assert.equal(input.properties.objective, undefined);
   assert.equal(input.properties.codeChunk, undefined);
+  assert.equal(input.properties.pollNonce, undefined);
   assert.equal(input.properties.maxSeconds.maximum, 1800);
   const constraints = input.properties.constraints.properties ?? {};
   assert.deepEqual(constraints.maxDeaths.type, ["number", "null"]);
@@ -78,7 +82,7 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   const output = manifest.outputs as { properties: Record<string, unknown> };
 
   assert.equal(manifest.name, "mfertown-fishing");
-  assert.equal(manifest.version, "0.1.5");
+  assert.equal(manifest.version, "0.1.6");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
   assert.ok(manifest.tags.includes("fishing"));
   assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"]);
@@ -93,6 +97,15 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.equal(input.properties.stopWhenRegularFishBundleReady.type, "boolean");
   assert.match(input.properties.stopWhenRegularFishBundleReady.description ?? "", /declared-agent bundle/);
   assert.match(input.properties.stopWhenRegularFishBundleReady.description ?? "", /not reward eligibility/);
+  assert.equal(input.properties.pollNonce.type, "string");
+  assert.equal(input.properties.pollNonce.minLength, 1);
+  assert.equal(input.properties.pollNonce.maxLength, 96);
+  assert.equal(input.properties.pollNonce.pattern, "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$");
+  assert.match(input.properties.pollNonce.description ?? "", /operation=status or sell_fish_status/);
+  assert.match(input.properties.pollNonce.description ?? "", /Prefer POST/);
+  assert.match(input.properties.pollNonce.description ?? "", /echoes the validated value unchanged/);
+  assert.match(input.properties.commandId.description ?? "", /omit this only to recover the active dedicated fishing command/);
+  assert.match(input.properties.commandId.description ?? "", /never selects a generic/);
   assert.match(input.properties.questId.description ?? "", /cannot become generic play_for/);
   assert.ok(output.properties.fishing);
   assert.ok(output.properties.bridge);
@@ -102,6 +115,13 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.ok(output.properties.fishSale);
   assert.ok(output.properties.nftCatches);
   assert.ok(output.properties.requestId);
+  assert.ok(output.properties.pollNonce);
+  const outputPollNonce = output.properties.pollNonce as JsonSchema;
+  assert.equal(outputPollNonce.maxLength, 96);
+  assert.equal(outputPollNonce.pattern, "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$");
+  assert.match(outputPollNonce.description ?? "", /Exact unchanged echo/);
+  assert.ok(output.properties.commandRecovery);
+  assert.match((output.properties.commandRecovery as JsonSchema).description ?? "", /real commandId/);
   assert.ok(output.properties.toolUsageReport);
 });
 

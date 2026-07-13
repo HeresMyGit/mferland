@@ -603,6 +603,7 @@ type NormalizedAgentCommandPayload = {
 
 type AgentCommandState = {
   commandId: string;
+  dedicatedFishingTool: boolean;
   kind: AgentCommandKind;
   behaviorScheme: string;
   controller: AgentCommandController;
@@ -1597,7 +1598,10 @@ class AgentBridgeSession {
     }
   }
 
-  async startCommand(rawPayload: AgentCommandPayload, options: { allowFishingBundleReadyStop?: boolean } = {}) {
+  async startCommand(
+    rawPayload: AgentCommandPayload,
+    options: { allowFishingBundleReadyStop?: boolean; dedicatedFishingTool?: boolean } = {},
+  ) {
     const self = this.self();
     if (!self) throw new BridgeHttpError(409, "bridge has not received player state yet");
     const active = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
@@ -1622,6 +1626,7 @@ class AgentBridgeSession {
     if (focusedGoalQuestId) this.focusedQuestId = focusedGoalQuestId;
     const command: AgentCommandState = {
       commandId: randomUUID(),
+      dedicatedFishingTool: options.dedicatedFishingTool === true,
       kind: payload.kind,
       behaviorScheme: payload.behaviorScheme,
       controller: payload.controller,
@@ -1666,6 +1671,26 @@ class AgentBridgeSession {
     const command = this.commands.get(cleanText(commandId, 80));
     if (!command) throw new BridgeHttpError(404, "agent command not found");
     return await this.serializeCommand(command);
+  }
+
+  async getFishingCommand(commandIdValue: unknown, pollNonce = "") {
+    const selected = selectFishingCommandStatusTarget(
+      this.commands.values(),
+      this.activeCommandId,
+      commandIdValue,
+    );
+    if (!selected) {
+      const requestedCommandId = cleanText(commandIdValue, 80);
+      throw new BridgeHttpError(
+        404,
+        requestedCommandId
+          ? "dedicated fishing command not found"
+          : "no dedicated fishing command retained for this bridge session",
+        pollNonce ? { pollNonce } : null,
+      );
+    }
+    const body = await this.serializeCommand(selected.command);
+    return withFishingCommandRecovery(body, selected.command.commandId, selected.recovery);
   }
 
   getFishingVendorSaleStatus(requestIdValue: unknown): BridgeActionResult {
@@ -7753,7 +7778,11 @@ export class AgentBridgeManager {
     const toolUsageStartedAt = Date.now();
     if (req.method === "GET" || req.method === "HEAD") {
       const session = this.requireSession(req, requestUrl.searchParams.get("bridgeSessionId"));
-      const body = await session.getCommand(requestUrl.searchParams.get("commandId") || "");
+      const pollNonce = validateFishingPollNonce(requestUrl.searchParams.get("pollNonce"));
+      const body = withFishingPollNonce(
+        await session.getFishingCommand(requestUrl.searchParams.get("commandId"), pollNonce),
+        pollNonce,
+      );
       const toolUsageReport = req.method === "HEAD" ? null : await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
       writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport), undefined, req.method === "HEAD");
       return;
@@ -7772,8 +7801,13 @@ export class AgentBridgeManager {
     };
 
     if (operation === "status") {
+      const pollNonce = validateFishingPollNonce(payload.pollNonce);
       const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
-      writeBridgeJson(res, 200, withOptionalToolUsageReport(await session.getCommand(cleanText(payload.commandId, 80)), toolUsageReport));
+      const body = withFishingPollNonce(
+        await session.getFishingCommand(payload.commandId, pollNonce),
+        pollNonce,
+      );
+      writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport));
       return;
     }
     if (operation === "stop") {
@@ -7812,7 +7846,11 @@ export class AgentBridgeManager {
       return;
     }
     if (operation === "sell_fish_status" || operation === "sale_status") {
-      await writeActionResult(session.getFishingVendorSaleStatus(payload.requestId), 200);
+      const pollNonce = validateFishingPollNonce(payload.pollNonce);
+      await writeActionResult(
+        withFishingPollNonce(session.getFishingVendorSaleStatus(payload.requestId), pollNonce),
+        200,
+      );
       return;
     }
     if (operation === "sell_fish" || operation === "sell_fish_items") {
@@ -7841,7 +7879,10 @@ export class AgentBridgeManager {
       writeBridgeJson(res, 400, { ok: false, error: "agent-fishing questId must be fishin-lesson or lost-fishing-shoes" });
       return;
     }
-    const body = await session.startCommand(buildFishingToolCommandPayload(payload), { allowFishingBundleReadyStop: true });
+    const body = await session.startCommand(buildFishingToolCommandPayload(payload), {
+      allowFishingBundleReadyStop: true,
+      dedicatedFishingTool: true,
+    });
     const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
     writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
   }
@@ -7958,6 +7999,74 @@ export function claimDurableMessageDispatch(sentMessages: Set<string>, messageTy
   if (sentMessages.has(messageType)) return false;
   sentMessages.add(messageType);
   return true;
+}
+
+export function withFishingPollNonce<T extends object>(body: T, value: unknown): T & { pollNonce?: string } {
+  const pollNonce = validateFishingPollNonce(value);
+  return pollNonce ? { ...body, pollNonce } : body;
+}
+
+export function validateFishingPollNonce(value: unknown) {
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$/.test(value)) {
+    throw new BridgeHttpError(
+      400,
+      "pollNonce must be an unchanged 1-96 character token using letters, numbers, dot, underscore, colon, or hyphen",
+      "invalid_poll_nonce",
+      "send_a_new_unique_safe_poll_nonce",
+    );
+  }
+  return value;
+}
+
+export type FishingCommandStatusCandidate = {
+  commandId: string;
+  dedicatedFishingTool: boolean;
+  status: string;
+  startedAt: number;
+};
+
+export function withFishingCommandRecovery<T extends object>(
+  body: T,
+  commandId: string,
+  recovery: "active_fishing_command" | "latest_fishing_command" | null,
+): T & { commandRecovery?: AnyRecord } {
+  if (!recovery) return body;
+  return {
+    ...body,
+    commandRecovery: {
+      recovered: true,
+      reason: "command_id_omitted",
+      selected: recovery,
+      commandId,
+    },
+  };
+}
+
+export function selectFishingCommandStatusTarget<T extends FishingCommandStatusCandidate>(
+  commands: Iterable<T>,
+  activeCommandIdValue: unknown,
+  requestedCommandIdValue: unknown,
+): { command: T; recovery: "active_fishing_command" | "latest_fishing_command" | null } | null {
+  const candidates = [...commands];
+  const requestedCommandId = cleanText(requestedCommandIdValue, 80);
+  if (requestedCommandId) {
+    const requested = candidates.find((command) => command.commandId === requestedCommandId);
+    return requested?.dedicatedFishingTool ? { command: requested, recovery: null } : null;
+  }
+
+  const activeCommandId = cleanText(activeCommandIdValue, 80);
+  const active = candidates.find((command) => command.commandId === activeCommandId);
+  if (active?.dedicatedFishingTool && active.status === "running") {
+    return { command: active, recovery: "active_fishing_command" };
+  }
+
+  let latest: T | null = null;
+  for (const command of candidates) {
+    if (!command.dedicatedFishingTool) continue;
+    if (!latest || command.startedAt >= latest.startedAt) latest = command;
+  }
+  return latest ? { command: latest, recovery: "latest_fishing_command" } : null;
 }
 
 export function normalizeFishingVendorSellResult(value: unknown): AnyRecord {
