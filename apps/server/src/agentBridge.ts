@@ -7607,7 +7607,7 @@ export function buildAgentCommandPostCommand(status: string, bridgeConnected: bo
   if (status === "time_limit") {
     return {
       state: "time_exhausted",
-      instruction: "The bounded task is finished and the room bridge disconnected automatically. Recap the returned evidence and do not run follow-up gameplay actions on this bridge.",
+      instruction: "The bounded task is finished and the room bridge disconnected automatically. Recap the returned evidence and do not run follow-up gameplay actions on this bridge. Describe progress only from questChanges, inventoryChanges, or equipmentChanges; finalState is a snapshot, not proof of a change.",
       bridgeStatus: "disconnected",
     };
   }
@@ -7620,7 +7620,7 @@ export function buildAgentCommandPostCommand(status: string, bridgeConnected: bo
   }
   return {
     state: "finished",
-    instruction: "Recap the returned evidence. Start another structured command only if the player explicitly requested more work; otherwise call /agent-stop and report its result.",
+    instruction: "Recap the returned evidence. Describe progress only from questChanges, inventoryChanges, or equipmentChanges; finalState is a snapshot, not proof of a change. Start another structured command only if the player explicitly requested more work; otherwise call /agent-stop and report its result.",
     bridgeStatus: bridgeConnected ? "connected" : "disconnected",
   };
 }

@@ -45,11 +45,12 @@ test("timed commands disconnect the live bridge but preserve a pollable recap in
 
   assert.deepEqual(buildAgentCommandPostCommand("time_limit", false), {
     state: "time_exhausted",
-    instruction: "The bounded task is finished and the room bridge disconnected automatically. Recap the returned evidence and do not run follow-up gameplay actions on this bridge.",
+    instruction: "The bounded task is finished and the room bridge disconnected automatically. Recap the returned evidence and do not run follow-up gameplay actions on this bridge. Describe progress only from questChanges, inventoryChanges, or equipmentChanges; finalState is a snapshot, not proof of a change.",
     bridgeStatus: "disconnected",
   });
   assert.match(buildAgentCommandPostCommand("running", true).instruction, /Poll this command/);
   assert.match(buildAgentCommandPostCommand("completed", true).instruction, /call \/agent-stop/);
+  assert.match(buildAgentCommandPostCommand("completed", true).instruction, /finalState is a snapshot/);
 });
 
 test("regular fish sales require lost-fishing-shoes and never fall back to trash", () => {

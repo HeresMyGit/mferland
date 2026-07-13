@@ -395,7 +395,7 @@ Hard constraints:
 - Never use `sell_trash_items` unless the player explicitly asked to sell trash.
 - If the dedicated tool is unavailable, use `behaviorScheme: "fishing"` or the manual `/agent-action` `fish` loop. Do not translate fishing to `farmer`.
 
-Every final fishing reply must state: command status and duration, named regular catches, regular fish sales/points, NFT catches and claim/redemption status, transaction hashes or "none", and bridge cleanup status. Use endpoint evidence; never replace the recap with a generic "actions may have happened" warning.
+Every final fishing reply must state: command status and duration, named regular catches, regular fish sales/points, NFT catches and claim/redemption status, transaction hashes or "none", and bridge cleanup status. Use endpoint evidence; never replace the recap with a generic "actions may have happened" warning. Treat only `questChanges`, `inventoryChanges`, and `equipmentChanges` as progress. `finalState` is a closing snapshot, so never say its level, XP, or quest was gained/completed during the run unless a corresponding change field proves it.
 
 Manual `/agent-observe` plus `/agent-action` remains available for single live actions, advanced/manual control, and debugging. It should not be the normal timeline play path.
 
