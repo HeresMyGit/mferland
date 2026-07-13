@@ -80,9 +80,10 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.equal(manifest.name, "mfertown-fishing");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
   assert.ok(manifest.tags.includes("fishing"));
-  assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "sell_fish", "refresh"]);
+  assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "refresh"]);
   assert.deepEqual(input.properties.questId.enum, ["fishin-lesson", "lost-fishing-shoes"]);
   assert.match(input.properties.operation.description ?? "", /FishingPond\.claim/);
+  assert.match(input.properties.operation.description ?? "", /Mint Club/);
   assert.match(input.properties.operation.description ?? "", /regular offchain fish only/);
   assert.match(input.properties.operation.description ?? "", /never sells NFTs or trash/);
   assert.ok(output.properties.fishing);

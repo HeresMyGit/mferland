@@ -171,7 +171,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       type: TOOL_MANIFEST_TYPE,
       name: "mfertown-fishing",
       description: "Run mfertown pond fishing for wallet-authenticated agents, including normal catches, offchain fish sales, and claim-ready onchain NFT catches.",
-      version: "0.1.1",
+      version: "0.1.2",
       endpoint: `${baseUrl}/agent-fishing`,
       image: `${baseUrl}/agent-tools/icon.png`,
       featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
@@ -181,8 +181,8 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
         properties: {
           operation: {
             type: "string",
-            enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "sell_fish", "refresh"],
-            description: "start begins bounded pond fishing. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. claim_nft returns a ready-to-sign FishingPond.claim transaction. submit_claim_tx records its tx hash.",
+            enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "refresh"],
+            description: "start begins bounded pond fishing. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
           },
           bridgeSessionId: { type: "string" },
           commandId: { type: "string" },
@@ -503,7 +503,7 @@ function fishingOutputSchema() {
       },
       walletActionRequired: {
         type: "object",
-        description: "When action is claim_fishing_nft, callers should submit the provided transaction from the player wallet and then call submit_claim_tx with catchId and txHash.",
+        description: "For claim_fishing_nft, submit the provided transaction then call submit_claim_tx. For redeem_fishing_nft, submit only the returned approval or sell transaction, wait for its receipt, then follow nextOperation.",
       },
       transaction: { type: "object" },
       catchId: { type: "string" },

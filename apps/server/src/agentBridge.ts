@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Client, type Room } from "colyseus.js";
-import { encodeFunctionData, parseAbi } from "viem";
+import { createPublicClient, encodeFunctionData, http, parseAbi } from "viem";
 import {
   AGENT_TRASH_VENDOR_ITEMS_PER_POINT,
   COMBAT,
@@ -59,6 +59,7 @@ import { buildAgentCatalog } from "./agentCatalog.js";
 import { AGENT_PREMADE_BEHAVIOR_SCHEMES } from "./agentHarnessOptions.js";
 import { getAgentSeason0MferGptGateStatus } from "./agentMferGptGate.js";
 import { readFishingPondPublicConfig } from "./crypto/fishingPond.js";
+import { resolveMintClubRedemptionConfig } from "./crypto/mintClubRedemption.js";
 import {
   parseToolPaymentHeader,
   reportAgentToolUsage,
@@ -233,6 +234,9 @@ type BridgeActionResult = {
   suggestedNextAction?: SuggestedDecision | null;
   continuePrompt?: string;
   durationMs?: number;
+  catch?: AnyRecord | null;
+  transaction?: AnyRecord;
+  redemption?: AnyRecord;
 };
 
 type QuestSnapshotSummary = {
@@ -861,6 +865,14 @@ const FREE_TRAIT_QUEST_ID = "set-your-traits";
 const FISHING_POND_CLAIM_ABI = parseAbi([
   "function claim((bytes32 catchId,address fisher,uint8 standard,address collection,uint256 tokenId,uint256 amount,uint256 pondEntryId,uint256 expiresAt,uint256 chainId,address verifyingContract) voucher, bytes signature)",
 ]);
+const MINT_CLUB_REDEMPTION_ERC1155_ABI = parseAbi([
+  "function isApprovedForAll(address account,address operator) view returns (bool)",
+  "function setApprovalForAll(address operator,bool approved)",
+]);
+const MINT_CLUB_REDEMPTION_BOND_ABI = parseAbi([
+  "function getRefundForTokens(address token,uint256 tokensToBurn) view returns (uint256 refundAmount,uint256 royalty)",
+  "function burn(address token,uint256 tokensToBurn,uint256 minRefund,address receiver) returns (uint256)",
+]);
 const DEFAULT_COMMAND_PROFILE: AgentCommandProfile = {
   priority: "auto",
   role: "auto",
@@ -962,6 +974,8 @@ class AgentBridgeSession {
   private openLootWindow: OpenLootWindow | null = null;
   private fishingLootExpectedUntil = 0;
   private fishingNftClaimWalletActions = new Map<string, AnyRecord>();
+  private fishingNftCatches = new Map<string, AnyRecord>();
+  private latestMintClubRedemptionResult: AnyRecord | null = null;
   private pendingSocialMessages: Array<{ sessionId: string; name: string; identityType: string; text: string; kind: string; observedAt: number }> = [];
   private questMemory = new Map<string, QuestMemory>();
   private focusedQuestId = "";
@@ -1111,7 +1125,13 @@ class AgentBridgeSession {
       this.recordFishingVendorSellResult(message);
       this.remember(`fishingVendor:${messageSummary(message)}`, true);
     });
-    room.onMessage("mintClubRedemptionResult", (message: unknown) => this.remember(`mintClubRedemption:${messageSummary(message)}`, true));
+    room.onMessage("mintClubRedemptionResult", (message: unknown) => {
+      this.latestMintClubRedemptionResult = asRecord(message);
+      const catchRecord = asRecord(asRecord(message).catch);
+      const catchId = getString(catchRecord.catchId);
+      if (catchId) this.fishingNftCatches.set(catchId.toLowerCase(), describeFishingNftCatchForAgent(catchRecord));
+      this.remember(`mintClubRedemption:${messageSummary(message)}`, true);
+    });
     room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
     room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
     room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
@@ -1533,6 +1553,164 @@ class AgentBridgeSession {
       await this.finishCommand(command, "stopped", "manual_stop");
     }
     return await this.serializeCommand(command);
+  }
+
+  async prepareMintClubRedemption(catchIdValue: unknown): Promise<BridgeActionResult> {
+    const requestedCatchId = cleanText(catchIdValue, 96).toLowerCase();
+    let catchSnapshot = requestedCatchId ? this.fishingNftCatches.get(requestedCatchId) : null;
+    if (!catchSnapshot) {
+      this.send("refreshFishingNftHistory", {});
+      const refreshStartedAt = Date.now();
+      while (Date.now() - refreshStartedAt < 3_000) {
+        await delay(150);
+        catchSnapshot = requestedCatchId
+          ? this.fishingNftCatches.get(requestedCatchId)
+          : [...this.fishingNftCatches.values()].find((entry) => {
+              const redemption = asRecord(entry.mintClubRedemption);
+              return getString(entry.status) === "confirmed" && ["eligible", "tx_submitted", "confirmed"].includes(getString(redemption.status));
+            });
+        if (catchSnapshot) break;
+      }
+    }
+    if (!catchSnapshot) {
+      return { ok: false, status: "not_found", bridgeSessionId: this.id, error: "confirmed redeemable fishing NFT catch not found; refresh history and use its catchId" };
+    }
+
+    const catchId = getString(catchSnapshot.catchId);
+    const redemption = asRecord(catchSnapshot.mintClubRedemption);
+    const redemptionStatus = getString(redemption.status);
+    if (getString(catchSnapshot.status) !== "confirmed") {
+      return { ok: false, status: "claim_required", bridgeSessionId: this.id, catch: catchSnapshot, error: "claim the pond NFT before redemption" };
+    }
+    if (redemptionStatus === "confirmed") {
+      return { ok: true, status: "confirmed", bridgeSessionId: this.id, catch: catchSnapshot, redemption };
+    }
+    if (!redemptionStatus || !["eligible", "tx_submitted"].includes(redemptionStatus)) {
+      return { ok: false, status: "not_redeemable", bridgeSessionId: this.id, catch: catchSnapshot, error: "catch is not configured for Mint Club redemption" };
+    }
+
+    const chainId = getNumber(redemption.chainId);
+    const collection = getString(redemption.collection) || getString(catchSnapshot.collection);
+    const bondAddress = getString(redemption.bondAddress);
+    const walletAddress = this.walletAddress;
+    if (!chainId || !/^0x[0-9a-fA-F]{40}$/.test(collection) || !/^0x[0-9a-fA-F]{40}$/.test(bondAddress)) {
+      return { ok: false, status: "not_redeemable", bridgeSessionId: this.id, catch: catchSnapshot, error: "redemption contract metadata is incomplete" };
+    }
+
+    const config = resolveMintClubRedemptionConfig();
+    if (!config.rpcUrl || config.chainId !== chainId) {
+      return { ok: false, status: "not_redeemable", bridgeSessionId: this.id, catch: catchSnapshot, error: "redemption RPC configuration does not match this catch" };
+    }
+    const publicClient = createPublicClient({ transport: http(config.rpcUrl) });
+    const [approvedForBond, estimate] = await Promise.all([
+      publicClient.readContract({
+        address: collection as `0x${string}`,
+        abi: MINT_CLUB_REDEMPTION_ERC1155_ABI,
+        functionName: "isApprovedForAll",
+        args: [walletAddress as `0x${string}`, bondAddress as `0x${string}`],
+      }),
+      publicClient.readContract({
+        address: bondAddress as `0x${string}`,
+        abi: MINT_CLUB_REDEMPTION_BOND_ABI,
+        functionName: "getRefundForTokens",
+        args: [collection as `0x${string}`, 1n],
+      }),
+    ]);
+    const refundAmount = estimate[0];
+    const royaltyAmount = estimate[1];
+    const slippageBps = Math.max(0, Math.min(10_000, Math.floor(getNumber(redemption.slippageBps))));
+    const minRefund = refundAmount - (refundAmount * BigInt(slippageBps) / 10_000n);
+    const phase = approvedForBond ? "sell_required" : "approval_required";
+    const transaction = approvedForBond
+      ? {
+          chainId,
+          from: walletAddress,
+          to: bondAddress,
+          data: encodeFunctionData({
+            abi: MINT_CLUB_REDEMPTION_BOND_ABI,
+            functionName: "burn",
+            args: [collection as `0x${string}`, 1n, minRefund, walletAddress as `0x${string}`],
+          }),
+          value: "0x0",
+        }
+      : {
+          chainId,
+          from: walletAddress,
+          to: collection,
+          data: encodeFunctionData({
+            abi: MINT_CLUB_REDEMPTION_ERC1155_ABI,
+            functionName: "setApprovalForAll",
+            args: [bondAddress as `0x${string}`, true],
+          }),
+          value: "0x0",
+        };
+    const walletActionRequired = {
+      action: "redeem_fishing_nft",
+      phase,
+      reason: approvedForBond
+        ? "Sell one claimed fishing NFT through the configured Mint Club Bond, then submit its transaction hash."
+        : "Approve the configured Mint Club Bond for this ERC-1155 collection, wait for confirmation, then call prepare_redemption again for the sell transaction.",
+      catchId,
+      chainId,
+      walletAddress,
+      collection,
+      tokenId: getString(catchSnapshot.tokenId),
+      bondAddress,
+      amount: "1",
+      refundAmount: refundAmount.toString(),
+      royaltyAmount: royaltyAmount.toString(),
+      minRefund: minRefund.toString(),
+      slippageBps,
+      transaction,
+      nextOperation: approvedForBond ? "submit_redemption_tx" : "prepare_redemption",
+    };
+    return {
+      ok: false,
+      status: "wallet_action_required",
+      bridgeSessionId: this.id,
+      catch: catchSnapshot,
+      redemption,
+      transaction,
+      walletActionRequired,
+    };
+  }
+
+  async submitMintClubRedemptionTx(catchIdValue: unknown, txHashValue: unknown): Promise<BridgeActionResult> {
+    const catchId = cleanText(catchIdValue, 96).toLowerCase();
+    const txHash = cleanText(txHashValue, 96).toLowerCase();
+    if (!catchId || !/^0x[0-9a-f]{64}$/.test(txHash)) {
+      return { ok: false, status: "rejected", bridgeSessionId: this.id, error: "submit_redemption_tx requires catchId and a real transaction hash" };
+    }
+    this.latestMintClubRedemptionResult = null;
+    this.send("submitMintClubRedemptionTx", { catchId, txHash, status: "confirmed" });
+    const submittedAt = Date.now();
+    while (Date.now() - submittedAt < 25_000) {
+      await delay(250);
+      const result = this.getLatestMintClubRedemptionResult();
+      const resultCatch = asRecord(result?.catch);
+      if (!result || getString(resultCatch.catchId).toLowerCase() !== catchId) continue;
+      const catchSnapshot = describeFishingNftCatchForAgent(resultCatch);
+      const ok = Boolean(result.ok);
+      return {
+        ok,
+        status: getString(asRecord(catchSnapshot.mintClubRedemption).status) || (ok ? "submitted" : "rejected"),
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption: asRecord(catchSnapshot.mintClubRedemption),
+        error: getString(result.error) || undefined,
+      };
+    }
+    return {
+      ok: true,
+      status: "tx_submitted",
+      bridgeSessionId: this.id,
+      catch: this.fishingNftCatches.get(catchId) ?? null,
+      error: "waiting for redemption confirmation",
+    };
+  }
+
+  private getLatestMintClubRedemptionResult(): AnyRecord | null {
+    return this.latestMintClubRedemptionResult;
   }
 
   private async resolveCommandBudget(): Promise<AgentCommandBudget> {
@@ -7156,26 +7334,23 @@ class AgentBridgeSession {
   }
 
   private recordFishingNftCatchResult(message: unknown) {
-    const command = this.runningCommand();
-    if (!command) return;
     const record = asRecord(message);
     if (record.catch) this.recordFishingNftCatch(record.catch);
   }
 
   private recordFishingNftHistoryResult(message: unknown) {
-    const command = this.runningCommand();
-    if (!command) return;
     const catches = asRecord(message).catches;
     if (!Array.isArray(catches)) return;
     catches.forEach((catchRecord) => this.recordFishingNftCatch(catchRecord));
   }
 
   private recordFishingNftCatch(catchRecord: unknown) {
-    const command = this.runningCommand();
-    if (!command) return;
     const catchSnapshot = describeFishingNftCatchForAgent(asRecord(catchRecord));
     const catchId = getString(catchSnapshot.catchId);
     if (!catchId) return;
+    this.fishingNftCatches.set(catchId.toLowerCase(), catchSnapshot);
+    const command = this.runningCommand();
+    if (!command) return;
     command.fishing.nftCatches.set(catchId, catchSnapshot);
   }
 
@@ -7427,6 +7602,14 @@ export class AgentBridgeManager {
       }));
       return;
     }
+    if (operation === "prepare_redemption" || operation === "redeem_nft") {
+      await writeActionResult(await session.prepareMintClubRedemption(payload.catchId));
+      return;
+    }
+    if (operation === "submit_redemption_tx" || operation === "submit_mint_club_redemption_tx") {
+      await writeActionResult(await session.submitMintClubRedemptionTx(payload.catchId, payload.txHash ?? payload.paymentTxHash));
+      return;
+    }
     if (operation === "sell_fish" || operation === "sell_fish_items") {
       await writeActionResult(await session.execute({
         action: "sell_fish_items",
@@ -7444,7 +7627,7 @@ export class AgentBridgeManager {
       return;
     }
     if (operation !== "start") {
-      writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, stop, fish_once, claim_nft, submit_claim_tx, sell_fish, or refresh" });
+      writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, stop, fish_once, claim_nft, submit_claim_tx, prepare_redemption, submit_redemption_tx, sell_fish, or refresh" });
       return;
     }
 
@@ -8735,6 +8918,7 @@ function describeMintClubRedemptionForAgent(redemption: AnyRecord | null) {
     reserveTokenAddress: getString(redemption.reserveTokenAddress),
     reserveTokenSymbol: getString(redemption.reserveTokenSymbol),
     reserveTokenDecimals: getNumber(redemption.reserveTokenDecimals),
+    reserveTokenStrict: Boolean(redemption.reserveTokenStrict),
     sellRoyaltyBps: getNumber(redemption.sellRoyaltyBps),
     slippageBps: getNumber(redemption.slippageBps),
     txHash: getString(redemption.txHash),
