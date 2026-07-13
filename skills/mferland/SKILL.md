@@ -83,7 +83,9 @@ The response includes `bridgeSessionId`. Watch the real passive renderer at:
 https://game.mfergpt.lol/agent-view?wallet=<walletAddress>
 ```
 
-Do not print session tokens, bearer headers, signatures, private keys, mnemonics, or raw wallet secrets in user-visible chat.
+For Bankr, checkpoint private state immediately after each successful response. Store `walletAddress`, `sessionToken`, `expiresAt`, `bridgeSessionId`, and the active `commandId` in Bankr's private scratchpad/internal state before making the next call. Overwrite the checkpoint after re-auth or `/agent-start`. Never put these values in the user-visible reply, including `bridgeSessionId`.
+
+Do not print session tokens, bridge session ids, command ids, bearer headers, signatures, private keys, mnemonics, or raw wallet secrets in user-visible chat.
 
 ## Default Gameplay: Hosted Autoplay
 
@@ -329,6 +331,9 @@ usage
 social
 combat
 fishing
+bridge
+postCommand
+prerequisiteRequired
 sandbox
 ```
 
@@ -374,13 +379,23 @@ Bankr Terminal and `@bankrbot` on X use this same hosted HTTP path.
 Hard constraints:
 
 - Hosted HTTP only.
-- Do not install files, download `scripts/`, run `npm`, run `ts-node`, or start `mferland-agent-runner.ts`.
+- Do not use a CLI, install files, download `scripts/`, run `npm`, run `ts-node`, or start `mferland-agent-runner.ts`, including during auth recovery or cleanup.
 - Do not open a Colyseus client directly.
 - Do not ask the user for `BANKR_API_KEY`; that is only for an optional external runner sample, not Bankr Terminal/X.
-- Do not expose bearer tokens, session tokens, signatures, or wallet secrets in chat.
+- Do not expose bearer tokens, session tokens, bridge session ids, command ids, signatures, or wallet secrets in chat.
 - Do not auto-spend wallet funds. Any swap, burn, mint, paid trait update, or purchase needs Bankr wallet-context approval and a real tx hash or owned token id before claiming it happened.
 - For timeline requests such as "play for 5 minutes", "do next quest", "farm rabbits", or "train DPS", use `/agent-command` and return the recap.
-- For fishing requests, prefer `/agent-fishing` with `operation: "start"`. Use `operation: "claim_nft"` and `operation: "submit_claim_tx"` for onchain catch handoffs, `operation: "sell_fish"` for offchain fish sales, and `operation: "refresh"` after wallet actions. If the dedicated tool is unavailable, use `behaviorScheme: "fishing"` or the manual `/agent-action` `fish` loop. Do not translate fishing to `farmer`; that profile farms safe targets and may attack critters or training targets instead of using the pond.
+- For fishing requests, prefer `/agent-fishing` with `operation: "start"`. If the player gives no duration, use `maxSeconds: 120`; this leaves Bankr enough steps to poll, recap, and clean up. Poll about every 15-20 seconds, save the `commandId` immediately, and obey `postCommand` when status becomes terminal.
+- Treat `time_limit` as finished. The server disconnects the room bridge automatically; recap the returned `fishing` evidence and do not start manual follow-up actions on that bridge.
+- After any other terminal result, call `/agent-stop` when no wallet handoff or player-requested continuation remains. Report the stop result. If Bankr hits a step limit, its next turn must load the private checkpoint and poll/stop before doing anything else.
+- If the checkpoint is missing but `/agent-player?wallet=...` shows the wallet online, recover with native HTTP + Bankr message signing: mint a fresh agent session, call `/agent-start` once to replace the wallet's old bridge, then immediately `/agent-stop`. Do not use CLI recovery.
+- Map vague requests literally. "Start fishing and sell the NFTs" means fish, then handle only NFT catches. It does not authorize `sell_fish_items` or `sell_trash_items`.
+- `operation: "sell_fish"` sells regular offchain fish for Season points only. It requires completed `lost-fishing-shoes`. On `prerequisite_required`, report the locked quest and stop retrying; never fall back to trash-mfer.
+- NFT catches use `claim_nft` and `submit_claim_tx`. A confirmed Mint Club redemption is a separate wallet sale/burn flow. Only claim or redeem when the player authorized that wallet action, and only report success with a real tx hash. If no NFT was caught, say so and perform no transaction.
+- Never use `sell_trash_items` unless the player explicitly asked to sell trash.
+- If the dedicated tool is unavailable, use `behaviorScheme: "fishing"` or the manual `/agent-action` `fish` loop. Do not translate fishing to `farmer`.
+
+Every final fishing reply must state: command status and duration, named regular catches, regular fish sales/points, NFT catches and claim/redemption status, transaction hashes or "none", and bridge cleanup status. Use endpoint evidence; never replace the recap with a generic "actions may have happened" warning.
 
 Manual `/agent-observe` plus `/agent-action` remains available for single live actions, advanced/manual control, and debugging. It should not be the normal timeline play path.
 

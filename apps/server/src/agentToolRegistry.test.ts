@@ -61,6 +61,9 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
   assert.ok(output.properties.social);
   assert.ok(output.properties.combat);
   assert.ok(output.properties.fishing);
+  assert.ok(output.properties.bridge);
+  assert.ok(output.properties.postCommand);
+  assert.ok(output.properties.prerequisiteRequired);
   assert.ok(output.properties.walletActionRequired);
   assert.ok(output.properties.finalState);
   assert.ok(output.properties.equipmentChanges);
@@ -80,7 +83,12 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "sell_fish", "refresh"]);
   assert.deepEqual(input.properties.questId.enum, ["fishin-lesson", "lost-fishing-shoes"]);
   assert.match(input.properties.operation.description ?? "", /FishingPond\.claim/);
+  assert.match(input.properties.operation.description ?? "", /regular offchain fish only/);
+  assert.match(input.properties.operation.description ?? "", /never sells NFTs or trash/);
   assert.ok(output.properties.fishing);
+  assert.ok(output.properties.bridge);
+  assert.ok(output.properties.postCommand);
+  assert.ok(output.properties.prerequisiteRequired);
   assert.ok(output.properties.walletActionRequired);
   assert.ok(output.properties.toolUsageReport);
 });

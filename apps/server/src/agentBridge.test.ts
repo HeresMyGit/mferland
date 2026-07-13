@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   actionResultHttpStatus,
+  buildAgentCommandPostCommand,
   buildAgentCommandFishingRecap,
   buildFishingNftClaimWalletAction,
   buildAgentCommandSocialRecap,
@@ -10,6 +11,7 @@ import {
   generatedQuestTargetAreaPatrolPoints,
   getFishingLootExpectedUntil,
   getQuestAgentHints,
+  hasCompletedFishingSaleUnlockQuest,
   isAgentFarmingTarget,
   isFishingCommandAlias,
   isFishingQuestId,
@@ -22,6 +24,7 @@ import {
   routeQueueFromPosition,
   resolveIncompleteRequiredQuestIdForQuests,
   shouldWaitForPendingFishingLootWindow,
+  shouldAutoDisconnectAgentCommand,
   shouldSkipOptionalBossDailyCommand,
   shouldInterruptMovementForDamage,
 } from "./agentBridge.js";
@@ -30,8 +33,34 @@ test("agent action HTTP status preserves retryable chat cooldowns", () => {
   assert.equal(actionResultHttpStatus({ ok: true, status: "accepted" }), 202);
   assert.equal(actionResultHttpStatus({ ok: false, status: "chat_cooldown" }), 429);
   assert.equal(actionResultHttpStatus({ ok: false, status: "payment_required" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "prerequisite_required" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "wallet_action_required" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "invalid_action" }), 400);
+});
+
+test("timed commands disconnect the live bridge but preserve a pollable recap instruction", () => {
+  assert.equal(shouldAutoDisconnectAgentCommand("running"), false);
+  assert.equal(shouldAutoDisconnectAgentCommand("completed"), false);
+  assert.equal(shouldAutoDisconnectAgentCommand("time_limit"), true);
+
+  assert.deepEqual(buildAgentCommandPostCommand("time_limit", false), {
+    state: "time_exhausted",
+    instruction: "The bounded task is finished and the room bridge disconnected automatically. Recap the returned evidence and do not run follow-up gameplay actions on this bridge.",
+    bridgeStatus: "disconnected",
+  });
+  assert.match(buildAgentCommandPostCommand("running", true).instruction, /Poll this command/);
+  assert.match(buildAgentCommandPostCommand("completed", true).instruction, /call \/agent-stop/);
+});
+
+test("regular fish sales require lost-fishing-shoes and never fall back to trash", () => {
+  assert.equal(hasCompletedFishingSaleUnlockQuest([]), false);
+  assert.equal(hasCompletedFishingSaleUnlockQuest([
+    { id: "fishin-lesson", status: "completed" },
+    { id: "lost-fishing-shoes", status: "active" },
+  ]), false);
+  assert.equal(hasCompletedFishingSaleUnlockQuest([
+    { id: "lost-fishing-shoes", status: "completed" },
+  ]), true);
 });
 
 test("agent commands interrupt movement-like actions after dangerous travel damage", () => {

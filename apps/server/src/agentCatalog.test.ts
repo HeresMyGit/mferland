@@ -197,12 +197,16 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.agentHarness.commands.controller.types, ["premade", "external_policy"]);
   assert.match(catalog.agentHarness.commands.controller.note, /metadata only/);
   assert.match(catalog.agentHarness.commands.timeboxingNote, /safety guards/);
+  assert.match(catalog.agentHarness.commands.timeboxingNote, /disconnects the room bridge automatically/);
   assert.ok(catalog.agentHarness.commands.responseFields.includes("social"));
   assert.ok(catalog.agentHarness.commands.responseFields.includes("combat"));
   assert.ok(catalog.agentHarness.commands.responseFields.includes("finalState"));
   assert.ok(catalog.agentHarness.commands.responseFields.includes("equipmentChanges"));
   assert.match(catalog.agentHarness.commands.socialRecapNote, /nearby players\/agents/);
   assert.match(catalog.agentHarness.commands.fishingCommandNote, /dedicated \/agent-fishing tool/);
+  assert.match(catalog.agentHarness.commands.fishingCommandNote, /regular offchain fish only/);
+  assert.match(catalog.fishing.lostShoesQuestNote, /prerequisite_required/);
+  assert.match(catalog.fishing.saleSemantics.nftCatches, /never sold by sellFishingItems/);
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-agent-command.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-fishing.json"));
   assert.ok(catalog.agentHarness.registeredTools.manifests.includes("/.well-known/ai-tool/mfertown-mfergpt-swap.json"));

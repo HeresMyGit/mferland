@@ -225,6 +225,7 @@ type BridgeActionResult = {
   error?: string;
   retryAfterMs?: number;
   paymentRequired?: AnyRecord;
+  prerequisiteRequired?: AnyRecord;
   walletActionRequired?: AnyRecord;
   report?: ActionReport;
   summary?: string;
@@ -1554,6 +1555,7 @@ class AgentBridgeSession {
       }
       if (elapsedMs >= command.maxSeconds * 1000) {
         await this.finishCommand(command, "time_limit", "command_time_limit");
+        if (shouldAutoDisconnectAgentCommand(command.status)) this.stop();
         break;
       }
 
@@ -3210,6 +3212,8 @@ class AgentBridgeSession {
         inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
         equipmentChanges.length ? `equipment ${formatEquipmentChanges(equipmentChanges)}` : "",
       ].filter(Boolean).join("; ");
+      const bridgeConnected = Boolean(this.room);
+      const postCommand = buildAgentCommandPostCommand(command.status, bridgeConnected);
     return {
       ok: command.status !== "failed",
         bridgeSessionId: this.id,
@@ -3236,6 +3240,11 @@ class AgentBridgeSession {
         equipmentChanges,
         status: command.status,
         stoppedBecause: command.stoppedBecause,
+        bridge: {
+          status: bridgeConnected ? "connected" : "disconnected",
+          autoDisconnected: command.status === "time_limit" && !bridgeConnected,
+        },
+        postCommand,
         walletActionRequired: command.walletActionRequired || undefined,
         summary,
       result: {
@@ -3861,6 +3870,22 @@ class AgentBridgeSession {
         return;
       }
       case "sell_fish_items": {
+        if (!hasCompletedFishingSaleUnlockQuest(self.quests)) {
+          this.lastAction = "sell_fish_items prerequisite_required lost-fishing-shoes";
+          return {
+            ok: false,
+            status: "prerequisite_required",
+            bridgeSessionId: this.id,
+            lastAction: this.lastAction,
+            error: "fish monger needs his fishing shoes first",
+            prerequisiteRequired: {
+              questId: "lost-fishing-shoes",
+              questName: "lost fishing shoes",
+              requiredStatus: "completed",
+              instruction: "Complete lost-fishing-shoes before retrying sell_fish. Do not use sell_trash_items as a fallback for fish or NFTs.",
+            },
+          };
+        }
         const npc = this.resolveNpc(decision.npcRef) ?? this.resolveNpc(FISHING_VENDOR_NPC_ID);
         if (!npc) return;
         this.clearRoute();
@@ -7555,9 +7580,49 @@ class BridgeHttpError extends Error {
 
 export function actionResultHttpStatus(result: { ok: boolean; status?: string }) {
   if (result.ok) return 202;
-  if (result.status === "payment_required" || result.status === "wallet_action_required") return 409;
+  if (result.status === "payment_required" || result.status === "prerequisite_required" || result.status === "wallet_action_required") return 409;
   if (result.status === "chat_cooldown") return 429;
   return 400;
+}
+
+export function hasCompletedFishingSaleUnlockQuest(quests: unknown) {
+  return Array.isArray(quests) && quests.some((quest) => {
+    const record = asRecord(quest);
+    return getString(record.id) === "lost-fishing-shoes" && getString(record.status) === "completed";
+  });
+}
+
+export function shouldAutoDisconnectAgentCommand(status: string) {
+  return status === "time_limit";
+}
+
+export function buildAgentCommandPostCommand(status: string, bridgeConnected: boolean) {
+  if (status === "running") {
+    return {
+      state: "running",
+      instruction: "Poll this command until status is no longer running. Do not start a second task or manual action loop.",
+      bridgeStatus: bridgeConnected ? "connected" : "disconnected",
+    };
+  }
+  if (status === "time_limit") {
+    return {
+      state: "time_exhausted",
+      instruction: "The bounded task is finished and the room bridge disconnected automatically. Recap the returned evidence and do not run follow-up gameplay actions on this bridge.",
+      bridgeStatus: "disconnected",
+    };
+  }
+  if (status === "wallet_action_required" || status === "payment_required") {
+    return {
+      state: "wallet_handoff",
+      instruction: "Recap the gameplay result and handle only the returned wallet action if the player authorized it. Preserve the bridge checkpoint for the proof submission or cleanup call.",
+      bridgeStatus: bridgeConnected ? "connected" : "disconnected",
+    };
+  }
+  return {
+    state: "finished",
+    instruction: "Recap the returned evidence. Start another structured command only if the player explicitly requested more work; otherwise call /agent-stop and report its result.",
+    bridgeStatus: bridgeConnected ? "connected" : "disconnected",
+  };
 }
 
 export function getFishingLootExpectedUntil(message: unknown, now = Date.now()) {

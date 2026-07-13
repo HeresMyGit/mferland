@@ -206,7 +206,7 @@ export function buildAgentCatalog() {
         },
         premadeSchemes: [...AGENT_PREMADE_BEHAVIOR_SCHEMES],
         premadeSchemeNote: "behaviorScheme selects a premade profile seed. Explicit profile fields still override priority, role, spec, partyMode, risk, and social.",
-        fishingCommandNote: "Fishing is not farming. Prefer the dedicated /agent-fishing tool for hosted pond fishing, NFT claim handoffs, and fish sales. The generic /agent-command path still accepts command=play_for with behaviorScheme=fishing, command=fish, or finish_quest with questId=fishin-lesson/lost-fishing-shoes. Use /agent-action action=fish for a single manual fish loop.",
+        fishingCommandNote: "Fishing is not farming. Prefer the dedicated /agent-fishing tool for hosted pond fishing and NFT claim handoffs. operation=sell_fish sells regular offchain fish only after lost-fishing-shoes; it never sells NFTs or trash. The generic /agent-command path still accepts command=play_for with behaviorScheme=fishing, command=fish, or finish_quest with questId=fishin-lesson/lost-fishing-shoes. Use /agent-action action=fish for a single manual fish loop.",
         goals: {
           types: ["quest_completed", "quest_ready", "quest_accepted", "inventory_at_least", "level_at_least", "xp_gained", "survive_seconds", "arrive_at_landmark", "near_player_count"],
           note: "run_goals requires structured goals; freeform player requests should be translated by the agent before calling /agent-command.",
@@ -222,9 +222,9 @@ export function buildAgentCatalog() {
           note: "external_policy is metadata only. Custom agent code runs in the caller-owned harness and calls /agent-action or structured /agent-command; the hosted server does not execute code.",
         },
         maxCommandSeconds: 30 * 60,
-        timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early.",
+        timeboxingNote: "Command time limits are safety guards and budget caps. Success conditions such as quest completion or inventory target still end runs early. A time_limit result disconnects the room bridge automatically while preserving the command result for polling and recap.",
         authNote: "Command endpoints require the same wallet-bound agent session bearer token as observe/action.",
-        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "equipmentChanges", "finalState", "actionReports", "budget", "usage", "social", "combat", "fishing"],
+        responseFields: ["status", "summary", "result", "goals", "goalProgress", "questChanges", "inventoryChanges", "equipmentChanges", "finalState", "actionReports", "budget", "usage", "social", "combat", "fishing", "bridge", "postCommand", "prerequisiteRequired"],
         socialRecapNote: "Command results include nearby players/agents seen during the run and recent public chat so agents can report alive-world context to users.",
         fishingRecapNote: "Command results include fishing reel totals, named regular catches, fish vendor sales and points, NFT catch names/status, pending wallet-action count, current wallet/global NFT daily remaining values, and reset timestamp when the pond is configured.",
         sandbox: {
@@ -502,7 +502,12 @@ export function buildAgentCatalog() {
         submitMintClubRedemptionTx: { message: "submitMintClubRedemptionTx", shape: { catchId: "confirmed pond catch id", txHash: "player-signed Mint Club Bond.burn tx hash", status: "confirmed after wallet receipt" } },
       },
       catchLootNote: "A successful reel sends a normal lootWindow with source=fishing and an npcId/source id such as fishing:<hash>. Inventory and fishin-lesson progress update only after lootCorpse collects that window.",
-      lostShoesQuestNote: "After fishin-lesson, fish monger's lost-fishing-shoes quest gives each valid reel a 10% chance to produce old mfer shoe as the quest catch.",
+      lostShoesQuestNote: "After fishin-lesson, fish monger's lost-fishing-shoes quest gives each valid reel a 10% chance to produce old mfer shoe as the quest catch. Regular fish sales remain locked until this quest is completed; sellFishingItems returns prerequisite_required through the bridge before travel. Never use sellTrashItems as a fallback for fish or NFTs.",
+      saleSemantics: {
+        regularFish: "sellFishingItems and /agent-fishing operation=sell_fish sell regular offchain fish for Season points after lost-fishing-shoes.",
+        nftCatches: "NFT catches use claim_fishing_nft plus a wallet transaction and optional Mint Club redemption. They are never sold by sellFishingItems or sellTrashItems.",
+        trash: "sellTrashItems is only for trash explicitly requested by the player.",
+      },
       playbook: [
         "If self.fishing.hasPole is false, accept fishin-lesson from Motherfisher first; the loaner pole is enough to start fishing.",
         "Move to the south-center pond shore until self.fishing.nearZone is true, then send startFishing.",
