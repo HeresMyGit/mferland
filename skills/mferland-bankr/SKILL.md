@@ -7,7 +7,7 @@ description: Play mferland/mfertown from Bankr Terminal or @bankrbot on X throug
 
 Use Bankr's wallet and native HTTP/message-signing capabilities with the hosted game API at `https://game.mfergpt.lol`.
 
-The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.6` or newer.
+The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.7` or newer.
 
 This skill is self-contained. Do not install, load, or follow another mferland skill or runner.
 
@@ -123,6 +123,8 @@ If Bankr loses the private `commandId`, do not guess, truncate, ask the user, or
 
 Continue until `status` is not `running`. `time_limit` is a completed bounded session and auto-disconnects the bridge. Do not issue manual follow-up gameplay actions on that disconnected bridge.
 
+When stopping a running fishing command, send `operation: "stop"` exactly once. Stop is drain-aware: it forbids another cast, obtains an authoritative cancellation acknowledgement even when a just-dispatched cast is not visible yet, and reconciles any reel already dispatched plus its post-loot inventory observation or NFT handoff. HTTP 202 with command `status: "running"` and `stopDrain.status: "settling"` is not a terminal recap; poll the same command with a fresh verified `pollNonce` until terminal. Trust a stopped recap only when `stopDrain.status` is `settled` or `not_needed`. If the drain instead yields `wallet_action_required`, that handoff outranks the stop and must be completed. `stopDrain.status: "timed_out"` is `incomplete` but recoverable: preserve the bridge and evidence, do not clean up or report the earlier reel count as final, and poll the same command with another fresh nonce so reconciliation can resume.
+
 The pond's daily NFT count limits only new NFT offers. `walletDailyRemaining: 0` never prevents regular fishing casts and is not a blocker for a requested regular-fish bundle or sale.
 
 If the result contains `walletActionRequired.action: "claim_fishing_nft"`, stop fishing and complete the wallet handoff below. Do not keep casting while a voucher is pending.
@@ -222,7 +224,7 @@ If claim or redemption is a requested terminal outcome, a no-catch session is no
 
 If Bankr loses its private checkpoint while the public player endpoint shows the wallet online, recover with native HTTP and message signing: create a fresh agent session, call `/agent-start` once to replace the old wallet bridge, then immediately call `/agent-stop`. Do not use a CLI for recovery.
 
-Call cleanup as `POST /agent-stop` with `{ "bridgeSessionId": "..." }` and require `status: "stopped"` before reporting bridge cleanup complete.
+Call cleanup as `POST /agent-stop` with `{ "bridgeSessionId": "..." }` and require top-level `status: "stopped"` before reporting bridge cleanup complete. Cleanup itself is drain-guarded: HTTP 202 `command_settling` retains the bridge and returns `commandStop`, so poll that command with fresh nonces and retry cleanup only after reconciliation. HTTP 409 with top-level `wallet_action_required`, `payment_required`, or `reconciliation_timeout` also retains the bridge and must not be described as stopped. A 200 response with top-level `status: "stopped"` is authoritative after `handoffResolution.status: "resolved"`; its frozen `commandStop` may still preserve the historical wallet handoff, so do not repeat that transaction. Checkpoint the returned terminal `commandStop` before the final recap because it may contain a catch or reel that completed during cleanup.
 
 ## Other mfertown requests
 

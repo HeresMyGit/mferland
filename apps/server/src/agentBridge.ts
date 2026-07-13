@@ -402,6 +402,21 @@ type AgentCommandKind = "finish_next_quest" | "finish_quest" | "play_for" | "far
 
 type AgentCommandStatus = "running" | "completed" | "time_limit" | "safety_stop" | "payment_required" | "wallet_action_required" | "stopped" | "failed";
 
+type AgentCommandStopDrainStatus = "not_requested" | "not_needed" | "settling" | "settled" | "timed_out";
+
+type AgentCommandStopDrain = {
+  status: AgentCommandStopDrainStatus;
+  requestedAt: number;
+  settledAt: number;
+  requestedStatus: "stopped" | "time_limit" | "";
+  stoppedBecause: string;
+  cancelRequested: boolean;
+  cancelRequestedAt: number;
+  cancelAcknowledgedAt: number;
+  resultCountBefore: number;
+  resultCountAfter: number;
+};
+
 type AgentCommandPriority = "auto" | "quester" | "farmer" | "boss_hunter" | "looter" | "completionist" | "social";
 type AgentCommandRole = "auto" | "tank" | "healer" | "dps" | "support";
 type AgentCommandSpec = "auto" | "brawler_tank" | "brawler_dps" | "caster_fire" | "caster_frost" | "utility_ranger" | "utility_support";
@@ -554,6 +569,18 @@ export type AgentCommandFishingStats = {
   outcomeCounts: Record<string, number>;
   catchTotals: Map<string, AgentCommandFishingItemTotal>;
   catchEvents: AgentCommandFishingCatchEvent[];
+  recordedAttemptIds: Set<string>;
+  pendingReelAttemptIds: Set<string>;
+  pendingLoot: {
+    attemptId: string;
+    itemId: string;
+    quantity: number;
+    inventoryCountBefore: number;
+    resultObservationSequence: number;
+    lootRequestedAt: number;
+    closedAt: number;
+    closedObservationSequence: number;
+  } | null;
   saleTotals: Map<string, AgentCommandFishingSaleItem>;
   saleEvents: AgentCommandFishingSaleEvent[];
   nftCatches: Map<string, AnyRecord>;
@@ -626,6 +653,7 @@ type AgentCommandState = {
   deathCount: number;
   safetyStopCount: number;
   abortRequested: boolean;
+  stopDrain: AgentCommandStopDrain;
   usageFinalized: boolean;
   startSnapshot: PlayerActionSnapshot | null;
   lastSnapshot: PlayerActionSnapshot | null;
@@ -635,6 +663,7 @@ type AgentCommandState = {
   combat: AgentCommandCombatStats;
   fishing: AgentCommandFishingStats;
   walletActionRequired: AnyRecord | null;
+  terminalResponse: AnyRecord | null;
 };
 
 type CombatMemoryEntry = {
@@ -665,6 +694,8 @@ type RecentNpcPlayerCombat = {
 const BRIDGE_BODY_LIMIT_BYTES = 64 * 1024;
 const INPUT_INTERVAL_MS = Math.round(1000 / INPUT_SEND_RATE);
 const FISHING_LOOT_WINDOW_EXPECTED_MS = 3_600;
+const FISHING_COMMAND_STOP_DRAIN_MAX_MS = 35_000;
+const COMMAND_STOP_RESPONSE_WAIT_MS = 8_000;
 const INTERACT_SEND_RANGE = 12.5;
 const QUEST_SEND_RANGE = 3.75;
 const INTERACT_APPROACH_DISTANCE = 1.6;
@@ -1052,7 +1083,12 @@ class AgentBridgeSession {
   private mferGptSpendProofedWei = 0n;
   private swapEthSpendRequestedWei = 0n;
   private readonly commands = new Map<string, AgentCommandState>();
+  private readonly commandRunners = new Map<string, Promise<void>>();
+  private readonly commandStopRunners = new Map<string, Promise<void>>();
+  private readonly commandFinalizers = new Map<string, Promise<void>>();
+  private readonly fishingAttemptCommandIds = new Map<string, string>();
   private activeCommandId = "";
+  private observationSequence = 0;
   lastDecision: AgentBridgeDecision | null = null;
   lastActionReport: ActionReport | null = null;
   lastAction = "";
@@ -1114,8 +1150,10 @@ class AgentBridgeSession {
       const record = asRecord(state);
       this.players = new Map(schemaEntries(record.players).map(([id, value]) => [id, normalizePlayer(id, value)]));
       this.npcs = new Map(schemaEntries(record.npcs).map(([id, value]) => [id, normalizeNpc(id, value)]));
+      this.observationSequence += 1;
       this.lastObservedAt = Date.now();
       this.rememberActiveCommandPlayers(this.lastObservedAt);
+      this.recoverTimedOutFishingStops();
     });
     room.onMessage("chat", (message: unknown) => this.handleChatMessage(message));
     room.onMessage("combatEvent", (message: unknown) => this.handleCombatEvent(message));
@@ -1128,9 +1166,17 @@ class AgentBridgeSession {
     room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
     room.onMessage("closeLootWindow", (message: unknown) => {
       const npcId = cleanText(asRecord(message).npcId, 128);
+      let closedFishingLoot = false;
       if (!npcId || this.openLootWindow?.npcId === npcId) {
-        if (this.openLootWindow?.source === "fishing") this.fishingLootExpectedUntil = 0;
+        if (this.openLootWindow?.source === "fishing") {
+          this.fishingLootExpectedUntil = 0;
+          closedFishingLoot = true;
+        }
         this.openLootWindow = null;
+      }
+      if (closedFishingLoot) {
+        this.markFishingLootClosed();
+        this.recoverTimedOutFishingStops();
       }
       this.remember(`closeLoot:${messageSummary(message)}`);
     });
@@ -1140,20 +1186,34 @@ class AgentBridgeSession {
       this.remember(`trashVendor:${messageSummary(message)}`, true);
     });
     room.onMessage("fishingResult", (message: unknown) => {
-      this.recordFishingNftClaimWalletAction(asRecord(message).nftCatch);
       const sanitized = sanitizeFishingResultMessage(message);
+      const owningCommand = this.resolveFishingResultCommand(sanitized);
+      this.recordFishingNftClaimWalletAction(asRecord(sanitized).nftCatch, owningCommand);
       const lootExpectedUntil = getFishingLootExpectedUntil(sanitized);
       if (lootExpectedUntil > 0) this.fishingLootExpectedUntil = lootExpectedUntil;
-      this.recordFishingResult(sanitized);
+      this.recordFishingResult(sanitized, owningCommand);
       this.recordDurableResult("fishing");
+      if (owningCommand?.stopDrain.status === "timed_out") this.ensureFishingStopRecovery(owningCommand);
       this.remember(`fishing:${messageSummary(sanitized)}`, true);
     });
     room.onMessage("fishingNftCatchResult", (message: unknown) => {
-      this.recordFishingNftClaimWalletAction(asRecord(message).catch);
+      this.recordFishingNftClaimWalletAction(asRecord(message).catch, null);
       const sanitized = sanitizeFishingNftCatchMessage(message);
       this.recordFishingNftCatchResult(sanitized);
       this.recordDurableResult("fishingNft");
       this.remember(`fishingNft:${messageSummary(sanitized)}`, true);
+    });
+    room.onMessage("fishingCancelResult", (message: unknown) => {
+      const record = asRecord(message);
+      const commandId = cleanText(getString(record.requestId), 80);
+      const command = commandId ? this.commands.get(commandId) : null;
+      if (isAgentFishingCancelAcknowledgement(record, command?.commandId ?? "")
+        && command?.status === "running"
+        && command.stopDrain.status !== "not_requested") {
+        command.stopDrain.cancelAcknowledgedAt = Date.now();
+        if (command.stopDrain.status === "timed_out") this.ensureFishingStopRecovery(command);
+      }
+      this.remember(`fishingCancel:${messageSummary(message)}`);
     });
     room.onMessage("fishingNftCapNotice", (message: unknown) => {
       this.recordFishingNftCapNotice(message);
@@ -1469,9 +1529,18 @@ class AgentBridgeSession {
     return view === "bankr" || view === "compact" ? this.compactBankrObservation(body) : body;
   }
 
-  async execute(rawDecision: unknown): Promise<BridgeActionResult> {
+  async execute(rawDecision: unknown, owningCommand: AgentCommandState | null = null): Promise<BridgeActionResult> {
     const self = this.self();
     if (!self) return { ok: false, status: "waiting_for_state", error: "bridge has not received player state yet" };
+    if (owningCommand?.abortRequested) {
+      return {
+        ok: true,
+        status: "stopping",
+        bridgeSessionId: this.id,
+        lastAction: this.lastAction,
+        durationMs: 0,
+      };
+    }
     const decision = normalizeDecision(rawDecision);
     const before = this.snapshotPlayer(self);
     const context: ActionExecutionContext = {
@@ -1496,7 +1565,7 @@ class AgentBridgeSession {
         this.recordCombatMemoryFromReport(decision, before, report);
         return this.withActionReport(immediateResult, report);
       }
-      const outcome = await this.waitForDurableAction(decision, before, context);
+      const outcome = await this.waitForDurableAction(decision, before, context, owningCommand);
       const fishingVendorResult = decision.action === "sell_fish_items"
         ? this.fishingVendorSellResults.get(context.requestId) ?? null
         : null;
@@ -1649,6 +1718,7 @@ class AgentBridgeSession {
       deathCount: 0,
       safetyStopCount: 0,
       abortRequested: false,
+      stopDrain: createAgentCommandStopDrain(),
       usageFinalized: false,
       startSnapshot: this.snapshotPlayer(self),
       lastSnapshot: this.snapshotPlayer(self),
@@ -1658,12 +1728,27 @@ class AgentBridgeSession {
       combat: createCommandCombatStats(),
       fishing: createCommandFishingStats(),
       walletActionRequired: null,
+      terminalResponse: null,
     };
     this.commands.set(command.commandId, command);
     this.activeCommandId = command.commandId;
     this.rememberCommandPlayers(command, self, command.startedAt);
     this.lastAction = `command_start ${command.kind}`;
-    void this.runCommand(command);
+    const runner = this.runCommand(command).catch(async (error) => {
+      const message = errorMessage(error);
+      command.errors = [...command.errors.slice(-4), message];
+      if (command.status === "running") {
+        try {
+          await this.finishCommand(command, "failed", message);
+        } catch (finishError) {
+          command.errors = [...command.errors.slice(-4), `finalize:${errorMessage(finishError)}`];
+        }
+      }
+    });
+    this.commandRunners.set(command.commandId, runner);
+    void runner.finally(() => {
+      if (this.commandRunners.get(command.commandId) === runner) this.commandRunners.delete(command.commandId);
+    });
     return await this.serializeCommand(command);
   }
 
@@ -1690,6 +1775,9 @@ class AgentBridgeSession {
       );
     }
     const body = await this.serializeCommand(selected.command);
+    if (selected.command.status === "running" && selected.command.stopDrain.status === "timed_out") {
+      this.ensureFishingStopRecovery(selected.command);
+    }
     return withFishingCommandRecovery(body, selected.command.commandId, selected.recovery);
   }
 
@@ -1707,10 +1795,250 @@ class AgentBridgeSession {
     const command = this.commands.get(cleanText(commandId, 80));
     if (!command) throw new BridgeHttpError(404, "agent command not found");
     if (command.status === "running") {
-      command.abortRequested = true;
-      await this.finishCommand(command, "stopped", "manual_stop");
+      if (command.stopDrain.status === "timed_out") this.ensureFishingStopRecovery(command);
+      else this.requestCommandStop(command, "stopped", "manual_stop");
+      const runner = this.commandStopRunners.get(command.commandId)
+        ?? this.commandRunners.get(command.commandId);
+      if (runner) await waitForAgentCommandRunner(runner, COMMAND_STOP_RESPONSE_WAIT_MS);
     }
-    return await this.serializeCommand(command);
+    const body = await this.serializeCommand(command);
+    return {
+      ...body,
+      stopDrain: describeAgentCommandStopDrain(command.stopDrain),
+    };
+  }
+
+  async prepareBridgeStop() {
+    const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    const latestCommand = activeCommand ?? [...this.commands.values()]
+      .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+    const command = latestCommand;
+    const reconciliationTimedOut = shouldReportFishingReconciliationTimeoutForBridgeCleanup(
+      command?.status ?? "",
+      command?.stopDrain.status ?? "",
+    );
+    const commandStop = reconciliationTimedOut
+      ? await this.serializeCommand(command)
+      : command?.status === "running"
+      ? await this.stopCommand(command.commandId)
+      : command
+        ? await this.serializeCommand(command)
+        : null;
+    const commandStatus = cleanText(asRecord(commandStop).status, 40);
+    const drainStatus = cleanText(asRecord(asRecord(commandStop).stopDrain).status, 40);
+    const pendingSessionFishingClaim = this.getPendingSessionFishingNftClaimWalletAction();
+    const handoffPending = Boolean(pendingSessionFishingClaim)
+      || (command ? this.isCommandHandoffPending(command) : false);
+    const retention = classifyAgentBridgeStopRetention(commandStatus, drainStatus, handoffPending);
+    if (retention) {
+      return {
+        canStop: false,
+        httpStatus: retention.httpStatus,
+        status: retention.status,
+        error: retention.status === "reconciliation_timeout"
+          ? "the active command could not reconcile an in-flight action; keep the bridge for recovery"
+          : retention.status === "command_settling"
+            ? "the active command is reconciling an in-flight action; poll its status with a fresh nonce before cleanup"
+            : "the reconciled command requires its pending handoff before bridge cleanup",
+        commandStop,
+        walletActionRequired: retention.status === "wallet_action_required"
+          ? pendingSessionFishingClaim ?? command?.walletActionRequired ?? null
+          : undefined,
+      };
+    }
+    return {
+      canStop: true,
+      httpStatus: 200,
+      status: "ready",
+      commandStop,
+      handoffResolution: commandStatus === "wallet_action_required"
+        ? { status: "resolved", action: getString(asRecord(command?.walletActionRequired).action) }
+        : undefined,
+    };
+  }
+
+  private requestCommandStop(
+    command: AgentCommandState,
+    requestedStatus: "stopped" | "time_limit",
+    stoppedBecause: string,
+  ) {
+    if (command.status !== "running") return;
+    command.abortRequested = true;
+    if (command.stopDrain.status !== "not_requested") return;
+    const fishingDrainRequired = command.dedicatedFishingTool && command.behaviorScheme === "fishing";
+    command.stopDrain = {
+      status: fishingDrainRequired ? "settling" : "not_needed",
+      requestedAt: Date.now(),
+      settledAt: fishingDrainRequired ? 0 : Date.now(),
+      requestedStatus,
+      stoppedBecause,
+      cancelRequested: false,
+      cancelRequestedAt: 0,
+      cancelAcknowledgedAt: 0,
+      resultCountBefore: command.fishing.resultCount,
+      resultCountAfter: command.fishing.resultCount,
+    };
+    if (!fishingDrainRequired) return;
+    this.stopMovementInput();
+    this.sendFishingCancelForCommand(command);
+  }
+
+  private async finishRequestedCommandStop(command: AgentCommandState) {
+    if (command.status !== "running") return;
+    if (command.stopDrain.status === "not_requested") {
+      this.requestCommandStop(command, "stopped", "manual_stop");
+    }
+    if (command.stopDrain.status === "settling") {
+      const settled = await this.settleFishingCommandStop(command);
+      if (!settled) return;
+    }
+
+    const pendingFishingClaim = this.getPendingFishingNftClaimWalletAction(command);
+    if (pendingFishingClaim) {
+      command.walletActionRequired = pendingFishingClaim;
+      await this.finishCommand(command, "wallet_action_required", "fishing_nft_claim_required");
+      return;
+    }
+    if (command.stopWhenRegularFishBundleReady && command.kind === "play_for" && command.behaviorScheme === "fishing") {
+      const self = this.self();
+      const readyBundle = self
+        ? findFreshRegularFishingBundle(
+            command.fishing.catchTotals.values(),
+            command.startSnapshot?.inventoryCounts ?? {},
+            describeInventoryCounts(self.inventory),
+            true,
+          )
+        : null;
+      if (readyBundle) {
+        command.fishing.currentRunBundleReady = readyBundle;
+        await this.finishCommand(command, "completed", `fishing_regular_bundle_ready:${readyBundle.itemId}`);
+        return;
+      }
+    }
+    const requestedStatus = command.stopDrain.requestedStatus || "stopped";
+    await this.finishCommand(
+      command,
+      requestedStatus,
+      command.stopDrain.stoppedBecause || (requestedStatus === "time_limit" ? "command_time_limit" : "manual_stop"),
+    );
+  }
+
+  private async settleFishingCommandStop(command: AgentCommandState) {
+    const startedAt = Date.now();
+    let lastLootRequestAt = 0;
+    while (Date.now() - startedAt < FISHING_COMMAND_STOP_DRAIN_MAX_MS) {
+      const self = this.self();
+      const fishingState = cleanText(self?.fishingState, 24);
+      if (!command.stopDrain.cancelAcknowledgedAt
+        && Date.now() - command.stopDrain.cancelRequestedAt >= 750) {
+        this.stopMovementInput();
+        this.sendFishingCancelForCommand(command);
+      }
+      const lootWindow = this.getOpenFishingLootWindow();
+      if (lootWindow && Date.now() - lastLootRequestAt >= 500) {
+        this.stopMovementInput();
+        this.send("lootCorpse", { npcId: lootWindow.npcId });
+        if (command.fishing.pendingLoot) command.fishing.pendingLoot.lootRequestedAt = Date.now();
+        this.lastAction = `loot_fishing ${lootWindow.npcId}`;
+        lastLootRequestAt = Date.now();
+      }
+      this.reconcileFishingLootInventory(command, self);
+      const pendingReelCount = command.fishing.pendingReelAttemptIds.size;
+      const waitingForLoot = Boolean(lootWindow)
+        || this.shouldWaitForFishingLootWindow()
+        || Boolean(command.fishing.pendingLoot);
+      const blockers = getAgentFishingStopBlockers({
+        cancelAcknowledged: Boolean(command.stopDrain.cancelAcknowledgedAt),
+        fishingState,
+        pendingReelCount,
+        waitingForLoot,
+      });
+      if (blockers.length === 0) {
+        command.stopDrain.status = "settled";
+        command.stopDrain.settledAt = Date.now();
+        command.stopDrain.resultCountAfter = command.fishing.resultCount;
+        return true;
+      }
+      await delay(100);
+    }
+    command.stopDrain.status = "timed_out";
+    command.stopDrain.settledAt = Date.now();
+    command.stopDrain.resultCountAfter = command.fishing.resultCount;
+    return false;
+  }
+
+  private sendFishingCancelForCommand(command: AgentCommandState) {
+    this.send("cancelFishing", { requestId: command.commandId });
+    command.stopDrain.cancelRequested = true;
+    command.stopDrain.cancelRequestedAt = Date.now();
+    this.lastAction = "cancel_fishing_for_command_stop";
+  }
+
+  private markFishingLootClosed() {
+    const now = Date.now();
+    for (const command of this.commands.values()) {
+      const pendingLoot = command.fishing.pendingLoot;
+      if (command.status !== "running" || !pendingLoot) continue;
+      pendingLoot.closedAt = now;
+      pendingLoot.closedObservationSequence = this.observationSequence;
+    }
+  }
+
+  private reconcileFishingLootInventory(command: AgentCommandState, self: RuntimePlayer | null) {
+    const pendingLoot = command.fishing.pendingLoot;
+    if (!pendingLoot || !self || !pendingLoot.closedAt) return false;
+    const inventoryCount = describeInventoryCounts(self.inventory)[pendingLoot.itemId] ?? 0;
+    if (!isAgentFishingLootInventoryReconciled(
+      pendingLoot,
+      inventoryCount,
+      this.observationSequence,
+    )) return false;
+    command.fishing.pendingLoot = null;
+    return true;
+  }
+
+  private recoverTimedOutFishingStops() {
+    for (const command of this.commands.values()) {
+      if (shouldRecoverAgentFishingStop(command.status, command.stopDrain.status)) {
+        this.ensureFishingStopRecovery(command);
+      }
+    }
+  }
+
+  private ensureFishingStopRecovery(command: AgentCommandState) {
+    const existing = this.commandStopRunners.get(command.commandId);
+    if (existing) return existing;
+    if (!shouldRecoverAgentFishingStop(command.status, command.stopDrain.status)) return null;
+    command.stopDrain.status = "settling";
+    command.stopDrain.settledAt = 0;
+    const runner = this.finishRequestedCommandStop(command).catch((error) => {
+      command.errors = [...command.errors.slice(-4), `stop_recovery:${errorMessage(error)}`];
+      if (command.status === "running") {
+        command.stopDrain.status = "timed_out";
+        command.stopDrain.settledAt = Date.now();
+        command.stopDrain.resultCountAfter = command.fishing.resultCount;
+      }
+    });
+    this.commandStopRunners.set(command.commandId, runner);
+    void runner.finally(() => {
+      if (this.commandStopRunners.get(command.commandId) === runner) {
+        this.commandStopRunners.delete(command.commandId);
+      }
+    });
+    return runner;
+  }
+
+  private isCommandHandoffPending(command: AgentCommandState) {
+    if (command.status === "payment_required") return true;
+    if (command.status !== "wallet_action_required") return false;
+    const walletAction = asRecord(command.walletActionRequired);
+    if (getString(walletAction.action) !== "claim_fishing_nft") return true;
+    const catchId = getString(walletAction.catchId).toLowerCase();
+    if (!catchId) return true;
+    return isFishingClaimWalletActionPending(
+      walletAction,
+      this.fishingNftCatches.get(catchId) ?? null,
+    );
   }
 
   async prepareMintClubRedemption(catchIdValue: unknown): Promise<BridgeActionResult> {
@@ -1886,12 +2214,12 @@ class AgentBridgeSession {
     while (command.status === "running") {
       const elapsedMs = Date.now() - command.startedAt;
       if (command.abortRequested) {
-        await this.finishCommand(command, "stopped", "manual_stop");
+        await this.finishRequestedCommandStop(command);
         break;
       }
       if (elapsedMs >= command.maxSeconds * 1000) {
-        await this.finishCommand(command, "time_limit", "command_time_limit");
-        if (shouldAutoDisconnectAgentCommand(command.status)) this.stop();
+        this.requestCommandStop(command, "time_limit", "command_time_limit");
+        await this.finishRequestedCommandStop(command);
         break;
       }
 
@@ -1934,9 +2262,13 @@ class AgentBridgeSession {
 
       const decision = this.chooseCommandDecision(command, self);
       try {
-        const result = await this.execute(decision);
+        const result = await this.execute(decision, command);
         if (result.report) command.reports = [...command.reports.slice(-19), result.report];
         if (result.walletActionRequired) command.walletActionRequired = result.walletActionRequired;
+        if (command.abortRequested) {
+          await this.finishRequestedCommandStop(command);
+          break;
+        }
         const pendingFishingClaimAfterAction = this.getPendingFishingNftClaimWalletAction(command);
         if (pendingFishingClaimAfterAction) {
           command.walletActionRequired = pendingFishingClaimAfterAction;
@@ -1980,6 +2312,7 @@ class AgentBridgeSession {
           break;
         }
       }
+      if (command.abortRequested) continue;
       await delay(350);
     }
   }
@@ -3503,6 +3836,24 @@ class AgentBridgeSession {
   }
 
   private async finishCommand(command: AgentCommandState, status: AgentCommandStatus, stoppedBecause: string) {
+    const existing = this.commandFinalizers.get(command.commandId);
+    if (existing) {
+      await existing;
+      return;
+    }
+    if (command.status !== "running" && command.finishedAt) return;
+    const finalizer = this.finalizeCommand(command, status, stoppedBecause);
+    this.commandFinalizers.set(command.commandId, finalizer);
+    try {
+      await finalizer;
+    } finally {
+      if (this.commandFinalizers.get(command.commandId) === finalizer) {
+        this.commandFinalizers.delete(command.commandId);
+      }
+    }
+  }
+
+  private async finalizeCommand(command: AgentCommandState, status: AgentCommandStatus, stoppedBecause: string) {
     if (command.status !== "running" && command.finishedAt) return;
     const endingSelf = this.self();
     if (endingSelf) this.rememberCommandPlayers(command, endingSelf);
@@ -3518,9 +3869,19 @@ class AgentBridgeSession {
     }
     if (this.activeCommandId === command.commandId) this.activeCommandId = "";
     this.lastAction = `command_${status} ${command.kind}`;
+    command.terminalResponse = await this.buildCommandResponse(command);
+    if (shouldAutoDisconnectAgentCommand(status)) this.stop();
   }
 
   private async serializeCommand(command: AgentCommandState) {
+    return await resolveAgentCommandResponseSnapshot(
+      () => command.terminalResponse,
+      () => this.commandFinalizers.get(command.commandId) ?? null,
+      () => this.buildCommandResponse(command),
+    );
+  }
+
+  private async buildCommandResponse(command: AgentCommandState) {
     const now = Date.now();
     const finishedAt = command.finishedAt || 0;
     const durationMs = Math.max(0, (finishedAt || now) - command.startedAt);
@@ -3561,7 +3922,7 @@ class AgentBridgeSession {
         inventoryChanges.length ? `inventory ${inventoryChanges.map((change) => `${change.itemId} ${change.before}->${change.after}`).join(", ")}` : "",
         equipmentChanges.length ? `equipment ${formatEquipmentChanges(equipmentChanges)}` : "",
       ].filter(Boolean).join("; ");
-      const bridgeConnected = Boolean(this.room);
+      const bridgeConnected = isAgentCommandBridgeConnected(command.status, Boolean(this.room));
       const postCommand = buildAgentCommandPostCommand(command.status, bridgeConnected);
     return {
       ok: command.status !== "failed",
@@ -3595,6 +3956,9 @@ class AgentBridgeSession {
           autoDisconnected: command.status === "time_limit" && !bridgeConnected,
         },
         postCommand,
+        stopDrain: command.stopDrain.status === "not_requested"
+          ? undefined
+          : describeAgentCommandStopDrain(command.stopDrain),
         walletActionRequired: command.walletActionRequired || undefined,
         summary,
       result: {
@@ -3835,6 +4199,7 @@ class AgentBridgeSession {
     decision: AgentBridgeDecision,
     before: PlayerActionSnapshot,
     context: ActionExecutionContext,
+    owningCommand: AgentCommandState | null = null,
   ): Promise<DurableOutcome> {
     const waitMs = this.durableWaitMs(decision.action);
     const startedAt = Date.now();
@@ -3852,6 +4217,13 @@ class AgentBridgeSession {
       }
       const finished = this.checkDurableOutcome(decision, before, self, durationMs, context);
       if (finished) return finished;
+      if (owningCommand?.abortRequested) {
+        const reelPending = decision.action === "fish" && owningCommand.fishing.pendingReelAttemptIds.size > 0;
+        if (!reelPending) {
+          return { status: "stopping", stoppedBecause: "command_stop_requested", durationMs };
+        }
+        continue;
+      }
       if (this.shouldContinueDurableAction(decision.action) && Date.now() >= nextContinuationAt) {
         this.continueDurableAction(decision, self, context);
         nextContinuationAt = Date.now() + DURABLE_CONTINUATION_MS;
@@ -4198,6 +4570,7 @@ class AgentBridgeSession {
         const fishingState = cleanText(self.fishingState, 24);
         const attemptId = cleanText(self.fishingAttemptId, 128);
         if (fishingState === "bite") {
+          this.trackFishingReelAttempt(attemptId);
           this.send("reelFishing", attemptId ? { attemptId } : {});
           this.lastAction = "reel_fishing";
           return;
@@ -4896,6 +5269,7 @@ class AgentBridgeSession {
         const attemptId = cleanText(self.fishingAttemptId, 128);
         this.stopMovementInput();
         if (fishingState === "bite") {
+          this.trackFishingReelAttempt(attemptId);
           this.send("reelFishing", attemptId ? { attemptId } : {});
           this.lastAction = "reel_fishing";
           return null;
@@ -7430,51 +7804,78 @@ class AgentBridgeSession {
   private getPendingFishingNftClaimWalletActionFrom(actions: AnyRecord[]) {
     const nowSeconds = Math.floor(Date.now() / 1000);
     return actions
-      .filter((action) => getNumber(action.expiresAt) > nowSeconds + 5)
+      .filter((action) => {
+        if (getNumber(action.expiresAt) <= nowSeconds + 5) return false;
+        const catchId = getString(action.catchId).toLowerCase();
+        const latestCatch = catchId ? this.fishingNftCatches.get(catchId) : null;
+        if (!latestCatch) return true;
+        const status = getString(latestCatch.status);
+        return Boolean(latestCatch.walletActionRequired)
+          || status === "voucher_issued"
+          || status === "tx_submitted";
+      })
       .sort((a, b) => getNumber(a.expiresAt) - getNumber(b.expiresAt))[0] ?? null;
   }
 
-  private recordFishingNftClaimWalletAction(catchRecord: unknown) {
+  private recordFishingNftClaimWalletAction(
+    catchRecord: unknown,
+    owningCommand: AgentCommandState | null,
+  ) {
     const walletAction = buildFishingNftClaimWalletAction(catchRecord);
     if (!walletAction) return;
     const catchId = getString(walletAction.catchId);
     if (!catchId) return;
-    this.fishingNftClaimWalletActions.set(catchId, walletAction);
-    const command = this.runningCommand();
-    if (!command) return;
-    command.fishing.nftClaimWalletActions.set(catchId, walletAction);
+    this.fishingNftClaimWalletActions.set(catchId.toLowerCase(), walletAction);
+    if (owningCommand?.status === "running") {
+      owningCommand.fishing.nftClaimWalletActions.set(catchId, walletAction);
+    }
   }
 
-  private recordFishingResult(message: unknown) {
+  private trackFishingReelAttempt(attemptIdValue: unknown) {
+    const attemptId = cleanText(attemptIdValue, 128);
+    if (!attemptId) return;
     const command = this.runningCommand();
     if (!command) return;
+    command.fishing.pendingReelAttemptIds.add(attemptId);
+    this.fishingAttemptCommandIds.set(attemptId, command.commandId);
+  }
+
+  private resolveFishingResultCommand(message: unknown) {
     const record = asRecord(message);
-    const outcome = cleanText(getString(record.outcome), 32) || "unknown";
-    command.fishing.resultCount += 1;
-    command.fishing.outcomeCounts[outcome] = (command.fishing.outcomeCounts[outcome] ?? 0) + 1;
+    const attemptId = cleanText(getString(record.attemptId), 128);
+    const owningCommandId = selectFishingResultOwnerCommandId(
+      attemptId,
+      this.fishingAttemptCommandIds,
+      this.activeCommandId,
+    );
+    return (owningCommandId ? this.commands.get(owningCommandId) : null) ?? this.runningCommand();
+  }
+
+  private recordFishingResult(message: unknown, command: AgentCommandState | null) {
+    const record = asRecord(message);
+    const attemptId = cleanText(getString(record.attemptId), 128);
+    if (!command || command.status !== "running") return;
+    const trackedAttempt = Boolean(attemptId)
+      && this.fishingAttemptCommandIds.get(attemptId) === command.commandId;
+    if (!recordAgentCommandFishingResult(command.fishing, record, trackedAttempt)) return;
+    const outcome = cleanText(getString(record.outcome), 32);
     const itemId = cleanText(getString(record.itemId), 96);
     const quantity = Math.max(0, Math.floor(getNumber(record.quantity)));
-    if (itemId && quantity > 0) {
-      const itemName = cleanText(getString(record.itemName), 96) || itemId;
-      const total = command.fishing.catchTotals.get(itemId) ?? {
+    if ((outcome === "caught" || outcome === "junk") && itemId && quantity > 0) {
+      const self = this.self();
+      const inventoryCountBefore = self ? describeInventoryCounts(self.inventory)[itemId] ?? 0 : 0;
+      command.fishing.pendingLoot = {
+        attemptId,
         itemId,
-        itemName,
-        quantity: 0,
-        outcome,
-      };
-      total.itemName = itemName;
-      total.quantity += quantity;
-      total.outcome = outcome;
-      command.fishing.catchTotals.set(itemId, total);
-      command.fishing.catchEvents = [...command.fishing.catchEvents.slice(-11), {
-        attemptId: cleanText(getString(record.attemptId), 128),
-        outcome,
-        itemId,
-        itemName,
         quantity,
-      }];
+        inventoryCountBefore,
+        resultObservationSequence: this.observationSequence,
+        lootRequestedAt: 0,
+        closedAt: 0,
+        closedObservationSequence: 0,
+      };
     }
-    if (record.nftCatch) this.recordFishingNftCatch(record.nftCatch);
+    if (record.nftCatch) this.recordFishingNftCatch(record.nftCatch, command);
   }
 
   private recordDurableResult(kind: DurableResultKind) {
@@ -7570,14 +7971,28 @@ class AgentBridgeSession {
     catches.forEach((catchRecord) => this.recordFishingNftCatch(catchRecord));
   }
 
-  private recordFishingNftCatch(catchRecord: unknown) {
+  private recordFishingNftCatch(
+    catchRecord: unknown,
+    owningCommand: AgentCommandState | null = null,
+  ) {
     const catchSnapshot = describeFishingNftCatchForAgent(asRecord(catchRecord));
     const catchId = getString(catchSnapshot.catchId);
     if (!catchId) return;
-    this.fishingNftCatches.set(catchId.toLowerCase(), catchSnapshot);
-    const command = this.runningCommand();
-    if (!command) return;
-    command.fishing.nftCatches.set(catchId, catchSnapshot);
+    const normalizedCatchId = catchId.toLowerCase();
+    this.fishingNftCatches.set(normalizedCatchId, catchSnapshot);
+    const status = getString(catchSnapshot.status);
+    if (!Boolean(catchSnapshot.walletActionRequired)
+      && status !== "voucher_issued"
+      && status !== "tx_submitted") {
+      this.fishingNftClaimWalletActions.delete(normalizedCatchId);
+      for (const command of this.commands.values()) {
+        command.fishing.nftClaimWalletActions.delete(catchId);
+        command.fishing.nftClaimWalletActions.delete(normalizedCatchId);
+      }
+    }
+    if (owningCommand?.status === "running") {
+      owningCommand.fishing.nftCatches.set(catchId, catchSnapshot);
+    }
   }
 
   private recordFishingNftCapNotice(message: unknown) {
@@ -7762,7 +8177,7 @@ export class AgentBridgeManager {
     if (operation === "stop") {
       const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
       const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
-      writeBridgeJson(res, 200, withOptionalToolUsageReport(stopped, toolUsageReport));
+      writeBridgeJson(res, getString(asRecord(stopped).status) === "running" ? 202 : 200, withOptionalToolUsageReport(stopped, toolUsageReport));
       return;
     }
     if (operation !== "start") {
@@ -7813,7 +8228,7 @@ export class AgentBridgeManager {
     if (operation === "stop") {
       const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
       const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
-      writeBridgeJson(res, 200, withOptionalToolUsageReport(stopped, toolUsageReport));
+      writeBridgeJson(res, getString(asRecord(stopped).status) === "running" ? 202 : 200, withOptionalToolUsageReport(stopped, toolUsageReport));
       return;
     }
     if (operation === "fish_once" || operation === "fish") {
@@ -7894,7 +8309,8 @@ export class AgentBridgeManager {
     }
     const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
     const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
-    writeBridgeJson(res, 200, await session.stopCommand(cleanText(payload.commandId, 80)));
+    const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
+    writeBridgeJson(res, getString(asRecord(stopped).status) === "running" ? 202 : 200, stopped);
   }
 
   private async handleStop(req: IncomingMessage, res: ServerResponse) {
@@ -7905,9 +8321,29 @@ export class AgentBridgeManager {
     const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
     const id = cleanText(payload.bridgeSessionId, 80);
     const session = this.requireSession(req, id);
+    const preparation = await session.prepareBridgeStop();
+    if (!preparation.canStop) {
+      writeBridgeJson(res, preparation.httpStatus, {
+        ok: false,
+        bridgeSessionId: session.id,
+        status: preparation.status,
+        error: preparation.error,
+        commandStop: preparation.commandStop,
+        walletActionRequired: "walletActionRequired" in preparation
+          ? preparation.walletActionRequired
+          : undefined,
+      });
+      return;
+    }
     session.stop();
     this.sessions.delete(session.id);
-    writeBridgeJson(res, 200, { ok: true, bridgeSessionId: session.id, status: "stopped" });
+    writeBridgeJson(res, 200, {
+      ok: true,
+      bridgeSessionId: session.id,
+      status: "stopped",
+      commandStop: preparation.commandStop,
+      handoffResolution: preparation.handoffResolution,
+    });
   }
 
   private requireSession(req: IncomingMessage, id: string | null | undefined) {
@@ -8251,6 +8687,10 @@ export function hasCompletedFishingSaleUnlockQuest(quests: unknown) {
 
 export function shouldAutoDisconnectAgentCommand(status: string) {
   return status === "time_limit";
+}
+
+export function isAgentCommandBridgeConnected(status: string, roomConnected: boolean) {
+  return roomConnected && !shouldAutoDisconnectAgentCommand(status);
 }
 
 export function buildAgentCommandPostCommand(status: string, bridgeConnected: boolean) {
@@ -9933,12 +10373,178 @@ export function findFreshRegularFishingBundle(
   return candidates[0] ?? null;
 }
 
-function createCommandFishingStats(): AgentCommandFishingStats {
+function createAgentCommandStopDrain(): AgentCommandStopDrain {
+  return {
+    status: "not_requested",
+    requestedAt: 0,
+    settledAt: 0,
+    requestedStatus: "",
+    stoppedBecause: "",
+    cancelRequested: false,
+    cancelRequestedAt: 0,
+    cancelAcknowledgedAt: 0,
+    resultCountBefore: 0,
+    resultCountAfter: 0,
+  };
+}
+
+export function describeAgentCommandStopDrain(drain: AgentCommandStopDrain) {
+  return {
+    status: drain.status,
+    requestedAt: drain.requestedAt ? new Date(drain.requestedAt).toISOString() : "",
+    settledAt: drain.settledAt ? new Date(drain.settledAt).toISOString() : "",
+    requestedStatus: drain.requestedStatus || undefined,
+    stoppedBecause: drain.stoppedBecause || undefined,
+    cancelRequested: drain.cancelRequested,
+    cancelRequestedAt: drain.cancelRequestedAt ? new Date(drain.cancelRequestedAt).toISOString() : "",
+    cancelAcknowledgedAt: drain.cancelAcknowledgedAt ? new Date(drain.cancelAcknowledgedAt).toISOString() : "",
+    resultCountBefore: drain.resultCountBefore,
+    resultCountAfter: drain.resultCountAfter,
+  };
+}
+
+export async function waitForAgentCommandRunner(runner: Promise<void>, timeoutMs: number) {
+  return await new Promise<boolean>((resolve) => {
+    let finished = false;
+    const timer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      resolve(false);
+    }, Math.max(0, timeoutMs));
+    void runner.then(
+      () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(true);
+      },
+      () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(false);
+      },
+    );
+  });
+}
+
+export async function resolveAgentCommandResponseSnapshot<T>(
+  getTerminalResponse: () => T | null,
+  getFinalizer: () => Promise<void> | null,
+  buildLiveResponse: () => Promise<T>,
+) {
+  const initialFinalizer = getFinalizer();
+  if (initialFinalizer) await initialFinalizer;
+  const initialTerminalResponse = getTerminalResponse();
+  if (initialTerminalResponse) return initialTerminalResponse;
+  const candidate = await buildLiveResponse();
+  const lateFinalizer = getFinalizer();
+  if (lateFinalizer) await lateFinalizer;
+  return getTerminalResponse() ?? candidate;
+}
+
+export function shouldRetainBridgeForCommandStop(
+  commandStatus: string,
+  drainStatus: string,
+  handoffPending = commandStatus === "wallet_action_required" || commandStatus === "payment_required",
+) {
+  return commandStatus === "running"
+    || drainStatus === "timed_out"
+    || handoffPending;
+}
+
+export function classifyAgentBridgeStopRetention(
+  commandStatus: string,
+  drainStatus: string,
+  handoffPending: boolean,
+) {
+  if (!shouldRetainBridgeForCommandStop(commandStatus, drainStatus, handoffPending)) return null;
+  if (drainStatus === "timed_out") return { httpStatus: 409, status: "reconciliation_timeout" } as const;
+  if (commandStatus === "running") return { httpStatus: 202, status: "command_settling" } as const;
+  return {
+    httpStatus: 409,
+    status: commandStatus === "payment_required" ? "payment_required" : "wallet_action_required",
+  } as const;
+}
+
+export function shouldRecoverAgentFishingStop(commandStatus: string, drainStatus: string) {
+  return commandStatus === "running" && drainStatus === "timed_out";
+}
+
+export function shouldReportFishingReconciliationTimeoutForBridgeCleanup(
+  commandStatus: string,
+  drainStatus: string,
+) {
+  return shouldRecoverAgentFishingStop(commandStatus, drainStatus);
+}
+
+export function isAgentFishingCancelAcknowledgement(message: unknown, commandId: string) {
+  const record = asRecord(message);
+  return record.ok === true
+    && Boolean(commandId)
+    && cleanText(getString(record.requestId), 80) === commandId;
+}
+
+export function getAgentFishingStopBlockers(input: {
+  cancelAcknowledged: boolean;
+  fishingState: string;
+  pendingReelCount: number;
+  waitingForLoot: boolean;
+}) {
+  return [
+    input.cancelAcknowledged ? "" : "cancel_unacknowledged",
+    input.fishingState ? "fishing_state_active" : "",
+    input.pendingReelCount > 0 ? "reel_result_pending" : "",
+    input.waitingForLoot ? "loot_reconciliation_pending" : "",
+  ].filter(Boolean);
+}
+
+export function isAgentFishingLootInventoryReconciled(
+  pendingLoot: {
+    quantity: number;
+    inventoryCountBefore: number;
+    closedAt: number;
+    closedObservationSequence: number;
+  },
+  inventoryCount: number,
+  observationSequence: number,
+) {
+  return pendingLoot.closedAt > 0
+    && observationSequence > pendingLoot.closedObservationSequence
+    && inventoryCount >= pendingLoot.inventoryCountBefore + pendingLoot.quantity;
+}
+
+export function selectFishingResultOwnerCommandId(
+  attemptId: string,
+  attemptOwners: ReadonlyMap<string, string>,
+  activeCommandId: string,
+) {
+  return (attemptId ? attemptOwners.get(attemptId) : "") || activeCommandId;
+}
+
+export function isFishingClaimWalletActionPending(
+  walletAction: unknown,
+  latestCatch: unknown,
+) {
+  const action = asRecord(walletAction);
+  if (getString(action.action) !== "claim_fishing_nft" || !getString(action.catchId)) return true;
+  const catchSnapshot = asRecord(latestCatch);
+  if (!getString(catchSnapshot.catchId)) return true;
+  const status = getString(catchSnapshot.status);
+  return Boolean(catchSnapshot.walletActionRequired)
+    || status === "voucher_issued"
+    || status === "tx_submitted";
+}
+
+export function createCommandFishingStats(): AgentCommandFishingStats {
   return {
     resultCount: 0,
     outcomeCounts: {},
     catchTotals: new Map(),
     catchEvents: [],
+    recordedAttemptIds: new Set(),
+    pendingReelAttemptIds: new Set(),
+    pendingLoot: null,
     saleTotals: new Map(),
     saleEvents: [],
     nftCatches: new Map(),
@@ -9946,6 +10552,47 @@ function createCommandFishingStats(): AgentCommandFishingStats {
     capNotices: [],
     currentRunBundleReady: null,
   };
+}
+
+export function recordAgentCommandFishingResult(
+  stats: AgentCommandFishingStats,
+  message: unknown,
+  trackedAttempt = false,
+) {
+  const record = asRecord(message);
+  const attemptId = cleanText(getString(record.attemptId), 128);
+  const shouldTrackAttempt = Boolean(attemptId) && (trackedAttempt || stats.pendingReelAttemptIds.has(attemptId));
+  if (attemptId && stats.recordedAttemptIds.has(attemptId)) return false;
+  if (shouldTrackAttempt) {
+    stats.recordedAttemptIds.add(attemptId);
+    stats.pendingReelAttemptIds.delete(attemptId);
+  }
+  const outcome = cleanText(getString(record.outcome), 32) || "unknown";
+  stats.resultCount += 1;
+  stats.outcomeCounts[outcome] = (stats.outcomeCounts[outcome] ?? 0) + 1;
+  const itemId = cleanText(getString(record.itemId), 96);
+  const quantity = Math.max(0, Math.floor(getNumber(record.quantity)));
+  if (itemId && quantity > 0) {
+    const itemName = cleanText(getString(record.itemName), 96) || itemId;
+    const total = stats.catchTotals.get(itemId) ?? {
+      itemId,
+      itemName,
+      quantity: 0,
+      outcome,
+    };
+    total.itemName = itemName;
+    total.quantity += quantity;
+    total.outcome = outcome;
+    stats.catchTotals.set(itemId, total);
+    stats.catchEvents = [...stats.catchEvents.slice(-11), {
+      attemptId,
+      outcome,
+      itemId,
+      itemName,
+      quantity,
+    }];
+  }
+  return true;
 }
 
 export function buildAgentCommandFishingRecap(

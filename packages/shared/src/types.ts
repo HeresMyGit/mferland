@@ -560,7 +560,16 @@ export type ClientReelFishing = {
   attemptId?: string;
 };
 
-export type ClientCancelFishing = Record<string, never>;
+export type ClientCancelFishing = {
+  requestId?: string;
+};
+
+export type FishingCancelResult = {
+  ok: boolean;
+  requestId: string;
+  attemptId: string;
+  canceled: boolean;
+};
 
 export type FishingResult = {
   ok: boolean;

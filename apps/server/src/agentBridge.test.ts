@@ -9,12 +9,16 @@ import {
   buildFishingToolCommandPayload,
   buildAgentCommandSocialRecap,
   claimDurableMessageDispatch,
+  classifyAgentBridgeStopRetention,
   countHealthyQuestParticipantsNear,
+  createCommandFishingStats,
   describeFishingVendorSaleRequest,
+  describeAgentCommandStopDrain,
   describeEquipmentChanges,
   findFreshRegularFishingBundle,
   generatedQuestTargetAreaPatrolPoints,
   getFishingLootExpectedUntil,
+  getAgentFishingStopBlockers,
   getQuestAgentHints,
   hasNewDurableResult,
   hasCompletedFishingSaleUnlockQuest,
@@ -23,6 +27,10 @@ import {
   isFishingQuestId,
   isCommandFailureCapReached,
   isGroupGatedEncounterType,
+  isAgentCommandBridgeConnected,
+  isAgentFishingLootInventoryReconciled,
+  isAgentFishingCancelAcknowledgement,
+  isFishingClaimWalletActionPending,
   isGenericQuestTargetSuppressed,
   isQuestTargetAreaCandidate,
   npcInteractionRouteStopDistance,
@@ -31,15 +39,22 @@ import {
   normalizeFishingNftHistoryResult,
   normalizeFishingBundleReadyStop,
   routeQueueFromPosition,
+  selectFishingResultOwnerCommandId,
   selectFishingCommandStatusTarget,
   resolveIncompleteRequiredQuestIdForQuests,
+  recordAgentCommandFishingResult,
+  resolveAgentCommandResponseSnapshot,
   shouldWaitForPendingFishingLootWindow,
   shouldAutoDisconnectAgentCommand,
   shouldSkipOptionalBossDailyCommand,
   shouldInterruptMovementForDamage,
+  shouldRetainBridgeForCommandStop,
+  shouldRecoverAgentFishingStop,
+  shouldReportFishingReconciliationTimeoutForBridgeCleanup,
   validateFishingPollNonce,
   withFishingCommandRecovery,
   withFishingPollNonce,
+  waitForAgentCommandRunner,
 } from "./agentBridge.js";
 
 test("agent action HTTP status preserves retryable chat cooldowns", () => {
@@ -63,6 +78,9 @@ test("timed commands disconnect the live bridge but preserve a pollable recap in
   assert.equal(shouldAutoDisconnectAgentCommand("running"), false);
   assert.equal(shouldAutoDisconnectAgentCommand("completed"), false);
   assert.equal(shouldAutoDisconnectAgentCommand("time_limit"), true);
+  assert.equal(isAgentCommandBridgeConnected("time_limit", true), false);
+  assert.equal(isAgentCommandBridgeConnected("completed", true), true);
+  assert.equal(isAgentCommandBridgeConnected("completed", false), false);
 
   assert.deepEqual(buildAgentCommandPostCommand("time_limit", false), {
     state: "time_exhausted",
@@ -236,6 +254,221 @@ test("dedicated fishing status recovery prefers the active fishing command", () 
   });
   const explicit = { ok: true, bridgeSessionId: "bridge-real", commandId: "fish-active" };
   assert.strictEqual(withFishingCommandRecovery(explicit, "fish-active", null), explicit);
+});
+
+test("manual command stop waits for the tracked runner before returning a terminal recap", async () => {
+  let releaseRunner = () => {};
+  const runner = new Promise<void>((resolve) => {
+    releaseRunner = resolve;
+  });
+  let waitFinished = false;
+  const waiting = waitForAgentCommandRunner(runner, 1_000).then((settled) => {
+    waitFinished = true;
+    return settled;
+  });
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(waitFinished, false);
+  releaseRunner();
+  assert.equal(await waiting, true);
+  assert.equal(await waitForAgentCommandRunner(new Promise<void>(() => {}), 0), false);
+});
+
+test("serialization prefers a terminal snapshot that freezes while a live response is building", async () => {
+  let terminalResponse: { status: string; durationMs: number } | null = null;
+  let finalizer: Promise<void> | null = null;
+  let releaseBuild = () => {};
+  const buildGate = new Promise<void>((resolve) => {
+    releaseBuild = resolve;
+  });
+  let releaseFinalizer = () => {};
+
+  const response = resolveAgentCommandResponseSnapshot(
+    () => terminalResponse,
+    () => finalizer,
+    async () => {
+      await buildGate;
+      return { status: "running", durationMs: 4_000 };
+    },
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  finalizer = new Promise<void>((resolve) => {
+    releaseFinalizer = resolve;
+  });
+  terminalResponse = { status: "time_limit", durationMs: 5_000 };
+  releaseBuild();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  releaseFinalizer();
+
+  assert.deepEqual(await response, terminalResponse);
+});
+
+test("a correlated late fishing result is included once and clears its pending reel", () => {
+  const stats = createCommandFishingStats();
+  stats.pendingReelAttemptIds.add("attempt-5");
+
+  assert.equal(recordAgentCommandFishingResult(stats, {
+    attemptId: "attempt-5",
+    outcome: "missed",
+    quantity: 0,
+  }), true);
+  assert.equal(stats.resultCount, 1);
+  assert.deepEqual(stats.outcomeCounts, { missed: 1 });
+  assert.equal(stats.pendingReelAttemptIds.has("attempt-5"), false);
+  assert.equal(recordAgentCommandFishingResult(stats, {
+    attemptId: "attempt-5",
+    outcome: "missed",
+    quantity: 0,
+  }), false);
+  assert.equal(stats.resultCount, 1);
+  assert.match(buildAgentCommandFishingRecap(stats, null, null).summary, /1 fishing reel/);
+});
+
+test("a stop after reel four stays nonterminal until correlated reel five is recorded", () => {
+  const stats = createCommandFishingStats();
+  stats.resultCount = 4;
+  stats.outcomeCounts = { missed: 4 };
+  stats.pendingReelAttemptIds.add("attempt-5");
+
+  assert.deepEqual(getAgentFishingStopBlockers({
+    cancelAcknowledged: true,
+    fishingState: "",
+    pendingReelCount: stats.pendingReelAttemptIds.size,
+    waitingForLoot: false,
+  }), ["reel_result_pending"]);
+
+  assert.equal(recordAgentCommandFishingResult(stats, {
+    attemptId: "attempt-5",
+    outcome: "missed",
+    quantity: 0,
+  }, true), true);
+  assert.equal(stats.resultCount, 5);
+  assert.deepEqual(stats.outcomeCounts, { missed: 5 });
+  assert.deepEqual(getAgentFishingStopBlockers({
+    cancelAcknowledged: true,
+    fishingState: "",
+    pendingReelCount: stats.pendingReelAttemptIds.size,
+    waitingForLoot: false,
+  }), []);
+  assert.match(buildAgentCommandFishingRecap(stats, null, null).summary, /5 fishing reels/);
+});
+
+test("fishing stop requires an acknowledged cancel even before a cast appears in state", () => {
+  assert.equal(isAgentFishingCancelAcknowledgement({
+    ok: true,
+    requestId: "command-1",
+    canceled: false,
+  }, "command-1"), true);
+  assert.equal(isAgentFishingCancelAcknowledgement({
+    ok: false,
+    requestId: "command-1",
+  }, "command-1"), false);
+  assert.equal(isAgentFishingCancelAcknowledgement({
+    ok: true,
+    requestId: "command-2",
+  }, "command-1"), false);
+  assert.deepEqual(getAgentFishingStopBlockers({
+    cancelAcknowledged: false,
+    fishingState: "",
+    pendingReelCount: 0,
+    waitingForLoot: false,
+  }), ["cancel_unacknowledged"]);
+  assert.deepEqual(getAgentFishingStopBlockers({
+    cancelAcknowledged: true,
+    fishingState: "",
+    pendingReelCount: 0,
+    waitingForLoot: false,
+  }), []);
+});
+
+test("regular fishing loot waits for a post-close authoritative inventory observation", () => {
+  const pendingLoot = {
+    quantity: 10,
+    inventoryCountBefore: 2,
+    closedAt: 1_720_900_001_000,
+    closedObservationSequence: 41,
+  };
+  assert.equal(isAgentFishingLootInventoryReconciled(pendingLoot, 12, 41), false);
+  assert.equal(isAgentFishingLootInventoryReconciled(pendingLoot, 11, 42), false);
+  assert.equal(isAgentFishingLootInventoryReconciled(pendingLoot, 12, 42), true);
+});
+
+test("late fishing results stay owned by their original command", () => {
+  const owners = new Map([["attempt-a-5", "command-a"]]);
+  assert.equal(selectFishingResultOwnerCommandId("attempt-a-5", owners, "command-b"), "command-a");
+  assert.equal(selectFishingResultOwnerCommandId("attempt-b-1", owners, "command-b"), "command-b");
+});
+
+test("timed-out fishing drains remain running and recoverable", () => {
+  assert.equal(shouldRecoverAgentFishingStop("running", "timed_out"), true);
+  assert.equal(shouldRecoverAgentFishingStop("failed", "timed_out"), false);
+  assert.equal(shouldRecoverAgentFishingStop("running", "settling"), false);
+  assert.equal(shouldReportFishingReconciliationTimeoutForBridgeCleanup("running", "timed_out"), true);
+  assert.equal(shouldReportFishingReconciliationTimeoutForBridgeCleanup("running", "settling"), false);
+});
+
+test("bridge cleanup retains settling, timed-out, and wallet-handoff commands", () => {
+  assert.deepEqual(classifyAgentBridgeStopRetention("running", "timed_out", false), {
+    httpStatus: 409,
+    status: "reconciliation_timeout",
+  });
+  assert.deepEqual(classifyAgentBridgeStopRetention("running", "settling", false), {
+    httpStatus: 202,
+    status: "command_settling",
+  });
+  assert.deepEqual(classifyAgentBridgeStopRetention("wallet_action_required", "settled", true), {
+    httpStatus: 409,
+    status: "wallet_action_required",
+  });
+  assert.equal(classifyAgentBridgeStopRetention("stopped", "settled", false), null);
+  assert.equal(shouldRetainBridgeForCommandStop("running", "settling"), true);
+  assert.equal(shouldRetainBridgeForCommandStop("failed", "timed_out"), true);
+  assert.equal(shouldRetainBridgeForCommandStop("wallet_action_required", "settled"), true);
+  assert.equal(shouldRetainBridgeForCommandStop("payment_required", "not_needed"), true);
+  assert.equal(shouldRetainBridgeForCommandStop("wallet_action_required", "settled", false), false);
+  assert.equal(shouldRetainBridgeForCommandStop("stopped", "settled"), false);
+  assert.deepEqual(describeAgentCommandStopDrain({
+    status: "settled",
+    requestedAt: 1_720_900_000_000,
+    settledAt: 1_720_900_001_000,
+    requestedStatus: "stopped",
+    stoppedBecause: "manual_stop",
+    cancelRequested: true,
+    cancelRequestedAt: 1_720_900_000_100,
+    cancelAcknowledgedAt: 1_720_900_000_200,
+    resultCountBefore: 4,
+    resultCountAfter: 5,
+  }), {
+    status: "settled",
+    requestedAt: "2024-07-13T19:46:40.000Z",
+    settledAt: "2024-07-13T19:46:41.000Z",
+    requestedStatus: "stopped",
+    stoppedBecause: "manual_stop",
+    cancelRequested: true,
+    cancelRequestedAt: "2024-07-13T19:46:40.100Z",
+    cancelAcknowledgedAt: "2024-07-13T19:46:40.200Z",
+    resultCountBefore: 4,
+    resultCountAfter: 5,
+  });
+});
+
+test("bridge cleanup releases a fishing claim handoff only after authoritative confirmation", () => {
+  const walletAction = { action: "claim_fishing_nft", catchId: "catch-1" };
+  assert.equal(isFishingClaimWalletActionPending(walletAction, {
+    catchId: "catch-1",
+    status: "voucher_issued",
+    walletActionRequired: true,
+  }), true);
+  assert.equal(isFishingClaimWalletActionPending(walletAction, {
+    catchId: "catch-1",
+    status: "tx_submitted",
+    walletActionRequired: true,
+  }), true);
+  assert.equal(isFishingClaimWalletActionPending(walletAction, {
+    catchId: "catch-1",
+    status: "confirmed",
+    walletActionRequired: false,
+  }), false);
 });
 
 test("fish sale results preserve the request id and authoritative sold totals", () => {
@@ -486,6 +719,9 @@ test("agent command fishing recap summarizes catches, sales, and NFT names", () 
       itemName: "Sartofish",
       quantity: 2,
     }],
+    recordedAttemptIds: new Set(["attempt-1"]),
+    pendingReelAttemptIds: new Set(),
+    pendingLoot: null,
     saleTotals: new Map([
       ["sartofish", {
         itemId: "sartofish",

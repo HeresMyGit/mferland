@@ -171,7 +171,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       type: TOOL_MANIFEST_TYPE,
       name: "mfertown-fishing",
       description: "Run mfertown pond fishing for wallet-authenticated agents, including normal catches, offchain fish sales, and claim-ready onchain NFT catches.",
-      version: "0.1.6",
+      version: "0.1.7",
       endpoint: `${baseUrl}/agent-fishing`,
       image: `${baseUrl}/agent-tools/icon.png`,
       featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
@@ -182,7 +182,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
           operation: {
             type: "string",
             enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"],
-            description: "start begins bounded pond fishing. For a requested regular-fish sale, set stopWhenRegularFishBundleReady so the dedicated command stops only after a current-run catch lands and completes an agent bundle. Bundle readiness does not promise Season reward eligibility; sell_fish reports point-cap or MFERGPT-gate blockers explicitly. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. If sell_fish returns insufficient_bundle, use bundleRequirements and resume dedicated fishing instead of resubmitting unchanged inventory. If it returns in_progress, poll sell_fish_status with its requestId instead of submitting another sale. If fishSale.status is sale_in_progress, resume the older known request or stop incomplete rather than retrying blindly. A prerequisite response provides the exact scoped /agent-fishing request and must never fall back to generic autoplay. refresh returns only a fresh successful NFT history response for baselining. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
+            description: "start begins bounded pond fishing. stop is drain-aware: it acknowledges cancellation even before a just-dispatched cast appears in state, reconciles an already-dispatched reel, waits for the authoritative post-loot inventory observation or NFT handoff, and may return HTTP 202 with stopDrain.status=settling until a nonce-bearing status poll becomes terminal. A timed_out drain remains recoverable; retain the bridge and poll the same command with a fresh nonce. For a requested regular-fish sale, set stopWhenRegularFishBundleReady so the dedicated command stops only after a current-run catch lands and completes an agent bundle. Bundle readiness does not promise Season reward eligibility; sell_fish reports point-cap or MFERGPT-gate blockers explicitly. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. If sell_fish returns insufficient_bundle, use bundleRequirements and resume dedicated fishing instead of resubmitting unchanged inventory. If it returns in_progress, poll sell_fish_status with its requestId instead of submitting another sale. If fishSale.status is sale_in_progress, resume the older known request or stop incomplete rather than retrying blindly. A prerequisite response provides the exact scoped /agent-fishing request and must never fall back to generic autoplay. refresh returns only a fresh successful NFT history response for baselining. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
           },
           bridgeSessionId: { type: "string" },
           commandId: {
@@ -478,6 +478,10 @@ function commandOutputSchema() {
       fishing: { type: "object" },
       bridge: { type: "object" },
       postCommand: { type: "object" },
+      stopDrain: {
+        type: "object",
+        description: "Present after a command stop is requested. settled or not_needed means the returned terminal recap has reconciled any in-flight action. settling means the command is still running and must be polled with a fresh nonce. timed_out is incomplete but recoverable: retain the bridge and poll the same command with another fresh nonce.",
+      },
       prerequisiteRequired: { type: "object" },
       walletActionRequired: { type: "object" },
       finalState: { type: ["object", "null"] },

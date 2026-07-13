@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFishingCancelResult,
   claimFishingVendorSaleSession,
   describeFishingVendorBundleRequirements,
   describeFishingVendorZeroSale,
@@ -9,6 +10,30 @@ import {
   normalizeFishingVendorRequestId,
   rememberFishingVendorRequestId,
 } from "./TownRoom.js";
+
+test("fishing cancellation acknowledgements are safe and preserve the pre-cancel attempt", () => {
+  assert.deepEqual(buildFishingCancelResult(true, "attempt-1", { requestId: "  command-1  " }), {
+    ok: true,
+    requestId: "command-1",
+    attemptId: "attempt-1",
+    canceled: true,
+  });
+  assert.deepEqual(buildFishingCancelResult(true, "", { requestId: "command-1" }), {
+    ok: true,
+    requestId: "command-1",
+    attemptId: "",
+    canceled: false,
+  });
+  assert.deepEqual(buildFishingCancelResult(false, "", null), {
+    ok: false,
+    requestId: "",
+    attemptId: "",
+    canceled: false,
+  });
+  assert.equal(buildFishingCancelResult(true, "attempt-2", {
+    requestId: `  ${"x".repeat(100)}  `,
+  }).requestId, "x".repeat(80));
+});
 
 test("fishing vendor reports exact declared-agent bundle shortfalls", () => {
   assert.deepEqual(describeFishingVendorBundleRequirements([

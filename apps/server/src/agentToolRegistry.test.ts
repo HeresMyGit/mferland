@@ -82,7 +82,7 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   const output = manifest.outputs as { properties: Record<string, unknown> };
 
   assert.equal(manifest.name, "mfertown-fishing");
-  assert.equal(manifest.version, "0.1.6");
+  assert.equal(manifest.version, "0.1.7");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
   assert.ok(manifest.tags.includes("fishing"));
   assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"]);
@@ -94,6 +94,8 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.match(input.properties.operation.description ?? "", /exact scoped \/agent-fishing request/);
   assert.match(input.properties.operation.description ?? "", /poll sell_fish_status/);
   assert.match(input.properties.operation.description ?? "", /insufficient_bundle/);
+  assert.match(input.properties.operation.description ?? "", /stop is drain-aware/);
+  assert.match(input.properties.operation.description ?? "", /stopDrain\.status=settling/);
   assert.equal(input.properties.stopWhenRegularFishBundleReady.type, "boolean");
   assert.match(input.properties.stopWhenRegularFishBundleReady.description ?? "", /declared-agent bundle/);
   assert.match(input.properties.stopWhenRegularFishBundleReady.description ?? "", /not reward eligibility/);
@@ -122,6 +124,9 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.match(outputPollNonce.description ?? "", /Exact unchanged echo/);
   assert.ok(output.properties.commandRecovery);
   assert.match((output.properties.commandRecovery as JsonSchema).description ?? "", /real commandId/);
+  assert.ok(output.properties.stopDrain);
+  assert.match((output.properties.stopDrain as JsonSchema).description ?? "", /in-flight action/);
+  assert.match((output.properties.stopDrain as JsonSchema).description ?? "", /fresh nonce/);
   assert.ok(output.properties.toolUsageReport);
 });
 

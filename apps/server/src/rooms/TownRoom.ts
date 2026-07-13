@@ -135,6 +135,7 @@ import {
   type OnchainFishingRodMintResult,
   type FishingSellableItemId,
   type FishingResult,
+  type FishingCancelResult,
   type FishingSupplyPurchaseResult,
   type FishingVendorBundleRequirement,
   type FishingVendorSellResult,
@@ -1007,10 +1008,12 @@ export class TownRoom extends Room<TownState> {
       void this.handleReelFishing(client, message);
     });
 
-    this.onMessage("cancelFishing", (client, _message: Partial<ClientCancelFishing> = {}) => {
+    this.onMessage("cancelFishing", (client, message: Partial<ClientCancelFishing> = {}) => {
       this.markAgentMessageActivity(client.sessionId, "cancelFishing");
       const player = this.state.players.get(client.sessionId);
+      const attemptId = player?.fishingAttemptId ?? "";
       if (player) this.cancelFishing(client.sessionId, player);
+      client.send("fishingCancelResult", buildFishingCancelResult(Boolean(player), attemptId, message));
     });
 
     this.onMessage("submitFishingNftClaimTx", (client, message: Partial<ClientSubmitFishingNftClaimTx> = {}) => {
@@ -6060,6 +6063,26 @@ export function claimFishingVendorSaleSession(inFlightSessionIds: Set<string>, s
   if (inFlightSessionIds.has(sessionId)) return false;
   inFlightSessionIds.add(sessionId);
   return true;
+}
+
+export function buildFishingCancelResult(
+  playerAvailable: boolean,
+  attemptIdValue: unknown,
+  message: unknown,
+): FishingCancelResult {
+  const payload = message && typeof message === "object"
+    ? message as { requestId?: unknown }
+    : {};
+  const requestId = typeof payload.requestId === "string"
+    ? payload.requestId.trim().slice(0, 80)
+    : "";
+  const attemptId = typeof attemptIdValue === "string" ? attemptIdValue : "";
+  return {
+    ok: playerAvailable,
+    requestId,
+    attemptId,
+    canceled: playerAvailable && Boolean(attemptId),
+  };
 }
 
 export function fishingVendorSaleOwnerKey(characterIdValue: unknown, walletAddressValue: unknown, sessionIdValue: unknown) {
