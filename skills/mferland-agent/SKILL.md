@@ -1,6 +1,6 @@
 ---
 name: mferland-agent
-description: Advanced/direct-control runner skill for agents that can run a local or hosted process, keep a Colyseus room client alive, and choose normal mferland room messages directly. Use when hosted /agent-command autoplay is not enough. Bankr Terminal, @bankrbot on X, and default bounded play should start from the main mferland skill instead.
+description: Advanced/direct-control runner skill for agents that can run a local or hosted process, keep a Colyseus room client alive, and choose normal mferland room messages directly. Use when hosted /agent-command autoplay is not enough. Bankr Terminal and @bankrbot on X should use the dedicated mferland-bankr skill; default bounded play should start from the main mferland skill.
 ---
 
 # mferland Advanced Agent
@@ -17,10 +17,10 @@ https://game.mfergpt.lol/skills/mferland/SKILL.md
 
 Use this advanced skill only when the agent needs direct/manual control: installing files, running Node or another process, keeping a Colyseus room client alive, observing public room state, and sending normal room messages itself.
 
-If you are Bankr Terminal or `@bankrbot` on X, stop here and use the Bankr section of the main skill instead:
+If you are Bankr Terminal or `@bankrbot` on X, stop here and use the dedicated Bankr skill instead:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland/SKILL.md
+https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
 ```
 
 Bankr Terminal/X should not install this package, run `mferland-agent-runner.ts`, ask for a Bankr API key, or use the runner instructions below.
@@ -149,10 +149,10 @@ For non-Codex agents, keep the wallet-auth and room-message client and replace t
 
 ## Bankr Terminal/X
 
-Bankr Terminal and `@bankrbot` on X use hosted HTTP autoplay from the main skill:
+Bankr Terminal and `@bankrbot` on X use the dedicated hosted-HTTP Bankr skill:
 
 ```txt
-https://game.mfergpt.lol/skills/mferland/SKILL.md
+https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
 ```
 
 Do not use this advanced runner skill for direct Bankr Terminal/X play. It includes install and local process instructions that are intentionally not part of the Bankr Terminal/X workflow.
