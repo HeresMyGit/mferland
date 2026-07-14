@@ -24,6 +24,7 @@ import {
   type ClientUseItem,
   type CombatEvent,
   type EmoteId,
+  type MintClubRedemptionPreparationResult,
   type NpcSnapshot,
   type PlayerSnapshot,
   type TargetSelection,
@@ -401,6 +402,8 @@ function LocalStreamPage({ overlay, agentView }: { overlay: boolean; agentView: 
           onRegisterChainGear={noopRegisterChainGear}
           onSubmitFishingNftClaimTx={noop}
           onAbandonFishingNftCatch={noop}
+          onPrepareMintClubRedemption={noopPrepareMintClubRedemption}
+          onCancelMintClubRedemptionPreparation={noop}
           onSubmitMintClubRedemptionTx={noop}
           onRefreshFishingNftHistory={noop}
           onCryptoStoreAnalytics={noopCryptoAnalytics}
@@ -1395,6 +1398,15 @@ function noopActionSlotItem(_message: ClientEquipItem) {}
 function noopUnequipItem(_message: ClientUnequipItem) {}
 function noopUseItem(_message: ClientUseItem) {}
 function noopRegisterChainGear(_message: ClientRegisterChainGear) {}
+function noopPrepareMintClubRedemption(_catchId: string): Promise<MintClubRedemptionPreparationResult> {
+  return Promise.resolve({
+    ok: false,
+    catch: null,
+    status: "not_found",
+    requestId: "stream-unavailable",
+    error: "redemption unavailable in passive stream view",
+  });
+}
 function noopCryptoAnalytics(_eventType: string, _properties?: Record<string, string | number | boolean | null>) {}
 function noopSelectTalent(_message: ClientSelectTalent) {}
 function noopEmote(_emoteId: EmoteId) {}

@@ -14,7 +14,7 @@ import {
   normalizeWalletAddress,
   type MintClubRedemptionSnapshot,
 } from "@mferland/shared";
-import { createPublicClient, decodeEventLog, http, parseAbi, type Hex } from "viem";
+import { createPublicClient, decodeEventLog, http, parseAbi, type Hex, type TransactionReceipt } from "viem";
 import type { PersistedFishingPondCatch } from "../persistence.js";
 
 const MINT_CLUB_BOND_ABI = parseAbi([
@@ -45,6 +45,13 @@ export type MintClubRedemptionConfirmation = {
   reserveToken: string;
   refundAmount: string;
   logIndex: number;
+};
+
+type MintClubReceiptWaiter = (rpcUrl: string, txHash: Hex, timeout: number) => Promise<TransactionReceipt>;
+
+const waitForMintClubReceiptAtRpc: MintClubReceiptWaiter = (rpcUrl, txHash, timeout) => {
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  return client.waitForTransactionReceipt({ hash: txHash, timeout });
 };
 
 export function resolveMintClubRedemptionConfig(env: NodeJS.ProcessEnv = process.env): MintClubRedemptionRuntimeConfig {
@@ -100,7 +107,7 @@ export function makeMintClubRedemptionSnapshot(
     : record.mintClubRedemptionStatus || "eligible";
   return {
     status,
-    walletActionRequired: status === "eligible" || status === "tx_submitted",
+    walletActionRequired: status === "eligible" || status === "prepared" || status === "tx_submitted",
     npcId: MINT_CLUB_REDEMPTION_NPC_ID,
     chainId: config.chainId,
     collection: record.collection,
@@ -131,11 +138,10 @@ export async function verifyMintClubRedemptionReceipt({
 }): Promise<MintClubRedemptionConfirmation> {
   if (!config.enabled) throw new Error("Mint Club redemption disabled");
   if (!isMintClubRedemptionEligibleCatch(record, config)) throw new Error("catch is not Mint Club redeemable");
-  const client = createPublicClient({ transport: http(config.rpcUrl) });
-  const receipt = await client.waitForTransactionReceipt({
-    hash: txHash as Hex,
-    timeout: 20_000,
-  });
+  const receipt = await waitForMintClubReceiptFromAnyRpc(
+    resolveMintClubRedemptionReceiptRpcUrls(config),
+    txHash as Hex,
+  );
   if (receipt.status !== "success") throw new Error("Mint Club redemption transaction reverted");
 
   const expectedToken = record.collection.toLowerCase();
@@ -174,6 +180,37 @@ export async function verifyMintClubRedemptionReceipt({
   throw new Error("Mint Club Burn event not found for this catch");
 }
 
+export function resolveMintClubRedemptionReceiptRpcUrls(config: Pick<MintClubRedemptionRuntimeConfig, "chainId" | "rpcUrl">) {
+  return [...new Set([
+    config.rpcUrl.trim(),
+    fallbackReceiptRpcUrlForChain(config.chainId),
+  ].filter(Boolean))];
+}
+
+export async function waitForMintClubReceiptFromAnyRpc(
+  rpcUrls: readonly string[],
+  txHash: Hex,
+  {
+    timeout = 20_000,
+    waitForReceipt = waitForMintClubReceiptAtRpc,
+  }: {
+    timeout?: number;
+    waitForReceipt?: MintClubReceiptWaiter;
+  } = {},
+): Promise<TransactionReceipt> {
+  const urls = [...new Set(rpcUrls.map((rpcUrl) => rpcUrl.trim()).filter(Boolean))];
+  if (urls.length === 0) throw new Error("Mint Club redemption RPC unavailable");
+  try {
+    return await Promise.any(urls.map((rpcUrl) => waitForReceipt(rpcUrl, txHash, timeout)));
+  } catch (error) {
+    if (error instanceof AggregateError) {
+      const cause = error.errors.find((candidate): candidate is Error => candidate instanceof Error);
+      if (cause) throw cause;
+    }
+    throw error;
+  }
+}
+
 function readMintClubEnv(env: NodeJS.ProcessEnv, key: string) {
   return (env[`MFERLAND_MINT_CLUB_REDEMPTION_${key}`] || env[`MFERLAND_MINT_CLUB_${key}`] || "").trim();
 }
@@ -199,6 +236,12 @@ function readPositiveInt(value: string, fallback: number) {
 
 function defaultRpcUrlForChain(chainId: number) {
   if (chainId === MINT_CLUB_BASE_CHAIN_ID) return "https://base-rpc.publicnode.com";
+  if (chainId === MINT_CLUB_BASE_SEPOLIA_CHAIN_ID) return "https://sepolia.base.org";
+  return "";
+}
+
+function fallbackReceiptRpcUrlForChain(chainId: number) {
+  if (chainId === MINT_CLUB_BASE_CHAIN_ID) return "https://mainnet.base.org";
   if (chainId === MINT_CLUB_BASE_SEPOLIA_CHAIN_ID) return "https://sepolia.base.org";
   return "";
 }

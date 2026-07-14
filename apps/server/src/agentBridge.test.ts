@@ -9,11 +9,15 @@ import {
   buildFishingToolCommandPayload,
   buildAgentCommandSocialRecap,
   claimDurableMessageDispatch,
+  classifyMintClubRedemptionOwnership,
   classifyAgentBridgeStopRetention,
   countHealthyQuestParticipantsNear,
   createCommandFishingStats,
   describeFishingVendorSaleRequest,
+  describeFishingPondAvailability,
   describeAgentCommandStopDrain,
+  describeAgentBridgeHandoffResolution,
+  describeAgentBridgeResumeHandoff,
   describeEquipmentChanges,
   findFreshRegularFishingBundle,
   generatedQuestTargetAreaPatrolPoints,
@@ -27,16 +31,20 @@ import {
   isFishingQuestId,
   isCommandFailureCapReached,
   isGroupGatedEncounterType,
+  isMatchingFishingNftClaimResult,
   isAgentCommandBridgeConnected,
   isAgentFishingLootInventoryReconciled,
   isAgentFishingCancelAcknowledgement,
   isFishingClaimWalletActionPending,
+  isRetainableAgentCommandHandoff,
+  isCurrentRunFishingCatch,
   isGenericQuestTargetSuppressed,
   isQuestTargetAreaCandidate,
   npcInteractionRouteStopDistance,
   normalizeCommandFailureCap,
   normalizeFishingVendorSellResult,
   normalizeFishingNftHistoryResult,
+  normalizeFishingStatusWaitSeconds,
   normalizeFishingBundleReadyStop,
   routeQueueFromPosition,
   selectFishingResultOwnerCommandId,
@@ -48,6 +56,7 @@ import {
   shouldAutoDisconnectAgentCommand,
   shouldSkipOptionalBossDailyCommand,
   shouldInterruptMovementForDamage,
+  shouldReattachAgentBridgeSession,
   shouldRetainBridgeForCommandStop,
   shouldRecoverAgentFishingStop,
   shouldReportFishingReconciliationTimeoutForBridgeCleanup,
@@ -69,9 +78,190 @@ test("agent action HTTP status preserves retryable chat cooldowns", () => {
   assert.equal(actionResultHttpStatus({ ok: false, status: "season_point_capacity" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "approach_incomplete" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "timed_out" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "not_owned" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "claim_reconciliation_required" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "redemption_reconciliation_required" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "redemption_preparation_pending" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "tx_hash_conflict" }), 409);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "state_conflict" }), 409);
   assert.equal(actionResultHttpStatus({ ok: false, status: "not_found" }), 404);
   assert.equal(actionResultHttpStatus({ ok: false, status: "refresh_failed" }), 502);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "ownership_check_failed" }), 502);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "redemption_quote_failed" }), 502);
+  assert.equal(actionResultHttpStatus({ ok: false, status: "redemption_preparation_failed" }), 502);
   assert.equal(actionResultHttpStatus({ ok: false, status: "invalid_action" }), 400);
+});
+
+test("fishing claim results match the exact request and catch only", () => {
+  const exact = {
+    requestId: "request-a",
+    catch: { catchId: "0xABC", status: "tx_submitted" },
+  };
+  assert.equal(isMatchingFishingNftClaimResult(exact, "request-a", "0xabc"), true);
+  assert.equal(isMatchingFishingNftClaimResult(exact, "request-b", "0xabc"), false);
+  assert.equal(isMatchingFishingNftClaimResult(exact, "request-a", "0xdef"), false);
+  assert.equal(isMatchingFishingNftClaimResult({
+    requestId: "request-a",
+    catchId: "0xABC",
+    catch: null,
+    status: "not_found",
+  }, "request-a", "0xabc"), true);
+  assert.equal(isMatchingFishingNftClaimResult({
+    catchId: "0xabc",
+    catch: null,
+  }, "request-a", "0xabc"), false);
+});
+
+test("dedicated fishing status wait is bounded and integer-normalized", () => {
+  assert.equal(normalizeFishingStatusWaitSeconds(undefined), 0);
+  assert.equal(normalizeFishingStatusWaitSeconds(0), 0);
+  assert.equal(normalizeFishingStatusWaitSeconds(-2), 0);
+  assert.equal(normalizeFishingStatusWaitSeconds(1.9), 1);
+  assert.equal(normalizeFishingStatusWaitSeconds("25"), 25);
+  assert.equal(normalizeFishingStatusWaitSeconds(500), 80);
+});
+
+test("bridge reattachment retains disconnected terminal wallet handoffs", () => {
+  const base = {
+    roomConnected: false,
+    pendingSessionFishingClaim: false,
+    commandFinalizerCount: 0,
+    commandStopRunnerCount: 0,
+  };
+  assert.equal(shouldReattachAgentBridgeSession({
+    ...base,
+    commands: [{ status: "wallet_action_required", usageFinalized: true, usageFinalizationFailed: false, handoffPending: true }],
+  }), true);
+  assert.equal(shouldReattachAgentBridgeSession({
+    ...base,
+    commands: [{ status: "completed", usageFinalized: false, usageFinalizationFailed: false, handoffPending: false }],
+  }), true);
+  assert.equal(shouldReattachAgentBridgeSession({
+    ...base,
+    commands: [{ status: "completed", usageFinalized: true, usageFinalizationFailed: false, handoffPending: false }],
+  }), false);
+  assert.equal(shouldReattachAgentBridgeSession({
+    ...base,
+    commands: [{ status: "completed", usageFinalized: false, usageFinalizationFailed: true, handoffPending: false }],
+  }), false);
+});
+
+test("bridge resume directs an authoritatively resolved fishing claim to cleanup", () => {
+  const walletAction = {
+    action: "claim_fishing_nft",
+    catchId: "catch-1",
+  };
+  assert.deepEqual(describeAgentBridgeResumeHandoff(
+    "wallet_action_required",
+    true,
+    walletAction,
+    false,
+  ), {
+    status: "handoff_resolved",
+    originalStatus: "wallet_action_required",
+    handoffPending: false,
+    handoffResolution: {
+      status: "resolved",
+      action: "claim_fishing_nft",
+      authoritative: true,
+    },
+    nextOperation: "agent_stop",
+  });
+  assert.deepEqual(describeAgentBridgeResumeHandoff(
+    "wallet_action_required",
+    true,
+    walletAction,
+    true,
+  ), {
+    status: "wallet_action_required",
+    originalStatus: "",
+    handoffPending: true,
+    handoffResolution: undefined,
+    nextOperation: "agent_fishing_status",
+  });
+});
+
+test("Mint Club redemption ownership fails closed when the caught ERC-1155 is absent", () => {
+  assert.deepEqual(classifyMintClubRedemptionOwnership(1n), {
+    ok: true,
+    status: "owned",
+    ownedAmount: "1",
+    requiredAmount: "1",
+  });
+  assert.deepEqual(classifyMintClubRedemptionOwnership(0n, 1n, "eligible"), {
+    ok: false,
+    status: "not_owned",
+    ownedAmount: "0",
+    requiredAmount: "1",
+  });
+  assert.deepEqual(classifyMintClubRedemptionOwnership(0n, 1n, "tx_submitted"), {
+    ok: false,
+    status: "redemption_reconciliation_required",
+    ownedAmount: "0",
+    requiredAmount: "1",
+  });
+  assert.deepEqual(classifyMintClubRedemptionOwnership(2n, 1n, "tx_submitted"), {
+    ok: false,
+    status: "redemption_reconciliation_required",
+    ownedAmount: "2",
+    requiredAmount: "1",
+  });
+});
+
+test("Mint Club redemption binds the catch to the latest dedicated fishing command", () => {
+  const latest = {
+    latestCommandId: "command-new",
+    latestCatchIds: ["0xNEWCATCH"],
+  };
+  assert.equal(isCurrentRunFishingCatch({
+    ...latest,
+    requestedCommandId: "command-new",
+    requestedCatchId: "0xnewcatch",
+  }), true);
+  assert.equal(isCurrentRunFishingCatch({
+    ...latest,
+    requestedCommandId: "command-old",
+    requestedCatchId: "0xnewcatch",
+  }), false);
+  assert.equal(isCurrentRunFishingCatch({
+    ...latest,
+    requestedCommandId: "command-new",
+    requestedCatchId: "0xoldcatch",
+  }), false);
+});
+
+test("fishing refresh exposes the authoritative daily pond allowance", () => {
+  const now = Date.UTC(2026, 6, 14, 12, 0, 0);
+  assert.deepEqual(describeFishingPondAvailability({
+    authoritative: true,
+    enabled: true,
+    stocked: true,
+    drainMode: false,
+    catchChanceBps: 500,
+    perWalletDailyCap: 3,
+    walletDailyRemaining: 2,
+    globalDailyCap: 50,
+    globalDailyRemaining: 41,
+    rodRequirement: { owned: true },
+  }, now), {
+    authoritative: true,
+    enabled: true,
+    stocked: true,
+    drainMode: false,
+    catchChanceBps: 500,
+    perWalletDailyCap: 3,
+    walletDailyRemaining: 2,
+    globalDailyCap: 50,
+    globalDailyRemaining: 41,
+    dailyResetAt: Date.UTC(2026, 6, 15, 0, 0, 0) / 1000,
+    rodRequirement: { owned: true },
+  });
+  assert.equal(describeFishingPondAvailability({
+    authoritative: false,
+    enabled: false,
+    walletDailyRemaining: 0,
+    globalDailyRemaining: null,
+  }, now).authoritative, false);
 });
 
 test("timed commands disconnect the live bridge but preserve a pollable recap instruction", () => {
@@ -453,22 +643,58 @@ test("bridge cleanup retains settling, timed-out, and wallet-handoff commands", 
 });
 
 test("bridge cleanup releases a fishing claim handoff only after authoritative confirmation", () => {
-  const walletAction = { action: "claim_fishing_nft", catchId: "catch-1" };
+  const walletAction = { action: "claim_fishing_nft", catchId: "catch-1", expiresAt: 2_000 };
   assert.equal(isFishingClaimWalletActionPending(walletAction, {
     catchId: "catch-1",
     status: "voucher_issued",
     walletActionRequired: true,
-  }), true);
+  }, 1_000), true);
   assert.equal(isFishingClaimWalletActionPending(walletAction, {
     catchId: "catch-1",
     status: "tx_submitted",
     walletActionRequired: true,
-  }), true);
+  }, 1_000), true);
   assert.equal(isFishingClaimWalletActionPending(walletAction, {
     catchId: "catch-1",
     status: "confirmed",
     walletActionRequired: false,
-  }), false);
+  }, 1_000), false);
+  assert.equal(isRetainableAgentCommandHandoff("wallet_action_required", walletAction, {
+    catchId: "catch-1",
+    status: "voucher_issued",
+    walletActionRequired: true,
+  }, 1_000), true);
+  assert.equal(isRetainableAgentCommandHandoff("wallet_action_required", {
+    action: "register_chain_gear",
+  }, null), false);
+  assert.equal(isRetainableAgentCommandHandoff("payment_required", null, null), false);
+  assert.equal(isFishingClaimWalletActionPending(walletAction, {
+    catchId: "catch-1",
+    status: "voucher_issued",
+    walletActionRequired: true,
+  }, 2_000), false);
+  assert.equal(isFishingClaimWalletActionPending(walletAction, {
+    catchId: "catch-1",
+    status: "tx_submitted",
+    walletActionRequired: true,
+  }, 2_000), true);
+  assert.deepEqual(describeAgentBridgeHandoffResolution("wallet_action_required", walletAction), {
+    status: "resolved",
+    action: "claim_fishing_nft",
+    authoritative: true,
+  });
+  assert.deepEqual(describeAgentBridgeHandoffResolution("wallet_action_required", {
+    action: "register_chain_gear",
+  }), {
+    status: "unretained_unverified",
+    action: "register_chain_gear",
+    authoritative: false,
+  });
+  assert.deepEqual(describeAgentBridgeHandoffResolution("payment_required", null), {
+    status: "unretained_unverified",
+    action: undefined,
+    authoritative: false,
+  });
 });
 
 test("fish sale results preserve the request id and authoritative sold totals", () => {

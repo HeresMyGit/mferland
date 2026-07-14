@@ -3,13 +3,98 @@ import test from "node:test";
 import {
   buildFishingCancelResult,
   claimFishingVendorSaleSession,
+  describeFishingPondClaimPersistenceConflict,
+  describeFishingPondClaimVerificationFailure,
+  describeMintClubRedemptionVerificationFailure,
+  describeMintClubRedemptionPersistenceConflict,
   describeFishingVendorBundleRequirements,
   describeFishingVendorZeroSale,
   fishingVendorSaleOwnerKey,
   isDuplicateFishingVendorRequest,
   normalizeFishingVendorRequestId,
   rememberFishingVendorRequestId,
+  shouldExpireFishingPondCatch,
 } from "./TownRoom.js";
+
+test("submitted pond claims never expire before authoritative reconciliation", () => {
+  const now = Date.UTC(2026, 6, 14, 12, 0, 0);
+  assert.equal(shouldExpireFishingPondCatch("pending", now - 1, now), true);
+  assert.equal(shouldExpireFishingPondCatch("voucher_issued", now, now), true);
+  assert.equal(shouldExpireFishingPondCatch("voucher_issued", now + 1, now), false);
+  assert.equal(shouldExpireFishingPondCatch("tx_submitted", now - 86_400_000, now), false);
+});
+
+test("pond claim receipt verification failures never expose provider details", () => {
+  const pending = describeFishingPondClaimVerificationFailure(new Error(
+    "HTTP request failed for https://rpc.example/v2/private-provider-key",
+  ));
+  assert.deepEqual(pending, {
+    definitiveFailure: false,
+    publicError: "Fishing pond claim confirmation is unavailable; retry submit_claim_tx with the same transaction hash",
+  });
+  assert.doesNotMatch(pending.publicError, /https?:|rpc|provider|private/i);
+
+  assert.deepEqual(describeFishingPondClaimVerificationFailure(
+    new Error("transaction receipt not found at https://rpc.example/v2/private-provider-key"),
+  ), {
+    definitiveFailure: false,
+    publicError: "Fishing pond claim confirmation is unavailable; retry submit_claim_tx with the same transaction hash",
+  });
+
+  assert.deepEqual(describeFishingPondClaimVerificationFailure(
+    new Error("FishingPond CatchClaimed event not found"),
+  ), {
+    definitiveFailure: true,
+    publicError: "Fishing pond claim transaction did not contain a valid claim; refresh before retrying",
+  });
+});
+
+test("pond claim persistence conflicts are structured and sanitized", () => {
+  assert.equal(
+    describeFishingPondClaimPersistenceConflict("tx_hash_conflict"),
+    "claim transaction hash is already assigned to another catch",
+  );
+  assert.equal(
+    describeFishingPondClaimPersistenceConflict("state_conflict"),
+    "claim state changed; refresh history before retrying",
+  );
+});
+
+test("Mint Club receipt verification failures never expose provider details", () => {
+  const failed = describeMintClubRedemptionVerificationFailure(new Error(
+    "HTTP request failed for https://rpc.example/v2/private-provider-key",
+  ));
+  assert.deepEqual(failed, {
+    definitiveFailure: false,
+    publicError: "Mint Club redemption confirmation is unavailable; retry submit_redemption_tx with the same transaction hash",
+  });
+  assert.doesNotMatch(failed.publicError, /https?:|rpc|provider|private/i);
+
+  assert.deepEqual(describeMintClubRedemptionVerificationFailure(
+    new Error("transaction receipt not found at https://rpc.example/v2/private-provider-key"),
+  ), {
+    definitiveFailure: false,
+    publicError: "Mint Club redemption confirmation is unavailable; retry submit_redemption_tx with the same transaction hash",
+  });
+
+  assert.deepEqual(describeMintClubRedemptionVerificationFailure(
+    new Error("Mint Club redemption transaction reverted"),
+  ), {
+    definitiveFailure: true,
+    publicError: "Mint Club redemption transaction did not contain a valid sale; refresh before retrying",
+  });
+});
+
+test("Mint Club redemption persistence conflicts are structured and sanitized", () => {
+  assert.equal(
+    describeMintClubRedemptionPersistenceConflict("tx_hash_conflict"),
+    "redemption transaction hash is already assigned to another catch",
+  );
+  assert.equal(
+    describeMintClubRedemptionPersistenceConflict("state_conflict"),
+    "redemption state changed; refresh history before retrying",
+  );
+});
 
 test("fishing cancellation acknowledgements are safe and preserve the pre-cancel attempt", () => {
   assert.deepEqual(buildFishingCancelResult(true, "attempt-1", { requestId: "  command-1  " }), {

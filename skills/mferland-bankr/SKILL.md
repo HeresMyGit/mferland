@@ -7,7 +7,7 @@ description: Play mferland/mfertown from Bankr Terminal or @bankrbot on X throug
 
 Use Bankr's wallet and native HTTP/message-signing capabilities with the hosted game API at `https://game.mfergpt.lol`.
 
-The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.7` or newer.
+The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.9` or newer.
 
 This skill is self-contained. Do not install, load, or follow another mferland skill or runner.
 
@@ -54,6 +54,8 @@ https://game.mfergpt.lol
 }
 ```
 
+`/agent-start` is idempotent for a wallet. If that wallet already has a live, running, settling, finalizing, or wallet-handoff bridge, it returns `status: "reattached"`, `reused: true`, the same `bridgeSessionId`, and a `resume` checkpoint. Treat reattachment as connection success; never use `/agent-start` to replace or cancel an active run. `resume` is recovery metadata, not proof that its command belongs to the current user request. Count it only when its command id matches this run's checkpoint or the user explicitly asked to continue it. If `resume.command.status` is `handoff_resolved` or `resume.handoffResolution.status` is `resolved`, the old fishing claim is already authoritatively terminal: never poll or rebroadcast its frozen wallet action; follow `nextOperation: "agent_stop"`. For a new request, resolve an inherited fishing claim only when the new request authorizes that claim, without counting it as a fresh catch. Otherwise call `/agent-stop` to drain inherited work; follow its structured settling/reconciliation response, but never perform an unrelated wallet handoff. After top-level `status: "stopped"`, authenticate/start a fresh bridge, refresh a new baseline, and begin the new dedicated run. If the inherited command is already terminal with no handoff, it may be ignored and a new dedicated command can start on the reattached bridge. A newly authenticated, wallet-bound session token may safely reattach the existing bridge.
+
 Immediately create a private `runId` bound to the current user request and checkpoint it with `walletAddress`, `sessionToken`, `expiresAt`, and `bridgeSessionId` in Bankr's private scratchpad. Checkpoint `commandId` immediately after starting a command. Also checkpoint the normalized terminal outcomes, baseline catch ids, per-run regular catch totals, newly caught NFT catch id, and each claim, approval, regular-sale, and NFT-sale status and real transaction hash. On every later Bankr invocation that continues the same `runId`, load this checkpoint first and resume the first unfinished phase. Do not resume an older run for a new or superseding request. Never resend a transaction whose successful hash is already checkpointed. Overwrite connection values after re-authentication or a new bridge start. Never show private checkpoint values to the user.
 
 ## Establish the run contract and freshness baseline
@@ -62,7 +64,9 @@ A request that asks to claim/sell an NFT or to catch/sell regular fish is a term
 
 If the user explicitly requests both regular-fish and NFT sales, track both as required terminal outcomes. A regular catch is fresh only when the current run's command `fishing.caughtItems`/catch events name it; old inventory does not satisfy "catch regular fish." One named catch may be below the declared-agent sale bundle and is not sale completion. Require the matched `fishSale.sold` result to include at least one item id caught during this run. If an NFT wallet handoff arrives before a current-run catch completes a regular-fish bundle, finish the authorized NFT chain first, then resume clean dedicated fishing with `stopWhenRegularFishBundleReady: true`. If that session produces another NFT handoff, process it under the same authorization only when the request covered plural or uncapped caught NFTs. If the user explicitly capped the NFT quantity and it is already satisfied, do not claim, sell, or abandon the extra catch; checkpoint it and report the regular-catch outcome `incomplete` because casting is blocked by an unrequested extra NFT. Otherwise, "sell the NFTs" never implies a regular-fish sale.
 
-Before the first cast, call `/agent-fishing` with `operation: "refresh"`. Trust the baseline only when that call returns `ok: true`, `status: "refreshed"`, and `nftCatches`; retry a failed or in-progress refresh instead of treating cached or missing history as empty. Privately record every returned `nftCatches[].catchId`. A catch is new for this run only if its catch id was absent from that baseline and appears in this run's command result or wallet handoff. Preserve the baseline across reconnects. Never use an older eligible, confirmed, or redeemable history entry to satisfy a fresh fishing request.
+Before the first cast, call `/agent-fishing` with `operation: "refresh"`. Make at most two baseline refresh attempts before that first cast. Trust the baseline only when a call returns `ok: true`, `status: "refreshed"`, `nftCatches`, and `pond.authoritative: true`; never treat cached or missing history as empty. If the second baseline attempt is failed, in progress, or nonauthoritative, call `/agent-stop`, require top-level `status: "stopped"`, then report `availability_unavailable` as `incomplete` without casting. This limit does not apply to mandatory post-claim confirmation or later reconciliation refreshes. Use `pond.walletDailyRemaining`, `pond.globalDailyRemaining`, `pond.stocked`, `pond.drainMode`, and `pond.rodRequirement` as the current NFT-catch availability check. Privately record every returned `nftCatches[].catchId`. A catch is new for this run only if its catch id was absent from that baseline and appears in this run's command result or wallet handoff. Preserve the baseline across reconnects. Never use an older eligible, confirmed, or redeemable history entry to satisfy a fresh fishing request. History `mintClubRedemption.status: "eligible"` means the catch is configured and no sale was recorded; it is not proof that the wallet still owns that token.
+
+For an NFT catch/claim/sale request, do not cast when authoritative pond state says disabled, unstocked, in drain mode, `walletDailyRemaining: 0`, `globalDailyRemaining: 0`, or `rodRequirement.walletActionRequired: true`. If `rodRequirement.error` is present, ownership is unknown: report that check as unavailable rather than claiming the rod is absent. When no separately requested regular fishing remains, call `/agent-stop` and require top-level `status: "stopped"` before reporting the exact blocker/reset as `incomplete`. Do not buy or mint a rod unless the user separately authorized that purchase. These NFT conditions do not block separately requested regular fishing.
 
 The original terminal outcomes and wallet authorization persist across Bankr reply/tool limits. Never ask "should I continue?" or request fresh consent. If a platform limit forces an intermediate reply, label it `incomplete`, checkpoint the exact next operation, and resume it on the next invocation before doing anything else.
 
@@ -94,8 +98,8 @@ Use only `POST /agent-fishing`:
 {
   "operation": "start",
   "bridgeSessionId": "...",
-  "maxSeconds": 120,
-  "stopWhenRegularFishBundleReady": true,
+  "maxSeconds": 1800,
+  "waitSeconds": 80,
   "constraints": {
     "noPaidActions": true
   }
@@ -104,22 +108,27 @@ Use only `POST /agent-fishing`:
 
 Include `stopWhenRegularFishBundleReady: true` only when selling regular fish is a requested terminal outcome; otherwise omit it. This dedicated mode stops after a fish caught in this command has landed in authoritative inventory and the total held count reaches its declared-agent bundle size. This proves only bundle readiness; `sell_fish` remains authoritative for Season-point capacity and MFERGPT eligibility. A pending NFT wallet handoff takes priority.
 
+`noPaidActions: true` constrains autonomous gameplay inside the fishing command. It does not cancel the user's authorization for the separate claim, approval, and Mint Club redemption transactions handled after a catch.
+
 If the user gives a duration, use it within the endpoint limit. For a fishing-only request with no requested catch/claim/sale outcome, use 120 seconds. For a requested new NFT claim/sale, regular-fish sale, or an explicit "until" request, use `maxSeconds: 1800`; the server enforces the wallet's actual command cap and stops early on the requested bundle-ready condition or an NFT wallet handoff. Do not split a terminal request into repeated 120-second commands unless the server capped the prior command. Do not translate fishing into `farmer`, `farm_until`, `/agent-command`, a generic manual action loop, or a CLI command.
 
-For a short bounded request, poll about every 15-20 seconds. For a terminal-outcome request, poll about every 45-60 seconds so the server-side command keeps working without exhausting Bankr's per-turn tool calls. Use `POST`, and create a new private `pollNonce` for every call (for example, a timestamp plus random suffix):
+Set `waitSeconds: 80` on `start` and every command `status` call. The server returns early for a terminal command or after the bounded wait with `pollWait.reason: "wait_elapsed"`. This is the polling delay: do not call a separate sleep tool, narrate an interim update, refresh history again, or perform unrelated work between running snapshots. If the result remains `running`, issue the next `POST status` directly with a new private `pollNonce` and `waitSeconds: 80`. This preserves Bankr's step budget while the server-side command keeps working.
+
+A long-polled `start` normally returns HTTP 202 while the command is still running. This is expected, not failure: checkpoint its exact `commandId` immediately and continue directly with nonce-bearing status polls. A terminal start response may return HTTP 200.
 
 ```json
 {
   "operation": "status",
   "bridgeSessionId": "...",
   "commandId": "...",
-  "pollNonce": "status-1720900000000-a1b2c3"
+  "pollNonce": "status-1720900000000-a1b2c3",
+  "waitSeconds": 80
 }
 ```
 
 Trust a successful HTTP 200 command snapshot only when it echoes the exact current `pollNonce` and `bridgeSessionId`. When `commandId` was supplied, also require its exact echo. When it was omitted for recovery, require `commandRecovery.recovered: true`, require `commandRecovery.selected` to be `active_fishing_command` or `latest_fishing_command`, and require `commandRecovery.commandId` to match both the top-level and nested command ids before checkpointing it. Never reuse a nonce or repeatedly issue an identical GET: Bankr's HTTP action may replay a cached tool result even though the server sends no-store headers and the hosted command continues. A successful snapshot with an absent or mismatched echo is stale evidence; poll again with a new nonce rather than calling the game stalled or asking the user to continue. Explicit auth, missing-session, and not-found HTTP errors remain authoritative recovery signals even though they do not echo a nonce. GET remains compatibility-only and must include a unique `pollNonce` query parameter whose echo is verified.
 
-If Bankr loses the private `commandId`, do not guess, truncate, ask the user, or immediately replace the bridge. Send `POST operation=status` on the authenticated bridge with a new `pollNonce` and omit `commandId`; the endpoint recovers the active fishing command or latest retained fishing recap and returns its real id. Verify the recovery fields above, checkpoint that returned id, and continue. Re-authenticate and call `/agent-start` automatically and without new consent only when an authoritative response reports a missing bridge session or an expired/not-found agent-session token; for a missing or mismatched bearer, follow the endpoint's returned recovery rather than guessing.
+If Bankr loses the private `commandId`, do not guess, truncate, ask the user, or replace the bridge. Send `POST operation=status` on the authenticated bridge with a new `pollNonce`, `waitSeconds: 80`, and omit `commandId`; the endpoint recovers the active fishing command or latest retained fishing recap and returns its real id. Verify the recovery fields above, checkpoint that returned id, and continue. Re-authenticate and call `/agent-start` automatically and without new consent only when an authoritative response reports a missing bridge session or an expired/not-found agent-session token. The new start reattaches and returns its `resume` checkpoint when the run still exists. For a missing or mismatched bearer, follow the endpoint's returned recovery rather than guessing.
 
 Continue until `status` is not `running`. `time_limit` is a completed bounded session and auto-disconnects the bridge. Do not issue manual follow-up gameplay actions on that disconnected bridge.
 
@@ -180,21 +189,30 @@ Call `operation: "refresh"` after submission. Continue only when the catch statu
 
 ## Sell a confirmed NFT
 
-For a request that asks to sell/redeem the caught NFT, call:
+For a request that asks to sell/redeem the caught NFT, call with the exact new catch id from this run; `prepare_redemption` never auto-selects an older history entry:
 
 ```json
 {
   "operation": "prepare_redemption",
   "bridgeSessionId": "...",
+  "commandId": "...",
   "catchId": "..."
 }
 ```
 
-The server reads the configured Mint Club Bond, current approval, and current sell estimate, then returns exactly one next transaction:
+The server first verifies the wallet's current ERC-1155 `balanceOf` for this exact catch token, then reads the configured Mint Club Bond, current approval, and current sell estimate. Only a positive `ownedAmount` with `status: "wallet_action_required"` may return a transaction:
 
 - `phase: "approval_required"`: submit the returned ERC-1155 approval transaction, wait for a successful receipt, and call `prepare_redemption` again. Do not pass an approval hash to `submit_redemption_tx`.
-- `phase: "sell_required"`: submit the returned Mint Club Bond sell/burn transaction and wait for a successful receipt.
+- `phase: "sell_required"`: the server atomically reserves this catch before returning the one Mint Club Bond sell/burn transaction. Checkpoint that transaction immediately, submit it once, and wait for a successful receipt.
 - `status: "confirmed"`: the catch was already sold and no wallet transaction is needed.
+- `status: "not_owned"`: no current balance exists, so this catch is non-actionable and no transaction may be submitted or retried.
+- `status: "redemption_reconciliation_required"`: do not broadcast another wallet transaction. When `nextOperation: "submit_redemption_tx"` and a real `txHash` are returned, report that exact existing hash back to the game with `submit_redemption_tx`.
+- `status: "ownership_check_failed"`: fail closed and retry the ownership check later; no transaction was prepared.
+- `status: "redemption_quote_failed"`: fail closed and retry `prepare_redemption` later; current approval and sell terms could not be verified, so no transaction was prepared.
+- `status: "redemption_preparation_pending"` or nested redemption `status: "prepared"`: a sell reservation already exists for this catch. Never prepare or broadcast another. Only if the exact transaction was privately checkpointed, finish that one and call `submit_redemption_tx` with its real confirmed hash. The server intentionally fails closed and does not replay sell calldata; if that private transaction checkpoint or the original prepare response is unavailable, call `/agent-stop`, require `status: "stopped"`, and report `incomplete` rather than guessing.
+- `status: "redemption_preparation_failed"`: no transaction was returned; refresh later and do not broadcast anything.
+- `status: "tx_hash_conflict"` or `state_conflict`: fail closed. One transaction hash cannot confirm multiple catches, and an existing catch hash/state cannot be replaced; refresh and reconcile the original catch/hash without another sale.
+- `status: "current_run_catch_required"`: the server cannot prove that the requested catch belongs to the latest dedicated fishing command. Never substitute a history catch. After a server restart this in-memory binding may be unavailable; report the NFT sale as `incomplete`, preserve the claimed NFT, and clean up safely. Do not consume another catch allowance trying to replace it.
 
 After the sell receipt succeeds, report its real hash to the game:
 
@@ -222,9 +240,9 @@ For a caught NFT, the mandatory wallet order is: claim receipt -> `submit_claim_
 
 If claim or redemption is a requested terminal outcome, a no-catch session is nonterminal. Obey `postCommand`, start a clean authenticated bridge, preserve the original baseline, and continue without asking the user. Never reuse a disconnected bridge or a prior command result as evidence of a new attempt. Stop only for success, an actual game command-budget block, or an unrecoverable transport/wallet error.
 
-If Bankr loses its private checkpoint while the public player endpoint shows the wallet online, recover with native HTTP and message signing: create a fresh agent session, call `/agent-start` once to replace the old wallet bridge, then immediately call `/agent-stop`. Do not use a CLI for recovery.
+If Bankr knows it is continuing the same user request but loses its private checkpoint while the public player endpoint shows the wallet online, recover with native HTTP and message signing: create a fresh agent session and call `/agent-start` once. It reattaches the old wallet bridge and returns `resume`; follow that checkpoint first. For a new user request, apply the inherited-work drain rule instead and never count the old checkpoint. Call `/agent-stop` only after the returned command is terminal and every authorized wallet handoff is resolved. Do not use a CLI for recovery.
 
-Call cleanup as `POST /agent-stop` with `{ "bridgeSessionId": "..." }` and require top-level `status: "stopped"` before reporting bridge cleanup complete. Cleanup itself is drain-guarded: HTTP 202 `command_settling` retains the bridge and returns `commandStop`, so poll that command with fresh nonces and retry cleanup only after reconciliation. HTTP 409 with top-level `wallet_action_required`, `payment_required`, or `reconciliation_timeout` also retains the bridge and must not be described as stopped. A 200 response with top-level `status: "stopped"` is authoritative after `handoffResolution.status: "resolved"`; its frozen `commandStop` may still preserve the historical wallet handoff, so do not repeat that transaction. Checkpoint the returned terminal `commandStop` before the final recap because it may contain a catch or reel that completed during cleanup.
+Call cleanup as `POST /agent-stop` with `{ "bridgeSessionId": "..." }` and require top-level `status: "stopped"` before reporting bridge cleanup complete. Cleanup itself is drain-guarded: HTTP 202 `command_settling` retains the bridge and returns `commandStop`, so poll that command with fresh nonces and retry cleanup only after reconciliation. HTTP 409 with an unresolved fishing `wallet_action_required` or `reconciliation_timeout` retains the bridge and must not be described as stopped. A 200 response with top-level `status: "stopped"` and `handoffResolution.status: "resolved"` means a historical fishing claim was authoritatively cleared; its frozen `commandStop` may still preserve that old handoff, so do not repeat it. `handoffResolution.status: "unretained_unverified"` applies to a generic wallet/payment instruction that cleanup did not verify; never describe that action as completed. Checkpoint the returned terminal `commandStop` before the final recap because it may contain a catch or reel that completed during cleanup.
 
 ## Other mfertown requests
 

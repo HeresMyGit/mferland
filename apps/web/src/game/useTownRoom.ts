@@ -9,6 +9,7 @@ import {
   type ClientAgentStatus,
   type ClientAbandonFishingNftCatch,
   type ClientCancelQuest,
+  type ClientCancelMintClubRedemptionPreparation,
   type ClientCompleteQuest,
   type ClientCombatAction,
   type ClientDebugRegisterChainGear,
@@ -22,6 +23,7 @@ import {
   type ClientPurchasePotionShopItem,
   type ClientPurchaseFishingSupply,
   type ClientPurchaseOnchainFishingRod,
+  type ClientPrepareMintClubRedemption,
   type ClientRegisterChainGear,
   type ClientReelFishing,
   type ClientRemoveSeasonReferral,
@@ -50,6 +52,7 @@ import {
   type JoinOptions,
   type LootWindow,
   type MintClubRedemptionResult,
+  type MintClubRedemptionPreparationResult,
   type OnchainFishingRodMintResult,
   type NpcSnapshot,
   type PlayerSnapshot,
@@ -220,6 +223,10 @@ export function useTownRoom(identity: JoinOptions) {
   const [seasonReferralRemoveResult, setSeasonReferralRemoveResult] = useState<SeasonReferralRemoveResult | null>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<PersistenceStatus>({ state: "idle", message: "" });
   const roomRef = useRef<Room<RuntimeTownState> | null>(null);
+  const mintClubPreparationResolversRef = useRef(new Map<string, {
+    resolve: (result: MintClubRedemptionPreparationResult) => void;
+    timeoutId: number;
+  }>());
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
   const npcsRef = useRef(new Map<string, NpcSnapshot>());
   const lastSnapshotRenderAtRef = useRef(0);
@@ -492,6 +499,13 @@ export function useTownRoom(identity: JoinOptions) {
         room.onMessage("mintClubRedemptionResult", (message: MintClubRedemptionResult) => {
           setMintClubRedemptionResult(message);
         });
+        room.onMessage("mintClubRedemptionPreparationResult", (message: MintClubRedemptionPreparationResult) => {
+          const pending = mintClubPreparationResolversRef.current.get(message.requestId);
+          if (!pending) return;
+          window.clearTimeout(pending.timeoutId);
+          mintClubPreparationResolversRef.current.delete(message.requestId);
+          pending.resolve(message);
+        });
         room.onMessage("onchainFishingRodMintResult", (message: OnchainFishingRodMintResult) => {
           setOnchainFishingRodMintResult(message);
         });
@@ -711,6 +725,39 @@ export function useTownRoom(identity: JoinOptions) {
   const sendSubmitMintClubRedemptionTx = useCallback((message: ClientSubmitMintClubRedemptionTx) => {
     roomRef.current?.send("submitMintClubRedemptionTx", message);
   }, []);
+  const prepareMintClubRedemption = useCallback((catchId: string) => {
+    const requestId = `mint-club-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const room = roomRef.current;
+    if (!room) {
+      return Promise.resolve<MintClubRedemptionPreparationResult>({
+        ok: false,
+        catch: null,
+        status: "not_found",
+        requestId,
+        error: "game connection unavailable",
+      });
+    }
+    return new Promise<MintClubRedemptionPreparationResult>((resolve) => {
+      const timeoutId = window.setTimeout(() => {
+        mintClubPreparationResolversRef.current.delete(requestId);
+        resolve({
+          ok: false,
+          catch: null,
+          status: "preparation_pending",
+          requestId,
+          error: "Mint Club sell reservation result is unavailable; do not retry or broadcast a sale, and report incomplete if no transaction hash was saved",
+        });
+      }, 15_000);
+      mintClubPreparationResolversRef.current.set(requestId, { resolve, timeoutId });
+      room.send("prepareMintClubRedemption", {
+        catchId,
+        requestId,
+      } satisfies ClientPrepareMintClubRedemption);
+    });
+  }, []);
+  const cancelMintClubRedemptionPreparation = useCallback((message: ClientCancelMintClubRedemptionPreparation) => {
+    roomRef.current?.send("cancelMintClubRedemptionPreparation", message);
+  }, []);
   const sendRefreshFishingNftHistory = useCallback(() => {
     roomRef.current?.send("refreshFishingNftHistory", {});
   }, []);
@@ -857,6 +904,8 @@ export function useTownRoom(identity: JoinOptions) {
     sendCancelFishing,
     sendSubmitFishingNftClaimTx,
     sendAbandonFishingNftCatch,
+    prepareMintClubRedemption,
+    cancelMintClubRedemptionPreparation,
     sendSubmitMintClubRedemptionTx,
     sendRefreshFishingNftHistory,
     sendSellFishingItems,
@@ -1637,6 +1686,7 @@ function parseRuntimeMintClubRedemption(value: unknown): NonNullable<PlayerSnaps
   const parsed = value as Record<string, unknown>;
   const status = parsed.status === "claim_required"
     || parsed.status === "eligible"
+    || parsed.status === "prepared"
     || parsed.status === "tx_submitted"
     || parsed.status === "confirmed"
     || parsed.status === "failed"

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
 import {
   ITEMS,
   EQUIPMENT_SLOT_IDS,
@@ -289,6 +289,33 @@ export type MarkMintClubRedemptionRecord = {
   status: "tx_submitted" | "confirmed";
   error?: string;
 };
+
+export type MarkMintClubRedemptionResult =
+  | { ok: true; record: PersistedFishingPondCatch }
+  | {
+      ok: false;
+      status: "invalid_tx_hash" | "not_found" | "state_conflict" | "tx_hash_conflict";
+      record: PersistedFishingPondCatch | null;
+      txHash: string;
+    };
+
+export type ReserveMintClubRedemptionPreparationResult = {
+  reserved: boolean;
+  record: PersistedFishingPondCatch | null;
+};
+
+export type MarkFishingPondClaimTxResult =
+  | { ok: true; record: PersistedFishingPondCatch }
+  | {
+      ok: false;
+      status: "invalid_tx_hash" | "not_found" | "state_conflict" | "tx_hash_conflict";
+      record: PersistedFishingPondCatch | null;
+      txHash: string;
+    };
+
+const FISHING_POND_CLAIM_TX_HASH_UNIQUE_INDEX = "fishing_pond_catches_tx_hash_unique_idx";
+const MINT_CLUB_REDEMPTION_TX_HASH_UNIQUE_INDEX = "fishing_pond_catches_mint_club_tx_hash_unique_idx";
+const MINT_CLUB_REDEMPTION_PREPARABLE_STATUSES = ["", "eligible", "failed"] as const;
 
 function getRequiredDatabase() {
   const db = getDatabase();
@@ -955,45 +982,97 @@ function normalizeFishingPondDailyCap(value: unknown) {
 
 export async function markFishingPondCatchTxSubmitted(catchId: string, txHash: string) {
   const db = getRequiredDatabase();
+  const normalizedTxHash = normalizeFishingPondTxHash(txHash);
+  if (!/^0x[0-9a-f]{64}$/.test(normalizedTxHash)) {
+    return {
+      ok: false,
+      status: "invalid_tx_hash",
+      record: await findFishingPondCatch(catchId),
+      txHash: normalizedTxHash,
+    } satisfies MarkFishingPondClaimTxResult;
+  }
   const now = new Date();
-  const [row] = await db.update(fishingPondCatches)
-    .set({
-      status: "tx_submitted",
-      txHash,
-      txSubmittedAt: now,
-      updatedAt: now,
-      error: "",
-    })
-    .where(eq(fishingPondCatches.catchId, catchId))
-    .returning();
-  return row ? mapFishingPondCatchRow(row) : null;
+  try {
+    const [row] = await db.update(fishingPondCatches)
+      .set({
+        status: "tx_submitted",
+        txHash: normalizedTxHash,
+        txSubmittedAt: now,
+        updatedAt: now,
+        error: "",
+      })
+      .where(and(
+        eq(fishingPondCatches.catchId, catchId),
+        or(
+          inArray(fishingPondCatches.status, ["pending", "voucher_issued", "failed"]),
+          and(
+            eq(fishingPondCatches.status, "tx_submitted"),
+            eq(fishingPondCatches.txHash, normalizedTxHash),
+          ),
+        ),
+      ))
+      .returning();
+    if (row) return { ok: true, record: mapFishingPondCatchRow(row) } satisfies MarkFishingPondClaimTxResult;
+    const current = await findFishingPondCatch(catchId);
+    if (current?.status === "confirmed" && normalizeFishingPondTxHash(current.txHash) === normalizedTxHash) {
+      return { ok: true, record: current } satisfies MarkFishingPondClaimTxResult;
+    }
+    return {
+      ok: false,
+      status: current ? "state_conflict" : "not_found",
+      record: current,
+      txHash: normalizedTxHash,
+    } satisfies MarkFishingPondClaimTxResult;
+  } catch (error) {
+    if (!isFishingPondClaimTxHashConflict(error)) throw error;
+    return {
+      ok: false,
+      status: "tx_hash_conflict",
+      record: await findFishingPondCatch(catchId),
+      txHash: normalizedTxHash,
+    } satisfies MarkFishingPondClaimTxResult;
+  }
 }
 
 export async function markFishingPondCatchConfirmed(catchId: string, txHash: string) {
   const db = getRequiredDatabase();
+  const normalizedTxHash = normalizeFishingPondTxHash(txHash);
   const now = new Date();
   const [row] = await db.update(fishingPondCatches)
     .set({
       status: "confirmed",
-      txHash,
+      txHash: normalizedTxHash,
       confirmedAt: now,
       updatedAt: now,
       error: "",
     })
-    .where(eq(fishingPondCatches.catchId, catchId))
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      eq(fishingPondCatches.status, "tx_submitted"),
+      eq(fishingPondCatches.txHash, normalizedTxHash),
+    ))
     .returning();
-  return row ? mapFishingPondCatchRow(row) : null;
+  if (row) return mapFishingPondCatchRow(row);
+  const current = await findFishingPondCatch(catchId);
+  return isConfirmedFishingPondClaimTx(current, normalizedTxHash)
+    ? current
+    : null;
 }
 
-export async function markFishingPondCatchFailed(catchId: string, error: string) {
+export async function markFishingPondCatchFailed(catchId: string, expectedTxHash: string, error: string) {
   const db = getRequiredDatabase();
+  const txHash = normalizeFishingPondTxHash(expectedTxHash);
   const [row] = await db.update(fishingPondCatches)
     .set({
       status: "failed",
-      error: error.slice(0, 500),
+      error: sanitizeFishingPondMetadataText(error, 500),
       updatedAt: new Date(),
     })
-    .where(eq(fishingPondCatches.catchId, catchId))
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      eq(fishingPondCatches.status, "tx_submitted"),
+      eq(fishingPondCatches.txHash, txHash),
+    ))
     .returning();
   return row ? mapFishingPondCatchRow(row) : null;
 }
@@ -1005,9 +1084,12 @@ export async function markFishingPondCatchExpired(catchId: string) {
       status: "expired",
       updatedAt: new Date(),
     })
-    .where(eq(fishingPondCatches.catchId, catchId))
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      inArray(fishingPondCatches.status, ["pending", "voucher_issued"]),
+    ))
     .returning();
-  return row ? mapFishingPondCatchRow(row) : null;
+  return row ? mapFishingPondCatchRow(row) : await findFishingPondCatch(catchId);
 }
 
 export async function markFishingPondCatchAbandoned(catchId: string) {
@@ -1026,40 +1108,130 @@ export async function markFishingPondCatchAbandoned(catchId: string) {
   return row ? mapFishingPondCatchRow(row) : null;
 }
 
-export async function markFishingPondCatchMintClubRedemption(record: MarkMintClubRedemptionRecord) {
+export async function markFishingPondCatchMintClubRedemption(
+  record: MarkMintClubRedemptionRecord,
+): Promise<MarkMintClubRedemptionResult> {
   const db = getRequiredDatabase();
+  const txHash = normalizeMintClubRedemptionTxHash(record.txHash);
+  if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
+    return {
+      ok: false,
+      status: "invalid_tx_hash",
+      record: await findFishingPondCatch(record.catchId),
+      txHash,
+    } satisfies MarkMintClubRedemptionResult;
+  }
   const now = new Date();
   const setValues = record.status === "confirmed"
     ? {
       mintClubRedemptionStatus: "confirmed",
-      mintClubRedemptionTxHash: record.txHash,
+      mintClubRedemptionTxHash: txHash,
       mintClubRedemptionError: "",
       mintClubRedemptionConfirmedAt: now,
       updatedAt: now,
     }
     : {
       mintClubRedemptionStatus: "tx_submitted",
-      mintClubRedemptionTxHash: record.txHash,
+      mintClubRedemptionTxHash: txHash,
       mintClubRedemptionError: sanitizeFishingPondMetadataText(record.error, 500),
       mintClubRedemptionSubmittedAt: now,
       updatedAt: now,
     };
+  try {
+    const [row] = await db.update(fishingPondCatches)
+      .set(setValues)
+      .where(and(
+        eq(fishingPondCatches.catchId, record.catchId),
+        ne(fishingPondCatches.mintClubRedemptionStatus, "confirmed"),
+        or(
+          eq(fishingPondCatches.mintClubRedemptionTxHash, ""),
+          eq(fishingPondCatches.mintClubRedemptionTxHash, txHash),
+          eq(fishingPondCatches.mintClubRedemptionStatus, "failed"),
+        ),
+      ))
+      .returning();
+    if (row) return { ok: true, record: mapFishingPondCatchRow(row) } satisfies MarkMintClubRedemptionResult;
+
+    const current = await findFishingPondCatch(record.catchId);
+    if (current?.mintClubRedemptionStatus === "confirmed"
+      && normalizeMintClubRedemptionTxHash(current.mintClubRedemptionTxHash) === txHash) {
+      return { ok: true, record: current } satisfies MarkMintClubRedemptionResult;
+    }
+    return {
+      ok: false,
+      status: current ? "state_conflict" : "not_found",
+      record: current,
+      txHash,
+    } satisfies MarkMintClubRedemptionResult;
+  } catch (error) {
+    if (!isMintClubRedemptionTxHashConflict(error)) throw error;
+    return {
+      ok: false,
+      status: "tx_hash_conflict",
+      record: await findFishingPondCatch(record.catchId),
+      txHash,
+    } satisfies MarkMintClubRedemptionResult;
+  }
+}
+
+export async function reserveFishingPondCatchMintClubRedemptionPreparation(
+  catchId: string,
+): Promise<ReserveMintClubRedemptionPreparationResult> {
+  const db = getRequiredDatabase();
   const [row] = await db.update(fishingPondCatches)
-    .set(setValues)
-    .where(eq(fishingPondCatches.catchId, record.catchId))
+    .set({
+      mintClubRedemptionStatus: "prepared",
+      mintClubRedemptionTxHash: "",
+      mintClubRedemptionError: "",
+      mintClubRedemptionSubmittedAt: null,
+      mintClubRedemptionConfirmedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      eq(fishingPondCatches.status, "confirmed"),
+      inArray(fishingPondCatches.mintClubRedemptionStatus, [...MINT_CLUB_REDEMPTION_PREPARABLE_STATUSES]),
+    ))
+    .returning();
+  if (row) return { reserved: true, record: mapFishingPondCatchRow(row) };
+  return { reserved: false, record: await findFishingPondCatch(catchId) };
+}
+
+export async function releaseFishingPondCatchMintClubRedemptionPreparation(catchId: string) {
+  const db = getRequiredDatabase();
+  const [row] = await db.update(fishingPondCatches)
+    .set({
+      mintClubRedemptionStatus: "",
+      mintClubRedemptionError: "",
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      eq(fishingPondCatches.mintClubRedemptionStatus, "prepared"),
+      eq(fishingPondCatches.mintClubRedemptionTxHash, ""),
+    ))
     .returning();
   return row ? mapFishingPondCatchRow(row) : null;
 }
 
-export async function markFishingPondCatchMintClubRedemptionFailed(catchId: string, error: string) {
+export async function markFishingPondCatchMintClubRedemptionFailed(
+  catchId: string,
+  expectedTxHash: string,
+  error: string,
+) {
   const db = getRequiredDatabase();
+  const txHash = normalizeMintClubRedemptionTxHash(expectedTxHash);
   const [row] = await db.update(fishingPondCatches)
     .set({
       mintClubRedemptionStatus: "failed",
       mintClubRedemptionError: sanitizeFishingPondMetadataText(error, 500),
       updatedAt: new Date(),
     })
-    .where(eq(fishingPondCatches.catchId, catchId))
+    .where(and(
+      eq(fishingPondCatches.catchId, catchId),
+      eq(fishingPondCatches.mintClubRedemptionStatus, "tx_submitted"),
+      eq(fishingPondCatches.mintClubRedemptionTxHash, txHash),
+    ))
     .returning();
   return row ? mapFishingPondCatchRow(row) : null;
 }
@@ -2269,10 +2441,11 @@ function normalizeFishingPondCatchStatus(value: string): FishingNftCatchStatus {
   return "failed";
 }
 
-function normalizeMintClubRedemptionStatus(value: string): MintClubRedemptionStatus | "" {
+export function normalizeMintClubRedemptionStatus(value: string): MintClubRedemptionStatus | "" {
   if (
     value === "claim_required"
     || value === "eligible"
+    || value === "prepared"
     || value === "tx_submitted"
     || value === "confirmed"
     || value === "failed"
@@ -2280,6 +2453,59 @@ function normalizeMintClubRedemptionStatus(value: string): MintClubRedemptionSta
     return value;
   }
   return "";
+}
+
+export function normalizeMintClubRedemptionTxHash(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+export function normalizeFishingPondTxHash(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+export function isConfirmedFishingPondClaimTx(
+  record: Pick<PersistedFishingPondCatch, "status" | "txHash"> | null | undefined,
+  txHashValue: unknown,
+) {
+  const txHash = normalizeFishingPondTxHash(txHashValue);
+  return record?.status === "confirmed"
+    && /^0x[0-9a-f]{64}$/.test(txHash)
+    && normalizeFishingPondTxHash(record.txHash) === txHash;
+}
+
+export function isMintClubRedemptionPreparationReservableStatus(value: unknown) {
+  return typeof value === "string"
+    && (MINT_CLUB_REDEMPTION_PREPARABLE_STATUSES as readonly string[]).includes(value);
+}
+
+export function isMintClubRedemptionTxHashConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : "";
+  const constraint = typeof record.constraint_name === "string"
+    ? record.constraint_name
+    : typeof record.constraint === "string"
+      ? record.constraint
+      : "";
+  if (code === "23505") {
+    return !constraint || constraint === MINT_CLUB_REDEMPTION_TX_HASH_UNIQUE_INDEX;
+  }
+  return isMintClubRedemptionTxHashConflict(record.cause);
+}
+
+export function isFishingPondClaimTxHashConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : "";
+  const constraint = typeof record.constraint_name === "string"
+    ? record.constraint_name
+    : typeof record.constraint === "string"
+      ? record.constraint
+      : "";
+  if (code === "23505") {
+    return !constraint || constraint === FISHING_POND_CLAIM_TX_HASH_UNIQUE_INDEX;
+  }
+  return isFishingPondClaimTxHashConflict(record.cause);
 }
 
 function normalizeFishingPondStandard(value: string): FishingNftTokenStandard {

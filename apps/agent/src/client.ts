@@ -23,8 +23,10 @@ import {
   type ChatMessage,
   type ClientAgentStatus,
   type ClientAbandonFishingNftCatch,
+  type ClientCancelMintClubRedemptionPreparation,
   type ClientInput,
   type ClientPurchaseOnchainFishingRod,
+  type ClientPrepareMintClubRedemption,
   type ClientRemoveSeasonReferral,
   type ClientSubmitFishingNftClaimTx,
   type ClientSubmitMintClubRedemptionTx,
@@ -354,6 +356,8 @@ export class MferlandAgentClient {
         "refreshFishingNftHistory",
         "submitFishingNftClaimTx",
         "abandonFishingNftCatch",
+        "prepareMintClubRedemption",
+        "cancelMintClubRedemptionPreparation",
         "submitMintClubRedemptionTx",
         "sellFishingItems",
         "selectTalent",
@@ -714,6 +718,14 @@ export class MferlandAgentClient {
 
   abandonFishingNftCatch(message: ClientAbandonFishingNftCatch) {
     this.room?.send("abandonFishingNftCatch", message);
+  }
+
+  prepareMintClubRedemption(message: ClientPrepareMintClubRedemption) {
+    this.room?.send("prepareMintClubRedemption", message);
+  }
+
+  cancelMintClubRedemptionPreparation(message: ClientCancelMintClubRedemptionPreparation) {
+    this.room?.send("cancelMintClubRedemptionPreparation", message);
   }
 
   submitMintClubRedemptionTx(message: ClientSubmitMintClubRedemptionTx) {

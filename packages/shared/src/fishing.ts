@@ -123,7 +123,7 @@ export type FishingState = "" | "casting" | "waiting" | "bite";
 export type FishingNftTokenStandard = keyof typeof FISHING_NFT_POND_CHAIN_STANDARD;
 export type FishingNftCatchStatus = "pending" | "voucher_issued" | "tx_submitted" | "confirmed" | "expired" | "failed" | "abandoned";
 export type FishingNftCapNoticeKind = "wallet_daily_cap" | "global_daily_cap" | "rod_required" | "rod_required_nft_hit";
-export type MintClubRedemptionStatus = "claim_required" | "eligible" | "tx_submitted" | "confirmed" | "failed";
+export type MintClubRedemptionStatus = "claim_required" | "eligible" | "prepared" | "tx_submitted" | "confirmed" | "failed";
 export type OnchainFishingRodStandard = "ERC721" | "ERC1155";
 export type OnchainFishingRodMintMode = "wallet" | "server" | "url";
 export type OnchainFishingRodMintFunction = "mint" | "mintTo" | "mintQuantity" | "mintToQuantity" | "manifoldClaim";
@@ -193,6 +193,7 @@ export type FishingNftCapNotice = {
 };
 
 export type FishingNftPondConfig = {
+  authoritative: boolean;
   enabled: boolean;
   chainId: number;
   contractAddress: string;

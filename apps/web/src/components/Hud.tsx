@@ -40,6 +40,7 @@ import {
   type ClientAbandonFishingNftCatch,
   type ClientAcceptQuest,
   type ClientCancelQuest,
+  type ClientCancelMintClubRedemptionPreparation,
   type ClientCompleteQuest,
   type ClientEquipItem,
   type ClientLootCorpse,
@@ -60,6 +61,7 @@ import {
   type ItemId,
   type LootWindow,
   type MintClubRedemptionResult,
+  type MintClubRedemptionPreparationResult,
   type NpcSnapshot,
   type OnchainFishingRodRequirementSnapshot,
   type PlayerSnapshot,
@@ -249,6 +251,8 @@ type HudProps = {
   onLootCorpse: (message: ClientLootCorpse) => void;
   onSubmitFishingNftClaimTx: (message: ClientSubmitFishingNftClaimTx) => void;
   onAbandonFishingNftCatch: (message: ClientAbandonFishingNftCatch) => void;
+  onPrepareMintClubRedemption: (catchId: string) => Promise<MintClubRedemptionPreparationResult>;
+  onCancelMintClubRedemptionPreparation: (message: ClientCancelMintClubRedemptionPreparation) => void;
   onSubmitMintClubRedemptionTx: (message: ClientSubmitMintClubRedemptionTx) => void;
   onRefreshFishingNftHistory: () => void;
   onEquipItem: (message: ClientEquipItem) => void;
@@ -312,6 +316,8 @@ export function Hud({
   onLootCorpse,
   onSubmitFishingNftClaimTx,
   onAbandonFishingNftCatch,
+  onPrepareMintClubRedemption,
+  onCancelMintClubRedemptionPreparation,
   onSubmitMintClubRedemptionTx,
   onRefreshFishingNftHistory,
   onEquipItem,
@@ -1353,6 +1359,8 @@ export function Hud({
             player={localPlayer}
             catches={mintClubRedeemableCatches}
             result={mintClubRedemptionResult}
+            onPrepareMintClubRedemption={onPrepareMintClubRedemption}
+            onCancelMintClubRedemptionPreparation={onCancelMintClubRedemptionPreparation}
             onSubmitMintClubRedemptionTx={onSubmitMintClubRedemptionTx}
             onClose={onCloseMintClubRedemption}
           />
@@ -3439,6 +3447,8 @@ function MintClubRedemptionPanel({
   player,
   catches,
   result,
+  onPrepareMintClubRedemption,
+  onCancelMintClubRedemptionPreparation,
   onSubmitMintClubRedemptionTx,
   onClose,
 }: {
@@ -3446,6 +3456,8 @@ function MintClubRedemptionPanel({
   player: PlayerSnapshot | null;
   catches: FishingNftCatchSnapshot[];
   result: MintClubRedemptionResult | null;
+  onPrepareMintClubRedemption: (catchId: string) => Promise<MintClubRedemptionPreparationResult>;
+  onCancelMintClubRedemptionPreparation: (message: ClientCancelMintClubRedemptionPreparation) => void;
   onSubmitMintClubRedemptionTx: (message: ClientSubmitMintClubRedemptionTx) => void;
   onClose: () => void;
 }) {
@@ -3472,6 +3484,7 @@ function MintClubRedemptionPanel({
   const ownedAmount = parseDisplayBigInt(walletState?.ownedAmount ?? "0");
   const canUseWallet = Boolean(player?.walletAddress && player.identityType === "wallet" && selectedCatch && redemption);
   const isSold = redemption?.status === "confirmed";
+  const sellSubmissionPending = redemption?.status === "prepared" || redemption?.status === "tx_submitted";
   const needsApproval = Boolean(walletState && !walletState.approvedForBond);
   const ownsSelectedGoodie = Boolean(walletState && ownedAmount > 0n);
   const canRedeem = Boolean(
@@ -3480,6 +3493,7 @@ function MintClubRedemptionPanel({
     && ownedAmount > 0n
     && walletState.reserveTokenMatches
     && !isSold
+    && !sellSubmissionPending
     && !busy,
   );
   const canSell = Boolean(canRedeem && walletState?.approvedForBond);
@@ -3532,6 +3546,7 @@ function MintClubRedemptionPanel({
     }
     setBusy("redeem");
     let phase: "approval" | "sell" = needsApproval ? "approval" : "sell";
+    let preparationRequestId = "";
     try {
       if (needsApproval) {
         setStatus("confirm approval in wallet");
@@ -3541,11 +3556,24 @@ function MintClubRedemptionPanel({
       } else {
         setStatus("confirm sell in wallet");
       }
+      setStatus("reserving this sell");
+      const preparation = await onPrepareMintClubRedemption(selectedCatch.catchId);
+      if (!preparation.ok) {
+        throw new Error(preparation.error || "Mint Club sell could not be reserved safely");
+      }
+      preparationRequestId = preparation.requestId;
+      setStatus("confirm sell in wallet");
       const txHash = await sellMintClubRedemption(provider, player.walletAddress, redemption);
       setStatus("verifying Mint Club burn");
       onSubmitMintClubRedemptionTx({ catchId: selectedCatch.catchId, txHash, status: "confirmed" });
       window.setTimeout(() => setBusy((current) => current === "redeem" ? "" : current), 90_000);
     } catch (error) {
+      if (preparationRequestId && isUserRejectedWalletRequest(error)) {
+        onCancelMintClubRedemptionPreparation({
+          catchId: selectedCatch.catchId,
+          requestId: preparationRequestId,
+        });
+      }
       setBusy("");
       setStatus(error instanceof Error ? error.message : phase === "approval" ? "approval failed" : "sell failed");
     }
@@ -3721,6 +3749,7 @@ function formatFishingNftStatus(catchSnapshot: FishingNftCatchSnapshot, expired:
 function formatMintClubRedemptionStatus(status: NonNullable<FishingNftCatchSnapshot["mintClubRedemption"]>["status"]) {
   if (status === "claim_required") return "claim first";
   if (status === "eligible") return "ready to sell";
+  if (status === "prepared") return "sell prepared";
   if (status === "tx_submitted") return "sell submitted";
   if (status === "confirmed") return "sold";
   if (status === "failed") return "sell failed";
@@ -3732,10 +3761,20 @@ function getMintClubRedemptionWalletStatus(
   walletState: MintClubRedemptionWalletState,
 ) {
   if (redemptionStatus === "confirmed") return "sold through Mint Club";
+  if (redemptionStatus === "prepared") return "sell reservation locked; do not retry (reconcile a saved hash or stop incomplete)";
+  if (redemptionStatus === "tx_submitted") return "sell submitted; waiting for confirmation";
   if (!walletState.reserveTokenMatches) return "reserve token mismatch";
   if (parseDisplayBigInt(walletState.ownedAmount) <= 0n) return "not in connected wallet";
   if (!walletState.approvedForBond) return "approval needed";
   return "ready to sell / burn";
+}
+
+function isUserRejectedWalletRequest(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  if (maybeError.code === 4001) return true;
+  return typeof maybeError.message === "string"
+    && /user rejected|user denied|request rejected|user closed modal/i.test(maybeError.message);
 }
 
 function getMintClubStepClass(done: boolean | null, active = false) {

@@ -171,7 +171,7 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
       type: TOOL_MANIFEST_TYPE,
       name: "mfertown-fishing",
       description: "Run mfertown pond fishing for wallet-authenticated agents, including normal catches, offchain fish sales, and claim-ready onchain NFT catches.",
-      version: "0.1.7",
+      version: "0.1.9",
       endpoint: `${baseUrl}/agent-fishing`,
       image: `${baseUrl}/agent-tools/icon.png`,
       featuredImage: `${baseUrl}/agent-tools/16x9.jpeg`,
@@ -182,12 +182,12 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
           operation: {
             type: "string",
             enum: ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"],
-            description: "start begins bounded pond fishing. stop is drain-aware: it acknowledges cancellation even before a just-dispatched cast appears in state, reconciles an already-dispatched reel, waits for the authoritative post-loot inventory observation or NFT handoff, and may return HTTP 202 with stopDrain.status=settling until a nonce-bearing status poll becomes terminal. A timed_out drain remains recoverable; retain the bridge and poll the same command with a fresh nonce. For a requested regular-fish sale, set stopWhenRegularFishBundleReady so the dedicated command stops only after a current-run catch lands and completes an agent bundle. Bundle readiness does not promise Season reward eligibility; sell_fish reports point-cap or MFERGPT-gate blockers explicitly. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. If sell_fish returns insufficient_bundle, use bundleRequirements and resume dedicated fishing instead of resubmitting unchanged inventory. If it returns in_progress, poll sell_fish_status with its requestId instead of submitting another sale. If fishSale.status is sale_in_progress, resume the older known request or stop incomplete rather than retrying blindly. A prerequisite response provides the exact scoped /agent-fishing request and must never fall back to generic autoplay. refresh returns only a fresh successful NFT history response for baselining. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption returns the next configured Mint Club approval or sell transaction; submit_redemption_tx verifies the sell transaction.",
+            description: "start begins bounded pond fishing and may long-poll once when waitSeconds is supplied. stop is drain-aware: it acknowledges cancellation even before a just-dispatched cast appears in state, reconciles an already-dispatched reel, waits for the authoritative post-loot inventory observation or NFT handoff, and may return HTTP 202 with stopDrain.status=settling until a nonce-bearing status poll becomes terminal. A timed_out drain remains recoverable; retain the bridge and poll the same command with a fresh nonce. For a requested regular-fish sale, set stopWhenRegularFishBundleReady so the dedicated command stops only after a current-run catch lands and completes an agent bundle. Bundle readiness does not promise Season reward eligibility; sell_fish reports point-cap or MFERGPT-gate blockers explicitly. sell_fish sells regular offchain fish only and requires completed lost-fishing-shoes; it never sells NFTs or trash. If sell_fish returns insufficient_bundle, use bundleRequirements and resume dedicated fishing instead of resubmitting unchanged inventory. If it returns in_progress, poll sell_fish_status with its requestId instead of submitting another sale. If fishSale.status is sale_in_progress, resume the older known request or stop incomplete rather than retrying blindly. A prerequisite response provides the exact scoped /agent-fishing request and must never fall back to generic autoplay. refresh returns fresh NFT history plus authoritative pond allowance/config for baselining. claim_nft returns a ready-to-sign FishingPond.claim transaction and submit_claim_tx records it. prepare_redemption verifies current ERC-1155 ownership and atomically reserves a catch before returning Mint Club sell calldata; repeated preparation fails closed without another transaction. history eligibility alone is not ownership proof. submit_redemption_tx verifies the sell transaction, and one burn hash cannot confirm multiple catches.",
           },
           bridgeSessionId: { type: "string" },
           commandId: {
             type: "string",
-            description: "Dedicated fishing command id returned by start. For operation=status, omit this only to recover the active dedicated fishing command, or otherwise the latest dedicated fishing command retained in this authenticated bridge session. Recovery never selects a generic /agent-command command.",
+            description: "Dedicated fishing command id returned by start. Required with prepare_redemption to bind the exact new catch to the latest dedicated fishing run. For operation=status, omit this only to recover the active dedicated fishing command, or otherwise the latest dedicated fishing command retained in this authenticated bridge session. Recovery never selects a generic /agent-command command.",
           },
           pollNonce: {
             type: "string",
@@ -202,6 +202,12 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
             description: "Optional exact fishing quest to complete. The dedicated endpoint forces finish_quest with behaviorScheme=fishing and cannot become generic play_for autoplay.",
           },
           maxSeconds: { type: "number", minimum: 15, maximum: 1800 },
+          waitSeconds: {
+            type: "number",
+            minimum: 0,
+            maximum: 80,
+            description: "Optional server-side wait for start or status. The response returns early when the command becomes terminal and otherwise returns after at most 80 seconds with pollWait. Use this instead of separate sleep calls or rapid status loops.",
+          },
           stopWhenRegularFishBundleReady: {
             type: "boolean",
             description: "Dedicated regular-sale bundle mode. Stop after a regular fish caught in this command is present in authoritative inventory and completes a declared-agent bundle. This proves bundle readiness, not reward eligibility; sell_fish remains authoritative. A pending NFT wallet handoff takes priority.",
@@ -224,7 +230,10 @@ export function buildAgentToolManifest(slug: AgentToolSlug, origin: string): Too
               social: { type: "string", enum: ["quiet", "normal", "chatty"] },
             },
           },
-          catchId: { type: "string" },
+          catchId: {
+            type: "string",
+            description: "Exact catch id returned for this run. Required for claim, claim submission, redemption preparation, and redemption submission. Never substitute an older history catch.",
+          },
           requestId: {
             type: "string",
             description: "Correlated fish-sale request id returned by sell_fish. Required by sell_fish_status; keep private and never invent one.",
@@ -490,6 +499,10 @@ function commandOutputSchema() {
       maxSeconds: { type: "number" },
       budget: { type: "object" },
       usage: { type: "object" },
+      usageFinalization: {
+        type: "object",
+        description: "Command-budget reservation settlement. failed_or_unknown is terminal and is not retried automatically because aggregate usage finalization is not safely idempotent.",
+      },
       questChanges: { type: "array", items: { type: "object" } },
       inventoryChanges: { type: "array", items: { type: "object" } },
       equipmentChanges: { type: "array", items: { type: "object" } },
@@ -536,6 +549,10 @@ function fishingOutputSchema() {
         pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$",
         description: "Exact unchanged echo of the validated caller-supplied pollNonce on dedicated fishing status and sell_fish_status responses. Trust a poll only when this matches the unique nonce sent with that request.",
       },
+      pollWait: {
+        type: "object",
+        description: "Present when waitSeconds was requested; reports the bounded server-side wait duration and whether it returned for a terminal command or elapsed while still running.",
+      },
       commandRecovery: {
         type: "object",
         description: "Present when operation=status omitted commandId. Reports whether the active or latest retained dedicated fishing command was recovered, with its real commandId. Generic /agent-command commands are never selected.",
@@ -549,6 +566,13 @@ function fishingOutputSchema() {
         items: { type: "object" },
         description: "Current sanitized fishing NFT catch snapshots returned by refresh for freshness baselining.",
       },
+      pond: {
+        type: "object",
+        description: "Authoritative pond availability returned by refresh, including wallet/global daily remaining values, catch chance, reset time, stock/drain state, and rod requirement.",
+      },
+      ownedAmount: { type: "string" },
+      requiredAmount: { type: "string" },
+      nextOperation: { type: "string" },
       catchId: { type: "string" },
       txHash: { type: "string" },
       toolUsageReport: { type: "object" },

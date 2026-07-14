@@ -10,11 +10,14 @@ import {
   MINT_CLUB_BASE_SEPOLIA_WETH_ADDRESS,
   MINT_CLUB_REDEMPTION_NPC_ID,
 } from "@mferland/shared";
+import type { Hex, TransactionReceipt } from "viem";
 import type { PersistedFishingPondCatch } from "../persistence.js";
 import {
   isMintClubRedemptionEligibleCatch,
   makeMintClubRedemptionSnapshot,
   resolveMintClubRedemptionConfig,
+  resolveMintClubRedemptionReceiptRpcUrls,
+  waitForMintClubReceiptFromAnyRpc,
 } from "./mintClubRedemption.js";
 
 const ALLOWED_COLLECTION = "0x1111111111111111111111111111111111111111";
@@ -63,6 +66,56 @@ test("Mint Club redemption config only enables with an explicit allowlist", () =
   assert.equal(strictReserve.reserveTokenStrict, true);
 });
 
+test("Mint Club redemption receipt RPCs retain the configured provider and add the official chain fallback", () => {
+  const config = resolveMintClubRedemptionConfig({
+    MFERLAND_MINT_CLUB_REDEMPTION_ALLOWED_COLLECTIONS: ALLOWED_COLLECTION,
+    MFERLAND_MINT_CLUB_REDEMPTION_CHAIN_ID: String(MINT_CLUB_BASE_CHAIN_ID),
+    MFERLAND_MINT_CLUB_REDEMPTION_RPC_URL: "https://primary.invalid",
+  });
+  assert.deepEqual(resolveMintClubRedemptionReceiptRpcUrls(config), [
+    "https://primary.invalid",
+    "https://mainnet.base.org",
+  ]);
+  assert.deepEqual(resolveMintClubRedemptionReceiptRpcUrls({
+    ...config,
+    rpcUrl: " https://mainnet.base.org ",
+  }), ["https://mainnet.base.org"]);
+});
+
+test("Mint Club redemption receipt verification starts the fallback while the primary is still missing the receipt", async () => {
+  const primary = "https://primary.invalid";
+  const fallback = "https://fallback.invalid";
+  const calls: string[] = [];
+  const receipt = { status: "success", logs: [] } as unknown as TransactionReceipt;
+  const primaryStillPolling = new Promise<TransactionReceipt>(() => {});
+  const txHash = `0x${"11".repeat(32)}` as Hex;
+
+  const result = await Promise.race([
+    waitForMintClubReceiptFromAnyRpc([primary, fallback, primary], txHash, {
+      waitForReceipt: (rpcUrl) => {
+        calls.push(rpcUrl);
+        return rpcUrl === primary ? primaryStillPolling : Promise.resolve(receipt);
+      },
+    }),
+    new Promise<never>((_, reject) => setImmediate(() => reject(new Error("fallback was not started concurrently")))),
+  ]);
+
+  assert.equal(result, receipt);
+  assert.deepEqual(calls, [primary, fallback]);
+});
+
+test("Mint Club redemption receipt verification exposes an actionable provider error when every RPC fails", async () => {
+  const txHash = `0x${"22".repeat(32)}` as Hex;
+  await assert.rejects(
+    waitForMintClubReceiptFromAnyRpc(["https://primary.invalid", "https://fallback.invalid"], txHash, {
+      waitForReceipt: async (rpcUrl) => {
+        throw new Error(`unavailable: ${rpcUrl}`);
+      },
+    }),
+    /unavailable: https:\/\/primary\.invalid/,
+  );
+});
+
 test("Mint Club redemption eligibility is separate from pond catch allowlist and requires ERC-1155", () => {
   const config = resolveMintClubRedemptionConfig({
     MFERLAND_MINT_CLUB_REDEMPTION_ENABLED: "true",
@@ -103,6 +156,12 @@ test("Mint Club redemption snapshot exposes wallet action state for confirmed ca
   assert.equal(txSubmitted?.walletActionRequired, true);
   assert.equal(txSubmitted?.txHash, "0x1234");
   assert.equal(txSubmitted?.submittedAt, Math.floor(submittedAt.getTime() / 1000));
+
+  const prepared = makeMintClubRedemptionSnapshot(makeCatch({
+    mintClubRedemptionStatus: "prepared",
+  }), config);
+  assert.equal(prepared?.status, "prepared");
+  assert.equal(prepared?.walletActionRequired, true);
 
   const sold = makeMintClubRedemptionSnapshot(makeCatch({
     mintClubRedemptionStatus: "confirmed",

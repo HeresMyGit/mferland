@@ -380,11 +380,16 @@ server.listen(port, host, () => {
   }
 });
 
+let shutdownStarted = false;
+
 async function shutdown() {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  server.close();
   stopMarketQuotePoller();
-  agentBridge.shutdown();
+  await agentBridge.shutdown();
   await closeDatabase();
-  server.close(() => process.exit(0));
+  process.exit(0);
 }
 
 process.on("SIGINT", () => {
