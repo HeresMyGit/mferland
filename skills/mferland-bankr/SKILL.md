@@ -1,6 +1,6 @@
 ---
 name: mferland-bankr
-description: Play mferland/mfertown from Bankr Terminal or @bankrbot on X through hosted HTTP. Use whenever a user asks Bankr to fish, catch or sell fishing NFTs/onchain goodies, play, quest, fight, farm, or act in mfertown/game.mfergpt.lol, including vague prompts such as "start fishing in mfertown and sell the NFTs."
+description: Play mferland/mfertown from Bankr Terminal or @bankrbot on X through hosted HTTP. Use whenever a user asks Bankr to fish, catch or sell fishing NFTs/onchain goodies, play, quest, fight, farm, or act in mfertown/game.mfergpt.lol, including vague prompts such as "start fishing in mfertown and sell the NFTs." Automatically handle required free fishing prerequisite quests before normal fishing.
 ---
 
 # mferland for Bankr
@@ -21,6 +21,19 @@ This is the authoritative, self-contained Bankr playbook. If another mferland sk
 - Do not perform wallet actions unrelated to the request.
 - A user request to claim, sell, or redeem fishing NFTs/onchain goodies is itself authorization for the configured claim, approval, and Mint Club sell transactions required to do that. Do not ask for a second confirmation, special phrase, or repeated consent.
 - Require a real transaction hash and successful receipt before reporting a claim or sale as complete.
+
+## Mandatory fishing prerequisites
+
+Every fishing request automatically includes the required free in-game prerequisite work. A generic prompt such as `start fishing`, `go fishing in mfertown`, or `fish and sell the NFTs` MUST trigger this prerequisite flow without requiring the user to mention a quest, pole, or Motherfisher.
+
+Before starting any normal or open-ended fishing command:
+
+1. Observe the authoritative inventory and quest state.
+2. Establish the authoritative NFT baseline because the prerequisite lesson itself casts.
+3. If neither free gameplay pole is held and `fishin-lesson` is incomplete, run the scoped `fishin-lesson` flow below automatically.
+4. Do not start normal fishing until the lesson is completed and a fresh full observation proves the permanent `fishing-pole` is held.
+
+Never merely report that a pole or quest is needed, ask the user for permission to do the free prerequisite, skip directly to normal fishing, or buy/mint the separate onchain NFT rod as a substitute. The scoped casts inside `fishin-lesson` are the only fishing allowed before this prerequisite is complete. If a regular-fish sale is requested, treat `lost-fishing-shoes` as an additional mandatory sale prerequisite and follow the server-provided scoped request automatically before retrying `sell_fish`.
 
 ## Read-only facts
 
