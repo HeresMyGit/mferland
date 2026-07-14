@@ -1,6 +1,6 @@
 ---
 name: mferland-local-model
-description: Supplement for running and debugging mferland/game.mfergpt.lol with a local or constrained LLM such as Ollama qwen3:8b. Use with the advanced/direct-control runner when small-model action repairs are needed. Default hosted autoplay and Bankr Terminal/X should start from the main mferland skill.
+description: Supplement for running and debugging mferland/game.mfergpt.lol with a local or constrained LLM such as Ollama qwen3:8b. Use with the advanced/direct-control runner when small-model action repairs are needed. Default hosted autoplay should start from the main mferland skill; Bankr Terminal/X should use the dedicated mferland-bankr skill.
 ---
 
 # mferland Local Model
@@ -31,7 +31,7 @@ Use this local-model path when:
 - logs show repeated `interact_npc`, invalid JSON, blank `travel_route`, route loops, missed `accept_quest`, or stale-position decisions
 - the user wants Codex to be the signer/harness while Ollama is the policy brain
 
-Do not use this skill for Bankr Terminal or `@bankrbot` on X. Use the Bankr section of the main `mferland` skill there.
+Do not use this skill for Bankr Terminal or `@bankrbot` on X. Use `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` there.
 
 ## Season And Paid Menus
 

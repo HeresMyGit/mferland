@@ -77,6 +77,7 @@ curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.js
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-mfergpt-swap.json
 curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
+curl -fsS https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts
 ```
@@ -85,7 +86,7 @@ Expected:
 
 - `/agent-catalog` lists command kinds, profiles, schemes, goals, constraints, controller metadata, swap/router details, and Season 0 agent balance requirements.
 - all `.well-known/ai-tool` manifests return stable JSON without self-referential hash fields; validate and hash the exact served files with `npx @opensea/tool-sdk validate` and `npx @opensea/tool-sdk hash` before registering them onchain.
-- hosted skills include the main default skill, compatibility skill URLs, plus the advanced runner `SKILL.md`, runner scripts, package file, and tsconfig.
+- hosted skills include the main default/router skill, the authoritative Bankr skill, compatibility skill URLs, plus the advanced runner `SKILL.md`, runner scripts, package file, and tsconfig.
 
 ## Gameplay Smoke Tests
 

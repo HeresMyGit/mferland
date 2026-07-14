@@ -9,7 +9,7 @@ Use Bankr's wallet and native HTTP/message-signing capabilities with the hosted 
 
 The canonical fishing tool manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing`; this skill expects manifest version `0.1.9` or newer.
 
-This skill is self-contained. Do not install, load, or follow another mferland skill or runner.
+This is the authoritative, self-contained Bankr playbook. If another mferland skill routed here or is already loaded, ignore it after the handoff; never merge its instructions with this skill or return to it for the current request.
 
 ## Hard boundaries
 
@@ -21,6 +21,21 @@ This skill is self-contained. Do not install, load, or follow another mferland s
 - Do not perform wallet actions unrelated to the request.
 - A user request to claim, sell, or redeem fishing NFTs/onchain goodies is itself authorization for the configured claim, approval, and Mint Club sell transactions required to do that. Do not ask for a second confirmation, special phrase, or repeated consent.
 - Require a real transaction hash and successful receipt before reporting a claim or sale as complete.
+
+## Read-only facts
+
+For saved-character or public-world questions, use the relevant read-only endpoint and do not authenticate or start a bridge:
+
+```txt
+GET /agent-profile?wallet=<walletAddress>
+GET /agent-world
+GET /agent-player?wallet=<walletAddress>
+GET /agent-player?name=<characterName>
+GET /agent-milestones?type=centralizer
+GET /agent-milestones?questId=<questId>
+GET /season/leaderboard
+GET /season/referrals?wallet=<walletAddress>
+```
 
 ## Authenticate and start
 
@@ -57,6 +72,33 @@ https://game.mfergpt.lol
 `/agent-start` is idempotent for a wallet. If that wallet already has a live, running, settling, finalizing, or wallet-handoff bridge, it returns `status: "reattached"`, `reused: true`, the same `bridgeSessionId`, and a `resume` checkpoint. Treat reattachment as connection success; never use `/agent-start` to replace or cancel an active run. `resume` is recovery metadata, not proof that its command belongs to the current user request. Count it only when its command id matches this run's checkpoint or the user explicitly asked to continue it. If `resume.command.status` is `handoff_resolved` or `resume.handoffResolution.status` is `resolved`, the old fishing claim is already authoritatively terminal: never poll or rebroadcast its frozen wallet action; follow `nextOperation: "agent_stop"`. For a new request, resolve an inherited fishing claim only when the new request authorizes that claim, without counting it as a fresh catch. Otherwise call `/agent-stop` to drain inherited work; follow its structured settling/reconciliation response, but never perform an unrelated wallet handoff. After top-level `status: "stopped"`, authenticate/start a fresh bridge, refresh a new baseline, and begin the new dedicated run. If the inherited command is already terminal with no handoff, it may be ignored and a new dedicated command can start on the reattached bridge. A newly authenticated, wallet-bound session token may safely reattach the existing bridge.
 
 Immediately create a private `runId` bound to the current user request and checkpoint it with `walletAddress`, `sessionToken`, `expiresAt`, and `bridgeSessionId` in Bankr's private scratchpad. Checkpoint `commandId` immediately after starting a command. Also checkpoint the normalized terminal outcomes, baseline catch ids, per-run regular catch totals, newly caught NFT catch id, and each claim, approval, regular-sale, and NFT-sale status and real transaction hash. On every later Bankr invocation that continues the same `runId`, load this checkpoint first and resume the first unfinished phase. Do not resume an older run for a new or superseding request. Never resend a transaction whose successful hash is already checkpointed. Overwrite connection values after re-authentication or a new bridge start. Never show private checkpoint values to the user.
+
+## Preflight the free gameplay pole
+
+After a fresh ready `/agent-start`, fetch one full authenticated `/agent-observe?bridgeSessionId=...&view=full` response; do not use the compact Bankr view. Require `ok: true`, the matching `bridgeSessionId`, `status: "connected"`, and arrays at `self.inventory` and `self.quests`. If the bridge is still waiting for player state, retry observation or follow normal bridge/session recovery; never interpret missing fields as proof that the pole is absent.
+
+The free gameplay pole is present only when `self.inventory` contains `fishing-pole` or `loaner-fishing-pole` with `count > 0`. `pond.rodRequirement` describes the separate wallet-held onchain NFT rod and cannot prove whether the free gameplay pole is present.
+
+Checkpoint the gameplay-pole and `fishin-lesson` state, but do not start a command yet. Establish the normal authoritative NFT-history baseline in the next section before any command that can cast, including the lesson itself.
+
+After that baseline succeeds and its pond checks leave at least one requested outcome runnable, if neither gameplay pole is held and `self.quests` does not mark `fishin-lesson` completed, run only this scoped prerequisite through the dedicated tool:
+
+```json
+{
+  "operation": "start",
+  "bridgeSessionId": "...",
+  "questId": "fishin-lesson",
+  "maxSeconds": 300,
+  "waitSeconds": 80,
+  "constraints": {
+    "noPaidActions": true
+  }
+}
+```
+
+This free quest is an ordinary prerequisite of the user's fishing request. Do not ask for additional approval. Poll it with the normal nonce-bearing fishing status flow. Preserve the same baseline across the lesson and any later generic fishing command. Any NFT handoff from the lesson is a fresh current-run catch against that baseline; complete it when authorized by the original request before starting another command. Repeat only this scoped lesson after a bounded time limit if necessary. After terminal quest completion, fetch another full authoritative observation and require permanent `fishing-pole` with `count > 0` before resuming the original request without asking.
+
+If `fishin-lesson` is already completed but neither gameplay pole is held, or if the scoped lesson completes without the permanent pole, clean up and report `gameplay_pole_missing` as `incomplete`. Do not start generic fishing, loop the completed quest, or buy/mint the separate onchain rod as a substitute.
 
 ## Establish the run contract and freshness baseline
 
@@ -246,7 +288,7 @@ Call cleanup as `POST /agent-stop` with `{ "bridgeSessionId": "..." }` and requi
 
 ## Other mfertown requests
 
-For non-fishing play, use hosted `POST /agent-command`, poll its command id, return its recap, and clean up. Manual `/agent-observe` plus `/agent-action` is for a genuinely requested single action or debugging only, not the default play path.
+The canonical generic command manifest is `https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command`; require version `0.1.1` or newer. For non-fishing play, translate the user's request into that manifest's structured command, use hosted `POST /agent-command`, poll its command id until terminal, return its recap, and clean up. Manual `/agent-observe` plus `/agent-action` is for a genuinely requested single action or debugging only, not the default play path.
 
 ## Final report
 

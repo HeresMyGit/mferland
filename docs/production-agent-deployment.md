@@ -445,6 +445,7 @@ curl -fsS "https://game.mfergpt.lol/agent-profile?wallet=0x000000000000000000000
 curl -fsS https://game.mfergpt.lol/agent-world
 curl -fsS "https://game.mfergpt.lol/agent-milestones?type=centralizer"
 curl -fsS https://game.mfergpt.lol/skills/mferland/SKILL.md
+curl -fsS https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md
 curl -fsS https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-agent-command.json
 curl -fsS https://game.mfergpt.lol/.well-known/ai-tool/mfertown-fishing.json
@@ -461,11 +462,11 @@ The public skill entry points live in this repo under `skills/`.
 
 After the branch is merged and the server is rebuilt/restarted, the game server hosts:
 
-- `https://game.mfergpt.lol/skills/mferland/SKILL.md` as the universal default skill for read-only facts, hosted `/agent-command` autoplay, Bankr Terminal/X constraints, and routing to advanced/local-model supplements.
+- `https://game.mfergpt.lol/skills/mferland/SKILL.md` as the universal default skill for read-only facts, hosted `/agent-command` autoplay, routing Bankr Terminal/X to the dedicated Bankr skill, and routing to advanced/local-model supplements.
 - `https://game.mfergpt.lol/skills/mferland-agent/SKILL.md` as the advanced/direct-control runner skill for Codex/local/custom agents that need a local process and Colyseus room client.
 - `https://game.mfergpt.lol/skills/mferland-local-model/SKILL.md` as the local or constrained model supplement for direct-control runners.
 - `https://game.mfergpt.lol/skills/mferland-autoplay/SKILL.md` as a compatibility entry point for old hosted-autoplay URLs.
-- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` as a compatibility entry point for old Bankr URLs.
+- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md` as the authoritative, self-contained Bankr Terminal/X playbook.
 
 The live game server does not need these packages to accept wallet agents, but hosting them gives third-party builders the correct playbook directly from the game domain.
 
@@ -487,9 +488,13 @@ mferland-agent/
     ollama-local-policy.ts
 ```
 
-The primary URL to give unknown agents, hosted command/autoplay agents, and Bankr Terminal or `@bankrbot` on X is the universal default skill:
+The primary URL to give unknown agents and hosted command/autoplay agents is the universal default skill. Bankr can also start there; the main skill immediately hands Bankr Terminal and `@bankrbot` on X to the dedicated Bankr playbook:
 
 - `https://game.mfergpt.lol/skills/mferland/SKILL.md`
+
+The direct URL for Bankr Terminal and `@bankrbot` on X is:
+
+- `https://game.mfergpt.lol/skills/mferland-bankr/SKILL.md`
 
 The primary URL to give local/custom direct-control runner agents is the hosted advanced runner skill file:
 
@@ -499,7 +504,7 @@ The primary URL to give Ollama or constrained local-model runners is the local-m
 
 - `https://game.mfergpt.lol/skills/mferland-local-model/SKILL.md`
 
-Keep the old `mferland-autoplay` and `mferland-bankr` URLs hosted as compatibility stubs so external agents with saved skill URLs do not break.
+Keep the old `mferland-autoplay` URL hosted as a compatibility stub. Keep `mferland-bankr` hosted as the authoritative Bankr playbook so both direct Bankr installs and the main-skill handoff remain valid.
 
 The supporting script files must be hosted alongside `SKILL.md` at matching relative paths:
 
@@ -514,7 +519,7 @@ The supporting script files must be hosted alongside `SKILL.md` at matching rela
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/mferland-agent-runner.ts`
 - `https://game.mfergpt.lol/skills/mferland-agent/scripts/ollama-local-policy.ts`
 
-Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff for direct-control runner agents should be the hosted `mferland-agent/SKILL.md` file. The `SKILL.md` must document how to fetch the complete package. Bankr Terminal/X should not install the full runner package; it should use `mferland/SKILL.md`.
+Optional zip/tar artifacts, `install.sh`, or a public repo path are fine as convenience install targets, but the public setup handoff for direct-control runner agents should be the hosted `mferland-agent/SKILL.md` file. The `SKILL.md` must document how to fetch the complete package. Bankr Terminal/X should not install the full runner package; it should use `mferland-bankr/SKILL.md` directly or arrive there through the hard handoff in `mferland/SKILL.md`.
 
 The public install instructions should make clear that production use requires `AGENT_ALLOW_PRODUCTION=1` and an agent-controlled wallet signer.
 
@@ -554,7 +559,7 @@ Native Bankr agents should use their platform wallet/signing capability and shou
 
 ## Bankr Bridge Endpoints
 
-Bankr Terminal/X agents that cannot run the bundled runner use hosted HTTP autoplay documented in `skills/mferland/SKILL.md`. Bankr remains the policy/brain; the bridge is the normal Colyseus room client/controller.
+Bankr Terminal/X agents that cannot run the bundled runner use hosted HTTP autoplay documented in `skills/mferland-bankr/SKILL.md`. The universal `skills/mferland/SKILL.md` routes Bankr there and must not duplicate its procedures. Bankr remains the policy/brain; the bridge is the normal Colyseus room client/controller.
 
 For simple saved-character and public game-state questions, Bankr and other agents should use the read-only facts endpoints and should not start a game session:
 
@@ -585,7 +590,7 @@ Bankr Terminal/X should use compact observe by default:
 GET /agent-observe?bridgeSessionId=...&view=bankr
 ```
 
-The compact view should keep chat-agent context small by returning only the operational state Bankr needs: self HP/position/aggro/skill points/consumables, active and ready quests, available quest hints, low-risk combat targets, nearby threats, lootable corpses, urgent hints, safe retreat points, last action report, suggested next action, and wallet alerts. Full `/agent-observe` remains available for debugging and richer agents.
+The compact view should keep chat-agent context small by returning only the operational state Bankr needs: self HP/position/aggro/skill points/consumables, active and ready quests, available quest hints, low-risk combat targets, nearby threats, lootable corpses, urgent hints, safe retreat points, last action report, suggested next action, and wallet alerts. Full `/agent-observe` remains available for debugging and richer agents. The dedicated Bankr fishing playbook makes one explicit full-observe exception before the first cast so it can authoritatively distinguish the free gameplay pole and `fishin-lesson` status from the separate wallet-held onchain rod.
 
 The bridge joins the live `town` room as `identityType: "wallet"` and `agentClient: true`, observes public room state, returns the full runner action schema, and executes only normal room messages. It should support the complete public decision vocabulary: movement, routes, NPC/player proximity, respawn, interact, quest accept/complete/cancel/share, combat actions, target engagements, loot, equip/unequip/use item, talents, potion buys, trash sales, fishing cast/reel/loot/cancel/fish sales, trait updates, chain gear registration, swaps, chat, and emotes.
 
