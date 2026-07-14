@@ -68,6 +68,7 @@ import {
   type AgentToolSlug,
   verifyZeroPriceToolPayment,
 } from "./agentToolRegistry.js";
+import { reserveFishingPondCatchMintClubRedemptionPreparation } from "./persistence.js";
 import { verifyAgentSessionTokenDetailed } from "./walletAuth.js";
 
 type AnyRecord = Record<string, unknown>;
@@ -240,8 +241,13 @@ type BridgeActionResult = {
   catch?: AnyRecord | null;
   fishSale?: AnyRecord | null;
   nftCatches?: AnyRecord[];
+  pond?: AnyRecord;
   transaction?: AnyRecord;
   redemption?: AnyRecord;
+  ownedAmount?: string;
+  requiredAmount?: string;
+  txHash?: string;
+  nextOperation?: string;
 };
 
 type QuestSnapshotSummary = {
@@ -655,6 +661,7 @@ type AgentCommandState = {
   abortRequested: boolean;
   stopDrain: AgentCommandStopDrain;
   usageFinalized: boolean;
+  usageFinalizationFailed: boolean;
   startSnapshot: PlayerActionSnapshot | null;
   lastSnapshot: PlayerActionSnapshot | null;
   reports: ActionReport[];
@@ -696,6 +703,8 @@ const INPUT_INTERVAL_MS = Math.round(1000 / INPUT_SEND_RATE);
 const FISHING_LOOT_WINDOW_EXPECTED_MS = 3_600;
 const FISHING_COMMAND_STOP_DRAIN_MAX_MS = 35_000;
 const COMMAND_STOP_RESPONSE_WAIT_MS = 8_000;
+const COMMAND_USAGE_FINALIZATION_WAIT_MS = 8_000;
+const FISHING_STATUS_WAIT_MAX_SECONDS = 80;
 const INTERACT_SEND_RANGE = 12.5;
 const QUEST_SEND_RANGE = 3.75;
 const INTERACT_APPROACH_DISTANCE = 1.6;
@@ -931,6 +940,7 @@ const FISHING_POND_CLAIM_ABI = parseAbi([
   "function claim((bytes32 catchId,address fisher,uint8 standard,address collection,uint256 tokenId,uint256 amount,uint256 pondEntryId,uint256 expiresAt,uint256 chainId,address verifyingContract) voucher, bytes signature)",
 ]);
 const MINT_CLUB_REDEMPTION_ERC1155_ABI = parseAbi([
+  "function balanceOf(address account,uint256 id) view returns (uint256)",
   "function isApprovedForAll(address account,address operator) view returns (bool)",
   "function setApprovalForAll(address operator,bool approved)",
 ]);
@@ -1023,7 +1033,7 @@ const DECISION_SCHEMA = {
 class AgentBridgeSession {
   readonly id = randomUUID();
   readonly walletAddress: string;
-  readonly sessionToken: string;
+  sessionToken: string;
   readonly objective: string;
   private readonly client: Client;
   private readonly roomName: string;
@@ -1040,11 +1050,12 @@ class AgentBridgeSession {
   private fishingLootExpectedUntil = 0;
   private fishingNftClaimWalletActions = new Map<string, AnyRecord>();
   private fishingNftCatches = new Map<string, AnyRecord>();
+  private readonly fishingNftClaimResults = new Map<string, AnyRecord>();
   private durableResultSequences = new Map<DurableResultKind, number>();
   private fishingVendorSellResults = new Map<string, AnyRecord>();
   private fishingVendorSellRequestStartedAt = new Map<string, number>();
   private latestFishingNftHistoryResult: AnyRecord | null = null;
-  private latestMintClubRedemptionResult: AnyRecord | null = null;
+  private readonly mintClubRedemptionResults = new Map<string, AnyRecord>();
   private pendingSocialMessages: Array<{ sessionId: string; name: string; identityType: string; text: string; kind: string; observedAt: number }> = [];
   private questMemory = new Map<string, QuestMemory>();
   private focusedQuestId = "";
@@ -1079,6 +1090,8 @@ class AgentBridgeSession {
   private lastNextActionChat = "";
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
+  private connectionGeneration = 0;
+  private connectionPromise: Promise<void> | null = null;
   private reconnecting = false;
   private mferGptSpendProofedWei = 0n;
   private swapEthSpendRequestedWei = 0n;
@@ -1094,6 +1107,7 @@ class AgentBridgeSession {
   lastAction = "";
   lastError = "";
   startedAt = Date.now();
+  lastAccessAt = this.startedAt;
   lastObservedAt = 0;
   lastActionAt = 0;
 
@@ -1118,19 +1132,150 @@ class AgentBridgeSession {
   }
 
   async start() {
-    await this.connect();
-    this.inputTimer = setInterval(() => this.sendInput(), INPUT_INTERVAL_MS);
+    await this.ensureConnected();
+    if (this.stopping) throw new Error("bridge stopped while connecting");
+    if (!this.inputTimer) this.inputTimer = setInterval(() => this.sendInput(), INPUT_INTERVAL_MS);
+  }
+
+  private async ensureConnected() {
+    if (this.room) return;
+    if (this.stopping) throw new Error("bridge is stopped");
+    if (this.connectionPromise) return await this.connectionPromise;
+    const connectionPromise = this.connect();
+    this.connectionPromise = connectionPromise;
+    try {
+      await connectionPromise;
+    } finally {
+      if (this.connectionPromise === connectionPromise) this.connectionPromise = null;
+    }
   }
 
   stop() {
     this.stopping = true;
+    this.connectionGeneration += 1;
     if (this.inputTimer) clearInterval(this.inputTimer);
     this.inputTimer = null;
     void this.room?.leave();
     this.room = null;
   }
 
+  async shutdown(reason = "bridge_shutdown") {
+    try {
+      const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+      if (activeCommand?.status === "running") {
+        this.requestCommandStop(activeCommand, "stopped", reason);
+        const runner = this.commandStopRunners.get(activeCommand.commandId)
+          ?? this.commandRunners.get(activeCommand.commandId)
+          ?? this.finishRequestedCommandStop(activeCommand).catch((error) => {
+            activeCommand.errors = [...activeCommand.errors.slice(-4), `shutdown_drain:${errorMessage(error)}`];
+          });
+        const drainWaitMs = activeCommand.dedicatedFishingTool
+          ? FISHING_COMMAND_STOP_DRAIN_MAX_MS + 1_000
+          : COMMAND_STOP_RESPONSE_WAIT_MS;
+        await waitForAgentCommandRunner(runner, drainWaitMs);
+        if (activeCommand.status === "running") {
+          if (activeCommand.stopDrain.status === "settling") {
+            activeCommand.stopDrain.status = "timed_out";
+            activeCommand.stopDrain.settledAt = Date.now();
+            activeCommand.stopDrain.resultCountAfter = activeCommand.fishing.resultCount;
+          }
+          const forcedFinalizer = this.finishCommand(
+            activeCommand,
+            "failed",
+            `${reason}_reconciliation_timeout`,
+          ).catch((error) => {
+            activeCommand.errors = [...activeCommand.errors.slice(-4), `shutdown_finalize:${errorMessage(error)}`];
+          });
+          await waitForAgentCommandRunner(forcedFinalizer, COMMAND_STOP_RESPONSE_WAIT_MS);
+        }
+      }
+      const finalizers = [...this.commandFinalizers.values()];
+      if (finalizers.length > 0) {
+        await waitForAgentCommandRunner(
+          Promise.allSettled(finalizers).then(() => undefined),
+          COMMAND_STOP_RESPONSE_WAIT_MS,
+        );
+      }
+    } finally {
+      this.stop();
+    }
+  }
+
+  adoptSessionToken(sessionToken: string) {
+    this.sessionToken = sessionToken;
+    this.touch();
+  }
+
+  async reattach(sessionToken: string) {
+    this.adoptSessionToken(sessionToken);
+    await this.start();
+    this.touch();
+  }
+
+  touch(now = Date.now()) {
+    this.lastAccessAt = now;
+  }
+
+  canReattach() {
+    return shouldReattachAgentBridgeSession({
+      roomConnected: Boolean(this.room),
+      pendingSessionFishingClaim: Boolean(this.getPendingSessionFishingNftClaimWalletAction()),
+      commandFinalizerCount: this.commandFinalizers.size,
+      commandStopRunnerCount: this.commandStopRunners.size,
+      commands: [...this.commands.values()].map((command) => ({
+        status: command.status,
+        usageFinalized: command.usageFinalized,
+        usageFinalizationFailed: command.usageFinalizationFailed,
+        handoffPending: this.isCommandHandoffPending(command),
+      })),
+    });
+  }
+
+  canPrune() {
+    if (this.commandFinalizers.size > 0 || this.commandStopRunners.size > 0 || this.commandRunners.size > 0) return false;
+    if (this.getPendingSessionFishingNftClaimWalletAction()) return false;
+    for (const command of this.commands.values()) {
+      if (command.status === "running"
+        || (!command.usageFinalized && !command.usageFinalizationFailed)
+        || this.isCommandHandoffPending(command)) return false;
+    }
+    return true;
+  }
+
+  startResumeCheckpoint() {
+    const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
+    const pendingHandoffCommand = [...this.commands.values()]
+      .filter((command) => this.isCommandHandoffPending(command))
+      .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+    const latestCommand = [...this.commands.values()]
+      .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+    const command = pendingHandoffCommand ?? activeCommand ?? latestCommand;
+    const resumeHandoff = command
+      ? describeAgentBridgeResumeHandoff(
+          command.status,
+          command.dedicatedFishingTool,
+          command.walletActionRequired,
+          this.isCommandHandoffPending(command),
+        )
+      : null;
+    return {
+      bridgeConnected: Boolean(this.room),
+      command: command ? {
+        commandId: command.commandId,
+        status: resumeHandoff?.status ?? command.status,
+        ...(resumeHandoff?.originalStatus ? { originalStatus: resumeHandoff.originalStatus } : {}),
+        dedicatedFishingTool: command.dedicatedFishingTool,
+        handoffPending: resumeHandoff?.handoffPending ?? false,
+        ...(resumeHandoff?.handoffResolution ? { handoffResolution: resumeHandoff.handoffResolution } : {}),
+        stopDrain: describeAgentCommandStopDrain(command.stopDrain),
+      } : null,
+      ...(resumeHandoff?.handoffResolution ? { handoffResolution: resumeHandoff.handoffResolution } : {}),
+      nextOperation: resumeHandoff?.nextOperation ?? "ready",
+    };
+  }
+
   async connect() {
+    const generation = ++this.connectionGeneration;
     const room = await this.client.joinOrCreate(this.roomName, {
       name: this.agentName,
       identityType: "wallet",
@@ -1140,13 +1285,24 @@ class AgentBridgeSession {
       agentClient: true,
       sessionToken: this.sessionToken,
     });
+    if (this.stopping || generation !== this.connectionGeneration) {
+      await room.leave();
+      throw new Error("bridge stopped while connecting");
+    }
     this.room = room;
     this.installHandlers(room);
     this.lastAction = `bridge_joined ${room.sessionId}`;
   }
 
   private installHandlers(room: Room) {
+    const onMessage = (type: string, handler: (message: unknown) => void) => {
+      room.onMessage(type, (message: unknown) => {
+        if (this.room !== room || this.stopping) return;
+        handler(message);
+      });
+    };
     room.onStateChange((state: unknown) => {
+      if (this.room !== room || this.stopping) return;
       const record = asRecord(state);
       this.players = new Map(schemaEntries(record.players).map(([id, value]) => [id, normalizePlayer(id, value)]));
       this.npcs = new Map(schemaEntries(record.npcs).map(([id, value]) => [id, normalizeNpc(id, value)]));
@@ -1155,16 +1311,16 @@ class AgentBridgeSession {
       this.rememberActiveCommandPlayers(this.lastObservedAt);
       this.recoverTimedOutFishingStops();
     });
-    room.onMessage("chat", (message: unknown) => this.handleChatMessage(message));
-    room.onMessage("combatEvent", (message: unknown) => this.handleCombatEvent(message));
-    room.onMessage("experienceEvent", (message: unknown) => this.remember(`xp:${messageSummary(message)}`, true));
-    room.onMessage("lootWindow", (message: unknown) => {
+    onMessage("chat", (message: unknown) => this.handleChatMessage(message));
+    onMessage("combatEvent", (message: unknown) => this.handleCombatEvent(message));
+    onMessage("experienceEvent", (message: unknown) => this.remember(`xp:${messageSummary(message)}`, true));
+    onMessage("lootWindow", (message: unknown) => {
       this.openLootWindow = readOpenLootWindow(message);
       if (this.openLootWindow?.source === "fishing") this.fishingLootExpectedUntil = 0;
       this.remember(`lootWindow:${messageSummary(message)}`, true);
     });
-    room.onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
-    room.onMessage("closeLootWindow", (message: unknown) => {
+    onMessage("lootResult", (message: unknown) => this.remember(`lootResult:${messageSummary(message)}`, true));
+    onMessage("closeLootWindow", (message: unknown) => {
       const npcId = cleanText(asRecord(message).npcId, 128);
       let closedFishingLoot = false;
       if (!npcId || this.openLootWindow?.npcId === npcId) {
@@ -1180,12 +1336,12 @@ class AgentBridgeSession {
       }
       this.remember(`closeLoot:${messageSummary(message)}`);
     });
-    room.onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
-    room.onMessage("trashVendorSellResult", (message: unknown) => {
+    onMessage("potionShopPurchaseResult", (message: unknown) => this.remember(`potionShop:${messageSummary(message)}`, true));
+    onMessage("trashVendorSellResult", (message: unknown) => {
       this.recordDurableResult("trashVendor");
       this.remember(`trashVendor:${messageSummary(message)}`, true);
     });
-    room.onMessage("fishingResult", (message: unknown) => {
+    onMessage("fishingResult", (message: unknown) => {
       const sanitized = sanitizeFishingResultMessage(message);
       const owningCommand = this.resolveFishingResultCommand(sanitized);
       this.recordFishingNftClaimWalletAction(asRecord(sanitized).nftCatch, owningCommand);
@@ -1196,14 +1352,24 @@ class AgentBridgeSession {
       if (owningCommand?.stopDrain.status === "timed_out") this.ensureFishingStopRecovery(owningCommand);
       this.remember(`fishing:${messageSummary(sanitized)}`, true);
     });
-    room.onMessage("fishingNftCatchResult", (message: unknown) => {
+    onMessage("fishingNftCatchResult", (message: unknown) => {
       this.recordFishingNftClaimWalletAction(asRecord(message).catch, null);
       const sanitized = sanitizeFishingNftCatchMessage(message);
+      const requestId = cleanText(getString(asRecord(sanitized).requestId), 96);
+      if (requestId) {
+        this.fishingNftClaimResults.delete(requestId);
+        this.fishingNftClaimResults.set(requestId, asRecord(sanitized));
+        while (this.fishingNftClaimResults.size > 32) {
+          const oldestRequestId = this.fishingNftClaimResults.keys().next().value;
+          if (!oldestRequestId) break;
+          this.fishingNftClaimResults.delete(oldestRequestId);
+        }
+      }
       this.recordFishingNftCatchResult(sanitized);
       this.recordDurableResult("fishingNft");
       this.remember(`fishingNft:${messageSummary(sanitized)}`, true);
     });
-    room.onMessage("fishingCancelResult", (message: unknown) => {
+    onMessage("fishingCancelResult", (message: unknown) => {
       const record = asRecord(message);
       const commandId = cleanText(getString(record.requestId), 80);
       const command = commandId ? this.commands.get(commandId) : null;
@@ -1215,46 +1381,59 @@ class AgentBridgeSession {
       }
       this.remember(`fishingCancel:${messageSummary(message)}`);
     });
-    room.onMessage("fishingNftCapNotice", (message: unknown) => {
+    onMessage("fishingNftCapNotice", (message: unknown) => {
       this.recordFishingNftCapNotice(message);
       this.remember(`fishingNftCap:${messageSummary(message)}`, true);
     });
-    room.onMessage("fishingNftHistoryResult", (message: unknown) => {
+    onMessage("fishingNftHistoryResult", (message: unknown) => {
       const result = normalizeFishingNftHistoryResult(message);
       this.latestFishingNftHistoryResult = result;
       if (result.ok) this.recordFishingNftHistoryResult(message);
       this.recordDurableResult("fishingNftHistory");
       this.remember(`fishingNftHistory:${messageSummary(result)}`, true);
     });
-    room.onMessage("fishingSupplyPurchaseResult", (message: unknown) => {
+    onMessage("fishingSupplyPurchaseResult", (message: unknown) => {
       this.recordDurableResult("fishingSupply");
       this.remember(`fishingSupply:${messageSummary(message)}`, true);
     });
-    room.onMessage("fishingVendorSellResult", (message: unknown) => {
+    onMessage("fishingVendorSellResult", (message: unknown) => {
       const result = normalizeFishingVendorSellResult(message);
       this.recordDurableResult("fishingVendor");
       this.rememberFishingVendorSellResult(result);
       this.recordFishingVendorSellResult(result);
       this.remember(`fishingVendor:${messageSummary(result)}`, true);
     });
-    room.onMessage("mintClubRedemptionResult", (message: unknown) => {
-      this.latestMintClubRedemptionResult = asRecord(message);
-      const catchRecord = asRecord(asRecord(message).catch);
+    onMessage("mintClubRedemptionResult", (message: unknown) => {
+      const result = asRecord(message);
+      const requestId = cleanText(result.requestId, 96);
+      if (requestId) {
+        this.mintClubRedemptionResults.delete(requestId);
+        this.mintClubRedemptionResults.set(requestId, result);
+        while (this.mintClubRedemptionResults.size > 32) {
+          const oldestRequestId = this.mintClubRedemptionResults.keys().next().value;
+          if (!oldestRequestId) break;
+          this.mintClubRedemptionResults.delete(oldestRequestId);
+        }
+      }
+      const catchRecord = asRecord(result.catch);
       const catchId = getString(catchRecord.catchId);
       if (catchId) this.fishingNftCatches.set(catchId.toLowerCase(), describeFishingNftCatchForAgent(catchRecord));
       this.remember(`mintClubRedemption:${messageSummary(message)}`, true);
     });
-    room.onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
-    room.onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
-    room.onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
-    room.onMessage("questCompleted", (message: unknown) => this.rememberQuestMessage("completed", message));
-    room.onMessage("persistenceStatus", (message: unknown) => this.remember(`persistence:${messageSummary(message)}`, true));
-    room.onMessage("traitUpdateResult", (message: unknown) => this.remember(`traitUpdate:${messageSummary(message)}`, true));
-    room.onMessage("sessionReplaced", () => {
+    onMessage("questOffer", (message: unknown) => this.rememberQuestMessage("offer", message));
+    onMessage("questStatus", (message: unknown) => this.rememberQuestMessage("status", message));
+    onMessage("questTurnIn", (message: unknown) => this.rememberQuestMessage("turnIn", message));
+    onMessage("questCompleted", (message: unknown) => this.rememberQuestMessage("completed", message));
+    onMessage("persistenceStatus", (message: unknown) => this.remember(`persistence:${messageSummary(message)}`, true));
+    onMessage("traitUpdateResult", (message: unknown) => this.remember(`traitUpdate:${messageSummary(message)}`, true));
+    onMessage("sessionReplaced", () => {
+      if (this.room !== room) return;
       this.remember("sessionReplaced", true);
       void this.reconnect();
     });
     room.onLeave(() => {
+      if (this.room !== room) return;
+      this.room = null;
       if (!this.stopping) void this.reconnect();
     });
   }
@@ -1263,12 +1442,16 @@ class AgentBridgeSession {
     if (this.reconnecting || this.stopping) return;
     this.reconnecting = true;
     this.room = null;
-    await delay(1500);
     try {
-      await this.connect();
-    } catch (error) {
-      this.lastError = errorMessage(error);
-      await delay(5000);
+      await delay(1500);
+      while (!this.stopping && !this.room) {
+        try {
+          await this.ensureConnected();
+        } catch (error) {
+          this.lastError = errorMessage(error);
+          await delay(5000);
+        }
+      }
     } finally {
       this.reconnecting = false;
     }
@@ -1572,6 +1755,14 @@ class AgentBridgeSession {
       const fishingVendorStartedAt = decision.action === "sell_fish_items"
         ? this.fishingVendorSellRequestStartedAt.get(context.requestId) ?? 0
         : 0;
+      const fishingNftClaimResult = decision.action === "submit_fishing_nft_claim_tx"
+        ? this.getFishingNftClaimResult(context.requestId, decision.catchId || decision.text)
+        : null;
+      const fishingNftClaimReconciliationRequired = decision.action === "submit_fishing_nft_claim_tx"
+        && !fishingNftClaimResult;
+      const fishingNftClaimTxHash = fishingNftClaimReconciliationRequired
+        ? cleanText(decision.txHash || decision.paymentTxHash, 96).toLowerCase()
+        : "";
       const fishingVendorApproachIncomplete = decision.action === "sell_fish_items"
         && !fishingVendorStartedAt
         && outcome.status === "in_progress"
@@ -1581,12 +1772,27 @@ class AgentBridgeSession {
         && this.hasNewDurableResult("fishingNftHistory", context)
         ? this.latestFishingNftHistoryResult
         : null;
+      const fishingPondConfig = fishingNftHistoryResult
+        ? await readFishingPondPublicConfig(this.walletAddress).catch(() => null)
+        : null;
       const reportOutcome = fishingVendorResult && !fishingVendorResult.ok
         ? {
             status: "failed",
             stoppedBecause: getString(fishingVendorResult.error) || getString(fishingVendorResult.status) || "fishing_sale_failed",
             durationMs: outcome.durationMs,
           }
+        : fishingNftClaimResult && !fishingNftClaimResult.ok
+          ? {
+              status: "failed",
+              stoppedBecause: getString(fishingNftClaimResult.error) || getString(fishingNftClaimResult.status) || "fishing_nft_claim_failed",
+              durationMs: outcome.durationMs,
+            }
+        : fishingNftClaimReconciliationRequired
+          ? {
+              status: "failed",
+              stoppedBecause: "fishing_nft_claim_reconciliation_required",
+              durationMs: outcome.durationMs,
+            }
         : fishingNftHistoryResult && !fishingNftHistoryResult.ok
           ? {
               status: "failed",
@@ -1614,6 +1820,33 @@ class AgentBridgeSession {
             fishSale: fishingVendorResult,
             error: getString(fishingVendorResult.error) || undefined,
           }
+        : fishingNftClaimResult
+          ? {
+              ok: Boolean(fishingNftClaimResult.ok),
+              status: getString(fishingNftClaimResult.status)
+                || getString(asRecord(fishingNftClaimResult.catch).status)
+                || (fishingNftClaimResult.ok ? "accepted" : "error"),
+              requestId: context.requestId,
+              bridgeSessionId: this.id,
+              lastAction: this.lastAction,
+              durationMs: outcome.durationMs,
+              catch: asRecord(fishingNftClaimResult.catch).catchId
+                ? asRecord(fishingNftClaimResult.catch)
+                : null,
+              error: getString(fishingNftClaimResult.error) || undefined,
+            }
+        : fishingNftClaimReconciliationRequired
+          ? {
+              ok: false,
+              status: "claim_reconciliation_required",
+              requestId: context.requestId,
+              bridgeSessionId: this.id,
+              lastAction: this.lastAction,
+              durationMs: outcome.durationMs,
+              txHash: /^0x[0-9a-f]{64}$/.test(fishingNftClaimTxHash) ? fishingNftClaimTxHash : undefined,
+              nextOperation: "submit_claim_tx",
+              error: "claim submission result is unavailable; retry submit_claim_tx with the same catch and transaction hash",
+            }
         : fishingNftHistoryResult
           ? {
               ok: Boolean(fishingNftHistoryResult.ok),
@@ -1622,6 +1855,7 @@ class AgentBridgeSession {
               lastAction: this.lastAction,
               durationMs: outcome.durationMs,
               nftCatches: Array.isArray(fishingNftHistoryResult.catches) ? fishingNftHistoryResult.catches : [],
+              pond: describeFishingPondAvailability(fishingPondConfig),
               error: getString(fishingNftHistoryResult.error) || undefined,
             }
           : fishingVendorApproachIncomplete
@@ -1675,6 +1909,17 @@ class AgentBridgeSession {
     if (!self) throw new BridgeHttpError(409, "bridge has not received player state yet");
     const active = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
     if (active?.status === "running") throw new BridgeHttpError(409, "agent command already running for this wallet");
+    const pendingHandoff = [...this.commands.values()]
+      .filter((command) => this.isCommandHandoffPending(command))
+      .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+    if (pendingHandoff) {
+      throw new BridgeHttpError(409, "a previous agent command still requires its wallet or payment handoff", {
+        code: "agent_command_handoff_pending",
+        commandId: pendingHandoff.commandId,
+        status: pendingHandoff.status,
+        walletActionRequired: pendingHandoff.walletActionRequired,
+      });
+    }
 
     const payload = normalizeCommandPayload(rawPayload, options);
     const budget = await this.resolveCommandBudget();
@@ -1720,6 +1965,7 @@ class AgentBridgeSession {
       abortRequested: false,
       stopDrain: createAgentCommandStopDrain(),
       usageFinalized: false,
+      usageFinalizationFailed: false,
       startSnapshot: this.snapshotPlayer(self),
       lastSnapshot: this.snapshotPlayer(self),
       reports: [],
@@ -1759,6 +2005,10 @@ class AgentBridgeSession {
   }
 
   async getFishingCommand(commandIdValue: unknown, pollNonce = "") {
+    return await this.waitForFishingCommand(commandIdValue, pollNonce, 0);
+  }
+
+  async waitForFishingCommand(commandIdValue: unknown, pollNonce = "", waitSecondsValue: unknown = 0) {
     const selected = selectFishingCommandStatusTarget(
       this.commands.values(),
       this.activeCommandId,
@@ -1774,11 +2024,27 @@ class AgentBridgeSession {
         pollNonce ? { pollNonce } : null,
       );
     }
-    const body = await this.serializeCommand(selected.command);
     if (selected.command.status === "running" && selected.command.stopDrain.status === "timed_out") {
       this.ensureFishingStopRecovery(selected.command);
     }
-    return withFishingCommandRecovery(body, selected.command.commandId, selected.recovery);
+    const waitSeconds = normalizeFishingStatusWaitSeconds(waitSecondsValue);
+    const waitStartedAt = Date.now();
+    while (waitSeconds > 0
+      && selected.command.status === "running"
+      && Date.now() - waitStartedAt < waitSeconds * 1000) {
+      await delay(Math.min(250, Math.max(25, waitSeconds * 1000 - (Date.now() - waitStartedAt))));
+    }
+    const body = await this.serializeCommand(selected.command);
+    const recovered = withFishingCommandRecovery(body, selected.command.commandId, selected.recovery);
+    if (waitSeconds <= 0) return recovered;
+    return {
+      ...recovered,
+      pollWait: {
+        requestedSeconds: waitSeconds,
+        elapsedMs: Math.max(0, Date.now() - waitStartedAt),
+        reason: selected.command.status === "running" ? "wait_elapsed" : "terminal",
+      },
+    };
   }
 
   getFishingVendorSaleStatus(requestIdValue: unknown): BridgeActionResult {
@@ -1798,8 +2064,9 @@ class AgentBridgeSession {
       if (command.stopDrain.status === "timed_out") this.ensureFishingStopRecovery(command);
       else this.requestCommandStop(command, "stopped", "manual_stop");
       const runner = this.commandStopRunners.get(command.commandId)
-        ?? this.commandRunners.get(command.commandId);
-      if (runner) await waitForAgentCommandRunner(runner, COMMAND_STOP_RESPONSE_WAIT_MS);
+        ?? this.commandRunners.get(command.commandId)
+        ?? this.startCommandStopRecovery(command);
+      await waitForAgentCommandRunner(runner, COMMAND_STOP_RESPONSE_WAIT_MS);
     }
     const body = await this.serializeCommand(command);
     return {
@@ -1810,7 +2077,10 @@ class AgentBridgeSession {
 
   async prepareBridgeStop() {
     const activeCommand = this.activeCommandId ? this.commands.get(this.activeCommandId) : null;
-    const latestCommand = activeCommand ?? [...this.commands.values()]
+    const pendingHandoffCommand = [...this.commands.values()]
+      .filter((command) => this.isCommandHandoffPending(command))
+      .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+    const latestCommand = activeCommand ?? pendingHandoffCommand ?? [...this.commands.values()]
       .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
     const command = latestCommand;
     const reconciliationTimedOut = shouldReportFishingReconciliationTimeoutForBridgeCleanup(
@@ -1827,9 +2097,11 @@ class AgentBridgeSession {
     const commandStatus = cleanText(asRecord(commandStop).status, 40);
     const drainStatus = cleanText(asRecord(asRecord(commandStop).stopDrain).status, 40);
     const pendingSessionFishingClaim = this.getPendingSessionFishingNftClaimWalletAction();
-    const handoffPending = Boolean(pendingSessionFishingClaim)
-      || (command ? this.isCommandHandoffPending(command) : false);
-    const retention = classifyAgentBridgeStopRetention(commandStatus, drainStatus, handoffPending);
+    const handoffPending = Boolean(pendingSessionFishingClaim) || Boolean(pendingHandoffCommand);
+    const retentionCommandStatus = commandStatus === "running"
+      ? commandStatus
+      : pendingHandoffCommand?.status ?? commandStatus;
+    const retention = classifyAgentBridgeStopRetention(retentionCommandStatus, drainStatus, handoffPending);
     if (retention) {
       return {
         canStop: false,
@@ -1842,7 +2114,7 @@ class AgentBridgeSession {
             : "the reconciled command requires its pending handoff before bridge cleanup",
         commandStop,
         walletActionRequired: retention.status === "wallet_action_required"
-          ? pendingSessionFishingClaim ?? command?.walletActionRequired ?? null
+          ? pendingSessionFishingClaim ?? pendingHandoffCommand?.walletActionRequired ?? command?.walletActionRequired ?? null
           : undefined,
       };
     }
@@ -1851,9 +2123,10 @@ class AgentBridgeSession {
       httpStatus: 200,
       status: "ready",
       commandStop,
-      handoffResolution: commandStatus === "wallet_action_required"
-        ? { status: "resolved", action: getString(asRecord(command?.walletActionRequired).action) }
-        : undefined,
+      handoffResolution: describeAgentBridgeHandoffResolution(
+        commandStatus,
+        command?.walletActionRequired,
+      ),
     };
   }
 
@@ -2028,33 +2301,68 @@ class AgentBridgeSession {
     return runner;
   }
 
+  private startCommandStopRecovery(command: AgentCommandState) {
+    const existing = this.commandStopRunners.get(command.commandId);
+    if (existing) return existing;
+    const runner = this.finishRequestedCommandStop(command).catch((error) => {
+      command.errors = [...command.errors.slice(-4), `stop_recovery:${errorMessage(error)}`];
+    });
+    this.commandStopRunners.set(command.commandId, runner);
+    void runner.finally(() => {
+      if (this.commandStopRunners.get(command.commandId) === runner) {
+        this.commandStopRunners.delete(command.commandId);
+      }
+    });
+    return runner;
+  }
+
   private isCommandHandoffPending(command: AgentCommandState) {
-    if (command.status === "payment_required") return true;
-    if (command.status !== "wallet_action_required") return false;
     const walletAction = asRecord(command.walletActionRequired);
-    if (getString(walletAction.action) !== "claim_fishing_nft") return true;
     const catchId = getString(walletAction.catchId).toLowerCase();
-    if (!catchId) return true;
-    return isFishingClaimWalletActionPending(
+    return isRetainableAgentCommandHandoff(
+      command.status,
       walletAction,
       this.fishingNftCatches.get(catchId) ?? null,
     );
   }
 
-  async prepareMintClubRedemption(catchIdValue: unknown): Promise<BridgeActionResult> {
+  async prepareMintClubRedemption(catchIdValue: unknown, commandIdValue: unknown): Promise<BridgeActionResult> {
     const requestedCatchId = cleanText(catchIdValue, 96).toLowerCase();
+    if (!requestedCatchId) {
+      return {
+        ok: false,
+        status: "catch_id_required",
+        bridgeSessionId: this.id,
+        error: "prepare_redemption requires the exact catchId from the current run; no transaction was prepared",
+      };
+    }
+    const requestedCommandId = cleanText(commandIdValue, 80);
+    const latestDedicatedFishingCommand = [...this.commands.values()]
+      .filter((command) => command.dedicatedFishingTool)
+      .sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+    const commandOwnsCatch = isCurrentRunFishingCatch({
+      requestedCommandId,
+      requestedCatchId,
+      latestCommandId: latestDedicatedFishingCommand?.commandId ?? "",
+      latestCatchIds: latestDedicatedFishingCommand
+        ? [...latestDedicatedFishingCommand.fishing.nftCatches.keys()]
+        : [],
+    });
+    if (!requestedCommandId || !commandOwnsCatch) {
+      return {
+        ok: false,
+        status: "current_run_catch_required",
+        bridgeSessionId: this.id,
+        error: "prepare_redemption requires the latest dedicated fishing commandId and its exact newly caught catchId; no history catch was selected and no transaction was prepared",
+      };
+    }
     let catchSnapshot = requestedCatchId ? this.fishingNftCatches.get(requestedCatchId) : null;
     if (!catchSnapshot) {
       this.send("refreshFishingNftHistory", {});
       const refreshStartedAt = Date.now();
       while (Date.now() - refreshStartedAt < 3_000) {
         await delay(150);
-        catchSnapshot = requestedCatchId
-          ? this.fishingNftCatches.get(requestedCatchId)
-          : [...this.fishingNftCatches.values()].find((entry) => {
-              const redemption = asRecord(entry.mintClubRedemption);
-              return getString(entry.status) === "confirmed" && ["eligible", "tx_submitted", "confirmed"].includes(getString(redemption.status));
-            });
+        catchSnapshot = this.fishingNftCatches.get(requestedCatchId);
         if (catchSnapshot) break;
       }
     }
@@ -2071,7 +2379,34 @@ class AgentBridgeSession {
     if (redemptionStatus === "confirmed") {
       return { ok: true, status: "confirmed", bridgeSessionId: this.id, catch: catchSnapshot, redemption };
     }
-    if (!redemptionStatus || !["eligible", "tx_submitted"].includes(redemptionStatus)) {
+    if (redemptionStatus === "prepared") {
+      return {
+        ok: false,
+        status: "redemption_preparation_pending",
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption,
+        nextOperation: "submit_redemption_tx",
+        error: "a sell transaction was already prepared for this catch; submit its real transaction hash after confirmation and do not prepare or broadcast another sale",
+      };
+    }
+    if (redemptionStatus === "tx_submitted") {
+      const submittedTxHash = cleanText(redemption.txHash, 96).toLowerCase();
+      const hasSubmittedTxHash = /^0x[0-9a-f]{64}$/.test(submittedTxHash);
+      return {
+        ok: false,
+        status: "redemption_reconciliation_required",
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption,
+        txHash: hasSubmittedTxHash ? submittedTxHash : undefined,
+        nextOperation: hasSubmittedTxHash ? "submit_redemption_tx" : undefined,
+        error: hasSubmittedTxHash
+          ? "a redemption transaction was already broadcast for this catch; report this exact recorded hash with submit_redemption_tx without broadcasting another wallet transaction"
+          : "a redemption submission is pending but its transaction hash is unavailable; do not prepare or broadcast another sale",
+      };
+    }
+    if (redemptionStatus !== "eligible" && redemptionStatus !== "failed") {
       return { ok: false, status: "not_redeemable", bridgeSessionId: this.id, catch: catchSnapshot, error: "catch is not configured for Mint Club redemption" };
     }
 
@@ -2088,20 +2423,84 @@ class AgentBridgeSession {
       return { ok: false, status: "not_redeemable", bridgeSessionId: this.id, catch: catchSnapshot, error: "redemption RPC configuration does not match this catch" };
     }
     const publicClient = createPublicClient({ transport: http(config.rpcUrl) });
-    const [approvedForBond, estimate] = await Promise.all([
-      publicClient.readContract({
+    const tokenIdText = getString(catchSnapshot.tokenId);
+    let tokenId: bigint;
+    try {
+      tokenId = BigInt(tokenIdText);
+      if (tokenId < 0n) throw new Error("negative token id");
+    } catch {
+      return {
+        ok: false,
+        status: "ownership_check_failed",
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption,
+        error: "redemption token id is invalid; no transaction was prepared",
+      };
+    }
+    let ownedAmount: bigint;
+    try {
+      ownedAmount = await publicClient.readContract({
         address: collection as `0x${string}`,
         abi: MINT_CLUB_REDEMPTION_ERC1155_ABI,
-        functionName: "isApprovedForAll",
-        args: [walletAddress as `0x${string}`, bondAddress as `0x${string}`],
-      }),
-      publicClient.readContract({
-        address: bondAddress as `0x${string}`,
-        abi: MINT_CLUB_REDEMPTION_BOND_ABI,
-        functionName: "getRefundForTokens",
-        args: [collection as `0x${string}`, 1n],
-      }),
-    ]);
+        functionName: "balanceOf",
+        args: [walletAddress as `0x${string}`, tokenId],
+      });
+    } catch (error) {
+      console.warn(`[agent-bridge] redemption ownership check failed for ${catchId}`, {
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      return {
+        ok: false,
+        status: "ownership_check_failed",
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption,
+        error: "could not verify current ERC-1155 ownership; no transaction was prepared",
+      };
+    }
+    const ownership = classifyMintClubRedemptionOwnership(ownedAmount, 1n, redemptionStatus);
+    if (!ownership.ok) {
+      return {
+        ...ownership,
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption,
+        error: ownership.status === "redemption_reconciliation_required"
+          ? "the NFT is no longer in this wallet but its prior redemption submission is not confirmed; reconcile that transaction before retrying"
+          : "the NFT is no longer in this wallet; history eligibility is not proof of current ownership and no transaction was prepared",
+      };
+    }
+    let approvalAndEstimate;
+    try {
+      approvalAndEstimate = await Promise.all([
+        publicClient.readContract({
+          address: collection as `0x${string}`,
+          abi: MINT_CLUB_REDEMPTION_ERC1155_ABI,
+          functionName: "isApprovedForAll",
+          args: [walletAddress as `0x${string}`, bondAddress as `0x${string}`],
+        }),
+        publicClient.readContract({
+          address: bondAddress as `0x${string}`,
+          abi: MINT_CLUB_REDEMPTION_BOND_ABI,
+          functionName: "getRefundForTokens",
+          args: [collection as `0x${string}`, 1n],
+        }),
+      ]);
+    } catch (error) {
+      console.warn(`[agent-bridge] redemption quote check failed for ${catchId}`, {
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      return {
+        ok: false,
+        status: "redemption_quote_failed",
+        bridgeSessionId: this.id,
+        catch: catchSnapshot,
+        redemption,
+        error: "could not read current Mint Club approval and sell quote; no transaction was prepared",
+      };
+    }
+    const [approvedForBond, estimate] = approvalAndEstimate;
     const refundAmount = estimate[0];
     const royaltyAmount = estimate[1];
     const slippageBps = Math.max(0, Math.min(10_000, Math.floor(getNumber(redemption.slippageBps))));
@@ -2130,6 +2529,76 @@ class AgentBridgeSession {
           }),
           value: "0x0",
         };
+    let responseCatch = catchSnapshot;
+    let responseRedemption = redemption;
+    if (approvedForBond) {
+      let preparation;
+      try {
+        preparation = await reserveFishingPondCatchMintClubRedemptionPreparation(catchId);
+      } catch (error) {
+        console.warn(`[agent-bridge] redemption preparation reservation failed for ${catchId}`, {
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+        return {
+          ok: false,
+          status: "redemption_preparation_failed",
+          bridgeSessionId: this.id,
+          catch: catchSnapshot,
+          redemption,
+          error: "could not reserve this Mint Club sell safely; no transaction was returned",
+        };
+      }
+      if (!preparation.reserved) {
+        const currentStatus = preparation.record?.mintClubRedemptionStatus ?? "";
+        const currentTxHash = cleanText(preparation.record?.mintClubRedemptionTxHash, 96).toLowerCase();
+        const hasCurrentTxHash = /^0x[0-9a-f]{64}$/.test(currentTxHash);
+        this.send("refreshFishingNftHistory", {});
+        if (currentStatus === "confirmed") {
+          return {
+            ok: true,
+            status: "confirmed",
+            bridgeSessionId: this.id,
+            catch: catchSnapshot,
+            redemption: { ...redemption, status: "confirmed", txHash: hasCurrentTxHash ? currentTxHash : undefined },
+            txHash: hasCurrentTxHash ? currentTxHash : undefined,
+          };
+        }
+        if (currentStatus === "tx_submitted") {
+          return {
+            ok: false,
+            status: "redemption_reconciliation_required",
+            bridgeSessionId: this.id,
+            catch: catchSnapshot,
+            redemption: { ...redemption, status: "tx_submitted", txHash: hasCurrentTxHash ? currentTxHash : undefined },
+            txHash: hasCurrentTxHash ? currentTxHash : undefined,
+            nextOperation: hasCurrentTxHash ? "submit_redemption_tx" : undefined,
+            error: "a redemption transaction was already submitted for this catch; reconcile it without broadcasting another wallet transaction",
+          };
+        }
+        if (currentStatus === "prepared") {
+          return {
+            ok: false,
+            status: "redemption_preparation_pending",
+            bridgeSessionId: this.id,
+            catch: catchSnapshot,
+            redemption: { ...redemption, status: "prepared" },
+            nextOperation: "submit_redemption_tx",
+            error: "another sell preparation already reserved this catch; use its transaction and submit the real confirmed hash instead of broadcasting another sale",
+          };
+        }
+        return {
+          ok: false,
+          status: "redemption_preparation_failed",
+          bridgeSessionId: this.id,
+          catch: catchSnapshot,
+          redemption,
+          error: "this catch could not be reserved for a Mint Club sell; refresh history and do not broadcast a transaction",
+        };
+      }
+      responseRedemption = { ...redemption, status: "prepared", walletActionRequired: true };
+      responseCatch = { ...catchSnapshot, mintClubRedemption: responseRedemption };
+      this.fishingNftCatches.set(catchId.toLowerCase(), responseCatch);
+    }
     const walletActionRequired = {
       action: "redeem_fishing_nft",
       phase,
@@ -2154,8 +2623,10 @@ class AgentBridgeSession {
       ok: false,
       status: "wallet_action_required",
       bridgeSessionId: this.id,
-      catch: catchSnapshot,
-      redemption,
+      catch: responseCatch,
+      redemption: responseRedemption,
+      ownedAmount: ownership.ownedAmount,
+      requiredAmount: ownership.requiredAmount,
       transaction,
       walletActionRequired,
     };
@@ -2167,36 +2638,45 @@ class AgentBridgeSession {
     if (!catchId || !/^0x[0-9a-f]{64}$/.test(txHash)) {
       return { ok: false, status: "rejected", bridgeSessionId: this.id, error: "submit_redemption_tx requires catchId and a real transaction hash" };
     }
-    this.latestMintClubRedemptionResult = null;
-    this.send("submitMintClubRedemptionTx", { catchId, txHash, status: "confirmed" });
+    const requestId = randomUUID();
+    this.mintClubRedemptionResults.delete(requestId);
+    this.send("submitMintClubRedemptionTx", { catchId, txHash, status: "confirmed", requestId });
     const submittedAt = Date.now();
     while (Date.now() - submittedAt < 25_000) {
       await delay(250);
-      const result = this.getLatestMintClubRedemptionResult();
+      const result = this.getMintClubRedemptionResult(requestId);
       const resultCatch = asRecord(result?.catch);
-      if (!result || getString(resultCatch.catchId).toLowerCase() !== catchId) continue;
+      if (!result
+        || getString(result.requestId) !== requestId
+        || getString(resultCatch.catchId).toLowerCase() !== catchId) continue;
       const catchSnapshot = describeFishingNftCatchForAgent(resultCatch);
       const ok = Boolean(result.ok);
+      this.mintClubRedemptionResults.delete(requestId);
       return {
         ok,
-        status: getString(asRecord(catchSnapshot.mintClubRedemption).status) || (ok ? "submitted" : "rejected"),
+        status: getString(result.status)
+          || getString(asRecord(catchSnapshot.mintClubRedemption).status)
+          || (ok ? "submitted" : "rejected"),
         bridgeSessionId: this.id,
         catch: catchSnapshot,
         redemption: asRecord(catchSnapshot.mintClubRedemption),
         error: getString(result.error) || undefined,
       };
     }
+    this.mintClubRedemptionResults.delete(requestId);
     return {
-      ok: true,
-      status: "tx_submitted",
+      ok: false,
+      status: "redemption_reconciliation_required",
       bridgeSessionId: this.id,
       catch: this.fishingNftCatches.get(catchId) ?? null,
-      error: "waiting for redemption confirmation",
+      txHash,
+      nextOperation: "submit_redemption_tx",
+      error: "redemption submission response was unavailable; retry this same transaction hash for reconciliation and do not broadcast another wallet transaction",
     };
   }
 
-  private getLatestMintClubRedemptionResult(): AnyRecord | null {
-    return this.latestMintClubRedemptionResult;
+  private getMintClubRedemptionResult(requestId: string): AnyRecord | null {
+    return this.mintClubRedemptionResults.get(requestId) ?? null;
   }
 
   private async resolveCommandBudget(): Promise<AgentCommandBudget> {
@@ -3857,16 +4337,54 @@ class AgentBridgeSession {
     if (command.status !== "running" && command.finishedAt) return;
     const endingSelf = this.self();
     if (endingSelf) this.rememberCommandPlayers(command, endingSelf);
-    command.status = status;
-    command.stoppedBecause = stoppedBecause;
-    command.finishedAt = Date.now();
+    const finishedAt = Date.now();
     const self = this.self();
     command.lastSnapshot = self ? this.snapshotPlayer(self) : command.lastSnapshot;
-    if (!command.usageFinalized) {
-      await finalizeAgentCommandSeconds(this.walletAddress, command.maxSeconds, command.startedAt, command.finishedAt);
-      command.usage = await getAgentCommandUsage(this.walletAddress, command.budget, command.finishedAt);
-      command.usageFinalized = true;
+    if (!command.usageFinalized && !command.usageFinalizationFailed) {
+      let finalizationError = "";
+      const usageFinalizer = finalizeAgentCommandSeconds(
+        this.walletAddress,
+        command.maxSeconds,
+        command.startedAt,
+        finishedAt,
+      ).catch((error) => {
+        finalizationError = errorMessage(error);
+      });
+      const finalizedInTime = await waitForAgentCommandRunner(
+        usageFinalizer,
+        COMMAND_USAGE_FINALIZATION_WAIT_MS,
+      );
+      if (!finalizedInTime || finalizationError) {
+        command.usageFinalizationFailed = true;
+        command.errors = [...command.errors.slice(-4), finalizedInTime
+          ? "usage_finalization_failed"
+          : "usage_finalization_timed_out"];
+      } else {
+        command.usageFinalized = true;
+        let refreshedUsage: AgentCommandUsage | undefined;
+        let usageRefreshError = "";
+        const usageRefresh = getAgentCommandUsage(this.walletAddress, command.budget, finishedAt)
+          .then((usage) => {
+            refreshedUsage = usage;
+          })
+          .catch((error) => {
+            usageRefreshError = errorMessage(error);
+          });
+        const refreshedInTime = await waitForAgentCommandRunner(
+          usageRefresh,
+          COMMAND_USAGE_FINALIZATION_WAIT_MS,
+        );
+        if (refreshedInTime && refreshedUsage) command.usage = refreshedUsage;
+        if (!refreshedInTime || usageRefreshError) {
+          command.errors = [...command.errors.slice(-4), refreshedInTime
+            ? "usage_refresh_failed"
+            : "usage_refresh_timed_out"];
+        }
+      }
     }
+    command.status = status;
+    command.stoppedBecause = stoppedBecause;
+    command.finishedAt = finishedAt;
     if (this.activeCommandId === command.commandId) this.activeCommandId = "";
     this.lastAction = `command_${status} ${command.kind}`;
     command.terminalResponse = await this.buildCommandResponse(command);
@@ -3986,6 +4504,14 @@ class AgentBridgeSession {
         maxSeconds: command.maxSeconds,
         budget: command.budget,
         usage: command.usage,
+        usageFinalization: {
+          status: command.usageFinalized
+            ? "finalized"
+            : command.usageFinalizationFailed
+              ? "failed_or_unknown"
+              : "pending",
+          retrySafe: false,
+        },
         questId: command.questId || undefined,
         itemId: command.itemId || undefined,
         targetCount: command.targetCount || undefined,
@@ -4417,7 +4943,7 @@ class AgentBridgeSession {
         }
         return null;
       case "submit_fishing_nft_claim_tx":
-        if (this.hasNewDurableResult("fishingNft", context)) {
+        if (this.getFishingNftClaimResult(context.requestId, decision.catchId || decision.text)) {
           return { status: "completed", stoppedBecause: "fishing_nft_claim_tx_submitted", durationMs };
         }
         return null;
@@ -4595,7 +5121,7 @@ class AgentBridgeSession {
         const txHash = cleanText(decision.txHash, 96) || cleanText(decision.paymentTxHash, 96);
         if (!catchId || !txHash) throw new Error("submit_fishing_nft_claim_tx requires catchId and txHash");
         this.clearRoute();
-        this.send("submitFishingNftClaimTx", { catchId, txHash });
+        this.send("submitFishingNftClaimTx", { catchId, txHash, requestId: context.requestId });
         this.lastAction = `submit_fishing_nft_claim_tx ${catchId}`;
         return;
       }
@@ -5307,7 +5833,7 @@ class AgentBridgeSession {
         const txHash = cleanText(decision.txHash, 96) || cleanText(decision.paymentTxHash, 96);
         if (!catchId || !txHash) throw new Error("submit_fishing_nft_claim_tx requires catchId and txHash");
         this.clearEngagement();
-        this.send("submitFishingNftClaimTx", { catchId, txHash });
+        this.send("submitFishingNftClaimTx", { catchId, txHash, requestId: context.requestId });
         this.lastAction = `submit_fishing_nft_claim_tx ${catchId}`;
         return null;
       }
@@ -7805,14 +8331,9 @@ class AgentBridgeSession {
     const nowSeconds = Math.floor(Date.now() / 1000);
     return actions
       .filter((action) => {
-        if (getNumber(action.expiresAt) <= nowSeconds + 5) return false;
         const catchId = getString(action.catchId).toLowerCase();
         const latestCatch = catchId ? this.fishingNftCatches.get(catchId) : null;
-        if (!latestCatch) return true;
-        const status = getString(latestCatch.status);
-        return Boolean(latestCatch.walletActionRequired)
-          || status === "voucher_issued"
-          || status === "tx_submitted";
+        return isFishingClaimWalletActionPending(action, latestCatch, nowSeconds);
       })
       .sort((a, b) => getNumber(a.expiresAt) - getNumber(b.expiresAt))[0] ?? null;
   }
@@ -7965,6 +8486,13 @@ class AgentBridgeSession {
     if (record.catch) this.recordFishingNftCatch(record.catch);
   }
 
+  private getFishingNftClaimResult(requestIdValue: unknown, catchIdValue: unknown) {
+    const requestId = cleanText(getString(requestIdValue), 96);
+    if (!requestId) return null;
+    const result = this.fishingNftClaimResults.get(requestId) ?? null;
+    return isMatchingFishingNftClaimResult(result, requestId, catchIdValue) ? result : null;
+  }
+
   private recordFishingNftHistoryResult(message: unknown) {
     const catches = asRecord(message).catches;
     if (!Array.isArray(catches)) return;
@@ -8020,6 +8548,8 @@ class AgentBridgeSession {
 export class AgentBridgeManager {
   private readonly config: Required<AgentBridgeConfig>;
   private readonly sessions = new Map<string, AgentBridgeSession>();
+  private readonly walletLifecycleTails = new Map<string, Promise<void>>();
+  private shuttingDown = false;
 
   constructor(config: AgentBridgeConfig) {
     this.config = {
@@ -8042,6 +8572,10 @@ export class AgentBridgeManager {
       res.end();
       return true;
     }
+    if (this.shuttingDown) {
+      writeBridgeJson(res, 503, { ok: false, status: "server_shutting_down", error: "agent bridge is shutting down; retry after the server is available" });
+      return true;
+    }
 
     this.pruneSessions();
     try {
@@ -8058,8 +8592,13 @@ export class AgentBridgeManager {
     return true;
   }
 
-  shutdown() {
-    for (const session of this.sessions.values()) session.stop();
+  async shutdown() {
+    this.shuttingDown = true;
+    await Promise.allSettled([...this.walletLifecycleTails.values()]);
+    const results = await Promise.allSettled([...this.sessions.values()].map((session) => session.shutdown("server_shutdown")));
+    for (const result of results) {
+      if (result.status === "rejected") console.error(`[agent-bridge] shutdown failed: ${errorMessage(result.reason)}`);
+    }
     this.sessions.clear();
   }
 
@@ -8089,32 +8628,66 @@ export class AgentBridgeManager {
       );
     }
 
-    for (const [id, existing] of this.sessions) {
-      if (existing.walletAddress === walletAddress) {
-        existing.stop();
-        this.sessions.delete(id);
+    await this.withWalletLifecycle(walletAddress, async () => {
+      this.requireAcceptingWork();
+      const matching = [...this.sessions.values()]
+        .filter((session) => session.walletAddress === walletAddress)
+        .sort((left, right) => Number(right.canReattach()) - Number(left.canReattach()) || right.lastAccessAt - left.lastAccessAt);
+      const reusable = matching.find((session) => session.canReattach()) ?? null;
+      if (reusable) {
+        try {
+          await reusable.reattach(sessionToken);
+        } catch (error) {
+          throw new BridgeHttpError(
+            502,
+            `bridge reattach failed: ${errorMessage(error)}`,
+            "bridge_reattach_failed",
+            "retry_agent_start_with_fresh_wallet_session_token",
+          );
+        }
+        writeBridgeJson(res, 200, {
+          ok: true,
+          bridgeSessionId: reusable.id,
+          status: "reattached",
+          reused: true,
+          resume: reusable.startResumeCheckpoint(),
+          observeUrl: `/agent-observe?bridgeSessionId=${reusable.id}`,
+        });
+        return;
       }
-    }
 
-    const session = new AgentBridgeSession({
-      roomServer: this.config.roomServer,
-      roomName: this.config.roomName,
-      walletAddress,
-      sessionToken,
-      agentName: cleanText(payload.name, 48) || this.config.defaultName,
-      inviteCode: cleanText(payload.inviteCode, 80),
-      createCharacter: payload.createCharacter !== false,
-      objective: cleanText(payload.objective, 260) || "Play mferland naturally with Bankr as the high-level decision brain.",
+      for (const existing of matching) {
+        await existing.shutdown("bridge_replaced_after_terminal_state");
+        this.sessions.delete(existing.id);
+      }
+
+      const session = new AgentBridgeSession({
+        roomServer: this.config.roomServer,
+        roomName: this.config.roomName,
+        walletAddress,
+        sessionToken,
+        agentName: cleanText(payload.name, 48) || this.config.defaultName,
+        inviteCode: cleanText(payload.inviteCode, 80),
+        createCharacter: payload.createCharacter !== false,
+        objective: cleanText(payload.objective, 260) || "Play mferland naturally with Bankr as the high-level decision brain.",
+      });
+      this.sessions.set(session.id, session);
+      try {
+        await session.start();
+        writeBridgeJson(res, 200, {
+          ok: true,
+          bridgeSessionId: session.id,
+          status: "started",
+          reused: false,
+          resume: session.startResumeCheckpoint(),
+          observeUrl: `/agent-observe?bridgeSessionId=${session.id}`,
+        });
+      } catch (error) {
+        this.sessions.delete(session.id);
+        await session.shutdown("bridge_join_failed");
+        writeBridgeJson(res, 502, { ok: false, error: `bridge join failed: ${errorMessage(error)}` });
+      }
     });
-    this.sessions.set(session.id, session);
-    try {
-      await session.start();
-      writeBridgeJson(res, 200, { ok: true, bridgeSessionId: session.id, status: "started", observeUrl: `/agent-observe?bridgeSessionId=${session.id}` });
-    } catch (error) {
-      this.sessions.delete(session.id);
-      session.stop();
-      writeBridgeJson(res, 502, { ok: false, error: `bridge join failed: ${errorMessage(error)}` });
-    }
   }
 
   private async handleObserve(req: IncomingMessage, requestUrl: URL, res: ServerResponse) {
@@ -8176,7 +8749,10 @@ export class AgentBridgeManager {
     }
     if (operation === "stop") {
       const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
-      const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
+      const stopped = await this.withWalletLifecycle(session.walletAddress, async () => {
+        this.requireCurrentSession(session);
+        return await session.stopCommand(cleanText(payload.commandId, 80));
+      });
       writeBridgeJson(res, getString(asRecord(stopped).status) === "running" ? 202 : 200, withOptionalToolUsageReport(stopped, toolUsageReport));
       return;
     }
@@ -8184,7 +8760,11 @@ export class AgentBridgeManager {
       writeBridgeJson(res, 400, { ok: false, error: "operation must be start, status, or stop" });
       return;
     }
-    const body = await session.startCommand(payload);
+    const body = await this.withWalletLifecycle(session.walletAddress, async () => {
+      this.requireAcceptingWork();
+      this.requireCurrentSession(session);
+      return await session.startCommand(payload);
+    });
     const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-agent-command");
     writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
   }
@@ -8195,7 +8775,11 @@ export class AgentBridgeManager {
       const session = this.requireSession(req, requestUrl.searchParams.get("bridgeSessionId"));
       const pollNonce = validateFishingPollNonce(requestUrl.searchParams.get("pollNonce"));
       const body = withFishingPollNonce(
-        await session.getFishingCommand(requestUrl.searchParams.get("commandId"), pollNonce),
+        await session.waitForFishingCommand(
+          requestUrl.searchParams.get("commandId"),
+          pollNonce,
+          requestUrl.searchParams.get("waitSeconds"),
+        ),
         pollNonce,
       );
       const toolUsageReport = req.method === "HEAD" ? null : await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
@@ -8217,17 +8801,20 @@ export class AgentBridgeManager {
 
     if (operation === "status") {
       const pollNonce = validateFishingPollNonce(payload.pollNonce);
-      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
       const body = withFishingPollNonce(
-        await session.getFishingCommand(payload.commandId, pollNonce),
+        await session.waitForFishingCommand(payload.commandId, pollNonce, payload.waitSeconds),
         pollNonce,
       );
+      const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
       writeBridgeJson(res, 200, withOptionalToolUsageReport(body, toolUsageReport));
       return;
     }
     if (operation === "stop") {
       const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
-      const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
+      const stopped = await this.withWalletLifecycle(session.walletAddress, async () => {
+        this.requireCurrentSession(session);
+        return await session.stopCommand(cleanText(payload.commandId, 80));
+      });
       writeBridgeJson(res, getString(asRecord(stopped).status) === "running" ? 202 : 200, withOptionalToolUsageReport(stopped, toolUsageReport));
       return;
     }
@@ -8253,7 +8840,7 @@ export class AgentBridgeManager {
       return;
     }
     if (operation === "prepare_redemption" || operation === "redeem_nft") {
-      await writeActionResult(await session.prepareMintClubRedemption(payload.catchId));
+      await writeActionResult(await session.prepareMintClubRedemption(payload.catchId, payload.commandId));
       return;
     }
     if (operation === "submit_redemption_tx" || operation === "submit_mint_club_redemption_tx") {
@@ -8294,12 +8881,20 @@ export class AgentBridgeManager {
       writeBridgeJson(res, 400, { ok: false, error: "agent-fishing questId must be fishin-lesson or lost-fishing-shoes" });
       return;
     }
-    const body = await session.startCommand(buildFishingToolCommandPayload(payload), {
-      allowFishingBundleReadyStop: true,
-      dedicatedFishingTool: true,
+    let body = await this.withWalletLifecycle(session.walletAddress, async () => {
+      this.requireAcceptingWork();
+      this.requireCurrentSession(session);
+      return await session.startCommand(buildFishingToolCommandPayload(payload), {
+        allowFishingBundleReadyStop: true,
+        dedicatedFishingTool: true,
+      });
     });
+    const waitSeconds = normalizeFishingStatusWaitSeconds(payload.waitSeconds);
+    if (waitSeconds > 0) {
+      body = await session.waitForFishingCommand(getString(asRecord(body).commandId), "", waitSeconds);
+    }
     const toolUsageReport = await maybeReportBridgeToolUsage(req, toolUsageStartedAt, "mfertown-fishing");
-    writeBridgeJson(res, 202, withOptionalToolUsageReport(body, toolUsageReport));
+    writeBridgeJson(res, getString(asRecord(body).status) === "running" ? 202 : 200, withOptionalToolUsageReport(body, toolUsageReport));
   }
 
   private async handleCommandStop(req: IncomingMessage, res: ServerResponse) {
@@ -8309,7 +8904,10 @@ export class AgentBridgeManager {
     }
     const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
     const session = this.requireSession(req, cleanText(payload.bridgeSessionId, 80));
-    const stopped = await session.stopCommand(cleanText(payload.commandId, 80));
+    const stopped = await this.withWalletLifecycle(session.walletAddress, async () => {
+      this.requireCurrentSession(session);
+      return await session.stopCommand(cleanText(payload.commandId, 80));
+    });
     writeBridgeJson(res, getString(asRecord(stopped).status) === "running" ? 202 : 200, stopped);
   }
 
@@ -8321,28 +8919,31 @@ export class AgentBridgeManager {
     const payload = await readBridgeJsonBody<AnyRecord>(req, BRIDGE_BODY_LIMIT_BYTES);
     const id = cleanText(payload.bridgeSessionId, 80);
     const session = this.requireSession(req, id);
-    const preparation = await session.prepareBridgeStop();
-    if (!preparation.canStop) {
-      writeBridgeJson(res, preparation.httpStatus, {
-        ok: false,
+    await this.withWalletLifecycle(session.walletAddress, async () => {
+      this.requireCurrentSession(session);
+      const preparation = await session.prepareBridgeStop();
+      if (!preparation.canStop) {
+        writeBridgeJson(res, preparation.httpStatus, {
+          ok: false,
+          bridgeSessionId: session.id,
+          status: preparation.status,
+          error: preparation.error,
+          commandStop: preparation.commandStop,
+          walletActionRequired: "walletActionRequired" in preparation
+            ? preparation.walletActionRequired
+            : undefined,
+        });
+        return;
+      }
+      session.stop();
+      this.sessions.delete(session.id);
+      writeBridgeJson(res, 200, {
+        ok: true,
         bridgeSessionId: session.id,
-        status: preparation.status,
-        error: preparation.error,
+        status: "stopped",
         commandStop: preparation.commandStop,
-        walletActionRequired: "walletActionRequired" in preparation
-          ? preparation.walletActionRequired
-          : undefined,
+        handoffResolution: preparation.handoffResolution,
       });
-      return;
-    }
-    session.stop();
-    this.sessions.delete(session.id);
-    writeBridgeJson(res, 200, {
-      ok: true,
-      bridgeSessionId: session.id,
-      status: "stopped",
-      commandStop: preparation.commandStop,
-      handoffResolution: preparation.handoffResolution,
     });
   }
 
@@ -8374,14 +8975,6 @@ export class AgentBridgeManager {
         "reuse_original_session_token",
       );
     }
-    if (bearer !== session.sessionToken) {
-      throw new BridgeHttpError(
-        401,
-        "valid bearer token required for bridge session",
-        "bridge_bearer_mismatch",
-        "reuse_original_session_token",
-      );
-    }
     const tokenVerification = verifyAgentSessionTokenDetailed(session.walletAddress, bearer);
     if (!tokenVerification.ok) {
       throw new BridgeHttpError(
@@ -8391,14 +8984,57 @@ export class AgentBridgeManager {
         tokenVerification.recovery,
       );
     }
+    session.adoptSessionToken(bearer);
     return session;
+  }
+
+  private requireCurrentSession(session: AgentBridgeSession) {
+    if (this.sessions.get(session.id) !== session) {
+      throw new BridgeHttpError(
+        404,
+        "bridge session is no longer current for this wallet",
+        "bridge_session_replaced",
+        "call_agent_start_with_existing_session_token",
+      );
+    }
+  }
+
+  private requireAcceptingWork() {
+    if (this.shuttingDown) {
+      throw new BridgeHttpError(
+        503,
+        "agent bridge is shutting down; retry after the server is available",
+        "server_shutting_down",
+        "retry_after_server_restart",
+      );
+    }
   }
 
   private pruneSessions(now = Date.now()) {
     for (const [id, session] of this.sessions) {
-      if (now - session.startedAt <= this.config.sessionTtlMs) continue;
-      session.stop();
+      if (now - session.lastAccessAt <= this.config.sessionTtlMs) continue;
+      if (!session.canPrune()) continue;
       this.sessions.delete(id);
+      void session.shutdown("session_ttl_expired");
+    }
+  }
+
+  private async withWalletLifecycle<T>(walletAddress: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.walletLifecycleTails.get(walletAddress) ?? Promise.resolve();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => {}).then(() => gate);
+    this.walletLifecycleTails.set(walletAddress, tail);
+    await previous.catch(() => {});
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.walletLifecycleTails.get(walletAddress) === tail) {
+        this.walletLifecycleTails.delete(walletAddress);
+      }
     }
   }
 }
@@ -8453,6 +9089,90 @@ export function validateFishingPollNonce(value: unknown) {
     );
   }
   return value;
+}
+
+export function normalizeFishingStatusWaitSeconds(value: unknown) {
+  const seconds = readFiniteNumber(value);
+  if (seconds === undefined || seconds <= 0) return 0;
+  return Math.min(FISHING_STATUS_WAIT_MAX_SECONDS, Math.max(1, Math.floor(seconds)));
+}
+
+export function shouldReattachAgentBridgeSession(input: {
+  roomConnected: boolean;
+  pendingSessionFishingClaim: boolean;
+  commandFinalizerCount: number;
+  commandStopRunnerCount: number;
+  commands: Array<{ status: string; usageFinalized: boolean; usageFinalizationFailed: boolean; handoffPending: boolean }>;
+}) {
+  return input.roomConnected
+    || input.pendingSessionFishingClaim
+    || input.commandFinalizerCount > 0
+    || input.commandStopRunnerCount > 0
+    || input.commands.some((command) => command.status === "running"
+      || (!command.usageFinalized && !command.usageFinalizationFailed)
+      || command.handoffPending);
+}
+
+export function isCurrentRunFishingCatch(input: {
+  requestedCommandId: string;
+  requestedCatchId: string;
+  latestCommandId: string;
+  latestCatchIds: string[];
+}) {
+  const requestedCommandId = cleanText(input.requestedCommandId, 80);
+  const requestedCatchId = cleanText(input.requestedCatchId, 96).toLowerCase();
+  return Boolean(requestedCommandId)
+    && Boolean(requestedCatchId)
+    && requestedCommandId === cleanText(input.latestCommandId, 80)
+    && input.latestCatchIds.some((catchId) => cleanText(catchId, 96).toLowerCase() === requestedCatchId);
+}
+
+export function classifyMintClubRedemptionOwnership(
+  ownedAmount: bigint,
+  requiredAmount = 1n,
+  redemptionStatus = "eligible",
+) {
+  const required = requiredAmount > 0n ? requiredAmount : 1n;
+  const owned = ownedAmount >= 0n ? ownedAmount : 0n;
+  if (redemptionStatus === "tx_submitted") {
+    return {
+      ok: false as const,
+      status: "redemption_reconciliation_required",
+      ownedAmount: owned.toString(),
+      requiredAmount: required.toString(),
+    };
+  }
+  if (owned >= required) {
+    return {
+      ok: true as const,
+      status: "owned",
+      ownedAmount: owned.toString(),
+      requiredAmount: required.toString(),
+    };
+  }
+  return {
+    ok: false as const,
+    status: redemptionStatus === "tx_submitted" ? "redemption_reconciliation_required" : "not_owned",
+    ownedAmount: owned.toString(),
+    requiredAmount: required.toString(),
+  };
+}
+
+export function describeFishingPondAvailability(value: unknown, now = Date.now()) {
+  const config = asRecord(value);
+  return {
+    authoritative: config.authoritative === true,
+    enabled: Boolean(config.enabled),
+    stocked: Boolean(config.stocked),
+    drainMode: Boolean(config.drainMode),
+    catchChanceBps: getNumber(config.catchChanceBps),
+    perWalletDailyCap: getNumber(config.perWalletDailyCap),
+    walletDailyRemaining: getNumber(config.walletDailyRemaining),
+    globalDailyCap: getNumber(config.globalDailyCap),
+    globalDailyRemaining: config.globalDailyRemaining === null ? null : getNumber(config.globalDailyRemaining),
+    dailyResetAt: getFishingNftDailyResetAt(now),
+    rodRequirement: isRecord(config.rodRequirement) ? config.rodRequirement : undefined,
+  };
 }
 
 export type FishingCommandStatusCandidate = {
@@ -8615,6 +9335,22 @@ export function normalizeFishingNftHistoryResult(value: unknown): AnyRecord {
   };
 }
 
+export function isMatchingFishingNftClaimResult(
+  resultValue: unknown,
+  requestIdValue: unknown,
+  catchIdValue: unknown,
+) {
+  const result = asRecord(resultValue);
+  const requestId = cleanText(getString(requestIdValue), 96);
+  const catchId = cleanText(getString(catchIdValue), 96).toLowerCase();
+  if (!requestId || !catchId || cleanText(getString(result.requestId), 96) !== requestId) return false;
+  const resultCatchId = cleanText(
+    getString(result.catchId) || getString(asRecord(result.catch).catchId),
+    96,
+  ).toLowerCase();
+  return resultCatchId === catchId;
+}
+
 export function buildFishingSalePrerequisiteRequired() {
   return {
     questId: "lost-fishing-shoes",
@@ -8671,9 +9407,20 @@ export function actionResultHttpStatus(result: { ok: boolean; status?: string })
     || result.status === "season_point_capacity"
     || result.status === "approach_incomplete"
     || result.status === "timed_out"
+    || result.status === "not_owned"
+    || result.status === "claim_reconciliation_required"
+    || result.status === "redemption_reconciliation_required"
+    || result.status === "redemption_preparation_pending"
+    || result.status === "tx_hash_conflict"
+    || result.status === "state_conflict"
   ) return 409;
   if (result.status === "not_found") return 404;
-  if (result.status === "refresh_failed") return 502;
+  if (
+    result.status === "refresh_failed"
+    || result.status === "ownership_check_failed"
+    || result.status === "redemption_quote_failed"
+    || result.status === "redemption_preparation_failed"
+  ) return 502;
   if (result.status === "chat_cooldown") return 429;
   return 400;
 }
@@ -10525,15 +11272,82 @@ export function selectFishingResultOwnerCommandId(
 export function isFishingClaimWalletActionPending(
   walletAction: unknown,
   latestCatch: unknown,
+  nowSeconds = Math.floor(Date.now() / 1000),
 ) {
   const action = asRecord(walletAction);
   if (getString(action.action) !== "claim_fishing_nft" || !getString(action.catchId)) return true;
   const catchSnapshot = asRecord(latestCatch);
-  if (!getString(catchSnapshot.catchId)) return true;
   const status = getString(catchSnapshot.status);
-  return Boolean(catchSnapshot.walletActionRequired)
-    || status === "voucher_issued"
-    || status === "tx_submitted";
+  // Once a claim transaction has been submitted, voucher expiry is no longer
+  // authoritative evidence that reconciliation finished. Keep the bridge
+  // until the room reports a terminal catch state so cleanup cannot interrupt
+  // receipt confirmation (including TownRoom's post-expiry grace window).
+  if (status === "tx_submitted") return true;
+  if (status === "confirmed" || status === "failed" || status === "expired" || status === "abandoned") return false;
+  const expiresAt = getNumber(action.expiresAt);
+  if (expiresAt > 0 && expiresAt <= nowSeconds + 5) return false;
+  if (!getString(catchSnapshot.catchId)) return true;
+  return Boolean(catchSnapshot.walletActionRequired) || status === "voucher_issued";
+}
+
+export function isRetainableAgentCommandHandoff(
+  commandStatus: string,
+  walletAction: unknown,
+  latestCatch: unknown,
+  nowSeconds = Math.floor(Date.now() / 1000),
+) {
+  if (commandStatus !== "wallet_action_required") return false;
+  const action = asRecord(walletAction);
+  // Fishing claims are the only command handoff whose resolution can be
+  // authoritatively inferred from retained room state. Generic payment and
+  // wallet handoffs are self-contained instructions: retaining them as
+  // pending forever would permanently wedge the wallet after their proof is
+  // submitted through /agent-action.
+  if (getString(action.action) !== "claim_fishing_nft") return false;
+  return isFishingClaimWalletActionPending(action, latestCatch, nowSeconds);
+}
+
+export function describeAgentBridgeHandoffResolution(
+  commandStatus: string,
+  walletAction: unknown,
+) {
+  if (commandStatus !== "wallet_action_required" && commandStatus !== "payment_required") return undefined;
+  const action = getString(asRecord(walletAction).action);
+  if (commandStatus === "wallet_action_required" && action === "claim_fishing_nft") {
+    return { status: "resolved", action, authoritative: true };
+  }
+  return {
+    status: "unretained_unverified",
+    action: action || undefined,
+    authoritative: false,
+  };
+}
+
+export function describeAgentBridgeResumeHandoff(
+  commandStatus: string,
+  dedicatedFishingTool: boolean,
+  walletAction: unknown,
+  handoffPending: boolean,
+) {
+  const handoffResolution = handoffPending
+    ? undefined
+    : describeAgentBridgeHandoffResolution(commandStatus, walletAction);
+  if (handoffResolution?.status === "resolved") {
+    return {
+      status: "handoff_resolved",
+      originalStatus: commandStatus,
+      handoffPending: false,
+      handoffResolution,
+      nextOperation: "agent_stop",
+    } as const;
+  }
+  return {
+    status: commandStatus,
+    originalStatus: "",
+    handoffPending,
+    handoffResolution,
+    nextOperation: dedicatedFishingTool ? "agent_fishing_status" : "agent_command_status",
+  } as const;
 }
 
 export function createCommandFishingStats(): AgentCommandFishingStats {

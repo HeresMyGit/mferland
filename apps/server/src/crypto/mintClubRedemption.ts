@@ -100,7 +100,7 @@ export function makeMintClubRedemptionSnapshot(
     : record.mintClubRedemptionStatus || "eligible";
   return {
     status,
-    walletActionRequired: status === "eligible" || status === "tx_submitted",
+    walletActionRequired: status === "eligible" || status === "prepared" || status === "tx_submitted",
     npcId: MINT_CLUB_REDEMPTION_NPC_ID,
     chainId: config.chainId,
     collection: record.collection,

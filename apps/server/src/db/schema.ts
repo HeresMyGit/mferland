@@ -10,6 +10,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const accounts = pgTable("accounts", {
   id: text("id").primaryKey(),
@@ -230,8 +231,12 @@ export const fishingPondCatches = pgTable("fishing_pond_catches", {
 }, (table) => [
   index("fishing_pond_catches_wallet_idx").on(table.walletAddress, table.createdAt),
   index("fishing_pond_catches_status_idx").on(table.status, table.createdAt),
-  index("fishing_pond_catches_tx_hash_idx").on(table.chainId, table.txHash),
-  index("fishing_pond_catches_mint_club_tx_hash_idx").on(table.chainId, table.mintClubRedemptionTxHash),
+  uniqueIndex("fishing_pond_catches_tx_hash_unique_idx")
+    .on(table.chainId, sql`lower(${table.txHash})`)
+    .where(sql`${table.txHash} <> ''`),
+  uniqueIndex("fishing_pond_catches_mint_club_tx_hash_unique_idx")
+    .on(table.chainId, sql`lower(${table.mintClubRedemptionTxHash})`)
+    .where(sql`${table.mintClubRedemptionTxHash} <> ''`),
 ]);
 
 export const agentCommandUsage = pgTable("agent_command_usage", {

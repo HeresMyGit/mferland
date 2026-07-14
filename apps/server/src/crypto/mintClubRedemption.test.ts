@@ -104,6 +104,12 @@ test("Mint Club redemption snapshot exposes wallet action state for confirmed ca
   assert.equal(txSubmitted?.txHash, "0x1234");
   assert.equal(txSubmitted?.submittedAt, Math.floor(submittedAt.getTime() / 1000));
 
+  const prepared = makeMintClubRedemptionSnapshot(makeCatch({
+    mintClubRedemptionStatus: "prepared",
+  }), config);
+  assert.equal(prepared?.status, "prepared");
+  assert.equal(prepared?.walletActionRequired, true);
+
   const sold = makeMintClubRedemptionSnapshot(makeCatch({
     mintClubRedemptionStatus: "confirmed",
     mintClubRedemptionTxHash: "0xabcd",

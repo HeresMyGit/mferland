@@ -62,6 +62,7 @@ test("agent tool manifest documents command endpoint with OpenSea registry shape
   const output = manifest.outputs as { properties: Record<string, unknown> };
   assert.ok(output.properties.result);
   assert.ok(output.properties.usage);
+  assert.ok(output.properties.usageFinalization);
   assert.ok(output.properties.social);
   assert.ok(output.properties.combat);
   assert.ok(output.properties.fishing);
@@ -82,13 +83,14 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   const output = manifest.outputs as { properties: Record<string, unknown> };
 
   assert.equal(manifest.name, "mfertown-fishing");
-  assert.equal(manifest.version, "0.1.7");
+  assert.equal(manifest.version, "0.1.9");
   assert.equal(manifest.endpoint, "https://game.mfergpt.lol/agent-fishing");
   assert.ok(manifest.tags.includes("fishing"));
   assert.deepEqual(input.properties.operation.enum, ["start", "status", "stop", "fish_once", "claim_nft", "submit_claim_tx", "prepare_redemption", "submit_redemption_tx", "sell_fish", "sell_fish_status", "refresh"]);
   assert.deepEqual(input.properties.questId.enum, ["fishin-lesson", "lost-fishing-shoes"]);
   assert.match(input.properties.operation.description ?? "", /FishingPond\.claim/);
   assert.match(input.properties.operation.description ?? "", /Mint Club/);
+  assert.match(input.properties.operation.description ?? "", /history eligibility alone is not ownership proof/);
   assert.match(input.properties.operation.description ?? "", /regular offchain fish only/);
   assert.match(input.properties.operation.description ?? "", /never sells NFTs or trash/);
   assert.match(input.properties.operation.description ?? "", /exact scoped \/agent-fishing request/);
@@ -108,7 +110,12 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.match(input.properties.pollNonce.description ?? "", /echoes the validated value unchanged/);
   assert.match(input.properties.commandId.description ?? "", /omit this only to recover the active dedicated fishing command/);
   assert.match(input.properties.commandId.description ?? "", /never selects a generic/);
+  assert.match(input.properties.commandId.description ?? "", /Required with prepare_redemption/);
   assert.match(input.properties.questId.description ?? "", /cannot become generic play_for/);
+  assert.match(input.properties.catchId.description ?? "", /Exact catch id returned for this run/);
+  assert.equal(input.properties.waitSeconds.minimum, 0);
+  assert.equal(input.properties.waitSeconds.maximum, 80);
+  assert.match(input.properties.waitSeconds.description ?? "", /server-side wait/);
   assert.ok(output.properties.fishing);
   assert.ok(output.properties.bridge);
   assert.ok(output.properties.postCommand);
@@ -116,6 +123,11 @@ test("agent tool manifest documents dedicated fishing endpoint", () => {
   assert.ok(output.properties.walletActionRequired);
   assert.ok(output.properties.fishSale);
   assert.ok(output.properties.nftCatches);
+  assert.ok(output.properties.pond);
+  assert.ok(output.properties.pollWait);
+  assert.ok(output.properties.ownedAmount);
+  assert.ok(output.properties.requiredAmount);
+  assert.ok(output.properties.nextOperation);
   assert.ok(output.properties.requestId);
   assert.ok(output.properties.pollNonce);
   const outputPollNonce = output.properties.pollNonce as JsonSchema;

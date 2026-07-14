@@ -27,7 +27,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.controls.quests, ["acceptQuest", "completeQuest", "cancelQuest"]);
   assert.deepEqual(catalog.controls.selection, ["selectTarget", "selectSelfTarget"]);
   assert.deepEqual(catalog.controls.combat, ["combatAction"]);
-  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "submitFishingNftClaimTx", "abandonFishingNftCatch", "submitMintClubRedemptionTx", "refreshFishingNftHistory", "sellFishingItems", "purchaseFishingSupply", "purchaseOnchainFishingRod"]);
+  assert.deepEqual(catalog.controls.lootAndItems, ["lootCorpse", "equipItem", "unequipItem", "useItem", "sellTrashItems", "startFishing", "reelFishing", "cancelFishing", "submitFishingNftClaimTx", "abandonFishingNftCatch", "prepareMintClubRedemption", "cancelMintClubRedemptionPreparation", "submitMintClubRedemptionTx", "refreshFishingNftHistory", "sellFishingItems", "purchaseFishingSupply", "purchaseOnchainFishingRod"]);
   assert.deepEqual(catalog.controls.character, ["selectTalent", "updateTraits", "respecTalents", "removeSeasonReferral"]);
   assert.deepEqual(catalog.controls.walletStores, ["purchasePotionShopItem", "purchaseFishingSupply", "respecTalents", "registerChainGear"]);
   assert.deepEqual(catalog.controls.walletActions, [
@@ -67,7 +67,7 @@ test("agent catalog documents normal player menu controls", () => {
   assert.equal(catalog.menus.respec.paidControlRequiresPaymentProof, true);
   assert.deepEqual(catalog.menus.trashVendor.controls, ["sellTrashItems"]);
   assert.equal(catalog.menus.trashVendor.paidControlRequiresPaymentProof, false);
-  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "submitFishingNftClaimTx", "abandonFishingNftCatch", "submitMintClubRedemptionTx", "refreshFishingNftHistory", "purchaseFishingSupply", "purchaseOnchainFishingRod", "sellFishingItems"]);
+  assert.deepEqual(catalog.menus.fishing.controls, ["startFishing", "reelFishing", "lootCorpse", "cancelFishing", "submitFishingNftClaimTx", "abandonFishingNftCatch", "prepareMintClubRedemption", "cancelMintClubRedemptionPreparation", "submitMintClubRedemptionTx", "refreshFishingNftHistory", "purchaseFishingSupply", "purchaseOnchainFishingRod", "sellFishingItems"]);
   assert.equal(catalog.menus.fishing.tutorNpcId, "motherfisher");
   assert.equal(catalog.menus.fishing.vendorNpcId, "fish-monger");
   assert.equal(catalog.menus.fishing.statusNpcId, "pond-ledger-mfer");
@@ -148,6 +148,8 @@ test("agent catalog documents normal player menu controls", () => {
   assert.deepEqual(catalog.fishing.controls.refreshNftHistory, { message: "refreshFishingNftHistory", shape: {} });
   assert.deepEqual(catalog.fishing.controls.forfeitNftClaimOffer, { message: "abandonFishingNftCatch", shape: { catchId: "unsubmitted pond catch id" } });
   assert.equal(catalog.fishing.controls.submitMintClubRedemptionTx.message, "submitMintClubRedemptionTx");
+  assert.equal(catalog.fishing.controls.prepareMintClubRedemption.message, "prepareMintClubRedemption");
+  assert.equal(catalog.fishing.controls.cancelMintClubRedemptionPreparation.message, "cancelMintClubRedemptionPreparation");
   assert.match(catalog.fishing.nftPond.rodRequirement.missingRodNotice, /rod_required_nft_hit/);
   assert.match(catalog.fishing.catchLootNote, /source=fishing/);
   assert.ok(catalog.fishing.playbook.some((step) => step.includes("startFishing")));

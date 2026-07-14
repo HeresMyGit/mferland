@@ -94,6 +94,7 @@ import {
   type ClientAgentStatus,
   type ClientAbandonFishingNftCatch,
   type ClientCancelQuest,
+  type ClientCancelMintClubRedemptionPreparation,
   type ClientCompleteQuest,
   type ClientCombatAction,
   type ClientDebugRegisterChainGear,
@@ -107,6 +108,7 @@ import {
   type ClientPurchasePotionShopItem,
   type ClientPurchaseFishingSupply,
   type ClientPurchaseOnchainFishingRod,
+  type ClientPrepareMintClubRedemption,
   type ClientRegisterChainGear,
   type ClientReelFishing,
   type ClientRemoveSeasonReferral,
@@ -132,6 +134,7 @@ import {
   type FishingNftCatchSnapshot,
   type FishingWalletNftSnapshot,
   type MintClubRedemptionResult,
+  type MintClubRedemptionPreparationResult,
   type OnchainFishingRodMintResult,
   type FishingSellableItemId,
   type FishingResult,
@@ -207,11 +210,14 @@ import {
   findFishingPondCatch,
   findFishingPondCatchHistoryForWallet,
   findLatestActiveFishingPondCatchForWallet,
+  isConfirmedFishingPondClaimTx,
   markFishingPondCatchConfirmed,
   markFishingPondCatchExpired,
   markFishingPondCatchFailed,
   markFishingPondCatchMintClubRedemption,
   markFishingPondCatchMintClubRedemptionFailed,
+  releaseFishingPondCatchMintClubRedemptionPreparation,
+  reserveFishingPondCatchMintClubRedemptionPreparation,
   markFishingPondCatchTxSubmitted,
   PersistenceUnavailableError,
   WalletClientKindMismatchError,
@@ -349,6 +355,8 @@ const AGENT_GAMEPLAY_ACTIVITY_MESSAGES = new Set([
   "cancelFishing",
   "submitFishingNftClaimTx",
   "abandonFishingNftCatch",
+  "prepareMintClubRedemption",
+  "cancelMintClubRedemptionPreparation",
   "submitMintClubRedemptionTx",
   "sellFishingItems",
   "selectTalent",
@@ -783,7 +791,6 @@ const FISHING_LOOT_PICKUP_MS = 45_000;
 const FISHING_REEL_ANIMATION_MS = 2400;
 const FISHING_NFT_CAP_NOTICE_COOLDOWN_MS = 60_000;
 const FISHING_NFT_DAILY_CAP_MS = 86_400_000;
-const FISHING_NFT_TX_SUBMISSION_GRACE_MS = 5 * 60_000;
 
 export class TownRoom extends Room<TownState> {
   maxClients = MAX_PLAYERS;
@@ -820,6 +827,7 @@ export class TownRoom extends Room<TownState> {
   private readonly playerAnimationHolds = new Map<string, PlayerAnimationHold>();
   private readonly fishingVendorRequestIds = new Map<string, string[]>();
   private readonly fishingVendorSalesInFlight = new Set<string>();
+  private readonly mintClubRedemptionPreparationOwners = new Map<string, { sessionId: string; requestId: string }>();
   private lastCharacterAutosaveAt = 0;
   private lastLiveMemoryStatusAt = 0;
   private lastAgentIdleSweepAt = 0;
@@ -1024,6 +1032,16 @@ export class TownRoom extends Room<TownState> {
     this.onMessage("abandonFishingNftCatch", (client, message: Partial<ClientAbandonFishingNftCatch> = {}) => {
       this.markAgentMessageActivity(client.sessionId, "abandonFishingNftCatch");
       void this.handleAbandonFishingNftCatch(client, message);
+    });
+
+    this.onMessage("prepareMintClubRedemption", (client, message: Partial<ClientPrepareMintClubRedemption> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "prepareMintClubRedemption");
+      void this.handlePrepareMintClubRedemption(client, message);
+    });
+
+    this.onMessage("cancelMintClubRedemptionPreparation", (client, message: Partial<ClientCancelMintClubRedemptionPreparation> = {}) => {
+      this.markAgentMessageActivity(client.sessionId, "cancelMintClubRedemptionPreparation");
+      void this.handleCancelMintClubRedemptionPreparation(client, message);
     });
 
     this.onMessage("submitMintClubRedemptionTx", (client, message: Partial<ClientSubmitMintClubRedemptionTx> = {}) => {
@@ -3352,11 +3370,7 @@ export class TownRoom extends Room<TownState> {
     const record = await findLatestActiveFishingPondCatchForWallet(walletAddress);
     if (!record) return null;
 
-    const expiresAt = record.expiresAt.getTime();
-    const shouldExpire = record.status === "tx_submitted"
-      ? expiresAt + FISHING_NFT_TX_SUBMISSION_GRACE_MS <= now
-      : expiresAt <= now;
-    if (!shouldExpire) return record;
+    if (!shouldExpireFishingPondCatch(record.status, record.expiresAt.getTime(), now)) return record;
 
     return await markFishingPondCatchExpired(record.catchId);
   }
@@ -3437,38 +3451,71 @@ export class TownRoom extends Room<TownState> {
 
   private async handleSubmitFishingNftClaimTx(client: Client, message: Partial<ClientSubmitFishingNftClaimTx>) {
     const player = this.state.players.get(client.sessionId);
-    const sendResult = (result: FishingNftCatchResult) => client.send("fishingNftCatchResult", result);
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const requestId = normalizeFishingVendorRequestId(message.requestId);
+    const sendResult = (result: FishingNftCatchResult) => client.send("fishingNftCatchResult", {
+      ...result,
+      ...(catchId ? { catchId } : {}),
+      ...(requestId ? { requestId } : {}),
+    });
     if (!player) {
       sendResult({ ok: false, catch: null, error: "player unavailable" });
       return;
     }
 
-    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
     const txHash = typeof message.txHash === "string" ? message.txHash.trim().toLowerCase() : "";
     const record = await findFishingPondCatch(catchId);
     if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
-      sendResult({ ok: false, catch: null, error: "catch not found" });
+      sendResult({ ok: false, catch: null, status: "not_found", error: "catch not found" });
       return;
     }
     if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
-      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(record), error: "claim transaction hash required" });
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(record),
+        status: "invalid_tx_hash",
+        error: describeFishingPondClaimPersistenceConflict("invalid_tx_hash"),
+      });
       return;
     }
     if (record.status === "confirmed") {
       const snapshot = makeFishingNftCatchSnapshot(record);
       syncPlayerFishingNftCatchJson(player, snapshot);
-      sendResult({ ok: true, catch: snapshot });
+      if (record.txHash.toLowerCase() !== txHash) {
+        sendResult({
+          ok: false,
+          catch: snapshot,
+          status: "state_conflict",
+          error: describeFishingPondClaimPersistenceConflict("state_conflict"),
+        });
+      } else {
+        sendResult({ ok: true, catch: snapshot });
+      }
       await this.syncFishingNftHistory(client, player);
       return;
     }
 
-    const submitted = await markFishingPondCatchTxSubmitted(catchId, txHash);
-    if (submitted) {
-      const submittedSnapshot = makeFishingNftCatchSnapshot(submitted);
-      syncPlayerFishingNftCatchJson(player, submittedSnapshot);
+    const submittedResult = await markFishingPondCatchTxSubmitted(catchId, txHash);
+    if (!submittedResult.ok) {
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(submittedResult.record),
+        status: submittedResult.status,
+        error: describeFishingPondClaimPersistenceConflict(submittedResult.status),
+      });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+    const submitted = submittedResult.record;
+    const submittedSnapshot = makeFishingNftCatchSnapshot(submitted);
+    syncPlayerFishingNftCatchJson(player, submittedSnapshot);
+    if (submitted.status === "confirmed") {
       sendResult({ ok: true, catch: submittedSnapshot });
       await this.syncFishingNftHistory(client, player);
+      return;
     }
+    sendResult({ ok: true, catch: submittedSnapshot });
+    await this.syncFishingNftHistory(client, player);
 
     try {
       const confirmation = await verifyFishingPondClaimReceipt({ catchId, txHash });
@@ -3476,7 +3523,20 @@ export class TownRoom extends Room<TownState> {
         throw new Error("claim event fisher mismatch");
       }
       const confirmed = await markFishingPondCatchConfirmed(catchId, confirmation.txHash);
-      const snapshot = confirmed ? makeFishingNftCatchSnapshot(confirmed) : null;
+      if (!confirmed) {
+        const current = await findFishingPondCatch(catchId);
+        const snapshot = makeFishingNftCatchSnapshot(current);
+        syncPlayerFishingNftCatchJson(player, snapshot);
+        sendResult({
+          ok: false,
+          catch: snapshot,
+          status: "state_conflict",
+          error: describeFishingPondClaimPersistenceConflict("state_conflict"),
+        });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+      const snapshot = makeFishingNftCatchSnapshot(confirmed);
       syncPlayerFishingNftCatchJson(player, snapshot);
       client.send("chat", makeSystemChat("Fishing", "Onchain pond prize claimed."));
       sendResult({ ok: true, catch: snapshot });
@@ -3489,25 +3549,49 @@ export class TownRoom extends Room<TownState> {
         logIndex: confirmation.logIndex,
       });
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : "claim confirmation failed";
-      if (/timeout|timed out|not found|could not find/i.test(messageText)) {
-        const snapshot = submitted ? makeFishingNftCatchSnapshot(submitted) : makeFishingNftCatchSnapshot(record);
+      const verificationFailure = describeFishingPondClaimVerificationFailure(error);
+      console.warn("fishing_pond_claim_verification_failed", {
+        catchId,
+        txHash,
+        definitiveFailure: verificationFailure.definitiveFailure,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      if (!verificationFailure.definitiveFailure) {
+        const snapshot = makeFishingNftCatchSnapshot(submitted);
         syncPlayerFishingNftCatchJson(player, snapshot);
-        sendResult({ ok: true, catch: snapshot, error: "waiting for claim confirmation" });
+        sendResult({ ok: true, catch: snapshot, error: verificationFailure.publicError });
         await this.syncFishingNftHistory(client, player);
         return;
       }
 
-      const failed = await markFishingPondCatchFailed(catchId, messageText);
-      const snapshot = failed ? makeFishingNftCatchSnapshot(failed) : null;
+      const failed = await markFishingPondCatchFailed(catchId, txHash, verificationFailure.publicError);
+      if (!failed) {
+        const current = await findFishingPondCatch(catchId);
+        const snapshot = makeFishingNftCatchSnapshot(current);
+        syncPlayerFishingNftCatchJson(player, snapshot);
+        if (isConfirmedFishingPondClaimTx(current, txHash)) {
+          sendResult({ ok: true, catch: snapshot });
+          await this.syncFishingNftHistory(client, player);
+          return;
+        }
+        sendResult({
+          ok: false,
+          catch: snapshot,
+          status: "state_conflict",
+          error: describeFishingPondClaimPersistenceConflict("state_conflict"),
+        });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+      const snapshot = makeFishingNftCatchSnapshot(failed);
       syncPlayerFishingNftCatchJson(player, snapshot);
-      sendResult({ ok: false, catch: snapshot, error: messageText });
+      sendResult({ ok: false, catch: snapshot, error: verificationFailure.publicError });
       await this.syncFishingNftHistory(client, player);
       this.recordPlayerAnalyticsEvent("fishing_nft_claim_failed", client.sessionId, player, {
         supportKind: "fishing_nft_claim",
         catchId,
         txHash,
-        error: messageText,
+        error: verificationFailure.publicError,
       });
     }
   }
@@ -3559,9 +3643,98 @@ export class TownRoom extends Room<TownState> {
     });
   }
 
+  private async handlePrepareMintClubRedemption(
+    client: Client,
+    message: Partial<ClientPrepareMintClubRedemption>,
+  ) {
+    const requestId = normalizeFishingVendorRequestId(message.requestId);
+    const sendResult = (result: Omit<MintClubRedemptionPreparationResult, "requestId">) => {
+      client.send("mintClubRedemptionPreparationResult", { ...result, requestId });
+    };
+    if (!requestId) {
+      client.send("mintClubRedemptionPreparationResult", {
+        ok: false,
+        catch: null,
+        status: "not_found",
+        requestId: "",
+        error: "valid redemption preparation request id required",
+      } satisfies MintClubRedemptionPreparationResult);
+      return;
+    }
+    const player = this.state.players.get(client.sessionId);
+    if (!player) {
+      sendResult({ ok: false, catch: null, status: "not_found", error: "player unavailable" });
+      return;
+    }
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) {
+      sendResult({ ok: false, catch: null, status: "not_found", error: "catch not found" });
+      return;
+    }
+    if (record.status !== "confirmed") {
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(record),
+        status: "claim_required",
+        error: "claim the pond NFT first",
+      });
+      return;
+    }
+    const config = resolveMintClubRedemptionConfig();
+    if (!isMintClubRedemptionEligibleCatch(record, config)) {
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(record),
+        status: "not_redeemable",
+        error: "not an onchain goodies item",
+      });
+      return;
+    }
+    const preparation = await reserveFishingPondCatchMintClubRedemptionPreparation(catchId);
+    if (!preparation.reserved) {
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(preparation.record),
+        status: "preparation_pending",
+        error: "a Mint Club sell is already prepared or submitted for this catch",
+      });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+    sendResult({
+      ok: true,
+      catch: makeFishingNftCatchSnapshot(preparation.record),
+      status: "prepared",
+    });
+    this.mintClubRedemptionPreparationOwners.set(catchId, { sessionId: client.sessionId, requestId });
+    await this.syncFishingNftHistory(client, player);
+  }
+
+  private async handleCancelMintClubRedemptionPreparation(
+    client: Client,
+    message: Partial<ClientCancelMintClubRedemptionPreparation>,
+  ) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+    const catchId = typeof message.catchId === "string" ? message.catchId.trim().toLowerCase() : "";
+    const requestId = normalizeFishingVendorRequestId(message.requestId);
+    const owner = this.mintClubRedemptionPreparationOwners.get(catchId);
+    if (!owner || owner.sessionId !== client.sessionId || owner.requestId !== requestId) return;
+    const record = await findFishingPondCatch(catchId);
+    if (!record || normalizeWalletAddress(record.walletAddress) !== normalizeWalletAddress(player.walletAddress)) return;
+    await releaseFishingPondCatchMintClubRedemptionPreparation(catchId);
+    this.mintClubRedemptionPreparationOwners.delete(catchId);
+    await this.syncFishingNftHistory(client, player);
+  }
+
   private async handleSubmitMintClubRedemptionTx(client: Client, message: Partial<ClientSubmitMintClubRedemptionTx>) {
     const player = this.state.players.get(client.sessionId);
-    const sendResult = (result: MintClubRedemptionResult) => client.send("mintClubRedemptionResult", result);
+    const requestId = normalizeFishingVendorRequestId(message.requestId);
+    const sendResult = (result: MintClubRedemptionResult) => client.send("mintClubRedemptionResult", {
+      ...result,
+      ...(requestId ? { requestId } : {}),
+    });
     if (!player) {
       sendResult({ ok: false, catch: null, error: "player unavailable" });
       return;
@@ -3590,16 +3763,37 @@ export class TownRoom extends Room<TownState> {
       return;
     }
     if (record.mintClubRedemptionStatus === "confirmed") {
-      sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(record) });
+      if (record.mintClubRedemptionTxHash.toLowerCase() !== txHash) {
+        sendResult({
+          ok: false,
+          catch: makeFishingNftCatchSnapshot(record),
+          status: "state_conflict",
+          error: describeMintClubRedemptionPersistenceConflict("state_conflict"),
+        });
+      } else {
+        sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(record) });
+      }
       await this.syncFishingNftHistory(client, player);
       return;
     }
 
-    const submitted = await markFishingPondCatchMintClubRedemption({
+    const submittedResult = await markFishingPondCatchMintClubRedemption({
       catchId,
       txHash,
       status: "tx_submitted",
     });
+    if (!submittedResult.ok) {
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(submittedResult.record),
+        status: submittedResult.status,
+        error: describeMintClubRedemptionPersistenceConflict(submittedResult.status),
+      });
+      await this.syncFishingNftHistory(client, player);
+      return;
+    }
+    const submitted = submittedResult.record;
+    this.mintClubRedemptionPreparationOwners.delete(catchId);
     if (requestedStatus !== "confirmed") {
       sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(submitted) });
       await this.syncFishingNftHistory(client, player);
@@ -3608,11 +3802,22 @@ export class TownRoom extends Room<TownState> {
 
     try {
       const confirmation = await verifyMintClubRedemptionReceipt({ txHash, record, config });
-      const confirmed = await markFishingPondCatchMintClubRedemption({
+      const confirmedResult = await markFishingPondCatchMintClubRedemption({
         catchId,
         txHash: confirmation.txHash,
         status: "confirmed",
       });
+      if (!confirmedResult.ok) {
+        sendResult({
+          ok: false,
+          catch: makeFishingNftCatchSnapshot(confirmedResult.record),
+          status: confirmedResult.status,
+          error: describeMintClubRedemptionPersistenceConflict(confirmedResult.status),
+        });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+      const confirmed = confirmedResult.record;
       client.send("chat", makeSystemChat("Fishing", "Onchain goodie sold through Mint Club."));
       sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(confirmed) });
       await this.syncFishingNftHistory(client, player);
@@ -3625,22 +3830,52 @@ export class TownRoom extends Room<TownState> {
         refundAmount: confirmation.refundAmount,
       });
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : "Mint Club redemption confirmation failed";
-      if (/timeout|timed out|not found|could not find/i.test(messageText)) {
-        sendResult({ ok: true, catch: makeFishingNftCatchSnapshot(submitted), error: "waiting for redemption confirmation" });
+      const verificationFailure = describeMintClubRedemptionVerificationFailure(error);
+      console.warn("mint_club_redemption_verification_failed", {
+        catchId,
+        txHash,
+        collection: record.collection,
+        definitiveFailure: verificationFailure.definitiveFailure,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      if (!verificationFailure.definitiveFailure) {
+        sendResult({
+          ok: true,
+          catch: makeFishingNftCatchSnapshot(submitted),
+          error: verificationFailure.publicError,
+        });
         await this.syncFishingNftHistory(client, player);
         return;
       }
 
-      const failed = await markFishingPondCatchMintClubRedemptionFailed(catchId, messageText);
-      sendResult({ ok: false, catch: makeFishingNftCatchSnapshot(failed), error: messageText });
+      const failed = await markFishingPondCatchMintClubRedemptionFailed(
+        catchId,
+        txHash,
+        verificationFailure.publicError,
+      );
+      if (!failed) {
+        const current = await findFishingPondCatch(catchId);
+        sendResult({
+          ok: false,
+          catch: makeFishingNftCatchSnapshot(current),
+          status: "state_conflict",
+          error: describeMintClubRedemptionPersistenceConflict("state_conflict"),
+        });
+        await this.syncFishingNftHistory(client, player);
+        return;
+      }
+      sendResult({
+        ok: false,
+        catch: makeFishingNftCatchSnapshot(failed),
+        error: verificationFailure.publicError,
+      });
       await this.syncFishingNftHistory(client, player);
       this.recordPlayerAnalyticsEvent("mint_club_redemption_failed", client.sessionId, player, {
         supportKind: "mint_club_redemption",
         catchId,
         txHash,
         collection: record.collection,
-        error: messageText,
+        error: verificationFailure.publicError,
       });
     }
   }
@@ -6063,6 +6298,70 @@ export function claimFishingVendorSaleSession(inFlightSessionIds: Set<string>, s
   if (inFlightSessionIds.has(sessionId)) return false;
   inFlightSessionIds.add(sessionId);
   return true;
+}
+
+export const MINT_CLUB_REDEMPTION_CONFIRMATION_FAILED_PUBLIC_ERROR =
+  "Mint Club redemption transaction did not contain a valid sale; refresh before retrying";
+export const MINT_CLUB_REDEMPTION_CONFIRMATION_PENDING_PUBLIC_ERROR =
+  "Mint Club redemption confirmation is unavailable; retry submit_redemption_tx with the same transaction hash";
+export const FISHING_POND_CLAIM_CONFIRMATION_FAILED_PUBLIC_ERROR =
+  "Fishing pond claim transaction did not contain a valid claim; refresh before retrying";
+export const FISHING_POND_CLAIM_CONFIRMATION_PENDING_PUBLIC_ERROR =
+  "Fishing pond claim confirmation is unavailable; retry submit_claim_tx with the same transaction hash";
+
+export function shouldExpireFishingPondCatch(status: string, expiresAt: number, now: number) {
+  return status !== "tx_submitted"
+    && Number.isFinite(expiresAt)
+    && Number.isFinite(now)
+    && expiresAt <= now;
+}
+
+export function describeFishingPondClaimPersistenceConflict(status: string) {
+  if (status === "tx_hash_conflict") {
+    return "claim transaction hash is already assigned to another catch";
+  }
+  if (status === "not_found") return "catch not found";
+  if (status === "invalid_tx_hash") return "claim transaction hash required";
+  return "claim state changed; refresh history before retrying";
+}
+
+export function describeFishingPondClaimVerificationFailure(error: unknown) {
+  const internalMessage = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : "";
+  const definitiveFailure = /claim transaction failed|FishingPond CatchClaimed event not found|claim event fisher mismatch/i.test(internalMessage);
+  return {
+    definitiveFailure,
+    publicError: definitiveFailure
+      ? FISHING_POND_CLAIM_CONFIRMATION_FAILED_PUBLIC_ERROR
+      : FISHING_POND_CLAIM_CONFIRMATION_PENDING_PUBLIC_ERROR,
+  };
+}
+
+export function describeMintClubRedemptionPersistenceConflict(status: string) {
+  if (status === "tx_hash_conflict") {
+    return "redemption transaction hash is already assigned to another catch";
+  }
+  if (status === "not_found") return "catch not found";
+  if (status === "invalid_tx_hash") return "redemption transaction hash required";
+  return "redemption state changed; refresh history before retrying";
+}
+
+export function describeMintClubRedemptionVerificationFailure(error: unknown) {
+  const internalMessage = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : "";
+  const definitiveFailure = /transaction reverted|Burn event not found for this catch/i.test(internalMessage);
+  return {
+    definitiveFailure,
+    publicError: definitiveFailure
+      ? MINT_CLUB_REDEMPTION_CONFIRMATION_FAILED_PUBLIC_ERROR
+      : MINT_CLUB_REDEMPTION_CONFIRMATION_PENDING_PUBLIC_ERROR,
+  };
 }
 
 export function buildFishingCancelResult(

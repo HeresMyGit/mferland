@@ -154,6 +154,7 @@ export async function readFishingPondPublicConfig(walletAddress = ""): Promise<F
     const globalRemaining = globalCap > 0n ? Number(globalCap > globalUsed ? globalCap - globalUsed : 0n) : null;
 
     return {
+      authoritative: rodRequirement !== undefined,
       enabled: true,
       chainId: config.chainId,
       contractAddress: config.contractAddress,
@@ -170,7 +171,7 @@ export async function readFishingPondPublicConfig(walletAddress = ""): Promise<F
     };
   } catch {
     return {
-      ...makeDisabledFishingPondConfig(),
+      ...makeDisabledFishingPondConfig(false),
       chainId: config.chainId,
       contractAddress: config.contractAddress,
       rpcUrl: config.rpcUrl,
@@ -721,8 +722,9 @@ function makeDisabledRuntimeConfig(): FishingPondRuntimeConfig {
   };
 }
 
-function makeDisabledFishingPondConfig(): FishingNftPondConfig {
+function makeDisabledFishingPondConfig(authoritative = true): FishingNftPondConfig {
   return {
+    authoritative,
     enabled: false,
     chainId: LOCAL_CHAIN_ID,
     contractAddress: "",

@@ -585,6 +585,9 @@ export type FishingResult = {
 export type FishingNftCatchResult = {
   ok: boolean;
   catch: FishingNftCatchSnapshot | null;
+  catchId?: string;
+  status?: "tx_hash_conflict" | "state_conflict" | "not_found" | "invalid_tx_hash";
+  requestId?: string;
   error?: string;
 };
 
@@ -614,21 +617,43 @@ export type OnchainFishingRodMintResult = {
 export type ClientSubmitFishingNftClaimTx = {
   catchId: string;
   txHash: string;
+  requestId?: string;
 };
 
 export type ClientAbandonFishingNftCatch = {
   catchId: string;
 };
 
+export type ClientPrepareMintClubRedemption = {
+  catchId: string;
+  requestId: string;
+};
+
+export type ClientCancelMintClubRedemptionPreparation = {
+  catchId: string;
+  requestId: string;
+};
+
+export type MintClubRedemptionPreparationResult = {
+  ok: boolean;
+  catch: FishingNftCatchSnapshot | null;
+  status: "prepared" | "preparation_pending" | "claim_required" | "not_redeemable" | "not_found";
+  requestId: string;
+  error?: string;
+};
+
 export type ClientSubmitMintClubRedemptionTx = {
   catchId: string;
   txHash: string;
   status?: "tx_submitted" | "confirmed";
+  requestId?: string;
 };
 
 export type MintClubRedemptionResult = {
   ok: boolean;
   catch: FishingNftCatchSnapshot | null;
+  status?: "tx_hash_conflict" | "state_conflict" | "not_found" | "invalid_tx_hash";
+  requestId?: string;
   error?: string;
 };
 
@@ -741,6 +766,8 @@ export type AgentObservation = {
     | "refreshFishingNftHistory"
     | "submitFishingNftClaimTx"
     | "abandonFishingNftCatch"
+    | "prepareMintClubRedemption"
+    | "cancelMintClubRedemptionPreparation"
     | "submitMintClubRedemptionTx"
     | "sellFishingItems"
     | "purchaseFishingSupply"

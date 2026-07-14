@@ -2058,6 +2058,8 @@ function GameShell({
             onLootCorpse={lootCorpse}
             onSubmitFishingNftClaimTx={room.sendSubmitFishingNftClaimTx}
             onAbandonFishingNftCatch={room.sendAbandonFishingNftCatch}
+            onPrepareMintClubRedemption={room.prepareMintClubRedemption}
+            onCancelMintClubRedemptionPreparation={room.cancelMintClubRedemptionPreparation}
             onSubmitMintClubRedemptionTx={room.sendSubmitMintClubRedemptionTx}
             onRefreshFishingNftHistory={room.sendRefreshFishingNftHistory}
             onEquipItem={equipItem}
