@@ -19,8 +19,8 @@ import {
   TRAIT_CHANGE_BASE_CHAIN_ID,
   TRAIT_CHANGE_BASE_RPC_URL,
   doesItemRevealAllNpcsOnMinimap,
+  getFishingCatchShareValueLabel,
   getFishingNftGameItemMapping,
-  getFishingSellAwardPoints,
   getLevelProgress,
   getInventoryItemKey,
   getItemConsumable,
@@ -28,7 +28,7 @@ import {
   getItemHeirloomStatsPerLevel,
   getNpcDisposition,
   getNpcQuestMarker,
-  isFishingSellableItemId,
+  isFishingCatchItemId,
   isMerchantNpcId,
   normalizeChainGearTier,
   normalizeItemLevel,
@@ -4297,17 +4297,9 @@ function getFishingNftShareAnalyticsProperties(catchSnapshot: FishingNftCatchSna
 }
 
 function getFishingLootShareValueLabel(item: { id: ItemId; count: number }) {
-  const itemValue = getShareItemValue(item.id);
-  const totalValue = itemValue * Math.max(1, Math.floor(item.count));
-  if (totalValue > 0) return `${totalValue} $MFERGPT`;
-  if (!isFishingSellableItemId(item.id)) return "";
-  const points = getFishingSellAwardPoints(item.id, item.count, false);
-  return points > 0 ? `${points} season point${points === 1 ? "" : "s"}` : "";
-}
-
-function getShareItemValue(itemId: ItemId) {
-  const value = (ITEMS[itemId] as { value?: unknown }).value;
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return isFishingCatchItemId(item.id)
+    ? getFishingCatchShareValueLabel(item.id, item.count)
+    : "";
 }
 
 function buildSharePageUrl(path: string, params: Record<string, string>) {

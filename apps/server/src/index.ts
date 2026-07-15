@@ -6,7 +6,7 @@ import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Encoder } from "@colyseus/schema";
 import { Server } from "colyseus";
-import { ITEMS, MAX_PLAYERS, ROOM_NAME, isFishingCatchItemId, type AgentSessionResponse } from "@mferland/shared";
+import { ITEMS, MAX_PLAYERS, ROOM_NAME, getFishingCatchShareValueLabel, isFishingCatchItemId, type AgentSessionResponse } from "@mferland/shared";
 import { getAdminDashboardLanUrls, serveAdminDashboard } from "./adminDashboard.js";
 import { areAgentsEnabled } from "./agentAccess.js";
 import { AgentBridgeManager } from "./agentBridge.js";
@@ -562,8 +562,8 @@ function buildFishingCatchShareCard(requestUrl: URL, origin: string): FishingSha
   const count = normalizeShareCount(requestUrl.searchParams.get("count"));
   const item = ITEMS[itemId];
   const countLabel = count > 1 ? `${item.name} x${count}` : item.name;
-  const value = getShareItemValue(itemId) * count;
-  const valueText = value > 0 ? ` Worth ${value} $MFERGPT in mfertown.` : "";
+  const valueLabel = getFishingCatchShareValueLabel(itemId, count);
+  const valueText = valueLabel ? ` Worth ${valueLabel} in mfertown.` : "";
   return {
     title: `I caught ${countLabel} from mfertown`,
     description: `A fresh South Center Pond catch.${valueText} Play mferland and cast your own line.`,
@@ -571,11 +571,6 @@ function buildFishingCatchShareCard(requestUrl: URL, origin: string): FishingSha
     pageUrl: makeRequestShareUrl(requestUrl, origin),
     gameUrl: new URL("/", origin).toString(),
   };
-}
-
-function getShareItemValue(itemId: keyof typeof ITEMS) {
-  const value = (ITEMS[itemId] as { value?: unknown }).value;
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function buildFishingNftShareCard(requestUrl: URL, origin: string): FishingShareCard {

@@ -34,6 +34,7 @@ import {
   FISHING_ZONE,
   LOANER_FISHING_POLE_ITEM_ID,
   getFishingBobberPosition,
+  getFishingCatchShareValueLabel,
   getFishingPayableQuantity,
   getFishingRequiredBundleSize,
   getFishingSellAwardPoints,
@@ -134,6 +135,10 @@ test("fishing sale bundles use larger requirements for declared agents", () => {
   assert.equal(getFishingSellAwardPoints("sartofish", 1, false), 16);
   assert.equal(getFishingSellAwardPoints("sartofish", 1, true), 0);
   assert.equal(getFishingSellAwardPoints("sartofish", 2, true), 16);
+  assert.equal(getFishingCatchShareValueLabel("reply-gill-minnow", 1), "");
+  assert.equal(getFishingCatchShareValueLabel("reply-gill-minnow", 10), "1 Season Point");
+  assert.equal(getFishingCatchShareValueLabel("huge-sartoshi-koi", 1), "8 Season Points");
+  assert.equal(getFishingCatchShareValueLabel("old-mfer-shoe", 1), "");
   assert.equal(getFishingRequiredBundleSize("gold-drip-goldfish", false), 3);
   assert.equal(getFishingRequiredBundleSize("gold-drip-goldfish", true), 6);
   assert.deepEqual(FISHING_SELLABLE_ITEM_IDS, [

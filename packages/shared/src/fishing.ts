@@ -385,6 +385,12 @@ export function getFishingSellAwardPoints(itemId: FishingSellableItemId, quantit
   return Math.floor(count / getFishingRequiredBundleSize(itemId, isAgent)) * rule.seasonPoints;
 }
 
+export function getFishingCatchShareValueLabel(itemId: FishingCatchItemId, quantity = 1) {
+  if (!isFishingSellableItemId(itemId)) return "";
+  const points = getFishingSellAwardPoints(itemId, quantity, false);
+  return points > 0 ? `${points} Season Point${points === 1 ? "" : "s"}` : "";
+}
+
 export function getFishingPayableQuantity(
   itemId: FishingSellableItemId,
   quantity = 1,
